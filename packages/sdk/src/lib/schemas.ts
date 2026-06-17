@@ -24,6 +24,7 @@ function readSdkVersion(): string {
    }
 }
 
+/** This SDK's version, read from its own package metadata. */
 export const SDK_VERSION: string = readSdkVersion();
 
 /** Directory holding the vendored schema files for a spec line. */

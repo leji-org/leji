@@ -8,6 +8,7 @@ import { duplicateIdFindings, readJsonArtifact, scanCategories } from '../lib/la
 import { type Manifest } from '../lib/manifest.js';
 import { SDK_VERSION, SUPPORTED_LINES, schemaErrors } from '../lib/schemas.js';
 
+/** One artifact's entry in the generated context index. */
 export interface IndexEntry {
    id: string;
    path: string;
@@ -22,6 +23,7 @@ export interface IndexEntry {
    links?: string[];
 }
 
+/** The generated machine index: every indexed artifact in the layer. */
 export interface ContextIndex {
    $schema?: string;
    schemaVersion: string;

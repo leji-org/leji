@@ -4,9 +4,11 @@ import { exists, isFile, readText } from './fsx.js';
 import { SUPPORTED_LINES, schemaErrors } from './schemas.js';
 
 export const CATEGORY_IDS = ['domain', 'system', 'practice', 'governance', 'decisions'] as const;
+/** A context category: `domain`, `system`, `practice`, `governance`, or `decisions`. */
 export type CategoryId = (typeof CATEGORY_IDS)[number];
 
 export const CONFORMANCE_LEVELS = ['core', 'indexed', 'governed', 'federated'] as const;
+/** A conformance level, lowest to highest: `core`, `indexed`, `governed`, `federated`. */
 export type ConformanceLevel = (typeof CONFORMANCE_LEVELS)[number];
 
 export interface Owner {
@@ -14,6 +16,7 @@ export interface Owner {
    contact?: string;
 }
 
+/** A parsed `leji.json`: the root descriptor of a context layer. */
 export interface Manifest {
    $schema?: string;
    leji: string;

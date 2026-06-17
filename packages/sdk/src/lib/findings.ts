@@ -1,5 +1,7 @@
+/** Severity of a finding: `error` fails validation; `warning` does not. */
 export type Severity = 'error' | 'warning';
 
+/** A single validation result: one rule's outcome, optionally pointing at a path. */
 export interface Finding {
    /** Stable rule identifier, shared verbatim with the Python SDK. */
    rule: string;

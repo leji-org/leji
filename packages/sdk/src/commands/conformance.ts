@@ -16,6 +16,7 @@ import { freshnessReport } from './freshness.js';
 
 export type ItemStatus = 'pass' | 'fail' | 'manual';
 
+/** One conformance check and its outcome (`pass`, `fail`, or `manual`). */
 export interface ChecklistItem {
    id: string;
    level: ConformanceLevel;
@@ -24,6 +25,7 @@ export interface ChecklistItem {
    detail?: string;
 }
 
+/** Result of scoring a layer: claimed vs verified level plus per-item results. */
 export interface ConformanceResult {
    claimedLevel: ConformanceLevel | null;
    /** Highest level whose machine-checkable items all pass. */

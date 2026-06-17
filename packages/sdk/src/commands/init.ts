@@ -6,6 +6,7 @@ import { type CategoryId, type Manifest } from '../lib/manifest.js';
 import { templatesDir } from '../lib/schemas.js';
 import { writeIndex } from './indexgen.js';
 
+/** Options for scaffolding a new context layer with `initLayer`. */
 export interface InitOptions {
    dir: string;
    yes: boolean;
@@ -23,6 +24,7 @@ export interface InitAnswers {
    level: 'core' | 'indexed';
 }
 
+/** Result of `initLayer`: the files written and the manifest created. */
 export interface InitResult {
    written: string[];
    manifest: Manifest;

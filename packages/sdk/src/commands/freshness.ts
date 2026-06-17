@@ -7,6 +7,7 @@ export interface FreshnessItem {
    reviewAfter: string;
 }
 
+/** Freshness scan results: expired and upcoming review horizons. */
 export interface FreshnessReport {
    /** reviewAfter date in the past. */
    expired: FreshnessItem[];
