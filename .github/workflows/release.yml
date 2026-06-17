@@ -200,17 +200,33 @@ jobs:
           TAG="${GITHUB_REF_NAME#packages/sdk-go/v}"
           PKG="$(sed -nE 's/^var SDKVersion = "([^"]+)".*/\1/p' packages/sdk-go/internal/schemas/schemas.go)"
           test "$TAG" = "$PKG" || { echo "tag packages/sdk-go/v$TAG != SDKVersion $PKG"; exit 1; }
-      # goreleaser free tier cannot parse the path-prefixed tag as a version, so
-      # strip the prefix and hand it the bare version (go-release.md, mandatory).
-      - name: Strip tag prefix for goreleaser
-        run: echo "GORELEASER_CURRENT_TAG=${GITHUB_REF_NAME#packages/sdk-go/}" >> "$GITHUB_ENV"
-      - name: goreleaser (build cross-platform binaries -> draft release)
+      # goreleaser (free tier) can't parse the path-prefixed tag as a version AND
+      # validates git state against a bare semver tag. Create a LOCAL bare tag for
+      # the run (never pushed — so no forbidden repo-wide v1.0.0 ref is created),
+      # which satisfies both the version and the validation (go-release.md).
+      - name: Prepare goreleaser version tag (local only)
+        run: |
+          VERSION="${GITHUB_REF_NAME#packages/sdk-go/v}"
+          git tag "v$VERSION"
+          echo "GORELEASER_CURRENT_TAG=v$VERSION" >> "$GITHUB_ENV"
+          echo "LEJI_VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Build cross-platform binaries (goreleaser, no publish)
         uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
           workdir: packages/sdk-go
-          args: release --clean
+          args: release --clean --skip=publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # GORELEASER_CURRENT_TAG (set above) supplies the version; the binaries
-          # land on a DRAFT "Leji v1.0.0" release, published last by finalize.
+      # Create the DRAFT release on the REAL path-prefixed tag (not the bare local
+      # one), attaching the binaries. The aggregator/finalize step publishes it.
+      - name: Draft GitHub Release on the path-prefixed tag with the binaries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            packages/sdk-go/dist/leji_*.tar.gz \
+            packages/sdk-go/dist/leji_*.zip \
+            packages/sdk-go/dist/checksums.txt \
+            --draft --title "Leji v$LEJI_VERSION" \
+            --notes "Leji v$LEJI_VERSION. Cross-platform leji binaries; see https://leji.org."
