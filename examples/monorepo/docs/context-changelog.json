@@ -1,0 +1,37 @@
+{
+  "$schema": "https://leji.org/schemas/v1.0/context-changelog.schema.json",
+  "schemaVersion": "1.0",
+  "entries": [
+    {
+      "id": "seed-layer",
+      "date": "2026-06-10",
+      "type": "added",
+      "summary": "Seeded the context layer: boot profile, glossary, system invariants, first decision record.",
+      "paths": [
+        "docs/boot-profile.md",
+        "docs/domain/glossary.md",
+        "docs/system/invariants.md",
+        "docs/decisions/0001-adopt-leji.md"
+      ],
+      "categories": [
+        "domain",
+        "system",
+        "decisions"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Jo Lee"
+    },
+    {
+      "id": "thought-partner-profile",
+      "date": "2026-06-12",
+      "type": "added",
+      "summary": "Added the thought-partner agent profile and bound it to the role in the manifest agents map.",
+      "paths": [
+        "docs/agents/thought-partner.md",
+        "leji.json"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Jo Lee"
+    }
+  ]
+}

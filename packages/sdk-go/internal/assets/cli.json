@@ -1,0 +1,82 @@
+{
+   "name": "leji",
+   "summary": "Reference CLI for the Leji specification: validate, index, changelog, freshness, conformance, docs, and init for a shared context layer.",
+   "usage": "leji <command> [options]",
+   "globalOptions": [
+      { "flags": "--root <dir>", "summary": "Repository root to operate on (default: the current directory)." },
+      { "flags": "--json", "summary": "Machine-readable JSON output instead of human-readable text." },
+      { "flags": "-V, --version", "summary": "Print the SDK version and exit." },
+      { "flags": "-h, --help", "summary": "Show help and exit." }
+   ],
+   "exitCodes": [
+      { "code": 0, "meaning": "Clean. No errors; warnings are allowed." },
+      { "code": 1, "meaning": "Findings. At least one error was reported." },
+      { "code": 2, "meaning": "Usage error, or an internal failure (e.g. init refusing to overwrite)." }
+   ],
+   "commands": [
+      {
+         "name": "validate",
+         "summary": "Validate the context layer: manifest, artifacts, frontmatter, and lint rules.",
+         "usage": "leji validate [--root <dir>] [--json]",
+         "description": "Loads leji.json and checks it against the schemas and the lint rules: declared files exist, categories are populated, vendor entrypoints redirect to the boot profile, frontmatter is valid, and (per the claimed conformance level) the index is current and the changelog is append-only. The single command CI runs to keep a context layer honest.",
+         "options": [],
+         "examples": ["leji validate", "leji validate --root . --json"]
+      },
+      {
+         "name": "index",
+         "summary": "Generate the context index at the declared path, or verify it is current.",
+         "usage": "leji index [--check] [--root <dir>] [--json]",
+         "description": "Scans the mapped category paths and writes the context index to machine.indexPath. Ids are stable: a renamed or moved document keeps its id. With --check it writes nothing and instead fails when the stored index no longer matches the tree (a stale index is a hard failure).",
+         "options": [{ "flags": "--check", "summary": "Verify the stored index is current with the tree; write nothing." }],
+         "examples": ["leji index", "leji index --check"]
+      },
+      {
+         "name": "changelog check",
+         "summary": "Verify the machine changelog: schema and append-only discipline.",
+         "usage": "leji changelog check [--strict] [--root <dir>] [--json]",
+         "description": "Validates the declared changelog against its schema and enforces append-only discipline against the git baseline: surviving entries are immutable, and entries may be removed only from the oldest end and only alongside a compaction entry. Without a git baseline the discipline is unverifiable and reported as a warning.",
+         "options": [{ "flags": "--strict", "summary": "Treat an unverifiable append-only check (no git baseline) as an error." }],
+         "examples": ["leji changelog check", "leji changelog check --strict"]
+      },
+      {
+         "name": "freshness",
+         "summary": "Report review horizons across category documents and agent profiles.",
+         "usage": "leji freshness [--strict] [--root <dir>] [--json]",
+         "description": "Lists documents whose freshness.reviewAfter horizon has passed (expired) or falls within the next 30 days (upcoming). Report-only by default; expired horizons are warnings.",
+         "options": [{ "flags": "--strict", "summary": "Treat expired horizons as errors instead of warnings." }],
+         "examples": ["leji freshness", "leji freshness --strict --json"]
+      },
+      {
+         "name": "conformance",
+         "summary": "Score the context layer against its claimed conformance level.",
+         "usage": "leji conformance [--root <dir>] [--json]",
+         "description": "Runs the core, indexed, governed, and federated checklists. Machine-checkable items pass or fail; process items (review gate, CI, external consumers) are reported as manual. A claim above the verified level is an error.",
+         "options": [],
+         "examples": ["leji conformance", "leji conformance --json"]
+      },
+      {
+         "name": "docs",
+         "summary": "Generate the static docs viewer, and optionally serve it locally.",
+         "usage": "leji docs [--serve] [--port <n>] [--root <dir>] [--json]",
+         "description": "Projects the context index into a browsable Docsify viewer: writes index.html (with a frontmatter-stripping hook) and a deterministic _sidebar.md into the context root. Presentation is non-normative; this is the reference projection. With --serve it then serves the repository on 127.0.0.1 (a local preview, never hosting).",
+         "options": [
+            { "flags": "--serve", "summary": "Serve the repository on 127.0.0.1 after generating." },
+            { "flags": "--port <n>", "summary": "Port for --serve. Overrides the manifest docs.port; default 5354 (LEJI on a phone keypad); 0 picks a free port." }
+         ],
+         "examples": ["leji docs", "leji docs --serve", "leji docs --serve --port 0"]
+      },
+      {
+         "name": "init",
+         "summary": "Bootstrap a new context layer from the templates.",
+         "usage": "leji init [--dir <path>] [--yes] [--level <core|indexed>] [--name <name>]",
+         "description": "Interactively scaffolds a context layer: leji.json, a boot profile, seeded category documents, a first decision record, and (at the indexed level) a generated index and machine changelog. Refuses to overwrite an existing leji.json. The same entrypoint backs `npm create leji`.",
+         "options": [
+            { "flags": "--dir <path>", "summary": "Target directory (default: the current directory)." },
+            { "flags": "--yes, -y", "summary": "Accept all defaults; run non-interactively." },
+            { "flags": "--level <level>", "summary": "Conformance level to claim: core or indexed (default: core)." },
+            { "flags": "--name <name>", "summary": "Context layer name (default: derived from the directory)." }
+         ],
+         "examples": ["leji init", "leji init --yes --level indexed --name acme-context"]
+      }
+   ]
+}

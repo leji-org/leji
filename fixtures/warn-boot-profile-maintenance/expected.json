@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": [
+      {
+        "rule": "boot-profile-maintenance",
+        "severity": "warning",
+        "path": "docs/boot-profile.md"
+      }
+    ]
+  }
+}

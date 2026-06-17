@@ -1,0 +1,50 @@
+{
+  "$schema": "https://leji.org/schemas/v1.0/context-index.schema.json",
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-06-15T11:41:33.913Z",
+  "generator": {
+    "name": "leji",
+    "version": "1.0.0"
+  },
+  "rootPath": "docs/",
+  "entries": [
+    {
+      "id": "adopt-leji",
+      "path": "docs/decisions/0001-adopt-leji.md",
+      "title": "Adopt the Leji context layer for the organization",
+      "category": "decisions",
+      "lastModified": "2026-06-15",
+      "contentHash": "sha256:f5cc49edf929c3df"
+    },
+    {
+      "id": "glossary",
+      "path": "docs/domain/glossary.md",
+      "title": "Glossary",
+      "category": "domain",
+      "summary": "Organization-wide domain language shared across Acme product teams.",
+      "lastModified": "2026-06-15",
+      "contentHash": "sha256:6292905171f49b1a"
+    },
+    {
+      "id": "review",
+      "path": "docs/governance/review.md",
+      "title": "Review",
+      "category": "governance",
+      "summary": "How changes to the Acme core context layer are proposed and approved.",
+      "lastModified": "2026-06-15",
+      "contentHash": "sha256:1b8c114437b95c16"
+    },
+    {
+      "id": "invariants",
+      "path": "docs/system/invariants.md",
+      "title": "System Invariants",
+      "category": "system",
+      "summary": "Cross-team invariants every Acme repository upholds.",
+      "lastModified": "2026-06-15",
+      "contentHash": "sha256:6d4d6eeb9e3b61dd",
+      "freshness": {
+        "reviewAfter": "2026-12-10"
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+   "name": "@leji-internal/sdk-go",
+   "version": "1.0.0",
+   "private": true,
+   "description": "npm workspace stub for the Go SDK; the real package metadata is go.mod. Lets `npm test --workspaces` run the Go test suite. Never published to npm.",
+   "scripts": {
+      "build": "go build ./...",
+      "lint": "if [ -n \"$(gofmt -l .)\" ]; then echo 'gofmt needed on:'; gofmt -l .; exit 1; fi && go vet ./... && if command -v goreleaser >/dev/null 2>&1; then goreleaser check; else echo 'goreleaser not installed; skipping goreleaser check'; fi",
+      "test": "npm run lint && go test ./...",
+      "coverage": "go test -coverpkg=./... -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -1"
+   }
+}

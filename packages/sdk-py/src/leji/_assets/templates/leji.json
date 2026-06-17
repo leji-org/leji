@@ -1,0 +1,56 @@
+{
+  "$schema": "https://leji.org/schemas/v1.0/context-manifest.schema.json",
+  "leji": "1.0",
+  "name": "your-team-context",
+  "description": "Shared context layer for <team/product>.",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {
+    "domain": {
+      "paths": [
+        "docs/domain/"
+      ]
+    },
+    "system": {
+      "paths": [
+        "docs/system/"
+      ]
+    },
+    "practice": {
+      "paths": [
+        "docs/practice/"
+      ]
+    },
+    "governance": {
+      "paths": [
+        "docs/governance/"
+      ]
+    },
+    "decisions": {
+      "paths": [
+        "docs/decisions/"
+      ]
+    }
+  },
+  "machine": {
+    "indexPath": "docs/context-index.json",
+    "changelogPath": "docs/context-changelog.json",
+    "agentProfilesPath": "docs/agents/",
+    "decisionRecordsPath": "docs/decisions/"
+  },
+  "docs": {
+    "port": 5354
+  },
+  "agents": {
+    "thought-partner": "docs/agents/<profile>.md"
+  },
+  "owners": {
+    "primary": {
+      "name": "<named owner>",
+      "contact": "<email>"
+    }
+  },
+  "conformance": {
+    "claimedLevel": "core"
+  }
+}

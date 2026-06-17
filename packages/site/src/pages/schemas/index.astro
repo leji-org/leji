@@ -1,0 +1,64 @@
+---
+import fs from 'node:fs';
+import path from 'node:path';
+import Doc from '../../layouts/Doc.astro';
+
+const SCHEMA_DIR = path.resolve(process.cwd(), '../../schemas');
+const schemas = fs
+   .readdirSync(SCHEMA_DIR)
+   .filter((f) => f.endsWith('.schema.json'))
+   .sort()
+   .map((file) => {
+      const parsed = JSON.parse(fs.readFileSync(path.join(SCHEMA_DIR, file), 'utf-8'));
+      return {
+         file,
+         name: file.replace(/\.schema\.json$/, ''),
+         title: parsed.title,
+         description: parsed.description,
+      };
+   });
+---
+
+<Doc title="Schemas · Leji">
+   <h1>Schemas</h1>
+   <p>
+      JSON Schemas (draft 2020-12) for the machine-readable surface. Normative; the raw files are served at their
+      canonical <code>$id</code> URLs for tooling. See
+      <a href="/spec/machine-readable-surface/">the machine-readable surface</a> and
+      <a href="/spec/versioning/">versioning</a> for the stability rules.
+   </p>
+   <table>
+      <thead>
+         <tr><th>Schema</th><th>Validates</th><th>Raw</th></tr>
+      </thead>
+      <tbody>
+         {
+            schemas.map((s) => (
+               <tr>
+                  <td>
+                     <a href={`/schemas/${s.name}/`}>
+                        <code>{s.name}</code>
+                     </a>
+                  </td>
+                  <td>{s.description ?? s.title}</td>
+                  <td>
+                     <a href={`/schemas/v1.0/${s.file}`}>
+                        <code>.json</code>
+                     </a>
+                  </td>
+               </tr>
+            ))
+         }
+      </tbody>
+   </table>
+</Doc>
+
+<style>
+   /* the Raw (.json) column is a short link; keep it on one line too.
+      The schema-name column is handled by the global first-column rule.
+      Only the middle "Validates" column wraps. */
+   td:last-child,
+   th:last-child {
+      white-space: nowrap;
+   }
+</style>

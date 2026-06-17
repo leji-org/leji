@@ -1,0 +1,17 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "missing-declared-file",
+        "severity": "error",
+        "path": "docs/boot-profile.md"
+      }
+    ]
+  },
+  "conformance": {
+    "exit": 1,
+    "claimedLevel": "core",
+    "verifiedLevel": "none"
+  }
+}

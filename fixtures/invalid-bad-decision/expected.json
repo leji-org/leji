@@ -1,0 +1,17 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "decisions-empty",
+        "severity": "error",
+        "path": "docs/decisions/"
+      },
+      {
+        "rule": "decision-frontmatter",
+        "severity": "error",
+        "path": "docs/decisions/0001-adopt-leji.md"
+      }
+    ]
+  }
+}

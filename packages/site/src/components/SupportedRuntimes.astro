@@ -1,0 +1,61 @@
+---
+// The "Currently supported" runtimes line: label on its own line, runtimes
+// wrapping below so the list grows cleanly. Shared by the Quickstart and CLI
+// pages; the set is declared once in ../data/runtimes.
+import { runtimes } from '../data/runtimes';
+---
+
+<div class="lang-row">
+   <span class="lang-label">Currently supported</span>
+   <span class="langs">
+      {
+         runtimes.map((r) => (
+            <span class="lang">
+               <span class:list={['lang-icon', { 'lang-icon--wide': r.wide }]} set:html={r.icon} />
+               {r.label}
+            </span>
+         ))
+      }
+   </span>
+</div>
+
+<style>
+   .lang-row {
+      margin: 1.8rem 0 0;
+   }
+   .lang-label {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+      margin-bottom: 0.7rem;
+   }
+   .langs {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.6rem 1.4rem;
+   }
+   .lang {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.92rem;
+      color: var(--blue-deep);
+      font-weight: 500;
+   }
+   .lang-icon {
+      display: inline-flex;
+   }
+   .lang-icon :global(svg) {
+      height: 1.05em;
+      width: auto;
+   }
+   /* wordmark logos are wider than tall; render them shorter so their visual
+      weight matches the square marks */
+   .lang-icon--wide :global(svg) {
+      height: 0.85em;
+   }
+</style>

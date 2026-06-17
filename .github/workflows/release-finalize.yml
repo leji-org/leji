@@ -1,0 +1,48 @@
+name: Release finalize
+
+# The aggregator step from release-runbook.md (step 4): publish the DRAFT GitHub
+# Release that goreleaser created on the Go tag, and enable Discussions.
+#
+# This is MANUAL (workflow_dispatch) on purpose. The four publish jobs run in
+# SEPARATE workflow runs (one per path-prefixed tag), so GitHub Actions cannot
+# `needs:`-gate a single aggregator across them. The human gate is the runbook's
+# intent: confirm npm `@leji-org/leji`, npm `create-leji`, JSR `@leji-org/leji`, PyPI `leji`,
+# and Go module indexing are ALL green, then run this to flip the release live.
+#
+# Run AFTER the smoke + publish jobs have all succeeded and post-publish smoke
+# tests pass (smoke-tests.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag the draft release is attached to (the goreleaser/Go tag)"
+        required: true
+        default: "packages/sdk-go/v1.0.0"
+
+permissions:
+  contents: write # publish the release
+  discussions: write # enable Discussions (best-effort; may need repo-admin)
+
+jobs:
+  finalize:
+    name: Publish release + enable Discussions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm the draft release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release view "${{ inputs.release_tag }}" --json isDraft,name,tagName
+      - name: Publish the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ inputs.release_tag }}" --draft=false
+      # Enabling Discussions is a repo setting; the default GITHUB_TOKEN may lack
+      # the scope. Best-effort: if it fails, enable it once by hand in repo
+      # Settings -> General -> Features -> Discussions.
+      - name: Enable Discussions (best-effort)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api -X PATCH "repos/${GITHUB_REPOSITORY}" -F has_discussions=true

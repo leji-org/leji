@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "manifest-parse",
+        "severity": "error",
+        "path": "leji.json"
+      }
+    ]
+  }
+}

@@ -1,0 +1,70 @@
+# Dependencies
+node_modules/
+
+# Build output
+var/
+dist/
+*.tsbuildinfo
+
+# Astro / Vite caches
+.astro/
+.vite/
+
+# Tests & coverage
+coverage/
+coverage.out
+htmlcov/
+lcov.info
+.coverage
+.pytest_cache/
+
+# Python
+.venv/
+.venv*/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# Packaging artifacts
+*.tgz
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+
+# Secrets / keys / credential config
+*.pem
+*.key
+*.p8
+*.ppk
+id_rsa*
+id_ed25519*
+id_ecdsa*
+id_dsa*
+.pypirc
+.envrc
+
+# Packaging artifacts (Python)
+build/
+*.whl
+*.tar.gz
+*.egg
+
+# Editor / OS / scratch
+.vscode/
+.idea/
+*.swp
+*~
+Thumbs.db
+tmp/
+*.local.md
+
+# OS cruft
+.DS_Store

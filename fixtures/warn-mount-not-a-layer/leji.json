@@ -1,0 +1,35 @@
+{
+  "leji": "1.0",
+  "name": "fixture",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {
+    "domain": {
+      "paths": [
+        "docs/domain/"
+      ]
+    },
+    "decisions": {
+      "paths": [
+        "docs/decisions/"
+      ]
+    }
+  },
+  "owners": {
+    "primary": {
+      "name": "Fixture Owner"
+    }
+  },
+  "federation": {
+    "mounts": [
+      {
+        "path": "context/product/",
+        "name": "product-context",
+        "owner": {
+          "name": "Product Owner"
+        },
+        "source": "https://github.com/acme/product-context"
+      }
+    ]
+  }
+}

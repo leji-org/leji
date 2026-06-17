@@ -1,0 +1,44 @@
+{
+  "$schema": "https://leji.org/schemas/v1.0/context-manifest.schema.json",
+  "leji": "1.0",
+  "name": "acme-billing-context",
+  "description": "Shared context layer for the Acme billing platform monorepo.",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {
+    "domain": {
+      "paths": [
+        "docs/domain/"
+      ]
+    },
+    "system": {
+      "paths": [
+        "docs/system/"
+      ]
+    },
+    "decisions": {
+      "paths": [
+        "docs/decisions/"
+      ]
+    }
+  },
+  "machine": {
+    "indexPath": "docs/context-index.json",
+    "changelogPath": "docs/context-changelog.json",
+    "agentProfilesPath": "docs/agents/",
+    "decisionRecordsPath": "docs/decisions/"
+  },
+  "agents": {
+    "thought-partner": "docs/agents/thought-partner.md"
+  },
+  "owners": {
+    "primary": {
+      "name": "Jo Lee",
+      "contact": "jo@acme.example"
+    }
+  },
+  "conformance": {
+    "claimedLevel": "indexed",
+    "claimedAt": "2026-06-10"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "missing-declared-file",
+        "severity": "error",
+        "path": "docs/agents/reviewer.md"
+      }
+    ]
+  }
+}

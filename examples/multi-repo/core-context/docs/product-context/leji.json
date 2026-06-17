@@ -1,0 +1,22 @@
+{
+  "$schema": "https://leji.org/schemas/v1.0/context-manifest.schema.json",
+  "leji": "1.0",
+  "name": "acme-product-context",
+  "description": "Product-team context layer, owned by the product team in its own repository and mounted here as a federated sibling.",
+  "rootPath": ".",
+  "bootProfilePath": "boot-profile.md",
+  "categories": {
+    "domain": { "paths": ["domain/"] },
+    "decisions": { "paths": ["decisions/"] }
+  },
+  "machine": {
+    "decisionRecordsPath": "decisions/"
+  },
+  "owners": {
+    "primary": { "name": "Rin Mehta", "contact": "rin@acme.example" }
+  },
+  "conformance": {
+    "claimedLevel": "core",
+    "claimedAt": "2026-06-10"
+  }
+}

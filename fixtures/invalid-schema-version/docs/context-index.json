@@ -1,0 +1,28 @@
+{
+  "$schema": "https://leji.org/schemas/v1.0/context-index.schema.json",
+  "schemaVersion": "0.9",
+  "generatedAt": "2026-06-12T17:31:32.780Z",
+  "generator": {
+    "name": "leji",
+    "version": "1.0.0"
+  },
+  "rootPath": "docs/",
+  "entries": [
+    {
+      "id": "adopt-leji",
+      "path": "docs/decisions/0001-adopt-leji.md",
+      "title": "Adopt the Leji context layer",
+      "category": "decisions",
+      "lastModified": "2026-06-12",
+      "contentHash": "sha256:b437b561cccaf7b3"
+    },
+    {
+      "id": "overview",
+      "path": "docs/domain/overview.md",
+      "title": "Overview",
+      "category": "domain",
+      "lastModified": "2026-06-12",
+      "contentHash": "sha256:63923ff81a1f6285"
+    }
+  ]
+}

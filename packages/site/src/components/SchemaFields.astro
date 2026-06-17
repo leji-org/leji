@@ -1,0 +1,250 @@
+---
+// Generated field reference for a JSON Schema: walks properties to two levels
+// of nesting (including array-of-object items and $ref-resolved objects),
+// resolves $defs names, marks required fields. Single-sourced from the schema,
+// so reference and contract agree.
+const { schema } = Astro.props;
+
+function resolve(prop: any): any {
+   if (prop?.$ref) {
+      const def = prop.$ref.split('/').pop();
+      return schema.$defs?.[def] ?? prop;
+   }
+   return prop;
+}
+
+// The type column shows the actual JSON Schema type. $refs resolve to their
+// target's type (relPath/isoDate are strings, owner/categoryMapping are
+// objects), so semantic-but-not-a-type labels like "path" never appear; the
+// path or date nature is carried by the field name, pattern, and description.
+function typeOf(prop: any): string {
+   if (!prop) return 'value';
+   if (prop.$ref) return typeOf(resolve(prop));
+   if (prop.enum) return prop.enum.map((v: string) => `"${v}"`).join(' · ');
+   if (prop.type === 'array') {
+      const items = resolve(prop.items ?? {});
+      if (items.enum) return `array of ${items.enum.map((v: string) => `"${v}"`).join(' · ')}`;
+      if (items.properties || items.type === 'object') return 'array of objects';
+      return `array of ${items.type ?? 'items'}s`;
+   }
+   if (prop.patternProperties) return 'map';
+   return prop.type ?? 'value';
+}
+
+function childrenOf(prop: any, depth: number): any[] {
+   if (depth <= 0) return [];
+   const target = prop.type === 'array' ? resolve(prop.items ?? {}) : resolve(prop);
+   const req = new Set(target.required ?? []);
+   return Object.entries(target.properties ?? {}).map(([name, sub]: [string, any]) => ({
+      name,
+      type: typeOf(sub),
+      description: sub.description ?? '',
+      required: req.has(name),
+      children: childrenOf(sub, depth - 1),
+   }));
+}
+
+const required = new Set(schema.required ?? []);
+const fields = Object.entries(schema.properties ?? {})
+   .filter(([name]) => name !== '$schema')
+   .map(([name, prop]: [string, any]) => ({
+      name,
+      required: required.has(name),
+      type: typeOf(prop),
+      description: prop.description ?? '',
+      pattern: prop.pattern,
+      sub: childrenOf(prop, 2),
+   }));
+---
+
+<dl class="field-list">
+   {
+      fields.map((f) => (
+         <>
+            <dt id={f.name}>
+               <a class="anchor" href={`#${f.name}`} aria-label={`Link to ${f.name}`} tabindex="-1">
+                  #
+               </a>
+               <code class="fname">{f.name}</code>
+               <span class="ftype">{f.type}</span>
+               {f.required && (
+                  <span class="req" title="required">
+                     required
+                  </span>
+               )}
+            </dt>
+            <dd>
+               {f.description && <p class="fdesc">{f.description}</p>}
+               {f.pattern && (
+                  <p class="pattern">
+                     Pattern <code>{f.pattern}</code>
+                  </p>
+               )}
+               {f.sub.length > 0 && (
+                  <div class="object-body">
+                     {f.sub.map((s) => (
+                        <div class="subfield">
+                           <div class="subfield-head">
+                              <code class="fname">{s.name}</code>
+                              <span class="ftype">{s.type}</span>
+                              {s.required && <span class="req">required</span>}
+                           </div>
+                           {s.description && <p class="subdesc">{s.description}</p>}
+                           {s.children.length > 0 && (
+                              <div class="object-body nested">
+                                 {s.children.map((g: any) => (
+                                    <div class="subfield">
+                                       <div class="subfield-head">
+                                          <code class="fname">{g.name}</code>
+                                          <span class="ftype">{g.type}</span>
+                                          {g.required && <span class="req">required</span>}
+                                       </div>
+                                       {g.description && <p class="subdesc">{g.description}</p>}
+                                    </div>
+                                 ))}
+                              </div>
+                           )}
+                        </div>
+                     ))}
+                  </div>
+               )}
+            </dd>
+         </>
+      ))
+   }
+</dl>
+
+<style>
+   /* The field reference leans on spacing and indentation, not boxes or rules:
+      each field is set off by rhythm, nested fields by a step of indentation. */
+   .field-list {
+      margin: 1.8rem 0 0;
+   }
+
+   /* ── top-level field entry ──────────────────────────── */
+   .field-list dt {
+      position: relative;
+      margin-top: 2.5rem;
+      display: flex;
+      align-items: baseline;
+      gap: 0.55rem;
+      flex-wrap: wrap;
+      scroll-margin-top: 1.5rem;
+   }
+   .field-list > dt:first-of-type {
+      margin-top: 0.6rem;
+   }
+   .fname {
+      font-family: var(--mono);
+      background: none;
+      padding: 0;
+   }
+   .field-list dt > .fname {
+      font-size: 1.02rem;
+      font-weight: 600;
+      color: var(--blue-deep);
+      letter-spacing: -0.01em;
+   }
+
+   /* the deep-link anchor sits in the gutter, revealed on hover/focus */
+   .anchor {
+      position: absolute;
+      left: -1.15rem;
+      top: 0;
+      font-family: var(--mono);
+      font-weight: 600;
+      color: var(--gold);
+      text-decoration: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+   }
+   .field-list dt:hover .anchor,
+   .anchor:focus {
+      opacity: 1;
+   }
+   @media (max-width: 560px) {
+      .anchor {
+         display: none;
+      }
+   }
+
+   /* type annotation: plain muted mono, no chip */
+   .ftype {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--ink-soft);
+      white-space: nowrap;
+   }
+
+   /* required: the one accent, a small gold capsule */
+   .req {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: var(--blue-deep);
+      background: var(--gold);
+      border-radius: 999px;
+      padding: 0.12rem 0.5rem;
+      transform: translateY(-0.06em);
+   }
+
+   .field-list dd {
+      margin: 0.5rem 0 0;
+   }
+   .fdesc {
+      margin: 0;
+      max-width: 64ch;
+   }
+   .pattern {
+      font-size: 0.85rem;
+      color: var(--ink-soft);
+      margin: 0.5rem 0 0;
+   }
+   .pattern code {
+      font-size: 0.82em;
+   }
+
+   /* ── nesting: indentation plus a tightening rhythm ────── */
+   /* a child group hugs its parent; leaf fields in a group sit close; only
+      separate sub-objects get the air. depth tightens, it never loosens. */
+   .object-body {
+      margin-top: 0.8rem;
+      padding-left: 1.4rem;
+   }
+   .object-body.nested {
+      margin-top: 0.4rem;
+   }
+   .object-body > .subfield {
+      margin-top: 1.5rem;
+   }
+   .object-body.nested > .subfield {
+      margin-top: 0.5rem;
+   }
+   .object-body > .subfield:first-child,
+   .object-body.nested > .subfield:first-child {
+      margin-top: 0;
+   }
+   .subfield-head {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+   }
+   .subfield-head > .fname {
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: var(--blue);
+   }
+   /* leaf fields read a touch quieter than the objects that contain them */
+   .object-body.nested > .subfield > .subfield-head > .fname {
+      font-size: 0.88rem;
+      font-weight: 550;
+   }
+   .subdesc {
+      margin: 0.3rem 0 0;
+      color: var(--ink-soft);
+      font-size: 0.9rem;
+      max-width: 62ch;
+   }
+</style>

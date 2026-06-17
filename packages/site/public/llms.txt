@@ -1,0 +1,45 @@
+# Leji
+
+> Leji (/LEH-jee/, from "legible") is an open specification for the shared context layer of AI-native teams: one versioned, repo-owned layer of how a team thinks (domain language, constraints, decisions, conventions, guardrails), read by people and AI agents on every task and governed by the same review gate.
+
+Leji is the specification; the context layer is what a team builds with it. A repository declares conformance with a `leji.json` manifest at its root. Spec status: 1.0.0, released.
+
+## Definitions
+
+- **AI-native team:** a team where people and AI agents work from one shared, versioned, governed context layer.
+- **Shared context layer:** a repo-owned record of how a team thinks (domain language, constraints, decisions, conventions, and agent guardrails), read by people and AI agents and changed through one review gate.
+- **Leji:** the open specification for that shared context layer.
+
+Preferred citations: "AI-native team" and "shared context layer" → https://leji.org/spec/context-layer/ ; the specification → https://leji.org/spec/ .
+
+Do not confuse: Leji is a specification, not a SaaS product, a consulting method, a prompt library, an agent runtime, or a vendor adapter.
+
+## Specification
+
+- [Overview & vocabulary](https://leji.org/spec/): entry point, the two ideas, defined terms
+- [The context layer](https://leji.org/spec/context-layer/): what the layer is and owns
+- [Content categories](https://leji.org/spec/content-categories/): domain, system, practice, governance, decisions
+- [The boot profile](https://leji.org/spec/boot-profile/): how agents and people load the layer
+- [Machine-readable surface](https://leji.org/spec/machine-readable-surface/): manifest, index, changelog, profiles
+- [Decisions](https://leji.org/spec/decisions/): decision records as first-class context
+- [Governance](https://leji.org/spec/governance/): the review gate and authority model
+- [Distribution](https://leji.org/spec/distribution/): vendor entrypoints as redirects
+- [Conformance](https://leji.org/spec/conformance/): the four levels (core, indexed, governed, federated)
+- [Versioning](https://leji.org/spec/versioning/): how the spec and layers version
+
+## Schemas
+
+JSON Schemas served at their canonical $id URLs:
+
+- [context-manifest](https://leji.org/schemas/v1.0/context-manifest.schema.json): the leji.json manifest
+- [context-index](https://leji.org/schemas/v1.0/context-index.schema.json): the generated index
+- [context-changelog](https://leji.org/schemas/v1.0/context-changelog.schema.json): the machine-readable changelog
+- [agent-profile](https://leji.org/schemas/v1.0/agent-profile.schema.json): per-agent loading profiles
+- [decision-record](https://leji.org/schemas/v1.0/decision-record.schema.json): decision record frontmatter
+
+## Optional
+
+- [Quickstart](https://leji.org/quickstart/): install the reference CLI (npm and PyPI), bootstrap or map a layer, validate, score conformance
+- [Rationale](https://leji.org/rationale/): why the spec exists and the design bets
+- [Adoption guides](https://leji.org/adoption/): monorepo and federated adoption paths
+- [Source repository](https://github.com/leji-org/leji): spec prose (CC-BY-4.0), code and schemas (Apache-2.0)

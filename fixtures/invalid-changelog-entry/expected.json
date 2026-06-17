@@ -1,0 +1,17 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "artifact-schema",
+        "severity": "error",
+        "path": "docs/context-changelog.json"
+      },
+      {
+        "rule": "artifact-schema",
+        "severity": "error",
+        "path": "docs/context-changelog.json"
+      }
+    ]
+  }
+}

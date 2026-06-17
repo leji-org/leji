@@ -1,0 +1,21 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "index-required",
+        "severity": "error",
+        "path": "docs/context-index.json"
+      }
+    ]
+  },
+  "conformance": {
+    "exit": 1,
+    "claimedLevel": "indexed",
+    "verifiedLevel": "core"
+  },
+  "indexCheck": {
+    "exit": 1,
+    "stale": true
+  }
+}

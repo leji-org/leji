@@ -1,0 +1,140 @@
+---
+import { getCollection, render } from 'astro:content';
+import { experimental_AstroContainer as AstroContainer } from 'astro/container';
+import Doc from '../../layouts/Doc.astro';
+import { SPEC_DOCS, specPath } from '../../data/spec-docs';
+
+// One consolidated reading/search copy of the normative spec, in the canonical
+// reading order. Per-section permalinks and citation anchors live on the
+// individual documents (linked from each section heading); this page is for
+// reading straight through, full-text search, and print.
+const ORDER = SPEC_DOCS;
+
+// Each source document opens with its own <h1>. On the consolidated page that
+// would mean ~10 <h1>s plus the page's own — a broken outline for screen
+// readers. Render each section to HTML and demote its leading document <h1> to
+// an <h2>, shifting every deeper heading down one level too, so the page keeps
+// exactly one <h1> and a correctly nested outline. The individual spec pages
+// are untouched. Content is our own trusted spec markdown, already rendered to
+// safe HTML by the markdown pipeline.
+const container = await AstroContainer.create();
+const shiftHeadings = (html: string) =>
+   html.replace(/<(\/?)(h[1-5])\b/gi, (_m, slash: string, tag: string) => {
+      const level = Number(tag[1]);
+      return `<${slash}h${level + 1}`;
+   });
+
+const all = await getCollection('spec');
+const byId = Object.fromEntries(all.map((d) => [d.id, d]));
+const sections = await Promise.all(
+   ORDER.map(async ({ id, label }) => {
+      const { Content } = await render(byId[id]);
+      const rendered = await container.renderToString(Content);
+      return { id, label, html: shiftHeadings(rendered), href: specPath(id) };
+   }),
+);
+---
+
+<Doc title="The Leji Specification (one page) · Leji">
+   <div class="spec-full">
+      <h1>The Leji Specification</h1>
+      <p class="sp-lede">
+         The complete normative specification on one page, in reading order, for reading straight through or searching.
+         Each section links to its own page, where every heading carries a citation anchor.
+      </p>
+
+      <nav class="onepage-toc" aria-label="Contents">
+         <p class="toc-title">Contents</p>
+         <ol>
+            {
+               sections.map((s) => (
+                  <li>
+                     <a href={`#sec-${s.id}`}>{s.label}</a>
+                  </li>
+               ))
+            }
+         </ol>
+      </nav>
+
+      {
+         sections.map(({ id, label, href, html }) => (
+            <section class="spec-section" id={`sec-${id}`}>
+               <p class="sec-meta">
+                  <a href={href}>{label} ↗</a>
+               </p>
+               <Fragment set:html={html} />
+            </section>
+         ))
+      }
+   </div>
+</Doc>
+
+<style>
+   .onepage-toc {
+      margin: 1.6rem 0 0.5rem;
+      padding: 1rem 1.3rem;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(34, 63, 147, 0.03);
+   }
+   .toc-title {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+      margin: 0 0 0.5rem;
+   }
+   .onepage-toc ol {
+      margin: 0;
+      padding-left: 1.2rem;
+      columns: 2;
+      column-gap: 2rem;
+   }
+   .onepage-toc li {
+      margin: 0.2rem 0;
+   }
+   .spec-section {
+      scroll-margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      margin-top: 2.5rem;
+      border-top: 1px solid var(--line);
+   }
+   .spec-section:first-of-type {
+      border-top: none;
+      margin-top: 1.5rem;
+   }
+   .sec-meta {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin: 0 0 -0.6rem;
+   }
+   .sec-meta a {
+      color: var(--ink-soft);
+      text-decoration: none;
+   }
+   .sec-meta a:hover {
+      color: var(--blue);
+   }
+   /* the document's own heading (demoted from h1 to h2 here) is the first
+      heading after the section meta line; it reads as a section title within
+      the consolidated page */
+   .sec-meta + :global(h2) {
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.7rem;
+      color: var(--blue-deep);
+      margin: 0.2rem 0 0.8rem;
+   }
+   /* the overview's own heading repeats the page title, so drop it here */
+   .spec-section:first-of-type .sec-meta + :global(h2) {
+      display: none;
+   }
+   /* on the consolidated page the per-heading anchors would point at the first
+      of any repeated id; section links above are the navigation path here */
+   .spec-full :global(a.heading-anchor) {
+      display: none;
+   }
+</style>

@@ -1,0 +1,40 @@
+---
+import { getCollection, render } from 'astro:content';
+import Doc from '../../layouts/Doc.astro';
+import { specDocTitle, specPath } from '../../data/spec-docs';
+
+export async function getStaticPaths() {
+   const docs = await getCollection('spec');
+   return docs.map((doc) => ({
+      params: { slug: doc.id === 'readme' ? undefined : doc.id },
+      props: { doc },
+   }));
+}
+
+const { doc } = Astro.props;
+const { Content } = await render(doc);
+const docTitle = specDocTitle(doc.id);
+const title = `${docTitle} · Leji`;
+
+const pageUrl = new URL(specPath(doc.id), Astro.site).href;
+const description =
+   doc.id === 'readme'
+      ? 'The Leji specification: an open standard for the shared context layer of AI-native teams.'
+      : `${docTitle}, part of the Leji specification for the shared context layer of AI-native teams.`;
+const articleLd = {
+   '@context': 'https://schema.org',
+   '@type': 'TechArticle',
+   name: docTitle,
+   headline: docTitle,
+   description,
+   url: pageUrl,
+   inLanguage: 'en',
+   isPartOf: { '@type': 'TechArticle', name: 'The Leji Specification', url: new URL('/spec/', Astro.site).href },
+   publisher: { '@type': 'Organization', name: 'Meteor Dreams', url: 'https://leji.org' },
+};
+---
+
+<Doc title={title}>
+   <script type="application/ld+json" set:html={JSON.stringify(articleLd)} />
+   <Content />
+</Doc>

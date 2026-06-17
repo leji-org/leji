@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0",
+  "entries": [
+    {
+      "id": "compact-1",
+      "date": "2026-06-12",
+      "type": "compaction",
+      "summary": "Compaction without its compacted block.",
+      "paths": [
+        "docs/context-changelog.json"
+      ]
+    }
+  ]
+}

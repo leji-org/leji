@@ -1,0 +1,23 @@
+{
+  "leji": "1.0",
+  "name": "other-context",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {
+    "domain": {
+      "paths": [
+        "docs/domain/"
+      ]
+    },
+    "decisions": {
+      "paths": [
+        "docs/decisions/"
+      ]
+    }
+  },
+  "owners": {
+    "primary": {
+      "name": "Product Owner"
+    }
+  }
+}

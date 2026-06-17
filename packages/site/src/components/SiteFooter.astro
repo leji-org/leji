@@ -1,0 +1,123 @@
+---
+// The one site footer: the monument's plinth. A full-bleed deep-blue band
+// with a gold capital line, the dictionary entry engraved in serif, and a
+// single meta row. Wordmark renders white on the blue, per the brand rule.
+import LejiLogo from './LejiLogo.astro';
+---
+
+<footer class="site-footer">
+   <div class="wrap">
+      <div class="footer-entry">
+         <a class="footer-brand" href="/" aria-label="Leji home"><LejiLogo height={30} /></a>
+         <span class="footer-phon">/LEH-jee/&ensp;·&ensp;is <em>legible</em></span>
+      </div>
+      <p class="footer-meaning">The open specification for the shared context layer of AI-native teams.</p>
+      <div class="footer-meta">
+         <span
+            >Created by <a href="https://vuongnguyen.com" target="_blank" rel="noopener">Vuong Nguyen</a> · <span
+               class="meta-verbose"
+               >Stewarded by
+            </span><a href="https://meteordreams.com" target="_blank" rel="noopener">Meteor Dreams</a> · <a
+               href="mailto:hello@leji.org">hello@leji.org</a
+            ></span
+         >
+         <span
+            >Apache-2.0<span class="meta-verbose"> (code, schemas)</span> · CC-BY-4.0<span class="meta-verbose">
+               (spec prose)</span
+            ></span
+         >
+      </div>
+   </div>
+</footer>
+
+<style>
+   .site-footer {
+      margin-top: 1rem;
+      border-top: 3px solid var(--gold);
+      background:
+         radial-gradient(900px 380px at 82% -30%, rgba(255, 189, 110, 0.12), transparent 60%), var(--blue-deep);
+      color: var(--white);
+      position: relative;
+      overflow: hidden;
+      padding: 2.4rem 0 2rem;
+   }
+   .site-footer::before {
+      /* the monument's fluting, carried down into the plinth */
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(255, 189, 110, 0.05) 78px 79px);
+      pointer-events: none;
+   }
+   .site-footer > * {
+      position: relative;
+   }
+
+   .footer-entry {
+      display: flex;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 0.4rem 1.1rem;
+   }
+   .footer-brand {
+      color: var(--white);
+      display: inline-flex;
+      transform: translateY(4px);
+   }
+   .footer-phon {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--gold-bright);
+   }
+   .footer-phon em {
+      font-style: normal;
+      border-bottom: 1px solid var(--line-dark);
+   }
+
+   .footer-meaning {
+      font-family: var(--serif-display);
+      font-size: clamp(1.15rem, 2.2vw, 1.5rem);
+      font-weight: 520;
+      line-height: 1.3;
+      letter-spacing: 0.005em;
+      color: var(--paper);
+      margin: 0.9rem 0 0;
+      max-width: 38ch;
+   }
+
+   .footer-meta {
+      margin-top: 1.9rem;
+      padding-top: 1.1rem;
+      border-top: 1px solid rgba(255, 189, 110, 0.22);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.5rem 2.5rem;
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.04em;
+      color: var(--white-faint);
+   }
+   .footer-meta a {
+      color: var(--white-strong);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(255, 189, 110, 0.45);
+      padding-bottom: 1px;
+      transition:
+         color 0.15s,
+         border-color 0.15s;
+   }
+   .footer-meta a:hover {
+      color: var(--gold-bright);
+      border-color: var(--gold-bright);
+   }
+   /* condense the meta rows on small screens: drop "Stewarded by" and the
+      license parentheticals, keeping the names and identifiers */
+   @media (max-width: 600px) {
+      .meta-verbose {
+         display: none;
+      }
+   }
+</style>

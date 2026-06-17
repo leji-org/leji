@@ -1,0 +1,71 @@
+---
+// One stable site sidebar, the same on every documentation page so navigation
+// never jumps; only the highlighted item moves. Groups are collapsible, and the
+// open/closed state persists across pages (localStorage), so a collapse sticks.
+import { SPEC_DOCS, specPath } from '../data/spec-docs';
+const { current } = Astro.props as { current: string };
+
+const here = (href: string) => (current === href ? 'page' : undefined);
+const schemasHere = current.startsWith('/schemas') ? 'page' : undefined;
+---
+
+<aside class="doc-nav">
+   <details data-group="spec" open>
+      <summary><span>Specification</span><span class="chev" aria-hidden="true">›</span></summary>
+      <ol>
+         {
+            SPEC_DOCS.map((d) => (
+               <li>
+                  <a href={specPath(d.id)} aria-current={here(specPath(d.id))}>
+                     {d.label}
+                  </a>
+               </li>
+            ))
+         }
+      </ol>
+   </details>
+
+   <details data-group="reference" open>
+      <summary><span>Reference</span><span class="chev" aria-hidden="true">›</span></summary>
+      <ol class="plain">
+         <li>
+            <a href="/manifest/" aria-current={here('/manifest/')}>Manifest (leji.json)</a>
+         </li>
+         <li>
+            <a href="/schemas/" aria-current={schemasHere}>Schemas</a>
+         </li>
+         <li>
+            <a href="/cli/" aria-current={here('/cli/')}>CLI</a>
+         </li>
+      </ol>
+   </details>
+
+   <details data-group="adopt" open>
+      <summary><span>Learn</span><span class="chev" aria-hidden="true">›</span></summary>
+      <ol class="plain">
+         <li>
+            <a href="/quickstart/" aria-current={here('/quickstart/')}>Quickstart</a>
+         </li>
+         <li>
+            <a href="/adoption/" aria-current={here('/adoption/')}>Adoption guides</a>
+         </li>
+         <li>
+            <a href="/rationale/" aria-current={here('/rationale/')}>Rationale</a>
+         </li>
+         <li>
+            <a href="/ai-native/" aria-current={here('/ai-native/')}>AI-native teams</a>
+         </li>
+      </ol>
+   </details>
+</aside>
+
+<script is:inline>
+   // Restore and persist each group's collapsed state across navigation, so a
+   // collapse sticks instead of resetting (which would feel like jumping).
+   for (const d of document.querySelectorAll('.doc-nav details[data-group]')) {
+      const key = 'leji-nav-' + d.dataset.group;
+      const saved = localStorage.getItem(key);
+      if (saved !== null) d.open = saved === '1';
+      d.addEventListener('toggle', () => localStorage.setItem(key, d.open ? '1' : '0'));
+   }
+</script>

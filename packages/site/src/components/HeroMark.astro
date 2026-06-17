@@ -1,0 +1,62 @@
+---
+// The hero's animated rendering of the official icon. The icon path renders
+// complete and untouched; background-colored cover circles sit over the three
+// node rings and shrink away on load, revealing the real rings outside-in.
+// Each cover ends inside the ring's hole (background-colored anyway), so the
+// settled frame is the pristine asset with no overlays on any visible pixel.
+import svg from '../assets/leji-icon.svg?raw';
+
+const { size = 150 } = Astro.props;
+const width = Math.round((size * 370) / 391);
+
+const iconPath = /d="([^"]+)"/.exec(svg)![1];
+
+// Ring centers from the icon path geometry (outer r 40.68, hole r 12.3).
+// Cover r=43 hides a ring fully; scaled to 0.26 it sits inside the hole.
+const nodes = [
+   { cx: 185.05, cy: 118.61 }, // center, under the capital
+   { cx: 258.78, cy: 249.62 }, // right trace
+   { cx: 111.26, cy: 349.48 }, // left trace, lowest
+];
+---
+
+<svg
+   class="hero-mark-svg"
+   width={width}
+   height={size}
+   viewBox="0 0 370 391"
+   fill="none"
+   role="img"
+   aria-label="Leji mark: a classical column whose flutes are circuit traces ending in nodes"
+>
+   <path d={iconPath} fill="#FFBD6E"></path>
+   {nodes.map(({ cx, cy }, i) => <circle class={`cover c${i + 1}`} cx={cx} cy={cy} r="43" fill="var(--blue-deep)" />)}
+</svg>
+
+<style>
+   .cover {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: conceal 0.5s cubic-bezier(0.5, 0, 0.2, 1) forwards;
+   }
+   .c1 {
+      animation-delay: 0.55s;
+   }
+   .c2 {
+      animation-delay: 0.75s;
+   }
+   .c3 {
+      animation-delay: 0.95s;
+   }
+
+   @keyframes conceal {
+      to {
+         transform: scale(0.26);
+      }
+   }
+   @media (prefers-reduced-motion: reduce) {
+      .cover {
+         display: none;
+      }
+   }
+</style>

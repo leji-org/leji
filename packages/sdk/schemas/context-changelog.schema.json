@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leji.org/schemas/v1.0/context-changelog.schema.json",
+  "title": "Leji context changelog",
+  "description": "Append-only machine-readable record of context layer changes.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "entries"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "description": "Optional pointer to this schema, for editor validation and tooling.",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "description": "The Leji spec line this artifact was written against, e.g. \"1.0\".",
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$"
+    },
+    "entries": {
+      "description": "Context layer changes. Canonical order is derived by sorting on (date, id) ascending; array position is not significant. New entries may appear anywhere; the oldest may be compacted with a compaction entry.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "date",
+          "type",
+          "summary",
+          "paths"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Stable identifier for this change entry, unique within the changelog.",
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+          },
+          "date": {
+            "description": "ISO 8601 in UTC: a calendar date YYYY-MM-DD (ordered as start of day) or a full timestamp ending in Z, e.g. 2026-06-13T15:04:05Z. Offsets and zoneless times are not allowed, so lexical order is chronological.",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z)?$"
+          },
+          "type": {
+            "description": "The kind of change.",
+            "enum": [
+              "added",
+              "changed",
+              "deprecated",
+              "removed",
+              "fixed",
+              "decision",
+              "governance",
+              "compaction"
+            ]
+          },
+          "summary": {
+            "description": "One-line description of what changed.",
+            "type": "string",
+            "minLength": 1
+          },
+          "paths": {
+            "description": "Repository-root-relative paths the change affected.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^(?!/)(?!\\./)(?!.*(^|/)\\.\\.(/|$))(?!.*\\\\).+$"
+            }
+          },
+          "categories": {
+            "description": "Content categories the change touched.",
+            "type": "array",
+            "items": {
+              "enum": [
+                "domain",
+                "system",
+                "practice",
+                "governance",
+                "decisions"
+              ]
+            }
+          },
+          "decisionRefs": {
+            "description": "Ids of decision records related to this change.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "proposedBy": {
+            "type": "string",
+            "description": "Human or agent that proposed the change."
+          },
+          "approvedBy": {
+            "type": "string",
+            "description": "Human who approved the change."
+          },
+          "breaking": {
+            "description": "Whether the change breaks consumers of the context layer.",
+            "type": "boolean"
+          },
+          "compacted": {
+            "type": "object",
+            "description": "Required on compaction entries: what the compaction removed from the oldest end.",
+            "required": [
+              "entries",
+              "firstId",
+              "lastId"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "description": "How many entries this compaction removed from the oldest end.",
+                "type": "integer",
+                "minimum": 1
+              },
+              "firstId": {
+                "description": "Id of the oldest entry removed by this compaction.",
+                "type": "string",
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+              },
+              "lastId": {
+                "description": "Id of the newest entry removed by this compaction.",
+                "type": "string",
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+              }
+            }
+          }
+        },
+        "if": {
+          "properties": {
+            "type": {
+              "const": "compaction"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        "then": {
+          "required": [
+            "compacted"
+          ]
+        }
+      }
+    }
+  }
+}

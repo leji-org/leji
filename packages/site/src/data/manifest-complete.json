@@ -1,0 +1,48 @@
+{
+  "$schema": "https://leji.org/schemas/v1.0/context-manifest.schema.json",
+  "leji": "1.0",
+  "name": "acme-context",
+  "description": "Organization-wide context layer for Acme: consumed by product repos and composing one sibling layer.",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {
+    "domain": { "paths": ["docs/domain/"] },
+    "system": { "paths": ["docs/system/"] },
+    "practice": { "paths": ["docs/practice/"] },
+    "governance": { "paths": ["docs/governance/"] },
+    "decisions": { "paths": ["docs/decisions/"] }
+  },
+  "machine": {
+    "indexPath": "docs/context-index.json",
+    "changelogPath": "docs/context-changelog.json",
+    "agentProfilesPath": "docs/agents/",
+    "decisionRecordsPath": "docs/decisions/"
+  },
+  "agents": {
+    "core": "docs/agents/core.md",
+    "thought-partner": "docs/agents/thought-partner.md"
+  },
+  "owners": {
+    "primary": { "name": "Sam Park", "contact": "sam@acme.example" },
+    "continuity": { "name": "Ada Okafor", "contact": "ada@acme.example" }
+  },
+  "conformance": {
+    "claimedLevel": "federated",
+    "claimedAt": "2026-06-12"
+  },
+  "federation": {
+    "mounts": [
+      {
+        "path": "docs/product-context/",
+        "name": "acme-product-context",
+        "owner": { "name": "Product team", "contact": "product@acme.example" },
+        "role": "product-side context, owned and curated by the product team",
+        "source": "https://github.com/acme/product-context"
+      }
+    ]
+  },
+  "vendorAdapters": ["CLAUDE.md", "AGENTS.md"],
+  "docs": {
+    "port": 5354
+  }
+}

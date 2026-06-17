@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "id-duplicate",
+        "severity": "error",
+        "path": "docs/context-changelog.json"
+      }
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "leji": "1.0",
+  "name": "fixture",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": { "domain": { "paths": ["docs/domain/"] } }
+}

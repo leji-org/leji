@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0",
+  "entries": [
+    {
+      "id": "bad-type",
+      "date": "2026-06-12",
+      "type": "tweaked",
+      "summary": "Bad type.",
+      "paths": [
+        "docs/boot-profile.md"
+      ]
+    },
+    {
+      "id": "bad-date",
+      "date": "June 12",
+      "type": "added",
+      "summary": "Bad date.",
+      "paths": [
+        "docs/boot-profile.md"
+      ]
+    }
+  ]
+}

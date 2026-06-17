@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": [
+      {
+        "rule": "mount-not-a-layer",
+        "severity": "warning",
+        "path": "context/product/"
+      }
+    ]
+  }
+}

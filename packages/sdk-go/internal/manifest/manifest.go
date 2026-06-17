@@ -1,0 +1,197 @@
+// Package manifest loads and structurally validates leji.json: existence, JSON
+// parse, declared spec line, manifest schema. Content-level checks live in the
+// validate command.
+package manifest
+
+import (
+	"encoding/json"
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"slices"
+
+	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
+	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
+	"github.com/leji-org/leji/packages/sdk-go/internal/schemas"
+)
+
+// CategoryIDs in canonical order.
+var CategoryIDs = []string{"domain", "system", "practice", "governance", "decisions"}
+
+// ConformanceLevels in ascending order.
+var ConformanceLevels = []string{"core", "indexed", "governed", "federated"}
+
+const Filename = "leji.json"
+
+type Owner struct {
+	Name    string `json:"name"`
+	Contact string `json:"contact,omitempty"`
+}
+
+type CategoryMapping struct {
+	Paths []string `json:"paths"`
+}
+
+type Machine struct {
+	IndexPath           string `json:"indexPath,omitempty"`
+	ChangelogPath       string `json:"changelogPath,omitempty"`
+	AgentProfilesPath   string `json:"agentProfilesPath,omitempty"`
+	DecisionRecordsPath string `json:"decisionRecordsPath,omitempty"`
+}
+
+type Mount struct {
+	Path   string `json:"path"`
+	Name   string `json:"name"`
+	Owner  Owner  `json:"owner"`
+	Role   string `json:"role,omitempty"`
+	Source string `json:"source,omitempty"`
+}
+
+type Federation struct {
+	Mounts []Mount `json:"mounts,omitempty"`
+}
+
+type Owners struct {
+	Primary    Owner  `json:"primary"`
+	Continuity *Owner `json:"continuity,omitempty"`
+}
+
+type Conformance struct {
+	ClaimedLevel string `json:"claimedLevel,omitempty"`
+	ClaimedAt    string `json:"claimedAt,omitempty"`
+}
+
+type Docs struct {
+	Port *int `json:"port,omitempty"`
+}
+
+// Manifest is the typed view of leji.json. Categories preserve insertion order
+// via the Machine map ordering helpers below where it matters.
+type Manifest struct {
+	Schema          string                     `json:"$schema,omitempty"`
+	Leji            string                     `json:"leji"`
+	Name            string                     `json:"name"`
+	Description     string                     `json:"description,omitempty"`
+	RootPath        string                     `json:"rootPath"`
+	BootProfilePath string                     `json:"bootProfilePath"`
+	Categories      map[string]CategoryMapping `json:"categories"`
+	Machine         *Machine                   `json:"machine,omitempty"`
+	Agents          map[string]string          `json:"agents,omitempty"`
+	DocsBlock       *Docs                      `json:"docs,omitempty"`
+	Owners          Owners                     `json:"owners"`
+	Conformance     *Conformance               `json:"conformance,omitempty"`
+	Federation      *Federation                `json:"federation,omitempty"`
+	VendorAdapters  []string                   `json:"vendorAdapters,omitempty"`
+}
+
+// MachineEntries returns the declared machine.* string fields in the canonical
+// emit order (indexPath, changelogPath, agentProfilesPath, decisionRecordsPath),
+// skipping empties. Used for paths-outside-root, which iterates machine entries.
+func (m *Manifest) MachineEntries() [][2]string {
+	if m.Machine == nil {
+		return nil
+	}
+	var out [][2]string
+	if m.Machine.IndexPath != "" {
+		out = append(out, [2]string{"indexPath", m.Machine.IndexPath})
+	}
+	if m.Machine.ChangelogPath != "" {
+		out = append(out, [2]string{"changelogPath", m.Machine.ChangelogPath})
+	}
+	if m.Machine.AgentProfilesPath != "" {
+		out = append(out, [2]string{"agentProfilesPath", m.Machine.AgentProfilesPath})
+	}
+	if m.Machine.DecisionRecordsPath != "" {
+		out = append(out, [2]string{"decisionRecordsPath", m.Machine.DecisionRecordsPath})
+	}
+	return out
+}
+
+type Load struct {
+	Manifest *Manifest
+	Findings []findings.Finding
+}
+
+var lineRe = regexp.MustCompile(`^\d+\.\d+$`)
+
+// LoadManifest reads and structurally validates leji.json at root.
+func LoadManifest(root string) Load {
+	abs := filepath.Join(root, Filename)
+	if !fsx.Exists(abs) || !fsx.IsFile(abs) {
+		return Load{Manifest: nil, Findings: []findings.Finding{
+			findings.New("manifest-missing", findings.Error, "no "+Filename+" at the repository root", Filename),
+		}}
+	}
+	text, err := fsx.ReadText(abs)
+	if err != nil {
+		return Load{Manifest: nil, Findings: []findings.Finding{
+			findings.New("manifest-parse", findings.Error, "invalid JSON: "+err.Error(), Filename),
+		}}
+	}
+	var data any
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		return Load{Manifest: nil, Findings: []findings.Finding{
+			findings.New("manifest-parse", findings.Error, "invalid JSON: "+err.Error(), Filename),
+		}}
+	}
+
+	var fs []findings.Finding
+	if obj, ok := data.(map[string]any); ok {
+		if line, ok := obj["leji"].(string); ok && lineRe.MatchString(line) && !slices.Contains(schemas.SupportedLines, line) {
+			fs = append(fs, findings.New("manifest-line", findings.Error,
+				fmt.Sprintf("declared spec line %q is not supported by this SDK (supported: %s)", line, joinLines()), Filename))
+			return Load{Manifest: nil, Findings: fs}
+		}
+	}
+
+	schemaErrs := schemas.SchemaErrors("context-manifest", data)
+	for _, e := range schemaErrs {
+		fs = append(fs, findings.New("manifest-schema", findings.Error, e, Filename))
+	}
+	if len(schemaErrs) > 0 {
+		return Load{Manifest: nil, Findings: fs}
+	}
+
+	var m Manifest
+	if err := json.Unmarshal([]byte(text), &m); err != nil {
+		// Schema passed but struct decode failed: treat as a schema-level error.
+		fs = append(fs, findings.New("manifest-schema", findings.Error, "invalid JSON: "+err.Error(), Filename))
+		return Load{Manifest: nil, Findings: fs}
+	}
+	return Load{Manifest: &m, Findings: fs}
+}
+
+func joinLines() string {
+	out := ""
+	for i, l := range schemas.SupportedLines {
+		if i > 0 {
+			out += ", "
+		}
+		out += l
+	}
+	return out
+}
+
+// ClaimedLevel returns the effective conformance claim; absent is core.
+func ClaimedLevel(m *Manifest) string {
+	if m.Conformance != nil && m.Conformance.ClaimedLevel != "" {
+		return m.Conformance.ClaimedLevel
+	}
+	return "core"
+}
+
+// LevelAtLeast reports whether level >= threshold in the conformance order.
+func LevelAtLeast(level, threshold string) bool {
+	return slices.Index(ConformanceLevels, level) >= slices.Index(ConformanceLevels, threshold)
+}
+
+// MappedCategories returns categories present in the manifest in canonical order.
+func (m *Manifest) MappedCategories() []string {
+	var out []string
+	for _, c := range CategoryIDs {
+		if _, ok := m.Categories[c]; ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}

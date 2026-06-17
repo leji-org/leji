@@ -1,0 +1,409 @@
+---
+// The "what now?" page: spec read, interest caught, hands on keyboard.
+// SDK-led quickstart in four steps, then CI wiring, direct invocation,
+// by-situation doors into the adoption guides, and the library surface.
+import { Code } from 'astro:components';
+import Base from '../layouts/Base.astro';
+import SiteHeader from '../components/SiteHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import SectionNav from '../components/SectionNav.astro';
+import SupportedRuntimes from '../components/SupportedRuntimes.astro';
+import { installSnippet } from '../data/runtimes';
+
+const installCode = installSnippet;
+
+const initCode = `leji init               # interactive bootstrap`;
+
+const validateCode = `leji validate           # schemas + lint rules
+leji index              # generate the index
+leji freshness          # review horizons`;
+
+const conformanceCode = `leji conformance        # score the claim`;
+
+const ciCode = `leji validate           # schemas + lint rules
+leji index --check      # stale index fails
+leji changelog check    # append-only`;
+
+const invokeCode = `claude "Read ./docs/boot-profile.md, follow all instructions, and tell me when you are ready to begin."`;
+
+const apiCode = `import { validateLayer, writeIndex, conformanceReport } from '@leji-org/leji';
+
+const { findings } = validateLayer('.');`;
+---
+
+<Base
+   title="Quickstart · Leji"
+   description="Quickstart: install the leji CLI, bootstrap or map a context layer, validate it, and score it against the level it claims."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current={Astro.url.pathname} />
+         <main class="adopt-main">
+            <section class="gs-hero">
+               <p class="eyebrow">Quickstart&ensp;·&ensp;spec 1.0</p>
+               <h1>Build a context layer, prove it conforms.</h1>
+               <p class="lede">
+                  The reference CLI does the mechanical work: bootstrap or map a context layer, validate every artifact
+                  against the schemas, and score it against the conformance level it claims. Schemas and templates ship
+                  inside the package; no network access is needed.
+               </p>
+            </section>
+
+            <SupportedRuntimes />
+
+            <section class="steps" aria-label="Quickstart steps">
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">01</span>Install the tooling</h2>
+                     <p>
+                        <code>leji</code> is one CLI with three homes: npm, PyPI, and Go. All three are tested against the
+                        same fixture suite, so commands, flags, JSON findings, and exit codes stay identical no matter which
+                        one your toolchain or CI installs.
+                     </p>
+                  </div>
+                  <div class="step-code"><Code code={installCode} lang="bash" theme="night-owl" wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">02</span>Bootstrap a context layer, or map the one you have</h2>
+                     <p>
+                        <code>leji init</code> walks you through it: a <code>leji.json</code> manifest at the repository root,
+                        a boot profile, and category mappings, generated from the spec's templates.
+                     </p>
+                     <aside class="map-note">
+                        <strong>Already have a <code>docs/</code> tree?</strong> Map, don't rename. Point the categories at
+                        the directories where that content already lives; a boot profile at <code>docs/Agent.md</code> is
+                        as conformant as the default, and an existing ADR directory already qualifies as <code
+                           >decisions</code
+                        >.
+                     </aside>
+                  </div>
+                  <div class="step-code"><Code code={initCode} lang="bash" theme="night-owl" wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">03</span>Validate</h2>
+                     <p>
+                        Every artifact checks against the v1.0 schemas: the manifest, the index, the changelog,
+                        agent-profile and decision-record frontmatter. Lint rules cover what schemas can't: declared
+                        files must exist, the changelog is append-only, and a stale index is a hard failure.
+                     </p>
+                  </div>
+                  <div class="step-code"><Code code={validateCode} lang="bash" theme="night-owl" wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">04</span>Claim a level, then prove it</h2>
+                     <p>
+                        Partial adoption is by design: start at <code>core</code>, and each level contains the last. The
+                        manifest declares the claim;
+                        <code>leji conformance</code> scores the context layer against it.
+                     </p>
+                     <p class="ladder-line">
+                        <code>core</code> → <code>indexed</code> → <code>governed</code> → <code>federated</code>
+                     </p>
+                     <p class="ladder-more">
+                        <a href="/spec/conformance/">What each level asks of you</a>
+                     </p>
+                  </div>
+                  <div class="step-code"><Code code={conformanceCode} lang="bash" theme="night-owl" wrap /></div>
+               </article>
+            </section>
+
+            <section class="duo">
+               <div class="duo-cell">
+                  <h2>Keep it honest in CI</h2>
+                  <p>
+                     The mechanical guarantees are cheap to enforce. Three checks in CI and the context layer can't
+                     silently rot:
+                  </p>
+                  <Code code={ciCode} lang="bash" theme="night-owl" wrap />
+                  <p class="fine">
+                     Exit codes are CI-native: <code>0</code> clean, <code>1</code> findings, <code>2</code> usage error.
+                  </p>
+               </div>
+               <div class="duo-cell">
+                  <h2>Enter the context layer</h2>
+                  <p>
+                     The cleanest entry needs no vendor files at all: point the agent host at the boot profile in the
+                     invocation itself, so the context layer is the agent's first context with zero hops.
+                  </p>
+                  <Code code={invokeCode} lang="bash" theme="night-owl" wrap />
+                  <p class="fine">
+                     <a href="/adoption/#entering-the-context-layer">Entering the context layer</a>: the npm-script
+                     pattern and the vendor-file fallback table.
+                  </p>
+               </div>
+            </section>
+
+            <section class="shapes" aria-label="Adoption guides by situation">
+               <h2>Then adopt for your situation</h2>
+               <table class="shape-table">
+                  <tbody>
+                     <tr>
+                        <th scope="row"><a href="/adoption/#monorepo">Monorepo</a></th>
+                        <td>One repository, one context layer. The full path is five steps.</td>
+                     </tr>
+                     <tr>
+                        <th scope="row"><a href="/adoption/#multi-repo">Multi-repo</a></th>
+                        <td>
+                           A dedicated context repository, mounted docs-only in each consuming repo, pinned per
+                           repository.
+                        </td>
+                     </tr>
+                     <tr>
+                        <th scope="row">
+                           <a href="/adoption/#teams-that-already-have-a-context-repo">Existing context repo</a>
+                        </th>
+                        <td
+                           >Don't merge it. Mount it as a sibling context layer; ownership and workflow stay unchanged.</td
+                        >
+                     </tr>
+                  </tbody>
+               </table>
+            </section>
+
+            <section class="api-peek">
+               <div class="peek-text">
+                  <h2>From a script</h2>
+                  <p>
+                     Everything the CLI does is exported as a library, for hooks, bots, and build steps. Source lives at <a
+                        href="https://github.com/leji-org/leji"
+                        target="_blank"
+                        rel="noopener">leji-org/leji</a
+                     >
+                     under <code>packages/sdk</code>, Apache-2.0.
+                  </p>
+               </div>
+               <div class="peek-code"><Code code={apiCode} lang="js" theme="night-owl" wrap /></div>
+            </section>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .gs-hero {
+      padding: clamp(2.5rem, 6vh, 4.5rem) 0 1rem;
+      max-width: 760px;
+   }
+   .eyebrow {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin: 0 0 1rem;
+   }
+   h1 {
+      font-family: var(--serif-display);
+      font-size: clamp(2.3rem, 5.5vw, 3.6rem);
+      font-weight: 500;
+      line-height: 1.06;
+      letter-spacing: -0.012em;
+      color: var(--blue-deep);
+      margin: 0 0 1.2rem;
+   }
+   .lede {
+      font-size: clamp(1rem, 1.5vw, 1.12rem);
+      line-height: 1.7;
+      color: var(--ink-soft);
+      max-width: 58ch;
+      margin: 0;
+   }
+
+   h2 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 1.6rem;
+      line-height: 1.25;
+      color: var(--blue-deep);
+      margin: 0 0 0.6rem;
+   }
+
+   /* ── the steps: a single reading column, code below each prose ──── */
+   .steps {
+      margin-top: 2.5rem;
+      display: grid;
+      gap: 2.8rem;
+      padding: 1.6rem 0 0.4rem;
+   }
+   .step {
+      display: grid;
+      gap: 0.9rem;
+   }
+   .step-num {
+      font-family: var(--serif-display);
+      font-weight: 620;
+      font-size: 0.95rem;
+      color: var(--blue-deep);
+      background: var(--gold);
+      padding: 0.1rem 0.6rem;
+      border-radius: 999px;
+      margin-right: 0.8rem;
+      vertical-align: 0.18em;
+   }
+   .step-text p {
+      color: var(--ink-soft);
+      margin: 0.4rem 0 0;
+   }
+   .step-text code {
+      background: rgba(34, 63, 147, 0.07);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--blue-deep);
+   }
+   .map-note {
+      margin-top: 1.1rem;
+      padding: 0.9rem 1.2rem;
+      border-left: 3px solid var(--gold);
+      background: rgba(255, 189, 110, 0.1);
+      border-radius: 0 8px 8px 0;
+      font-size: 0.92rem;
+      color: var(--ink-soft);
+   }
+   .map-note strong {
+      color: var(--blue-deep);
+   }
+   .ladder-line {
+      font-size: 0.92rem;
+   }
+   .step-text .ladder-more {
+      margin-top: 1.15rem;
+   }
+   .ladder-more a {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--blue);
+      text-decoration: none;
+      border-bottom: 1px solid var(--gold);
+      padding-bottom: 2px;
+      white-space: nowrap;
+   }
+   .ladder-more a:hover {
+      color: var(--blue-soft);
+      border-color: var(--gold-bright);
+   }
+
+   /* ── CI + invocation, stacked ───────────────────────── */
+   .duo {
+      margin-top: 4rem;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2.8rem;
+   }
+   /* single column: no card box; each cell flows as a section like the steps */
+   .duo-cell h2 {
+      font-size: 1.35rem;
+   }
+   .duo-cell p {
+      color: var(--ink-soft);
+      margin: 0 0 1.1rem;
+   }
+   .duo-cell .fine {
+      font-size: 0.88rem;
+      margin: 1rem 0 0;
+   }
+   .duo-cell .fine a {
+      color: var(--blue);
+      text-decoration-color: var(--gold);
+      text-underline-offset: 3px;
+   }
+   .duo-cell code {
+      background: rgba(34, 63, 147, 0.07);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--blue-deep);
+   }
+
+   /* ── by situation ───────────────────────────────────── */
+   .shapes {
+      margin-top: 4rem;
+   }
+   /* a definition group: term (the linked shape) then its description, no
+      dividers or boxes, just tight term/definition rhythm */
+   /* a directory of doors into the adoption guides: situation (linked) on the
+      left, one-line description on the right, divided rows, aligned columns */
+   .shape-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.4rem 0 0;
+   }
+   .shape-table th,
+   .shape-table td {
+      border-bottom: 1px solid var(--line);
+      vertical-align: baseline;
+      text-align: left;
+      padding: 0.85rem 0 0.85rem 0;
+   }
+   .shape-table th {
+      white-space: nowrap;
+      padding-right: 2.2rem;
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.08rem;
+   }
+   .shape-table th a {
+      color: var(--blue-deep);
+      text-decoration-color: var(--gold);
+      text-underline-offset: 3px;
+      transition: color 0.15s;
+   }
+   .shape-table th a:hover {
+      color: var(--blue);
+   }
+   .shape-table td {
+      font-size: 0.95rem;
+      color: var(--ink-soft);
+      line-height: 1.55;
+   }
+
+   /* ── library surface ────────────────────────────────── */
+   .api-peek {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.4rem;
+      padding: 4rem 0 4.5rem;
+   }
+   .peek-text p {
+      color: var(--ink-soft);
+   }
+   .peek-text a {
+      color: var(--blue);
+      text-decoration-color: var(--gold);
+      text-underline-offset: 3px;
+   }
+   .peek-text code {
+      background: rgba(34, 63, 147, 0.07);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--blue-deep);
+   }
+
+   .step-code {
+      margin-top: 0;
+   }
+
+   /* code blocks sit on brand blue, same as everywhere else */
+   .step-code :global(.astro-code),
+   .duo-cell :global(.astro-code),
+   .peek-code :global(.astro-code) {
+      background: var(--blue-deep) !important;
+      border-radius: 12px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.65;
+      box-shadow: 0 14px 40px rgba(22, 41, 96, 0.14);
+      margin: 0;
+   }
+</style>

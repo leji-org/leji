@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "leji"
+version = "1.0.0"
+description = "Reference SDK and CLI for Leji, the open specification for the shared context layer of AI-native teams: validate, index, changelog, freshness, conformance, and init."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "Vuong Nguyen" }]
+keywords = ["leji", "ai-native", "ai-native-teams", "context-layer", "shared-context", "agent-context", "ai-agents", "governance", "specification", "validation", "cli"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Documentation",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "jsonschema>=4.18,<5",
+    "PyYAML>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7,<9",
+    "ruff>=0.4,<1",
+    "mypy>=1.8,<2",
+]
+
+[project.urls]
+Homepage = "https://leji.org"
+Repository = "https://github.com/leji-org/leji"
+
+[project.scripts]
+leji = "leji.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/leji"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/leji", "README.md", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+# Third-party deps ship no type stubs that we vendor; treat them as untyped
+# rather than pinning stub packages the SDK doesn't otherwise need.
+ignore_missing_imports = true
+disable_error_code = ["import-untyped"]
+# Branch-local `result`/`load` reuse across subcommands is intentional and
+# behaviorally clear; permit rebinding to a different type within a scope.
+allow_redefinition = true

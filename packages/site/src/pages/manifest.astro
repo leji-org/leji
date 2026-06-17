@@ -1,0 +1,54 @@
+---
+import fs from 'node:fs';
+import path from 'node:path';
+import { Code } from 'astro:components';
+import Doc from '../layouts/Doc.astro';
+import SchemaFields from '../components/SchemaFields.astro';
+
+// Single-sourced from the schema: field rows are generated, so this page
+// cannot drift from the contract it documents.
+const schemaRaw = fs.readFileSync(path.resolve(process.cwd(), '../../schemas/context-manifest.schema.json'), 'utf-8');
+const schema = JSON.parse(schemaRaw);
+// A manifest that exercises every field; verified against the schema above.
+const exampleRaw = fs.readFileSync(path.resolve(process.cwd(), 'src/data/manifest-complete.json'), 'utf-8');
+---
+
+<Doc title="The manifest (leji.json) · Leji">
+   <h1>The manifest: <code>leji.json</code></h1>
+   <p class="sp-lede">{schema.description}</p>
+
+   <p>
+      The manifest is the only fixed filename in Leji: the one file tooling can always expect at the repository root.
+      Field rows are generated from
+      <a href="/schemas/context-manifest/">the schema</a>, so the page and the contract cannot disagree. Required fields
+      carry the gold mark.
+   </p>
+
+   <h2>Fields</h2>
+   <SchemaFields schema={schema} />
+
+   <h2>A complete example</h2>
+   <p>
+      This complete manifest validates against the schema and exercises every field: a federated, organization-wide
+      context layer that mounts a sibling. Most context layers use only the subset they need; this one uses all of them.
+   </p>
+   <div class="manifest-example">
+      <Code code={exampleRaw.trimEnd()} lang="json" theme="night-owl" wrap />
+   </div>
+
+   <p>
+      See <a href="/spec/machine-readable-surface/">the machine-readable surface</a> for how the manifest relates to the index,
+      changelog, and profiles, and
+      <a href="/spec/versioning/">versioning</a> for the <code>leji</code> spec-line key.
+   </p>
+</Doc>
+
+<style>
+   .manifest-example :global(.astro-code) {
+      background: var(--blue-deep) !important;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+   }
+</style>

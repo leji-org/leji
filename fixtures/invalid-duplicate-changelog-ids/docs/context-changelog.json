@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0",
+  "entries": [
+    {
+      "id": "seed-layer",
+      "date": "2026-06-12",
+      "type": "added",
+      "summary": "First.",
+      "paths": [
+        "docs/boot-profile.md"
+      ]
+    },
+    {
+      "id": "seed-layer",
+      "date": "2026-06-13",
+      "type": "changed",
+      "summary": "Duplicate id.",
+      "paths": [
+        "docs/boot-profile.md"
+      ]
+    }
+  ]
+}

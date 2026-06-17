@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "vendor-adapter-redirect",
+        "severity": "error",
+        "path": "CLAUDE.md"
+      }
+    ]
+  }
+}

@@ -1,0 +1,190 @@
+---
+import fs from 'node:fs';
+import path from 'node:path';
+import { Code } from 'astro:components';
+import Doc from '../layouts/Doc.astro';
+import SupportedRuntimes from '../components/SupportedRuntimes.astro';
+
+// Single-sourced from the SDK's canonical CLI spec; the terminal `leji --help`
+// renders from the same file, so this page and the tool cannot disagree.
+const cli = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), '../../packages/sdk/cli.json'), 'utf-8'));
+const slug = (name: string) => name.replace(/\s+/g, '-');
+---
+
+<Doc
+   title="CLI reference · Leji"
+   description="Every leji command: validate, index, changelog check, freshness, conformance, docs, and init, with flags, exit codes, and examples."
+>
+   <h1>CLI reference</h1>
+   <p class="sp-lede">{cli.summary}</p>
+   <p>
+      The command surface is identical across all runtimes; see the <a href="/quickstart/">Quickstart</a> for install commands.
+      Every command takes <code>--root &lt;dir&gt;</code> and <code>--json</code>. The same spec generates both this
+      reference and <code>leji --help</code>.
+   </p>
+
+   <div class="runtimes-block">
+      <SupportedRuntimes />
+   </div>
+
+   <div class="cli-code"><Code code={cli.usage} lang="bash" theme="night-owl" /></div>
+
+   <h2>Commands</h2>
+   <table class="cli-table cmd-table">
+      <tbody>
+         {
+            cli.commands.map((c: any) => (
+               <tr>
+                  <td>
+                     <a href={`#${slug(c.name)}`}>
+                        <code>{c.name}</code>
+                     </a>
+                  </td>
+                  <td>{c.summary}</td>
+               </tr>
+            ))
+         }
+      </tbody>
+   </table>
+
+   <h2>Exit codes</h2>
+   <table class="cli-table">
+      <thead>
+         <tr><th>Code</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+         {
+            cli.exitCodes.map((e: any) => (
+               <tr>
+                  <td>
+                     <code>{e.code}</code>
+                  </td>
+                  <td>{e.meaning}</td>
+               </tr>
+            ))
+         }
+      </tbody>
+   </table>
+
+   <h2>Global options</h2>
+   <table class="cli-table">
+      <tbody>
+         {
+            cli.globalOptions.map((o: any) => (
+               <tr>
+                  <td>
+                     <code>{o.flags}</code>
+                  </td>
+                  <td>{o.summary}</td>
+               </tr>
+            ))
+         }
+      </tbody>
+   </table>
+
+   {
+      cli.commands.map((c: any) => (
+         <section class="cmd">
+            <h2 id={slug(c.name)}>
+               <code>leji {c.name}</code>
+            </h2>
+            <p>{c.description}</p>
+            <div class="cli-code">
+               <Code code={c.usage} lang="bash" theme="night-owl" />
+            </div>
+            {c.options.length > 0 && (
+               <table class="cli-table">
+                  <tbody>
+                     {c.options.map((o: any) => (
+                        <tr>
+                           <td>
+                              <code>{o.flags}</code>
+                           </td>
+                           <td>{o.summary}</td>
+                        </tr>
+                     ))}
+                  </tbody>
+               </table>
+            )}
+            <p class="ex-label">{c.examples.length > 1 ? 'Examples' : 'Example'}</p>
+            <div class="cli-code">
+               <Code code={c.examples.join('\n')} lang="bash" theme="night-owl" />
+            </div>
+         </section>
+      ))
+   }
+</Doc>
+
+<style>
+   /* command names read like the schema links: blue pill, gold link underline,
+      not bold (each still jumps to its detail section) */
+   .cmd-table td a code {
+      color: var(--blue);
+   }
+   .cmd-table td a:hover code {
+      background: rgba(34, 63, 147, 0.13);
+   }
+
+   /* breathing room between the supported-runtimes line and the usage block */
+   .runtimes-block {
+      margin-bottom: 1.6rem;
+   }
+
+   .cli-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.8rem 0 0;
+   }
+   .cli-table th {
+      text-align: left;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+      padding: 0.4rem 0.9rem 0.4rem 0;
+      border-bottom: 1px solid var(--line);
+   }
+   .cli-table td {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      color: var(--ink-soft);
+   }
+   .cli-table td:first-child {
+      white-space: nowrap;
+   }
+   .cli-table td code {
+      color: var(--blue-deep);
+      font-size: 0.85em;
+   }
+
+   .cmd {
+      margin-top: 2.6rem;
+      padding-top: 0.4rem;
+   }
+   .cmd h2 {
+      scroll-margin-top: 1.5rem;
+   }
+   .cmd h2 code {
+      color: var(--blue-deep);
+      background: none;
+      padding: 0;
+   }
+   .ex-label {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+      margin: 1.1rem 0 0;
+   }
+   .cli-code :global(.astro-code) {
+      background: var(--blue-deep) !important;
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+      margin-top: 0.6rem;
+   }
+</style>

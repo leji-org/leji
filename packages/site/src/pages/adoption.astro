@@ -1,0 +1,11 @@
+---
+import { getCollection, render } from 'astro:content';
+import Doc from '../layouts/Doc.astro';
+
+const [doc] = await getCollection('adoption');
+const { Content } = await render(doc);
+---
+
+<Doc title="Adopting Leji · Leji">
+   <Content />
+</Doc>

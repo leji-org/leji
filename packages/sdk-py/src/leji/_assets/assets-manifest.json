@@ -1,0 +1,25 @@
+{
+  "specLine": "1.0",
+  "sourceCommit": "53f0d9b6153af74ee35f42553ff36e7bce2dd66e",
+  "files": {
+    "schemas/README.md": "sha256:8dc011dbb3c5b33d4aac4e35a4f38264da3b582f0da83e04a5c8cefb4c1408cf",
+    "schemas/agent-profile.schema.json": "sha256:4502ddf71db0c0839a3a0d9b1b01a00f03b3871db4bfe399c464791640054077",
+    "schemas/context-changelog.schema.json": "sha256:b3dd88286f1900d17695422bf5b1b166a84d3c95370029004f34b70e61b015b1",
+    "schemas/context-index.schema.json": "sha256:41f254829e8116767ab1c72f5b041746ff3c66c1832d3d0d416c9344237a5c99",
+    "schemas/context-manifest.schema.json": "sha256:c19b627fdd7c02daa9db64244d75cbc3d928a86bf8f47c9bd02e8d8e87eb776e",
+    "schemas/decision-record.schema.json": "sha256:ad870d1943196e1a40303228b839a170b11e4de4ede324cdd103dfe87f317772",
+    "templates/README.md": "sha256:f5c19da485cecc87f8edf03ec5a28a8246b4d065154d2d61bbf2a82cc685448d",
+    "templates/agent-profile.md": "sha256:64922b74a79778c4b8736ebcdd2d6d11faf075dc3ed24413198e00f9ca1f0f9e",
+    "templates/agents/core.md": "sha256:6118a42d72712be08e10ba21843894b6afb895b350af6f5a308375f7d7281c5a",
+    "templates/boot-profile.md": "sha256:d6d07ac45116856057cf1ed856f3663d2ec8ed5f60271ed44133f6217740a5f4",
+    "templates/decision-record.md": "sha256:ea122e7ceb5984b1610c66df2503128d619b312b5b5fc57c29f4e017a300c91c",
+    "templates/docs-viewer-assets/PROVENANCE.txt": "sha256:0a1eca8f94ff27e4d1ad8661a1a4b454fc280ee514de75668b07927784107093",
+    "templates/docs-viewer-assets/docsify-sidebar-collapse.min.css": "sha256:ef27a5cc38b5fe5608afd766a9d3c181ab981131398a05fc2b37ddfa0b5abdc9",
+    "templates/docs-viewer-assets/docsify-sidebar-collapse.min.js": "sha256:78282f65a6dc77f098ad856b32f64b167e363cc4c8d8767879ab8c4577c5b363",
+    "templates/docs-viewer-assets/docsify.min.js": "sha256:9123f808d3f6ad736b4a8f99944a611f87c5d4f9328030080a5c029ed5f450a5",
+    "templates/docs-viewer-assets/search.min.js": "sha256:397f54df759c3093069b2d2acb3a2b19edd33e2d77af09c445d34d2c4853a015",
+    "templates/docs-viewer-assets/vue.css": "sha256:6c4015a7fa6e48e6c3994060ebb66a601bfc848a835700b522ce4bea456f123d",
+    "templates/docs-viewer.html": "sha256:c07e61583f56acadb44d82de36b682ef39236e2873e83af384283f196f037d9b",
+    "templates/leji.json": "sha256:4f6a33ab4152c0fa2ab5d1dfa35363bded25294ebb36118918d05396ee9a3a65"
+  }
+}

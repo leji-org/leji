@@ -1,0 +1,13 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": [
+      {
+        "rule": "paths-outside-root",
+        "severity": "warning",
+        "path": "arch/",
+        "message": "system path falls outside rootPath docs/"
+      }
+    ]
+  }
+}

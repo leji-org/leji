@@ -1,0 +1,20 @@
+{
+   "name": "leji-site",
+   "version": "0.0.0",
+   "private": true,
+   "description": "The Leji specification website (leji.org). Plain Astro; deployable anywhere.",
+   "license": "Apache-2.0",
+   "type": "module",
+   "scripts": {
+      "dev": "astro dev",
+      "build": "astro build",
+      "preview": "astro preview"
+   },
+   "dependencies": {
+      "@astrojs/sitemap": "3.7.3",
+      "@fontsource-variable/fraunces": "5.2.9",
+      "@fontsource-variable/source-serif-4": "5.2.9",
+      "@fontsource/ibm-plex-mono": "5.2.7",
+      "astro": "6.4.7"
+   }
+}

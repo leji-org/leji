@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": [
+      {
+        "rule": "continuity-self",
+        "severity": "warning",
+        "path": "leji.json"
+      }
+    ]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://leji.org/schemas/v1.0/context-changelog.schema.json",
+  "schemaVersion": "1.0",
+  "entries": [
+    {
+      "id": "release-1-0-0",
+      "date": "2026-06-12",
+      "type": "added",
+      "summary": "Initial public release: specification 1.0.0 (9 normative documents, adoption guides, rationale), the v1.0 schema line (5 schemas), templates, two reference examples, and the reference SDKs (leji on npm and PyPI, the Go module packages/sdk-go, create-leji) with validate, index, changelog check, freshness, conformance, init, and docs, all at 1.0.0.",
+      "paths": [
+        "spec/",
+        "schemas/",
+        "templates/",
+        "examples/",
+        "adoption/",
+        "rationale/",
+        "packages/sdk/",
+        "packages/sdk-py/",
+        "packages/sdk-go/",
+        "packages/create-leji/",
+        "fixtures/"
+      ],
+      "proposedBy": "Vuong Nguyen",
+      "approvedBy": "Vuong Nguyen"
+    }
+  ]
+}

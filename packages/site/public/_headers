@@ -1,0 +1,10 @@
+# Security headers for static hosts that honour a _headers file
+# (Netlify, Cloudflare Pages). Host-agnostic; ignored elsewhere. The
+# Content-Security-Policy here is kept in lockstep with the
+# <meta http-equiv="Content-Security-Policy"> in src/layouts/Base.astro so the
+# policy holds even on hosts that ignore this file.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'

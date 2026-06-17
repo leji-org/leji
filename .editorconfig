@@ -1,0 +1,25 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 3
+insert_final_newline = true
+max_line_length = 120
+trim_trailing_whitespace = true
+
+[*.{js,jsx,ts,tsx,astro}]
+quote_type = single
+
+[*.{md,mdx}]
+trim_trailing_whitespace = false
+
+[*.{yml,yaml}]
+indent_size = 3
+
+[*.py]
+indent_size = 4
+
+[*.json]
+indent_size = 2

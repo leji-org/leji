@@ -1,0 +1,40 @@
+{
+  "$schema": "https://leji.org/schemas/v1.0/context-changelog.schema.json",
+  "schemaVersion": "1.0",
+  "entries": [
+    {
+      "id": "seed-core-context",
+      "date": "2026-06-10",
+      "type": "added",
+      "summary": "Seeded the core context layer: boot profile, glossary, invariants, governance, first decision record, core agent profile.",
+      "paths": [
+        "docs/boot-profile.md",
+        "docs/domain/glossary.md",
+        "docs/system/invariants.md",
+        "docs/governance/review.md",
+        "docs/decisions/0001-adopt-leji.md",
+        "docs/agents/core.md"
+      ],
+      "categories": [
+        "domain",
+        "system",
+        "governance",
+        "decisions"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Sam Park"
+    },
+    {
+      "id": "mount-product-context",
+      "date": "2026-06-12",
+      "type": "added",
+      "summary": "Mounted the product-team context layer as a federated sibling, ownership intact.",
+      "paths": [
+        "leji.json",
+        "docs/product-context/leji.json"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Sam Park"
+    }
+  ]
+}

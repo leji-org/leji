@@ -1,0 +1,216 @@
+name: Release
+
+# Tag-driven, OIDC-published, one-shot multi-registry release for Leji v1.0.0.
+# Mirrors docs/leji/launch/release-runbook.md + registry-matrix.md + go-release.md.
+#
+# PER-PACKAGE, PATH-PREFIXED TAGS (decisions/0004). Never a plain repo-wide
+# `v1.0.0` — it does not version the Go submodule. Each publish job triggers
+# ONLY on its own tag (trigger isolation; a cross-triggered publish is
+# irreversible):
+#
+#   packages/sdk/v1.0.0          -> npm `@leji-org/leji`  +  JSR `@leji-org/leji`  (one tag, two jobs)
+#   packages/create-leji/v1.0.0  -> npm `create-leji`
+#   packages/sdk-py/v1.0.0       -> PyPI `leji`
+#   packages/sdk-go/v1.0.0       -> Go module index + goreleaser binaries (DRAFT release)
+#
+# PROVENANCE / NO STORED TOKENS (security-provenance.md): every registry uses
+# OIDC trusted publishing. npm/JSR provenance is automatic; PyPI uses Trusted
+# Publishing via pypa's action. The npm/PyPI/JSR trusted publishers MUST be
+# configured on each registry for this repo BEFORE tagging (clean-room gate).
+#
+# Pin actions to full commit SHAs before the public launch (supply-chain).
+
+on:
+  push:
+    tags:
+      - "packages/sdk/v*"
+      - "packages/create-leji/v*"
+      - "packages/sdk-py/v*"
+      - "packages/sdk-go/v*"
+
+permissions:
+  contents: read
+
+jobs:
+  # Cross-SDK pre-publish gate. Builds the exact publishable artifacts (npm
+  # tarball, PyPI wheel, Go binary), cold-installs each, runs the CLI battery,
+  # asserts cross-SDK parity, and runs `jsr publish --dry-run`. No `if:`, so it
+  # runs on EVERY release tag and gates whichever publish job fires. The tag is
+  # irreversible; the publish is not.
+  smoke:
+    name: Pre-publish smoke (all SDKs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - run: npm ci
+      - name: Build artifacts, cold-install each, assert CLI battery + cross-SDK parity
+        run: npm run smoke:prepublish
+
+  # --- packages/sdk/v* : npm `@leji-org/leji` + JSR `@leji-org/leji` (same tag, two jobs) ---
+
+  npm:
+    name: Publish leji to npm
+    if: startsWith(github.ref, 'refs/tags/packages/sdk/v')
+    needs: smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # provenance attestation (required even on the token path)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+      - run: npm ci
+      - name: Verify tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#packages/sdk/v}"
+          PKG="$(node -p "require('./packages/sdk/package.json').version")"
+          test "$TAG" = "$PKG" || { echo "tag packages/sdk/v$TAG != packages/sdk version $PKG"; exit 1; }
+      - run: npm run assets:check
+      - run: npm run build -w packages/sdk
+      - run: npm test -w packages/sdk
+      # LAUNCH BOOTSTRAP: npm has no pending-publisher, so a brand-new package's
+      # first publish needs a token. `--provenance` (+ id-token: write, public
+      # repo) still attests provenance on the token path. Post-launch: configure
+      # the trusted publisher in the package settings, set "require 2FA and
+      # disallow tokens", delete NPM_TOKEN, and drop back to tokenless OIDC.
+      - name: Publish (token + provenance)
+        working-directory: packages/sdk
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  jsr:
+    name: Publish @leji-org/leji to JSR (OIDC)
+    if: startsWith(github.ref, 'refs/tags/packages/sdk/v')
+    needs: smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # JSR OIDC publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - name: Verify tag matches jsr.json version
+        run: |
+          TAG="${GITHUB_REF_NAME#packages/sdk/v}"
+          PKG="$(node -p "require('./packages/sdk/jsr.json').version")"
+          test "$TAG" = "$PKG" || { echo "tag packages/sdk/v$TAG != jsr.json version $PKG"; exit 1; }
+      # JSR publishes the TS source (per jsr.json exports ./src/index.ts), not the
+      # npm dist tarball. OIDC is auto-detected in Actions with id-token: write.
+      - name: Publish to JSR
+        working-directory: packages/sdk
+        run: npx jsr publish
+
+  # --- packages/create-leji/v* : npm `create-leji` (first-class, own tag) ---
+
+  create-leji:
+    name: Publish create-leji to npm
+    if: startsWith(github.ref, 'refs/tags/packages/create-leji/v')
+    needs: smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # provenance attestation (required even on the token path)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+      - run: npm ci
+      - name: Verify tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#packages/create-leji/v}"
+          PKG="$(node -p "require('./packages/create-leji/package.json').version")"
+          test "$TAG" = "$PKG" || { echo "tag packages/create-leji/v$TAG != create-leji version $PKG"; exit 1; }
+      # Same launch-bootstrap token path as the `leji` job above; switch to OIDC
+      # post-launch. Tag this AFTER packages/sdk/v* is live on npm so
+      # `npm create leji` resolves for users (release-runbook.md).
+      - name: Publish (token + provenance)
+        working-directory: packages/create-leji
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # --- packages/sdk-py/v* : PyPI `leji` ---
+
+  pypi:
+    name: Publish leji to PyPI (trusted publishing)
+    if: startsWith(github.ref, 'refs/tags/packages/sdk-py/v')
+    needs: smoke
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # PyPI Trusted Publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#packages/sdk-py/v}"
+          PKG="$(grep -m1 '^version' packages/sdk-py/pyproject.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          test "$TAG" = "$PKG" || { echo "tag packages/sdk-py/v$TAG != pyproject version $PKG"; exit 1; }
+      - name: Test
+        working-directory: packages/sdk-py
+        run: python -m pip install --upgrade pip && pip install -e ".[dev]" && pytest -q
+      - name: Build sdist + wheel
+        working-directory: packages/sdk-py
+        run: python -m pip install --upgrade build && python -m build
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/sdk-py/dist
+
+  # --- packages/sdk-go/v* : Go module index + goreleaser binaries (DRAFT) ---
+
+  go:
+    name: Release Go binaries (goreleaser, draft)
+    if: startsWith(github.ref, 'refs/tags/packages/sdk-go/v')
+    needs: smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create/update the DRAFT GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so goreleaser sees tags
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Verify tag matches SDK version
+        run: |
+          TAG="${GITHUB_REF_NAME#packages/sdk-go/v}"
+          PKG="$(sed -nE 's/^var SDKVersion = "([^"]+)".*/\1/p' packages/sdk-go/internal/schemas/schemas.go)"
+          test "$TAG" = "$PKG" || { echo "tag packages/sdk-go/v$TAG != SDKVersion $PKG"; exit 1; }
+      # goreleaser free tier cannot parse the path-prefixed tag as a version, so
+      # strip the prefix and hand it the bare version (go-release.md, mandatory).
+      - name: Strip tag prefix for goreleaser
+        run: echo "GORELEASER_CURRENT_TAG=${GITHUB_REF_NAME#packages/sdk-go/}" >> "$GITHUB_ENV"
+      - name: goreleaser (build cross-platform binaries -> draft release)
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          workdir: packages/sdk-go
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GORELEASER_CURRENT_TAG (set above) supplies the version; the binaries
+          # land on a DRAFT "Leji v1.0.0" release, published last by finalize.

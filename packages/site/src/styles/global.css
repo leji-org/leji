@@ -1,0 +1,358 @@
+/* Leji: engraved monument meets terminal.
+   The name is "legible"; typography is the hero. */
+
+:root {
+   /* The site is intentionally light; this keeps native UI consistent and
+      stops Chrome auto-dark / dark-mode extensions from inverting the brand. */
+   color-scheme: light;
+
+   /* Brand: blue #223F93, gold #FFBD6E. Deep/soft/bright are derived shades of the two. */
+   --blue-deep: #162960;
+   --blue: #223F93;
+   --blue-soft: #3D56A0;
+   --gold: #FFBD6E;
+   --gold-bright: #FFCD92;
+   --paper: #faf6ef;
+   --paper-edge: #efe7d9;
+   --ink: #20242f;
+   --ink-soft: #555b6e;
+   --line: #d9d0c0;
+   --line-dark: rgba(255, 189, 110, 0.25);
+   --white: #fdfcf9;
+
+   /* Text tones on the blue surfaces, from most to least present.
+      Centralized so the high-contrast override below reaches all of them. */
+   --white-strong: rgba(253, 252, 249, 0.92);
+   --white-soft: rgba(253, 252, 249, 0.84);
+   --white-faint: rgba(253, 252, 249, 0.62);
+
+   --serif-display: 'Fraunces Variable', 'Fraunces', georgia, serif;
+   --serif-text: 'Source Serif 4 Variable', 'Source Serif 4', georgia, serif;
+   --mono: 'IBM Plex Mono', menlo, monospace;
+
+   /* one size for every multi-line code block, site-wide.
+      0.78 keeps the home "manifest" example's longest line on one row. */
+   --code-fz: 0.78rem;
+}
+
+/* High-contrast preference: full-opacity text tones, darker secondary ink,
+   stronger hairlines. Same palette, nothing redesigned. */
+@media (prefers-contrast: more) {
+   :root {
+      --white-strong: var(--white);
+      --white-soft: var(--white);
+      --white-faint: var(--white);
+      --ink-soft: #343948;
+      --line: #b3a78f;
+      --line-dark: rgba(255, 189, 110, 0.6);
+   }
+}
+
+* { box-sizing: border-box; }
+
+html {
+   scroll-behavior: smooth;
+}
+
+body {
+   margin: 0;
+   font-family: var(--serif-text);
+   font-size: 17px;
+   line-height: 1.65;
+   color: var(--ink);
+   background: var(--paper);
+   -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--gold); color: var(--blue-deep); }
+
+a { color: inherit; }
+
+code, pre, kbd {
+   font-family: var(--mono);
+}
+
+/* header styles live in components/SiteHeader.astro */
+
+.wrap {
+   max-width: 1080px;
+   margin: 0 auto;
+   padding: 0 clamp(1.2rem, 4vw, 2.5rem);
+}
+
+/* ── doc pages (the reading room) ────────────────────── */
+
+.doc-shell {
+   display: grid;
+   grid-template-columns: 230px minmax(0, 1fr);
+   gap: clamp(2rem, 5vw, 4.5rem);
+   padding: 2.5rem 0 6rem;
+}
+/* let either column shrink below its content's intrinsic width so an
+   over-wide child (a table, a long token) never widens the whole page */
+.doc-shell > * { min-width: 0; }
+
+@media (max-width: 800px) {
+   .doc-shell { grid-template-columns: minmax(0, 1fr); }
+}
+
+.doc-nav {
+   position: sticky;
+   top: 1.5rem;
+   align-self: start;
+   font-size: 0.85rem;
+}
+
+@media (max-width: 800px) {
+   /* in one column the nav must scroll with the page, not pin over content */
+   .doc-nav {
+      position: static;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 1.2rem;
+   }
+}
+
+.doc-nav h2 {
+   font-family: var(--mono);
+   font-size: 0.68rem;
+   letter-spacing: 0.14em;
+   text-transform: uppercase;
+   color: var(--ink-soft);
+   margin: 1.4rem 0 0.5rem;
+}
+
+.doc-nav ol {
+   list-style: none;
+   margin: 0;
+   padding: 0;
+   counter-reset: docnav;
+}
+
+.doc-nav ol li { counter-increment: docnav; }
+
+.doc-nav ol a::before {
+   content: counter(docnav, decimal-leading-zero) ' ';
+   font-family: var(--mono);
+   font-size: 0.7rem;
+   color: var(--gold);
+   filter: brightness(0.72);
+}
+
+.doc-nav a {
+   display: block;
+   padding: 0.28rem 0.6rem;
+   margin-left: -0.6rem;
+   text-decoration: none;
+   color: var(--ink-soft);
+   border-left: 2px solid transparent;
+   border-radius: 0 4px 4px 0;
+   transition: color 0.15s, background 0.15s;
+}
+
+.doc-nav a:hover { color: var(--ink); background: rgba(34, 63, 147, 0.05); }
+
+.doc-nav a[aria-current='page'] {
+   color: var(--blue);
+   border-left-color: var(--gold);
+   background: rgba(34, 63, 147, 0.06);
+   font-weight: 600;
+}
+
+/* section sidebars: a numbered list for the spec, plain bulleted lists for the
+   reference and adopt groups */
+.doc-nav ol.plain { counter-reset: none; list-style: none; }
+.doc-nav ol.plain a::before { content: '·  '; color: var(--gold); filter: none; }
+
+/* collapsible groups: the summary is the group heading, with a chevron */
+.doc-nav details {
+   margin: 0;
+}
+.doc-nav summary {
+   list-style: none;
+   cursor: pointer;
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+   gap: 0.5rem;
+   font-family: var(--mono);
+   font-size: 0.68rem;
+   letter-spacing: 0.14em;
+   text-transform: uppercase;
+   color: var(--ink-soft);
+   margin: 1.4rem 0 0.5rem;
+   user-select: none;
+}
+.doc-nav summary::-webkit-details-marker {
+   display: none;
+}
+.doc-nav summary:hover {
+   color: var(--ink);
+}
+.doc-nav summary .chev {
+   font-size: 1.15em;
+   color: var(--ink-soft);
+   transition: transform 0.15s;
+}
+.doc-nav summary:hover .chev {
+   color: var(--blue);
+}
+.doc-nav details[open] > summary .chev {
+   transform: rotate(90deg);
+}
+
+/* prose */
+
+.prose h1 {
+   font-family: var(--serif-display);
+   font-size: clamp(2rem, 4.5vw, 2.9rem);
+   font-weight: 560;
+   line-height: 1.12;
+   letter-spacing: -0.01em;
+   color: var(--blue-deep);
+   margin: 0 0 1.2rem;
+}
+
+.prose h2 {
+   font-family: var(--serif-display);
+   font-weight: 580;
+   font-size: 1.45rem;
+   color: var(--blue-deep);
+   margin: 2.6rem 0 0.7rem;
+}
+
+.prose h3 { font-size: 1.08rem; margin: 1.8rem 0 0.4rem; }
+
+/* grabbable per-section permalink: faint, revealed on heading hover/focus */
+.prose h2, .prose h3, .prose h4 { scroll-margin-top: 1.5rem; }
+.prose a.heading-anchor {
+   margin-left: 0.4rem;
+   color: var(--gold);
+   font-weight: 400;
+   text-decoration: none;
+   opacity: 0;
+   transition: opacity 0.15s;
+}
+.prose h2:hover a.heading-anchor,
+.prose h3:hover a.heading-anchor,
+.prose h4:hover a.heading-anchor,
+.prose a.heading-anchor:focus { opacity: 0.65; }
+.prose a.heading-anchor:hover { opacity: 1; }
+
+.prose p, .prose li { max-width: 70ch; }
+
+/* GFM task lists (the conformance checklist) read as requirement criteria, not
+   a to-do: drop the redundant bullet, hide the native checkbox, and mark each
+   item with a small gold square (a requirement indicator, not an empty checkbox
+   that implies "not done" nor a checkmark that implies "certified"). The `- [ ]`
+   markdown stays, so GitHub still renders native checkboxes. */
+.prose .contains-task-list {
+   list-style: none;
+   padding-left: 0;
+}
+.prose li.task-list-item {
+   position: relative;
+   padding-left: 1.4rem;
+}
+.prose li.task-list-item::marker {
+   content: '';
+}
+.prose li.task-list-item > input[type='checkbox'] {
+   display: none;
+}
+.prose li.task-list-item::before {
+   content: '';
+   position: absolute;
+   left: 0;
+   top: 0.62em;
+   width: 0.5rem;
+   height: 0.5rem;
+   border-radius: 2px;
+   background: var(--gold);
+   box-shadow: 0 0 0 1px rgba(34, 63, 147, 0.22);
+}
+
+.prose a { color: var(--blue); text-decoration-color: var(--gold); text-underline-offset: 3px; }
+.prose a:hover { color: var(--blue-soft); }
+
+.prose code {
+   font-size: 0.84em;
+   background: rgba(34, 63, 147, 0.07);
+   border-radius: 4px;
+   padding: 0.1em 0.35em;
+   /* slash-joined code runs (domain/system/.../decisions) and long paths
+      have no natural break; let them break when cornered on narrow screens
+      rather than push the page wider than the viewport */
+   overflow-wrap: anywhere;
+}
+
+.prose pre {
+   /* !important beats Shiki's inline theme background so every code box sits on brand blue */
+   background: var(--blue-deep) !important;
+   border-radius: 10px;
+   padding: 1.1rem 1.3rem;
+   /* wrap long lines (shell invocations, the start-script JSON) instead of
+      scrolling; a too-long token breaks rather than forcing the column wide */
+   white-space: pre-wrap;
+   overflow-wrap: anywhere;
+   font-size: var(--code-fz);
+   line-height: 1.6;
+}
+
+.prose pre code { background: none; padding: 0; }
+
+/* a table wider than the column scrolls inside this box, not the page */
+.prose .table-scroll {
+   max-width: 100%;
+   overflow-x: auto;
+   margin: 1.2rem 0;
+}
+
+.prose table {
+   border-collapse: collapse;
+   width: 100%;
+   font-size: 0.92rem;
+}
+/* the wrapper owns the vertical rhythm now */
+.prose .table-scroll > table {
+   margin: 0;
+}
+
+/* first column is always a short label (a term, a name, a path): keep it on
+   one line so it reads as the row's key, never broken across two */
+.prose th:first-child,
+.prose td:first-child {
+   white-space: nowrap;
+}
+
+.prose th {
+   font-family: var(--mono);
+   font-size: 0.7rem;
+   letter-spacing: 0.1em;
+   text-transform: uppercase;
+   text-align: left;
+   color: var(--ink-soft);
+   border-bottom: 2px solid var(--blue);
+   padding: 0.5rem 0.9rem 0.5rem 0;
+}
+
+.prose td {
+   border-bottom: 1px solid var(--line);
+   padding: 0.55rem 0.9rem 0.55rem 0;
+   vertical-align: top;
+}
+
+.prose blockquote {
+   margin: 1.4rem 0;
+   padding: 0.2rem 1.3rem;
+   border-left: 3px solid var(--gold);
+   background: rgba(255, 189, 110, 0.08);
+   border-radius: 0 8px 8px 0;
+   color: var(--ink-soft);
+}
+
+/* RFC 2119 keywords get the engraved treatment */
+.prose strong {
+   color: var(--blue-deep);
+}
+
+/* footer styles live in components/SiteFooter.astro */

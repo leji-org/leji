@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leji.org/schemas/v1.0/decision-record.schema.json",
+  "title": "Leji decision record frontmatter",
+  "description": "Validates the YAML frontmatter of a decision record. The markdown body carries context, decision, and consequences in prose.",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "status",
+    "date"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "Stable identifier for this decision, e.g. \"adopt-leji\".",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "title": {
+      "description": "Short title of the decision.",
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "description": "Lifecycle status of the decision.",
+      "enum": [
+        "proposed",
+        "accepted",
+        "superseded",
+        "deprecated",
+        "rejected"
+      ]
+    },
+    "date": {
+      "description": "ISO 8601 date the decision was made or last changed status.",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "deciders": {
+      "description": "People who made the decision.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "supersedes": {
+      "type": "string",
+      "description": "id of the record this decision replaces."
+    },
+    "supersededBy": {
+      "type": "string",
+      "description": "id of the record that replaced this one."
+    },
+    "affectedPaths": {
+      "description": "Repository-root-relative paths the decision affects.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?!/)(?!\\./)(?!.*(^|/)\\.\\.(/|$))(?!.*\\\\).+$"
+      }
+    },
+    "affectedCategories": {
+      "description": "Content categories the decision affects.",
+      "type": "array",
+      "items": {
+        "enum": [
+          "domain",
+          "system",
+          "practice",
+          "governance",
+          "decisions"
+        ]
+      }
+    },
+    "links": {
+      "description": "Optional outbound references, e.g. to related decisions or issues.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

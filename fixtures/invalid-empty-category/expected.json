@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "category-empty",
+        "severity": "error",
+        "path": "docs/practice/"
+      }
+    ]
+  }
+}

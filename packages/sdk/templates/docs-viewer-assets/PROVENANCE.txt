@@ -1,0 +1,18 @@
+Vendored, CDN-free assets for the `leji docs` viewer. Do not edit by hand.
+
+docsify.min.js, vue.css
+   From docsify@4.13.1 (npm). Update: npm pack docsify@<version>, copy
+   lib/docsify.min.js and themes/vue.css here, bump the version in
+   templates/docs-viewer.html's comment, run npm run assets.
+   NOTE: vue.css carries an appended "Leji brand theme" block at the end
+   (palette + sidebar + search + footer; typography stays theme-default).
+   Re-apply it after replacing the file.
+
+search.min.js
+   Docsify full-text search plugin. Powers the sidebar search box.
+
+docsify-sidebar-collapse.min.js, docsify-sidebar-collapse.min.css
+   docsify-sidebar-collapse plugin. Collapsible sidebar groups with a ▶/▼
+   triangle and auto-expansion of the active document's trail.
+
+This note is documentation only; the SDKs never copy it into a user's output.

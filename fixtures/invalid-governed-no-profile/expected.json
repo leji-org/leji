@@ -1,0 +1,21 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "profile-required",
+        "severity": "error",
+        "path": "docs/agents/"
+      }
+    ]
+  },
+  "conformance": {
+    "exit": 1,
+    "claimedLevel": "governed",
+    "verifiedLevel": "indexed"
+  },
+  "indexCheck": {
+    "exit": 0,
+    "stale": false
+  }
+}

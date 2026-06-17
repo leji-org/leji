@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "schema-version",
+        "severity": "error",
+        "path": "docs/context-index.json"
+      }
+    ]
+  }
+}

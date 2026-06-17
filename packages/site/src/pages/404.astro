@@ -1,0 +1,50 @@
+---
+import Base from '../layouts/Base.astro';
+import SiteHeader from '../components/SiteHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+---
+
+<Base title="Not found · Leji">
+   <SiteHeader />
+   <div class="wrap">
+      <section class="lost">
+         <p class="lost-eyebrow">404 · NOT FOUND</p>
+         <h1>Nothing engraved here.</h1>
+         <p class="lost-text">
+            The page you asked for isn't here. Start from the
+            <a href="/">monument</a> or go straight to <a href="/spec/">the specification</a>.
+         </p>
+      </section>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .lost {
+      padding: clamp(4rem, 14vh, 9rem) 0 6rem;
+      max-width: 640px;
+   }
+   .lost-eyebrow {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.22em;
+      color: var(--gold);
+      filter: brightness(0.8);
+      margin: 0 0 1rem;
+   }
+   h1 {
+      font-family: var(--serif-display);
+      font-size: clamp(2.2rem, 6vw, 3.4rem);
+      font-weight: 520;
+      color: var(--blue-deep);
+      margin: 0 0 1rem;
+   }
+   .lost-text {
+      color: var(--ink-soft);
+   }
+   .lost-text a {
+      color: var(--blue);
+      text-decoration-color: var(--gold);
+      text-underline-offset: 3px;
+   }
+</style>

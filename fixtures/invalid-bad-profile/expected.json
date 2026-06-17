@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "profile-frontmatter",
+        "severity": "error",
+        "path": "docs/agents/core.md"
+      }
+    ]
+  }
+}
