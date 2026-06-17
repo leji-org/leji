@@ -64,13 +64,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # provenance attestation (required even on the token path)
+      id-token: write # OIDC trusted publishing (provenance automatic, no token)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
+      # OIDC trusted publishing needs npm >= 11.5.1 (Node 24 may ship older).
+      - run: npm install -g npm@latest && npm --version
       - run: npm ci
       - name: Verify tag matches package version
         run: |
@@ -80,16 +82,12 @@ jobs:
       - run: npm run assets:check
       - run: npm run build -w packages/sdk
       - run: npm test -w packages/sdk
-      # LAUNCH BOOTSTRAP: npm has no pending-publisher, so a brand-new package's
-      # first publish needs a token. `--provenance` (+ id-token: write, public
-      # repo) still attests provenance on the token path. Post-launch: configure
-      # the trusted publisher in the package settings, set "require 2FA and
-      # disallow tokens", delete NPM_TOKEN, and drop back to tokenless OIDC.
-      - name: Publish (token + provenance)
+      # OIDC trusted publishing: no stored token, provenance automatic. The trusted
+      # publisher (leji-org/leji, release.yml) is configured on npmjs and the
+      # package requires 2FA + disallows tokens.
+      - name: Publish (OIDC trusted publishing)
         working-directory: packages/sdk
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
 
   jsr:
     name: Publish @leji-org/leji to JSR (OIDC)
@@ -125,27 +123,25 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # provenance attestation (required even on the token path)
+      id-token: write # OIDC trusted publishing (provenance automatic, no token)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
+      - run: npm install -g npm@latest && npm --version
       - run: npm ci
       - name: Verify tag matches package version
         run: |
           TAG="${GITHUB_REF_NAME#packages/create-leji/v}"
           PKG="$(node -p "require('./packages/create-leji/package.json').version")"
           test "$TAG" = "$PKG" || { echo "tag packages/create-leji/v$TAG != create-leji version $PKG"; exit 1; }
-      # Same launch-bootstrap token path as the `leji` job above; switch to OIDC
-      # post-launch. Tag this AFTER packages/sdk/v* is live on npm so
-      # `npm create leji` resolves for users (release-runbook.md).
-      - name: Publish (token + provenance)
+      # OIDC trusted publishing (no stored token). Tag this AFTER packages/sdk/v*
+      # is live on npm so `npm create leji` resolves for users (release-runbook.md).
+      - name: Publish (OIDC trusted publishing)
         working-directory: packages/create-leji
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
 
   # --- packages/sdk-py/v* : PyPI `leji` ---
 
