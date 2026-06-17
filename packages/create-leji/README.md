@@ -6,7 +6,7 @@ Bootstrap a [Leji](https://leji.org) context layer interactively:
 npm create leji            # or: pnpm create leji / yarn create leji
 ```
 
-Equivalent to installing the [`leji`](https://www.npmjs.com/package/leji) SDK
+Equivalent to installing the [`@leji-org/leji`](https://www.npmjs.com/package/@leji-org/leji) SDK
 and running `leji init`. All `leji init` flags pass through:
 
 ```bash

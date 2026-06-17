@@ -1,6 +1,6 @@
 {
    "name": "create-leji",
-   "version": "1.0.0",
+   "version": "1.0.1",
    "description": "Bootstrap a Leji context layer for AI-native teams: `npm create leji` runs `leji init`.",
    "keywords": [
       "leji",
