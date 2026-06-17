@@ -33,6 +33,6 @@
       "index.js"
    ],
    "dependencies": {
-      "@leji-org/leji": "1.0.0"
+      "@leji-org/leji": "^1.0.0"
    }
 }
