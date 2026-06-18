@@ -9,6 +9,7 @@ import {
    buildSidebar,
    checkChangelogAppendOnly,
    checkIndex,
+   compactChangelog,
    conformanceReport,
    freshnessReport,
    generateDocs,
@@ -18,6 +19,7 @@ import {
 } from '../dist/index.js';
 import { finding, hasErrors, summarize } from '../dist/lib/findings.js';
 import { walkMd, underPath } from '../dist/lib/fsx.js';
+import { excludedFromCategories, scanAgentProfiles, scanCategories } from '../dist/lib/layer.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const exampleDir = path.join(repoRoot, 'examples', 'monorepo');
@@ -32,12 +34,75 @@ function copyExample(): string {
    return dir;
 }
 
-test('checkIndex/writeIndex without a declared indexPath report index-required', () => {
+test('index resolves the default path when machine.indexPath is undeclared', () => {
    const dir = tmpdir('leji-noidx-');
    fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
    const { manifest } = loadManifest(dir);
-   assert.equal(checkIndex(dir, manifest!).findings[0].rule, 'index-required');
-   assert.equal(writeIndex(dir, manifest!).findings[0].rule, 'index-required');
+   // rootPath is docs/, so the default index path is docs/context-index.json.
+   // No file exists there yet: checkIndex reports index-required (missing file).
+   const check = checkIndex(dir, manifest!);
+   assert.equal(check.findings[0].rule, 'index-required');
+   assert.match(check.findings[0].message, /docs\/context-index\.json does not exist/);
+   assert.equal(check.findings[0].path, 'docs/context-index.json');
+   // writeIndex now always has a path: it writes to the default and reports no error.
+   const write = writeIndex(dir, manifest!);
+   assert.ok(!write.findings.some((f) => f.rule === 'index-required'), 'no index-required after write');
+   assert.ok(fs.existsSync(path.join(dir, 'docs', 'context-index.json')), 'default index written');
+   // The written index is now current.
+   assert.equal(checkIndex(dir, manifest!).stale, false);
+});
+
+test('no machine block: agents/decisions resolve to docs/agents/ and docs/decisions/', () => {
+   const dir = tmpdir('leji-nomachine-');
+   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   // The fixture declares no machine block at all.
+   const { manifest } = loadManifest(dir);
+   assert.equal(manifest!.machine, undefined, 'fixture has no machine block');
+
+   // Drop a valid agent profile at the default profiles location (docs/agents/).
+   const agentsDir = path.join(dir, 'docs', 'agents');
+   fs.mkdirSync(agentsDir, { recursive: true });
+   fs.writeFileSync(
+      path.join(agentsDir, 'core.md'),
+      [
+         '---',
+         'id: core',
+         'name: Core',
+         'role: core',
+         'requiredRead:',
+         '  - docs/boot-profile.md',
+         'mustAskWhen:',
+         '  - a proposal weakens an invariant',
+         'freshness:',
+         '  reviewAfter: 2020-01-01',
+         '---',
+         '',
+         '# Core',
+         '',
+         'A profile under the default agents directory.',
+         '',
+      ].join('\n'),
+   );
+
+   // scanAgentProfiles finds the profile at the undeclared-but-defaulted path.
+   const profiles = scanAgentProfiles(dir, manifest!);
+   assert.ok(
+      profiles.some((p) => p.relPath === 'docs/agents/core.md' && p.findings.length === 0),
+      'profile under docs/agents/ is scanned and valid',
+   );
+
+   // freshness includes the profile's horizon (it carries an expired reviewAfter).
+   const freshness = freshnessReport(dir, manifest!);
+   assert.ok(
+      freshness.expired.some((i) => i.path === 'docs/agents/core.md'),
+      'profile freshness horizon is included',
+   );
+
+   // docs/agents/ is excluded from category content even when undeclared.
+   const excluded = excludedFromCategories(manifest!);
+   assert.equal(excluded('docs/agents/core.md'), true, 'docs/agents/ excluded from categories');
+   const docs = scanCategories(dir, manifest!);
+   assert.ok(!docs.some((d) => d.relPath === 'docs/agents/core.md'), 'agent profile is not category content');
 });
 
 test('corrupt stored index is artifact-parse', () => {
@@ -373,6 +438,127 @@ test('compaction: compacting to an empty changelog fails', () => {
    assert.ok(result.findings.some((f) => f.rule === 'changelog-append-only' && /compacted to empty/.test(f.message)));
 });
 
+// --- changelog compact ---
+
+const CHANGELOG_REL = 'docs/context-changelog.json';
+
+/** Seed a git-committed example whose changelog carries `count` dated entries. */
+function seedWithEntries(prefix: string, count: number): string {
+   const dir = tmpdir(prefix);
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: dir });
+   execFileSync('git', ['config', 'user.name', 'T'], { cwd: dir });
+   fs.cpSync(exampleDir, dir, { recursive: true });
+   const abs = path.join(dir, CHANGELOG_REL);
+   const log = JSON.parse(fs.readFileSync(abs, 'utf8'));
+   log.entries = Array.from({ length: count }, (_, i) => ({
+      id: `e-${String(i + 1).padStart(2, '0')}`,
+      date: `2026-0${1 + Math.floor(i / 28)}-${String((i % 28) + 1).padStart(2, '0')}`,
+      type: 'added',
+      summary: `Change ${i + 1}.`,
+      paths: [`docs/file-${i + 1}.md`],
+   }));
+   fs.writeFileSync(abs, JSON.stringify(log, null, 2) + '\n');
+   execFileSync('git', ['add', '-A'], { cwd: dir });
+   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: dir });
+   return dir;
+}
+
+test('compact --keep folds the oldest, keeps the newest N, appends a compaction entry, result validates', () => {
+   const dir = seedWithEntries('leji-compact-keep-', 10);
+   const { manifest } = loadManifest(dir);
+   const result = compactChangelog(dir, manifest!, { keep: 4 });
+   assert.deepEqual(
+      result.findings.filter((f) => f.severity === 'error'),
+      [],
+   );
+   assert.equal(result.folded, 6);
+   assert.equal(result.kept, 5); // 4 survivors + 1 compaction entry
+
+   const log = JSON.parse(fs.readFileSync(path.join(dir, CHANGELOG_REL), 'utf8'));
+   const ids = log.entries.map((e: { id: string }) => e.id);
+   // Oldest six (e-01..e-06) folded; newest four (e-07..e-10) survive.
+   assert.deepEqual(ids.slice(0, 4), ['e-07', 'e-08', 'e-09', 'e-10']);
+   const compaction = log.entries[log.entries.length - 1];
+   assert.equal(compaction.type, 'compaction');
+   assert.equal(compaction.compacted.entries, 6);
+   assert.equal(compaction.compacted.firstId, 'e-01');
+   assert.equal(compaction.compacted.lastId, 'e-06');
+   assert.deepEqual(compaction.paths, [
+      'docs/file-1.md',
+      'docs/file-2.md',
+      'docs/file-3.md',
+      'docs/file-4.md',
+      'docs/file-5.md',
+      'docs/file-6.md',
+   ]);
+
+   // The compacted changelog passes append-only discipline against the git baseline.
+   const check = checkChangelogAppendOnly(dir, CHANGELOG_REL);
+   assert.deepEqual(
+      check.findings.filter((f) => f.severity === 'error'),
+      [],
+   );
+   // And the whole layer still validates clean (schema + currency + discipline).
+   assert.ok(!validateLayer(dir).findings.some((f) => f.severity === 'error'), 'layer validates after compact');
+});
+
+test('compact --before folds entries dated before the cutoff', () => {
+   const dir = seedWithEntries('leji-compact-before-', 10);
+   const { manifest } = loadManifest(dir);
+   // Entries e-01..e-28 are in 2026-01; e-29+ roll into 2026-02. With 10 entries
+   // all are 2026-01; cut before 2026-01-06 folds e-01..e-05 (dates 01..05).
+   const result = compactChangelog(dir, manifest!, { before: '2026-01-06' });
+   assert.deepEqual(
+      result.findings.filter((f) => f.severity === 'error'),
+      [],
+   );
+   assert.equal(result.folded, 5);
+   const log = JSON.parse(fs.readFileSync(path.join(dir, CHANGELOG_REL), 'utf8'));
+   const compaction = log.entries[log.entries.length - 1];
+   assert.equal(compaction.compacted.firstId, 'e-01');
+   assert.equal(compaction.compacted.lastId, 'e-05');
+   assert.ok(!checkChangelogAppendOnly(dir, CHANGELOG_REL).findings.some((f) => f.severity === 'error'));
+});
+
+test('compact with both flags folds their intersection', () => {
+   const dir = seedWithEntries('leji-compact-both-', 10);
+   const { manifest } = loadManifest(dir);
+   // --keep 3 marks e-01..e-07 foldable; --before 2026-01-04 marks e-01..e-03.
+   // The intersection (an entry must satisfy BOTH) is e-01..e-03.
+   const result = compactChangelog(dir, manifest!, { keep: 3, before: '2026-01-04' });
+   assert.equal(result.folded, 3);
+   const log = JSON.parse(fs.readFileSync(path.join(dir, CHANGELOG_REL), 'utf8'));
+   const compaction = log.entries[log.entries.length - 1];
+   assert.equal(compaction.compacted.firstId, 'e-01');
+   assert.equal(compaction.compacted.lastId, 'e-03');
+});
+
+test('compact is a no-op when nothing folds', () => {
+   const dir = seedWithEntries('leji-compact-noop-', 5);
+   const { manifest } = loadManifest(dir);
+   const before = fs.readFileSync(path.join(dir, CHANGELOG_REL), 'utf8');
+   const result = compactChangelog(dir, manifest!, { keep: 10 }); // keep more than exist
+   assert.equal(result.folded, 0);
+   assert.deepEqual(result.findings, []);
+   assert.equal(fs.readFileSync(path.join(dir, CHANGELOG_REL), 'utf8'), before, 'file unchanged on no-op');
+});
+
+test('compact dedupes the compaction id when one already exists for today', () => {
+   const dir = seedWithEntries('leji-compact-dedupe-', 6);
+   const today = new Date().toISOString().slice(0, 10);
+   const abs = path.join(dir, CHANGELOG_REL);
+   const log = JSON.parse(fs.readFileSync(abs, 'utf8'));
+   log.entries[0].id = `compaction-${today}`; // collide with the id the compactor will pick
+   fs.writeFileSync(abs, JSON.stringify(log, null, 2) + '\n');
+   const { manifest } = loadManifest(dir);
+   const result = compactChangelog(dir, manifest!, { keep: 2 });
+   assert.ok(result.folded > 0);
+   const after = JSON.parse(fs.readFileSync(abs, 'utf8'));
+   const compaction = after.entries[after.entries.length - 1];
+   assert.equal(compaction.id, `compaction-${today}-2`);
+});
+
 test('docs: generates viewer + sidebar that reflect the layer', () => {
    const dir = copyExample();
    const { manifest } = loadManifest(dir);
@@ -602,17 +788,37 @@ test('changelog: an unparseable HEAD baseline is treated as no baseline', () => 
    assert.ok(!result.findings.some((f) => f.rule === 'changelog-append-only'));
 });
 
-test('validate: indexed claim without any declared changelogPath is changelog-required', () => {
+test('validate: indexed claim with no declared changelogPath resolves the default path', () => {
    const dir = copyExample();
    const manifestPath = path.join(dir, 'leji.json');
    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-   // indexed is already claimed; drop the changelog declaration entirely.
+   // indexed is already claimed; drop the changelog declaration entirely. The
+   // example ships docs/context-changelog.json at the default path, so the
+   // effective resolver finds it and validation does not report changelog-required.
    delete manifest.machine.changelogPath;
    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
    const result = validateLayer(dir);
    assert.ok(
+      !result.findings.some((f) => f.rule === 'changelog-required'),
+      'default changelog path is resolved, not reported missing',
+   );
+});
+
+test('validate: indexed claim with no changelog at the default path is changelog-required', () => {
+   const dir = copyExample();
+   const manifestPath = path.join(dir, 'leji.json');
+   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+   delete manifest.machine.changelogPath;
+   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+   // Remove the default-path changelog so nothing resolves.
+   fs.rmSync(path.join(dir, 'docs', 'context-changelog.json'));
+   const result = validateLayer(dir);
+   assert.ok(
       result.findings.some(
-         (f) => f.rule === 'changelog-required' && f.path === 'leji.json' && /no machine.changelogPath/.test(f.message),
+         (f) =>
+            f.rule === 'changelog-required' &&
+            f.path === 'docs/context-changelog.json' &&
+            /does not exist/.test(f.message),
       ),
    );
 });

@@ -185,6 +185,51 @@ func LevelAtLeast(level, threshold string) bool {
 	return slices.Index(ConformanceLevels, level) >= slices.Index(ConformanceLevels, threshold)
 }
 
+// Effective foundational-path resolvers. The spec (machine-readable-surface.md)
+// defines default locations under rootPath for the machine surface, so tooling
+// resolves an undeclared path to its default rather than failing: leji.json lives
+// at the repository root; everything else defaults under rootPath/.
+func machineField(m *Manifest, get func(*Machine) string) string {
+	if m.Machine != nil {
+		if v := get(m.Machine); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// EffectiveIndexPath is machine.indexPath or rootPath+context-index.json.
+func EffectiveIndexPath(m *Manifest) string {
+	if v := machineField(m, func(x *Machine) string { return x.IndexPath }); v != "" {
+		return v
+	}
+	return m.RootPath + "context-index.json"
+}
+
+// EffectiveChangelogPath is machine.changelogPath or rootPath+context-changelog.json.
+func EffectiveChangelogPath(m *Manifest) string {
+	if v := machineField(m, func(x *Machine) string { return x.ChangelogPath }); v != "" {
+		return v
+	}
+	return m.RootPath + "context-changelog.json"
+}
+
+// EffectiveAgentProfilesPath is machine.agentProfilesPath or rootPath+agents/.
+func EffectiveAgentProfilesPath(m *Manifest) string {
+	if v := machineField(m, func(x *Machine) string { return x.AgentProfilesPath }); v != "" {
+		return v
+	}
+	return m.RootPath + "agents/"
+}
+
+// EffectiveDecisionRecordsPath is machine.decisionRecordsPath or rootPath+decisions/.
+func EffectiveDecisionRecordsPath(m *Manifest) string {
+	if v := machineField(m, func(x *Machine) string { return x.DecisionRecordsPath }); v != "" {
+		return v
+	}
+	return m.RootPath + "decisions/"
+}
+
 // MappedCategories returns categories present in the manifest in canonical order.
 func (m *Manifest) MappedCategories() []string {
 	var out []string

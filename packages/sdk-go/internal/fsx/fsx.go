@@ -19,6 +19,16 @@ func ToPosix(p string) string {
 // existing ancestor, so a brand-new file under a real root is allowed while a
 // path reached through a symlink that escapes root is rejected.
 func ResolvesUnder(root, abs string) bool {
+	// Resolve both operands to absolute first, mirroring the Node reference
+	// (fs.realpathSync always yields absolute paths). EvalSymlinks of a relative
+	// path returns a relative path, so without this an absolute realRoot would
+	// never prefix-match a relative target and every file would be excluded.
+	if a, err := filepath.Abs(root); err == nil {
+		root = a
+	}
+	if a, err := filepath.Abs(abs); err == nil {
+		abs = a
+	}
 	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		realRoot, _ = filepath.Abs(root)

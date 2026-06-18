@@ -5,16 +5,25 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import datetime as dt
+
 from leji import (
     check_changelog_append_only,
     check_index,
+    compact_changelog,
     conformance_report,
+    freshness_report,
     generate_docs,
     load_manifest,
     validate_layer,
     write_index,
 )
 from leji.fsx import under_path, walk_md
+from leji.layer import (
+    excluded_from_categories,
+    scan_agent_profiles,
+    scan_categories,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO_ROOT / "examples" / "monorepo"
@@ -27,11 +36,75 @@ def _copy(src: Path, tmp_path: Path) -> Path:
     return dest
 
 
-def test_index_commands_without_declared_path(tmp_path: Path) -> None:
+def test_core_layer_index_resolves_default_path(tmp_path: Path) -> None:
+    # A core layer declares no machine.indexPath; the effective path defaults to
+    # rootPath + context-index.json. check_index reports the missing file (never a
+    # "not declared" error), and write_index writes that default and succeeds.
     layer = _copy(FIXTURES / "valid-minimal-core", tmp_path)
     manifest = load_manifest(str(layer)).manifest
-    assert check_index(str(layer), manifest).findings[0].rule == "index-required"
-    assert write_index(str(layer), manifest).findings[0].rule == "index-required"
+    check = check_index(str(layer), manifest)
+    assert check.findings[0].rule == "index-required"
+    assert (
+        check.findings[0].message
+        == "index docs/context-index.json does not exist; run `leji index`"
+    )
+    write = write_index(str(layer), manifest)
+    assert [f for f in write.findings if f.severity == "error"] == []
+    assert (layer / "docs" / "context-index.json").is_file()
+
+
+def test_no_machine_block_agents_and_decisions_resolve_to_defaults(tmp_path: Path) -> None:
+    # The fixture declares no machine block; agents/decisions resolve to the
+    # spec defaults under rootPath (docs/agents/, docs/decisions/). A profile
+    # dropped at the undeclared default path is scanned, contributes its
+    # freshness horizon, and is excluded from category content.
+    layer = _copy(FIXTURES / "valid-minimal-core", tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    assert manifest is not None
+    assert "machine" not in manifest, "fixture has no machine block"
+
+    agents_dir = layer / "docs" / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    (agents_dir / "core.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "id: core",
+                "name: Core",
+                "role: core",
+                "requiredRead:",
+                "  - docs/boot-profile.md",
+                "mustAskWhen:",
+                "  - a proposal weakens an invariant",
+                "freshness:",
+                "  reviewAfter: 2020-01-01",
+                "---",
+                "",
+                "# Core",
+                "",
+                "A profile under the default agents directory.",
+                "",
+            ]
+        )
+    )
+
+    # scan_agent_profiles finds the profile at the undeclared-but-defaulted path.
+    profiles = scan_agent_profiles(str(layer), manifest)
+    assert any(p.rel_path == "docs/agents/core.md" and not p.findings for p in profiles), (
+        "profile under docs/agents/ is scanned and valid"
+    )
+
+    # freshness includes the profile's expired horizon.
+    freshness = freshness_report(str(layer), manifest)
+    assert any(i["path"] == "docs/agents/core.md" for i in freshness.expired), (
+        "profile freshness horizon is included"
+    )
+
+    # docs/agents/ is excluded from category content even when undeclared.
+    excluded = excluded_from_categories(manifest)
+    assert excluded("docs/agents/core.md") is True
+    docs = scan_categories(str(layer), manifest)
+    assert not any(d.rel_path == "docs/agents/core.md" for d in docs)
 
 
 def test_corrupt_stored_index_is_artifact_parse(tmp_path: Path) -> None:
@@ -429,10 +502,10 @@ def test_docs_generates_viewer_and_sidebar(tmp_path: Path) -> None:
         "docs/docs-viewer-assets/vue.css",
     ]
     html = (layer / "docs" / "index.html").read_text()
-    # Name + homepage are injected as a JSON config blob, not interpolated JS.
-    assert '"name": "acme-billing-context"' in html
+    # Name + homepage are injected as a compact JSON config blob (byte-identical
+    # across SDKs: name then homepage, no spaces), not interpolated JS.
+    assert '{"name":"acme-billing-context","homepage":"boot-profile.md"}' in html
     assert "stripFrontmatter" in html
-    assert '"homepage": "boot-profile.md"' in html
     # Vendored assets (core + theme + search/collapse plugins) are copied locally;
     # no remote CDN, PROVENANCE not shipped.
     assert (layer / "docs" / "docs-viewer-assets" / "docsify.min.js").is_file()
@@ -511,3 +584,130 @@ def test_docs_block_in_manifest_validates(tmp_path: Path) -> None:
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     result = validate_layer(str(layer))
     assert [f for f in result.findings if f.severity == "error"] == []
+
+
+# --- changelog compact ---
+
+_CHANGELOG_REL = "docs/context-changelog.json"
+
+
+def _seed_with_entries(tmp_path: Path, count: int) -> Path:
+    """Git-committed example whose changelog carries ``count`` dated entries."""
+    layer = _copy(EXAMPLE, tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=layer, check=True)
+    subprocess.run(["git", "config", "user.email", "t@e.com"], cwd=layer, check=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=layer, check=True)
+    abs_path = layer / _CHANGELOG_REL
+    log = json.loads(abs_path.read_text())
+    log["entries"] = [
+        {
+            "id": f"e-{i + 1:02d}",
+            "date": f"2026-0{1 + i // 28}-{(i % 28) + 1:02d}",
+            "type": "added",
+            "summary": f"Change {i + 1}.",
+            "paths": [f"docs/file-{i + 1}.md"],
+        }
+        for i in range(count)
+    ]
+    abs_path.write_text(json.dumps(log, indent=2) + "\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=layer, check=True)
+    subprocess.run(["git", "commit", "-qm", "seed"], cwd=layer, check=True)
+    return layer
+
+
+def test_compact_keep_folds_oldest_appends_compaction_validates(tmp_path: Path) -> None:
+    layer = _seed_with_entries(tmp_path, 10)
+    manifest = load_manifest(str(layer)).manifest
+    result = compact_changelog(str(layer), manifest, keep=4)
+    assert [f for f in result.findings if f.severity == "error"] == []
+    assert result.folded == 6
+    assert result.kept == 5  # 4 survivors + 1 compaction entry
+
+    log = json.loads((layer / _CHANGELOG_REL).read_text())
+    ids = [e["id"] for e in log["entries"]]
+    # Oldest six (e-01..e-06) folded; newest four (e-07..e-10) survive.
+    assert ids[:4] == ["e-07", "e-08", "e-09", "e-10"]
+    compaction = log["entries"][-1]
+    assert compaction["type"] == "compaction"
+    assert compaction["compacted"]["entries"] == 6
+    assert compaction["compacted"]["firstId"] == "e-01"
+    assert compaction["compacted"]["lastId"] == "e-06"
+    assert compaction["paths"] == [
+        "docs/file-1.md",
+        "docs/file-2.md",
+        "docs/file-3.md",
+        "docs/file-4.md",
+        "docs/file-5.md",
+        "docs/file-6.md",
+    ]
+
+    # The compacted changelog passes append-only discipline against the git baseline.
+    check = check_changelog_append_only(str(layer), _CHANGELOG_REL)
+    assert [f for f in check.findings if f.severity == "error"] == []
+    # And the whole layer still validates clean (schema + currency + discipline).
+    assert not any(f.severity == "error" for f in validate_layer(str(layer)).findings)
+
+
+def test_compact_before_folds_entries_before_cutoff(tmp_path: Path) -> None:
+    layer = _seed_with_entries(tmp_path, 10)
+    manifest = load_manifest(str(layer)).manifest
+    # With 10 entries all are 2026-01; cut before 2026-01-06 folds e-01..e-05.
+    result = compact_changelog(str(layer), manifest, before="2026-01-06")
+    assert [f for f in result.findings if f.severity == "error"] == []
+    assert result.folded == 5
+    log = json.loads((layer / _CHANGELOG_REL).read_text())
+    compaction = log["entries"][-1]
+    assert compaction["compacted"]["firstId"] == "e-01"
+    assert compaction["compacted"]["lastId"] == "e-05"
+    assert not any(
+        f.severity == "error"
+        for f in check_changelog_append_only(str(layer), _CHANGELOG_REL).findings
+    )
+
+
+def test_compact_with_both_flags_folds_intersection(tmp_path: Path) -> None:
+    layer = _seed_with_entries(tmp_path, 10)
+    manifest = load_manifest(str(layer)).manifest
+    # --keep 3 marks e-01..e-07 foldable; --before 2026-01-04 marks e-01..e-03.
+    # The intersection (an entry must satisfy BOTH) is e-01..e-03.
+    result = compact_changelog(str(layer), manifest, keep=3, before="2026-01-04")
+    assert result.folded == 3
+    log = json.loads((layer / _CHANGELOG_REL).read_text())
+    compaction = log["entries"][-1]
+    assert compaction["compacted"]["firstId"] == "e-01"
+    assert compaction["compacted"]["lastId"] == "e-03"
+
+
+def test_compact_is_a_noop_when_nothing_folds(tmp_path: Path) -> None:
+    layer = _seed_with_entries(tmp_path, 5)
+    manifest = load_manifest(str(layer)).manifest
+    before = (layer / _CHANGELOG_REL).read_text()
+    result = compact_changelog(str(layer), manifest, keep=10)  # keep more than exist
+    assert result.folded == 0
+    assert result.findings == []
+    assert (layer / _CHANGELOG_REL).read_text() == before  # file unchanged on no-op
+
+
+def test_compact_dedupes_compaction_id_when_one_exists_for_today(tmp_path: Path) -> None:
+    layer = _seed_with_entries(tmp_path, 6)
+    today = dt.datetime.now(dt.timezone.utc).date().isoformat()
+    abs_path = layer / _CHANGELOG_REL
+    log = json.loads(abs_path.read_text())
+    log["entries"][0]["id"] = f"compaction-{today}"  # collide with the picked id
+    abs_path.write_text(json.dumps(log, indent=2) + "\n", encoding="utf-8")
+    manifest = load_manifest(str(layer)).manifest
+    result = compact_changelog(str(layer), manifest, keep=2)
+    assert result.folded > 0
+    after = json.loads(abs_path.read_text())
+    compaction = after["entries"][-1]
+    assert compaction["id"] == f"compaction-{today}-2"
+
+
+def test_compact_missing_changelog_errors(tmp_path: Path) -> None:
+    layer = _copy(FIXTURES / "valid-minimal-core", tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    result = compact_changelog(str(layer), manifest, keep=1)
+    assert any(
+        f.rule == "changelog-required" and "context-changelog.json does not exist" in f.message
+        for f in result.findings
+    )

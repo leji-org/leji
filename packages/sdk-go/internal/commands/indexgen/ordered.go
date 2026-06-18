@@ -3,6 +3,8 @@ package indexgen
 import (
 	"bytes"
 	"encoding/json"
+
+	"github.com/leji-org/leji/packages/sdk-go/internal/jsonenc"
 )
 
 // ordered is an insertion-ordered JSON object that encodes with a fixed key
@@ -34,7 +36,7 @@ func (o *ordered) encodeIndent(buf *bytes.Buffer, prefix, indent string) {
 	inner := prefix + indent
 	for i, k := range o.keys {
 		buf.WriteString(inner)
-		kb, _ := json.Marshal(k)
+		kb, _ := jsonenc.Marshal(k)
 		buf.Write(kb)
 		buf.WriteString(": ")
 		writeValue(buf, o.values[k], inner, indent)
@@ -80,7 +82,7 @@ func writeValue(buf *bytes.Buffer, value any, prefix, indent string) {
 		inner := prefix + indent
 		for i, s := range v {
 			buf.WriteString(inner)
-			sb, _ := json.Marshal(s)
+			sb, _ := jsonenc.Marshal(s)
 			buf.Write(sb)
 			if i < len(v)-1 {
 				buf.WriteByte(',')
@@ -90,7 +92,7 @@ func writeValue(buf *bytes.Buffer, value any, prefix, indent string) {
 		buf.WriteString(prefix)
 		buf.WriteByte(']')
 	default:
-		b, _ := json.Marshal(v)
+		b, _ := jsonenc.Marshal(v)
 		buf.Write(b)
 	}
 }

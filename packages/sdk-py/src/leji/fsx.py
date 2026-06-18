@@ -23,6 +23,36 @@ def is_contained(root: str, candidate: Path) -> bool:
     return real == real_root or real.is_relative_to(real_root)
 
 
+def resolved_within_root(root: str, candidate: Path) -> bool:
+    """True when ``candidate`` resolves (following symlinks) to a path within
+    ``root``, even when ``candidate`` does not yet exist.
+
+    Unlike :func:`is_contained`, a not-yet-existing target is checked by
+    resolving its nearest existing ancestor and re-appending the remainder, so a
+    symlinked ancestor that escapes root is caught before a write creates the
+    final file under it."""
+    candidate = Path(candidate)
+    if candidate.exists() or candidate.is_symlink():
+        try:
+            real = Path(os.path.realpath(candidate))
+        except OSError:
+            return False
+    else:
+        # Does not exist yet: resolve the nearest existing ancestor, then re-append.
+        p = candidate.parent
+        while not p.exists() and p.parent != p:
+            p = p.parent
+        try:
+            real = Path(os.path.realpath(p)) / candidate.relative_to(p)
+        except (OSError, ValueError):
+            return False
+    try:
+        real_root = Path(os.path.realpath(root))
+    except OSError:
+        return False
+    return real == real_root or real.is_relative_to(real_root)
+
+
 def walk_md(root: str, rel_path: str) -> list[str]:
     """Markdown files under a declared path (file or directory), sorted.
 

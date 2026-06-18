@@ -10,7 +10,17 @@ import {
    scanCategories,
    scanDecisionRecords,
 } from '../lib/layer.js';
-import { type Manifest, CATEGORY_IDS, claimedLevel, levelAtLeast, loadManifest } from '../lib/manifest.js';
+import {
+   type Manifest,
+   CATEGORY_IDS,
+   claimedLevel,
+   effectiveAgentProfilesPath,
+   effectiveChangelogPath,
+   effectiveDecisionRecordsPath,
+   effectiveIndexPath,
+   levelAtLeast,
+   loadManifest,
+} from '../lib/manifest.js';
 import { SUPPORTED_LINES, schemaErrors } from '../lib/schemas.js';
 import { checkIndex, stableStringify } from './indexgen.js';
 
@@ -18,8 +28,10 @@ import { checkIndex, stableStringify } from './indexgen.js';
 export const KNOWN_VENDOR_FILES = [
    'CLAUDE.md',
    'AGENTS.md',
+   'GEMINI.md',
    '.cursorrules',
    '.cursor/rules',
+   '.windsurfrules',
    '.github/copilot-instructions.md',
 ];
 
@@ -78,7 +90,7 @@ function checkBootProfile(root: string, manifest: Manifest, findings: Finding[])
    }
 
    const changelogPath = manifest.machine?.changelogPath;
-   const decisionsPath = manifest.machine?.decisionRecordsPath ?? manifest.categories.decisions?.paths[0];
+   const decisionsPath = effectiveDecisionRecordsPath(manifest);
    const mentions = (p: string | undefined): boolean => {
       if (!p) return false;
       const base = p.endsWith('/') ? p.slice(0, -1) : p;
@@ -183,12 +195,12 @@ function checkOwners(manifest: Manifest, findings: Finding[]): void {
 }
 
 function checkAgentsMap(root: string, manifest: Manifest, findings: Finding[]): void {
-   const profilesDir = manifest.machine?.agentProfilesPath;
+   const profilesDir = effectiveAgentProfilesPath(manifest);
    for (const [role, rel] of Object.entries(manifest.agents ?? {})) {
       if (!checkDeclaredFile(root, rel, `agents.${role} profile`, findings)) continue;
       // Targets under agentProfilesPath are validated by the directory scan;
       // targets outside it still owe a valid agent-profile frontmatter.
-      if (profilesDir && underPath(rel, profilesDir)) continue;
+      if (underPath(rel, profilesDir)) continue;
       const fm = parseFrontmatter(readText(path.join(root, rel)));
       if (fm.error) {
          findings.push(finding('profile-frontmatter', 'error', fm.error, rel));
@@ -300,7 +312,7 @@ function checkProfilesAndDecisions(root: string, manifest: Manifest, findings: F
    findings.push(...duplicateIdFindings(decisionIds, 'decision record'));
 
    if (decisions.filter((d) => d.findings.length === 0).length === 0) {
-      const where = manifest.machine?.decisionRecordsPath ?? manifest.categories.decisions?.paths[0] ?? 'leji.json';
+      const where = effectiveDecisionRecordsPath(manifest);
       findings.push(
          finding(
             'decisions-empty',
@@ -335,7 +347,7 @@ export function checkChangelogAppendOnly(root: string, rel: string, strict = fal
    if (parseFinding) return { findings: [parseFinding], verified: false };
    if (!data) {
       return {
-         findings: [finding('changelog-required', 'error', `declared changelog ${rel} does not exist`, rel)],
+         findings: [finding('changelog-required', 'error', `changelog ${rel} does not exist`, rel)],
          verified: false,
       };
    }
@@ -449,13 +461,132 @@ export function checkChangelogAppendOnly(root: string, rel: string, strict = fal
    return { findings, verified: true };
 }
 
+/** Placeholder markers a freshly scaffolded layer carries until it is populated:
+ * the `TODO:` lines init seeds, or any `<…>` angle-bracket stub. */
+const PLACEHOLDER_RE = /\bTODO:|<[A-Za-z][^>\n]*>/;
+/** High-stakes inferences an agent drafted but the owner has not confirmed yet:
+ * `TODO(confirm-invariant|gate|owner): …` markers, or `UNCONFIRMED:` lines. The
+ * `TODO(confirm-…)` form deliberately does not match PLACEHOLDER_RE's `TODO:`. */
+const UNCONFIRMED_RE = /TODO\(confirm[-:][^)\n]*\)|UNCONFIRMED:/;
+/** The generic identity init writes by default; real layers replace it. */
+const GENERIC_IDENTITY = 'Shared context layer for this repository.';
+
+/** Body text of the first heading whose title contains `heading`, up to the next heading. */
+function sectionBody(text: string, heading: string): string {
+   const re = new RegExp(`^#{1,6}\\s+.*${heading}.*$`, 'im');
+   const m = re.exec(text);
+   if (!m) return '';
+   const rest = text.slice(m.index + m[0].length);
+   const next = /^#{1,6}\s+/m.exec(rest);
+   return (next ? rest.slice(0, next.index) : rest).trim();
+}
+
+/**
+ * Opt-in content lint (`validate --content`): warning-only signals that a layer
+ * is still a scaffold rather than real context — placeholder text, a generic
+ * boot identity, thin domain/system categories. Never errors and never affects a
+ * conformance level (conformance.md defines "populated" structurally); this is
+ * guidance toward a layer worth reading.
+ */
+export function contentFindings(root: string, manifest: Manifest): Finding[] {
+   const out: Finding[] = [];
+   const bootRel = manifest.bootProfilePath;
+   if (isFile(path.join(root, bootRel))) {
+      const boot = readText(path.join(root, bootRel));
+      if (PLACEHOLDER_RE.test(boot)) {
+         out.push(
+            finding(
+               'content-placeholder',
+               'warning',
+               'boot profile still contains placeholder text (TODO: or <…>)',
+               bootRel,
+            ),
+         );
+      }
+      const identity = sectionBody(boot, 'identity');
+      if (identity === '' || identity.includes(GENERIC_IDENTITY) || PLACEHOLDER_RE.test(identity)) {
+         out.push(
+            finding(
+               'content-identity',
+               'warning',
+               'boot profile Identity is empty or generic; say what this repository is, who it serves, and its stage',
+               bootRel,
+            ),
+         );
+      }
+      if (UNCONFIRMED_RE.test(boot)) {
+         out.push(
+            finding(
+               'content-unconfirmed',
+               'warning',
+               'boot profile has inferences awaiting owner confirmation',
+               bootRel,
+            ),
+         );
+      }
+   }
+   for (const cat of ['domain', 'system', 'practice', 'governance'] as const) {
+      const mapping = manifest.categories[cat];
+      if (!mapping) continue;
+      let concrete = 0;
+      for (const declared of mapping.paths) {
+         for (const rel of walkMd(root, declared)) {
+            const text = readText(path.join(root, rel));
+            if (PLACEHOLDER_RE.test(text)) {
+               out.push(
+                  finding('content-placeholder', 'warning', `${cat} document still contains placeholder text`, rel),
+               );
+            }
+            if (UNCONFIRMED_RE.test(text)) {
+               out.push(
+                  finding(
+                     'content-unconfirmed',
+                     'warning',
+                     `${cat} document has inferences awaiting owner confirmation`,
+                     rel,
+                  ),
+               );
+            }
+            for (const line of text.split('\n')) {
+               if (/^\s*-\s+\S/.test(line) && !PLACEHOLDER_RE.test(line)) concrete++;
+            }
+         }
+      }
+      if ((cat === 'domain' || cat === 'system') && concrete < 3) {
+         out.push(
+            finding(
+               'content-thin',
+               'warning',
+               `${cat} has ${concrete} concrete bullet${concrete === 1 ? '' : 's'}; aim for at least 3 repository-specific ones`,
+               mapping.paths[0],
+            ),
+         );
+      }
+   }
+   // Decisions an agent proposed but the owner has not yet accepted.
+   for (const d of scanDecisionRecords(root, manifest)) {
+      if (d.frontmatter?.status === 'proposed') {
+         out.push(
+            finding(
+               'content-unconfirmed',
+               'warning',
+               `decision "${d.frontmatter.id ?? '?'}" is proposed; awaiting owner confirmation`,
+               d.relPath,
+            ),
+         );
+      }
+   }
+   return out;
+}
+
 /**
  * Full layer validation: manifest, level-aware artifact requirements, schema
  * checks, frontmatter contracts, lint rules. Index and changelog are required
  * from `indexed`; at least one valid agent profile from `governed`. Artifacts
- * present below their required level are still schema-validated.
+ * present below their required level are still schema-validated. With
+ * `opts.content`, appends the warning-only content lint.
  */
-export function validateLayer(root: string): ValidateResult {
+export function validateLayer(root: string, opts: { content?: boolean } = {}): ValidateResult {
    const { manifest, findings } = loadManifest(root);
    if (!manifest) return { findings: sortFindings(findings), manifest: null };
 
@@ -484,17 +615,17 @@ export function validateLayer(root: string): ValidateResult {
    checkFederationMounts(root, manifest, findings);
    checkProfilesAndDecisions(root, manifest, findings);
 
-   const indexRel = manifest.machine?.indexPath;
-   const indexExists = indexRel !== undefined && isFile(path.join(root, indexRel));
+   const indexRel = effectiveIndexPath(manifest);
+   const indexExists = isFile(path.join(root, indexRel));
    if (levelAtLeast(level, 'indexed') || indexExists) {
       if (!levelAtLeast(level, 'indexed') && indexExists) {
-         const stored = readJsonArtifact(root, indexRel!);
+         const stored = readJsonArtifact(root, indexRel);
          if (stored.finding) findings.push(stored.finding);
          else {
             for (const err of schemaErrors('context-index', stored.data)) {
-               findings.push(finding('artifact-schema', 'error', err, indexRel!));
+               findings.push(finding('artifact-schema', 'error', err, indexRel));
             }
-            checkSchemaVersion(indexRel!, stored.data, findings);
+            checkSchemaVersion(indexRel, stored.data, findings);
          }
       } else {
          // checkIndex covers schema, schemaVersion, and currency.
@@ -502,21 +633,12 @@ export function validateLayer(root: string): ValidateResult {
       }
    }
 
-   const changelogRel = manifest.machine?.changelogPath;
-   const changelogExists = changelogRel !== undefined && isFile(path.join(root, changelogRel));
+   const changelogRel = effectiveChangelogPath(manifest);
+   const changelogExists = isFile(path.join(root, changelogRel));
    if (levelAtLeast(level, 'indexed') && !changelogExists) {
-      findings.push(
-         finding(
-            'changelog-required',
-            'error',
-            changelogRel
-               ? `declared changelog ${changelogRel} does not exist`
-               : 'no machine.changelogPath declared; indexed conformance requires a machine changelog',
-            changelogRel ?? 'leji.json',
-         ),
-      );
+      findings.push(finding('changelog-required', 'error', `changelog ${changelogRel} does not exist`, changelogRel));
    } else if (changelogExists) {
-      findings.push(...checkChangelogAppendOnly(root, changelogRel!).findings);
+      findings.push(...checkChangelogAppendOnly(root, changelogRel).findings);
    }
 
    if (levelAtLeast(level, 'governed')) {
@@ -527,11 +649,13 @@ export function validateLayer(root: string): ValidateResult {
                'profile-required',
                'error',
                'governed conformance requires at least one valid agent profile',
-               manifest.machine?.agentProfilesPath ?? 'leji.json',
+               effectiveAgentProfilesPath(manifest),
             ),
          );
       }
    }
+
+   if (opts.content) findings.push(...contentFindings(root, manifest));
 
    return { findings: sortFindings(findings), manifest };
 }

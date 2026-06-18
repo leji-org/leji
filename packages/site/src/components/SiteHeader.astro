@@ -1,13 +1,9 @@
 ---
-// The one site header: the monument's architrave. Deep-blue band with a gold
-// line beneath, mirroring the footer plinth. Wordmark renders white on the
-// blue, per the brand rule. `flush` drops the band's own background and gold
-// line for pages where the header sits inside the monument (the landing page).
+// Site header. `flush` drops the band background and gold line where the header sits inside the monument (the landing page).
 import LejiLogo from './LejiLogo.astro';
 const { flush = false } = Astro.props;
 
-// Section-aware active state: the reference pages live in the spec reading
-// room, and the adoption guides are where Get Started hands off to.
+// Section-aware active state across the reference and adoption sections.
 const path = Astro.url.pathname;
 const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(p)) ? 'page' : undefined);
 ---

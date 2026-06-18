@@ -1,6 +1,6 @@
 {
    "name": "leji",
-   "summary": "Reference CLI for the Leji specification: validate, index, changelog, freshness, conformance, docs, and init for a shared context layer.",
+   "summary": "Reference CLI for the Leji specification: validate, index, changelog, freshness, conformance, docs, detect, adopt, and init for a shared context layer.",
    "usage": "leji <command> [options]",
    "globalOptions": [
       { "flags": "--root <dir>", "summary": "Repository root to operate on (default: the current directory)." },
@@ -17,10 +17,10 @@
       {
          "name": "validate",
          "summary": "Validate the context layer: manifest, artifacts, frontmatter, and lint rules.",
-         "usage": "leji validate [--root <dir>] [--json]",
-         "description": "Loads leji.json and checks it against the schemas and the lint rules: declared files exist, categories are populated, vendor entrypoints redirect to the boot profile, frontmatter is valid, and (per the claimed conformance level) the index is current and the changelog is append-only. The single command CI runs to keep a context layer honest.",
-         "options": [],
-         "examples": ["leji validate", "leji validate --root . --json"]
+         "usage": "leji validate [--content] [--root <dir>] [--json]",
+         "description": "Loads leji.json and checks it against the schemas and the lint rules: declared files exist, categories are populated, vendor entrypoints redirect to the boot profile, frontmatter is valid, and (per the claimed conformance level) the index is current and the changelog is append-only. The single command CI runs to keep a context layer honest. With --content it also runs a warning-only content lint (placeholder text, generic boot identity, thin categories) that never errors and never affects a conformance level.",
+         "options": [{ "flags": "--content", "summary": "Also run the warning-only content lint (placeholders, generic identity, thin categories)." }],
+         "examples": ["leji validate", "leji validate --content", "leji validate --root . --json"]
       },
       {
          "name": "index",
@@ -39,6 +39,17 @@
          "examples": ["leji changelog check", "leji changelog check --strict"]
       },
       {
+         "name": "changelog compact",
+         "summary": "Fold the oldest changelog entries into a single compaction entry.",
+         "usage": "leji changelog compact [--keep <n>] [--before <YYYY-MM-DD>] [--root <dir>] [--json]",
+         "description": "Compacts the oldest end of the machine changelog: entries selected by --keep (every entry except the newest n) and/or --before (entries dated before the given day) are dropped and replaced by one compaction entry that records how many were folded and the id range removed. At least one of --keep or --before is required. The folded set is always a contiguous run from the oldest end, so the result still satisfies the append-only discipline that `leji changelog check` enforces.",
+         "options": [
+            { "flags": "--keep <n>", "summary": "Keep the newest n entries; fold everything older. Must be a positive integer." },
+            { "flags": "--before <date>", "summary": "Fold entries dated strictly before this YYYY-MM-DD day." }
+         ],
+         "examples": ["leji changelog compact --keep 50", "leji changelog compact --before 2026-01-01", "leji changelog compact --keep 50 --before 2026-01-01"]
+      },
+      {
          "name": "freshness",
          "summary": "Report review horizons across category documents and agent profiles.",
          "usage": "leji freshness [--strict] [--root <dir>] [--json]",
@@ -49,10 +60,10 @@
       {
          "name": "conformance",
          "summary": "Score the context layer against its claimed conformance level.",
-         "usage": "leji conformance [--root <dir>] [--json]",
-         "description": "Runs the core, indexed, governed, and federated checklists. Machine-checkable items pass or fail; process items (review gate, CI, external consumers) are reported as manual. A claim above the verified level is an error.",
-         "options": [],
-         "examples": ["leji conformance", "leji conformance --json"]
+         "usage": "leji conformance [--explain] [--root <dir>] [--json]",
+         "description": "Runs the core, indexed, governed, and federated checklists. Machine-checkable items pass or fail; process items (review gate, CI, external consumers) are reported as manual. A claim above the verified level is an error. With --explain it also prints what it would take to reach the next level.",
+         "options": [{ "flags": "--explain", "summary": "Print actionable guidance for reaching the next conformance level." }],
+         "examples": ["leji conformance", "leji conformance --explain", "leji conformance --json"]
       },
       {
          "name": "docs",
@@ -66,17 +77,43 @@
          "examples": ["leji docs", "leji docs --serve", "leji docs --serve --port 0"]
       },
       {
+         "name": "detect",
+         "summary": "Detect the coding-agent hosts available on this machine.",
+         "usage": "leji detect [--root <dir>] [--json]",
+         "description": "Best-effort, read-only detection of installed agent hosts (Claude Code, Codex, Copilot, Gemini, Cursor, Windsurf), ranked by signal strength: a runnable binary, a config file in the repository, or a user-level config directory. Writes nothing; use it to decide which host to wire with `leji init --agent <name>`.",
+         "options": [],
+         "examples": ["leji detect", "leji detect --json"]
+      },
+      {
+         "name": "adopt",
+         "summary": "Adopt Leji into an existing repository.",
+         "usage": "leji adopt [--dir <path>] [--yes] [--agent <name>] [--wire-adapters] [--dry-run]",
+         "description": "Brings Leji into a repository that already has docs and agent config. Reuses an existing docs/ root, migrates the content of any vendor entrypoints (CLAUDE.md, AGENTS.md, …) into the layer without modifying the originals, and seeds the standard scaffold. With --wire-adapters it converts those entrypoints to one-line redirects (a consented overwrite, after their content is migrated); otherwise it produces an adoption draft that is not yet core-conformant. Refuses when a leji.json already exists.",
+         "options": [
+            { "flags": "--dir <path>", "summary": "Target directory (default: the current directory)." },
+            { "flags": "--yes, -y", "summary": "Accept all defaults; run non-interactively." },
+            { "flags": "--agent <name>", "summary": "Also wire a vendor adapter for a host that has no entrypoint yet." },
+            { "flags": "--wire-adapters", "summary": "Convert present vendor entrypoints to redirects (consented; content migrated first)." },
+            { "flags": "--dry-run", "summary": "Print the write plan and exit without changing anything." }
+         ],
+         "examples": ["leji adopt", "leji adopt --dry-run", "leji adopt --wire-adapters"]
+      },
+      {
          "name": "init",
          "summary": "Bootstrap a new context layer from the templates.",
-         "usage": "leji init [--dir <path>] [--yes] [--level <core|indexed>] [--name <name>]",
-         "description": "Interactively scaffolds a context layer: leji.json, a boot profile, seeded category documents, a first decision record, and (at the indexed level) a generated index and machine changelog. Refuses to overwrite an existing leji.json. The same entrypoint backs `npm create leji`.",
+         "usage": "leji init [--dir <path>] [--yes] [--level <core|indexed>] [--name <name>] [--agent <name>] [--reviewer <name>] [--ci] [--dry-run]",
+         "description": "Interactively scaffolds a context layer: leji.json, a boot profile, seeded category documents, a first decision record, an agent onboarding brief, and (at the indexed level) a generated index and machine changelog. Refuses to overwrite an existing leji.json and never overwrites individual files. With --dry-run it prints the write plan (what it would create, and any existing files it will leave untouched) without writing anything. The same entrypoint backs `npm create leji`.",
          "options": [
             { "flags": "--dir <path>", "summary": "Target directory (default: the current directory)." },
             { "flags": "--yes, -y", "summary": "Accept all defaults; run non-interactively." },
             { "flags": "--level <level>", "summary": "Conformance level to claim: core or indexed (default: core)." },
-            { "flags": "--name <name>", "summary": "Context layer name (default: derived from the directory)." }
+            { "flags": "--name <name>", "summary": "Context layer name (default: derived from the directory)." },
+            { "flags": "--agent <name>", "summary": "Wire a vendor adapter redirect for a host (claude-code, codex, copilot, gemini, cursor, windsurf), or 'auto'/'none'." },
+            { "flags": "--reviewer <name>", "summary": "Designate a second host as the reviewer role (multi-agent workflow)." },
+            { "flags": "--ci", "summary": "Also write a GitHub Actions workflow that runs `leji validate` in CI." },
+            { "flags": "--dry-run", "summary": "Print the write plan and exit without creating any files." }
          ],
-         "examples": ["leji init", "leji init --yes --level indexed --name acme-context"]
+         "examples": ["leji init", "leji init --dry-run", "leji init --agent claude-code --reviewer codex", "leji init --ci --yes"]
       }
    ]
 }

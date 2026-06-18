@@ -11,7 +11,12 @@ from .freshness import freshness_report
 from .gitutil import git_toplevel
 from .indexgen import check_index
 from .layer import scan_agent_profiles
-from .manifest import CONFORMANCE_LEVELS, claimed_level, load_manifest
+from .manifest import (
+    CONFORMANCE_LEVELS,
+    claimed_level,
+    effective_changelog_path,
+    load_manifest,
+)
 from .validate import check_changelog_append_only, validate_layer
 
 
@@ -141,9 +146,9 @@ def conformance_report(root: str) -> ConformanceResult:
         index_result.findings[0].message if index_result.findings else None,
     )
 
-    changelog_rel = (manifest.get("machine") or {}).get("changelogPath")
+    changelog_rel = effective_changelog_path(manifest)
     changelog_desc = "a machine-readable changelog; layer changes append entries"
-    if changelog_rel and (Path(root) / changelog_rel).is_file():
+    if (Path(root) / changelog_rel).is_file():
         changelog = check_changelog_append_only(root, changelog_rel)
         changelog_errors = [f for f in changelog.findings if f.severity == "error"]
         if changelog_errors:
@@ -164,9 +169,7 @@ def conformance_report(root: str) -> ConformanceResult:
             "indexed",
             changelog_desc,
             "fail",
-            f"declared changelog {changelog_rel} does not exist"
-            if changelog_rel
-            else "no machine.changelogPath declared",
+            f"changelog {changelog_rel} does not exist",
         )
 
     # --- governed ---
@@ -262,3 +265,43 @@ def conformance_report(root: str) -> ConformanceResult:
         items=items,
         findings=sort_findings(findings),
     )
+
+
+def render_explain(result: ConformanceResult) -> str:
+    """Actionable guidance (`conformance --explain`): what it would take to reach
+    the next level above the one currently verified, listing the not-yet-passing
+    items (manual ones flagged as process steps), plus a pointer to the content
+    lint."""
+    levels = CONFORMANCE_LEVELS
+    verified_idx = levels.index(result.verified_level) if result.verified_level else -1
+    lines = [
+        f"Verified level: {result.verified_level or 'none'} "
+        f"(claimed: {result.claimed_level or 'none'})."
+    ]
+    next_idx = verified_idx + 1
+    if next_idx >= len(levels):
+        lines.append(
+            "This layer is at the top conformance level (federated). Nothing further to reach."
+        )
+        return "\n".join(lines)
+    nxt = levels[next_idx]
+    blockers = [i for i in result.items if i.level == nxt and i.status != "pass"]
+    lines.extend(["", f'To reach "{nxt}":'])
+    if not blockers:
+        lines.append(
+            f'   - all "{nxt}" checks already pass; '
+            f'set conformance.claimedLevel to "{nxt}" in leji.json'
+        )
+    else:
+        for b in blockers:
+            how = " (process step; tooling cannot verify)" if b.status == "manual" else ""
+            detail = f" — {b.detail}" if b.detail else ""
+            lines.append(f"   - {b.description}{detail}{how}")
+    lines.extend(
+        [
+            "",
+            "Content quality (not a conformance gate): run `leji validate --content` "
+            "for placeholder and thin-content warnings.",
+        ]
+    )
+    return "\n".join(lines)

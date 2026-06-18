@@ -8,6 +8,7 @@ export default defineConfig({
    site: 'https://leji.org',
    integrations: [sitemap()],
    server: { port: 21200 },
+   devToolbar: { enabled: false },
    markdown: {
       rehypePlugins: [rehypeMdLinks, rehypeTableScroll, rehypeHeadingAnchors],
       shikiConfig: { theme: 'night-owl' },

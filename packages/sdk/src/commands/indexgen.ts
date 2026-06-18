@@ -5,7 +5,7 @@ import { type Finding, finding } from '../lib/findings.js';
 import { isFile, readText, realpathWithin } from '../lib/fsx.js';
 import { gitLastModified, gitToplevel } from '../lib/git.js';
 import { duplicateIdFindings, readJsonArtifact, scanCategories } from '../lib/layer.js';
-import { type Manifest } from '../lib/manifest.js';
+import { type Manifest, effectiveIndexPath } from '../lib/manifest.js';
 import { SDK_VERSION, SUPPORTED_LINES, schemaErrors } from '../lib/schemas.js';
 
 /** One artifact's entry in the generated context index. */
@@ -69,13 +69,9 @@ function strArray(v: unknown): string[] | undefined {
    return out.length > 0 ? out : undefined;
 }
 
-export function declaredIndexPath(manifest: Manifest): string | null {
-   return manifest.machine?.indexPath ?? null;
-}
-
 export function loadStoredIndex(root: string, manifest: Manifest): ContextIndex | null {
-   const rel = declaredIndexPath(manifest);
-   if (!rel || !isFile(path.join(root, rel))) return null;
+   const rel = effectiveIndexPath(manifest);
+   if (!isFile(path.join(root, rel))) return null;
    const { data } = readJsonArtifact(root, rel);
    if (!data || typeof data !== 'object') return null;
    return data as ContextIndex;
@@ -188,19 +184,10 @@ export function stableStringify(value: unknown): string {
  * `contentHash` catches deterministically.
  */
 export function checkIndex(root: string, manifest: Manifest): IndexResult {
-   const rel = declaredIndexPath(manifest);
+   const rel = effectiveIndexPath(manifest);
    const findings: Finding[] = [];
-   if (!rel || !isFile(path.join(root, rel))) {
-      findings.push(
-         finding(
-            'index-required',
-            'error',
-            rel
-               ? `declared index ${rel} does not exist; run \`leji index\``
-               : 'no machine.indexPath declared in leji.json',
-            rel ?? 'leji.json',
-         ),
-      );
+   if (!isFile(path.join(root, rel))) {
+      findings.push(finding('index-required', 'error', `index ${rel} does not exist; run \`leji index\``, rel));
       return { index: null, findings, stale: true };
    }
 
@@ -292,15 +279,9 @@ export function serializeIndex(index: ContextIndex): string {
    return JSON.stringify(out, null, 2) + '\n';
 }
 
-/** Generate and write the index to the declared path. */
+/** Generate and write the index to the effective path. */
 export function writeIndex(root: string, manifest: Manifest): IndexResult {
-   const rel = declaredIndexPath(manifest);
-   if (!rel) {
-      return {
-         index: null,
-         findings: [finding('index-required', 'error', 'no machine.indexPath declared in leji.json', 'leji.json')],
-      };
-   }
+   const rel = effectiveIndexPath(manifest);
    const result = generateIndex(root, manifest);
    if (result.index) {
       const abs = path.join(root, rel);

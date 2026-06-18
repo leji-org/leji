@@ -64,16 +64,20 @@ def test_cli_version_pseudo_command_prints_version(capsys) -> None:
     assert out == SDK_VERSION
 
 
-def test_cli_changelog_no_declared_path_errors(tmp_path, capsys) -> None:
+def test_cli_changelog_resolves_default_path(tmp_path, capsys) -> None:
     from leji.cli import main
 
-    # valid-minimal-core is a core layer with no machine.changelogPath.
+    # valid-minimal-core declares no machine.changelogPath; the effective path
+    # defaults to rootPath + context-changelog.json. The file is simply absent, so
+    # the finding is the missing-file changelog-required, never a "not declared"
+    # error.
     layer = _copy(FIXTURES / "valid-minimal-core", tmp_path)
     code = main(["changelog", "check", "--root", str(layer)])
     out = capsys.readouterr().out
     assert code == 1
     assert "changelog-required" in out
-    assert "no machine.changelogPath" in out
+    assert "no machine" not in out and "not declared" not in out
+    assert "changelog docs/context-changelog.json does not exist" in out
 
 
 def test_cli_freshness_text_prints_upcoming(tmp_path, capsys) -> None:
@@ -104,7 +108,7 @@ def test_cli_init_text_output_lists_written_files(tmp_path, capsys) -> None:
     assert "Wrote" in out and "files:" in out
     assert "leji.json" in out
     # entering_the_layer guidance is printed too.
-    assert "Enter the layer" in out
+    assert "leji validate --content" in out
 
 
 def test_cli_docs_text_output_serve_hint(tmp_path, capsys) -> None:

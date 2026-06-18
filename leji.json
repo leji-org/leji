@@ -1,0 +1,39 @@
+{
+  "$schema": "https://leji.org/schemas/v1.0/context-manifest.schema.json",
+  "leji": "1.0",
+  "name": "leji",
+  "description": "Context layer for the Leji repository: the specification, the reference SDK, and the leji.org site.",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {
+    "domain": {
+      "paths": [
+        "docs/domain/"
+      ]
+    },
+    "system": {
+      "paths": [
+        "docs/system/"
+      ]
+    },
+    "decisions": {
+      "paths": [
+        "docs/decisions/"
+      ]
+    }
+  },
+  "machine": {
+    "agentProfilesPath": "docs/agents/",
+    "decisionRecordsPath": "docs/decisions/"
+  },
+  "owners": {
+    "primary": {
+      "name": "Vuong Nguyen",
+      "contact": "hello@leji.org"
+    }
+  },
+  "conformance": {
+    "claimedLevel": "core",
+    "claimedAt": "2026-06-18"
+  }
+}

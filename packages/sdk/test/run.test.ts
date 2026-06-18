@@ -84,6 +84,51 @@ test('run changelog check without a declared changelog path', async () => {
    assert.ok(payload.findings.some((f: { rule: string }) => f.rule === 'changelog-required'));
 });
 
+test('run index on a core layer with no machine.indexPath writes the default and reports it', async () => {
+   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-run-coreidx-'));
+   fs.cpSync(fixture('valid-minimal-core'), dir, { recursive: true });
+   const r = await runInProcess(['index', '--root', dir, '--json']);
+   assert.equal(r.code, 0, r.out + r.err);
+   const payload = JSON.parse(r.out);
+   assert.equal(payload.written, 'docs/context-index.json');
+   assert.ok(!payload.findings.some((f: { message: string }) => /not declared|no machine/.test(f.message)));
+   assert.ok(fs.existsSync(path.join(dir, 'docs', 'context-index.json')), 'default index written');
+});
+
+test('run changelog check on a core layer resolves the default changelog path (no "not declared")', async () => {
+   const r = await runInProcess(['changelog', 'check', '--root', fixture('valid-minimal-core'), '--json']);
+   const payload = JSON.parse(r.out);
+   // The default path resolves; the file is simply absent, so the finding is the
+   // missing-file changelog-required, never a "not declared" error.
+   for (const f of payload.findings as { message: string }[]) {
+      assert.ok(!/not declared|no machine/.test(f.message), `no "not declared" message: ${f.message}`);
+   }
+   assert.ok(
+      payload.findings.some(
+         (f: { rule: string; message: string }) =>
+            f.rule === 'changelog-required' && /docs\/context-changelog\.json does not exist/.test(f.message),
+      ),
+   );
+});
+
+test('run changelog compact without --keep or --before exits 2', async () => {
+   const r = await runInProcess(['changelog', 'compact', '--root', exampleDir]);
+   assert.equal(r.code, 2);
+   assert.match(r.err, /changelog compact requires --keep or --before/);
+});
+
+test('run changelog compact --keep folds the oldest and reports counts', async () => {
+   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-run-compact-'));
+   fs.cpSync(exampleDir, dir, { recursive: true });
+   const r = await runInProcess(['changelog', 'compact', '--keep', '1', '--root', dir, '--json']);
+   assert.equal(r.code, 0, r.out + r.err);
+   const payload = JSON.parse(r.out);
+   assert.equal(payload.folded, 1); // example has 2 entries; keep newest 1
+   assert.equal(payload.kept, 2); // 1 survivor + the compaction entry
+   const log = JSON.parse(fs.readFileSync(path.join(dir, 'docs', 'context-changelog.json'), 'utf8'));
+   assert.equal(log.entries[log.entries.length - 1].type, 'compaction');
+});
+
 test('run changelog check on the example layer', async () => {
    const r = await runInProcess(['changelog', 'check', '--root', exampleDir]);
    assert.equal(r.code, 0);
@@ -123,7 +168,7 @@ test('run init --yes then validate through the dispatcher', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-run-init-'));
    const init = await runInProcess(['init', '--dir', dir, '--yes', '--name', 'demo-context']);
    assert.equal(init.code, 0);
-   assert.match(init.out, /Wrote 6 files/);
+   assert.match(init.out, /Wrote 7 files/);
    const again = await runInProcess(['init', '--dir', dir, '--yes']);
    assert.equal(again.code, 2);
    assert.match(again.err, /refuses to overwrite/);

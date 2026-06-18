@@ -195,7 +195,7 @@ test('cli.json documents exactly the commands the CLI accepts', async () => {
    for (const name of documented) {
       const argv = name.split(' '); // e.g. "changelog check" -> ["changelog","check"]
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cmd-'));
-      const extra = name === 'init' ? ['--yes'] : [];
+      const extra = name === 'init' ? ['--yes'] : name === 'changelog compact' ? ['--keep', '1'] : [];
       const result = await runCli([...argv, '--root', dir, ...extra]);
       assert.ok(!/unknown command/.test(result.stderr), `"${name}" should be a known command`);
       assert.notEqual(result.code, 2, `"${name}" should not be a usage error`);
@@ -204,7 +204,18 @@ test('cli.json documents exactly the commands the CLI accepts', async () => {
    const bogus = await runCli(['frobnicate']);
    assert.equal(bogus.code, 2);
    // The documented set matches the canonical command list.
-   assert.deepEqual(documented, ['changelog check', 'conformance', 'docs', 'freshness', 'index', 'init', 'validate']);
+   assert.deepEqual(documented, [
+      'adopt',
+      'changelog check',
+      'changelog compact',
+      'conformance',
+      'detect',
+      'docs',
+      'freshness',
+      'index',
+      'init',
+      'validate',
+   ]);
 });
 
 test('cli --help renders from cli.json (commands and the reference link)', async () => {

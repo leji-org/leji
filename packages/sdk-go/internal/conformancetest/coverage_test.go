@@ -79,7 +79,7 @@ func TestAgentsMapBadTargetFlagged(t *testing.T) {
 	if err := os.WriteFile(mpath, append(out, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res := validate.ValidateLayer(dir)
+	res := validate.ValidateLayer(dir, false)
 	found := false
 	for _, f := range res.Findings {
 		if f.Rule == "profile-frontmatter" {

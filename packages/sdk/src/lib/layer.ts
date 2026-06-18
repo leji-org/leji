@@ -2,7 +2,13 @@ import * as path from 'node:path';
 import { type Finding, finding } from './findings.js';
 import { isFile, readText, realpathWithin, underPath, walkMd } from './fsx.js';
 import { parseFrontmatter } from './frontmatter.js';
-import { type CategoryId, type Manifest, CATEGORY_IDS } from './manifest.js';
+import {
+   type CategoryId,
+   type Manifest,
+   CATEGORY_IDS,
+   effectiveAgentProfilesPath,
+   effectiveDecisionRecordsPath,
+} from './manifest.js';
 import { schemaErrors } from './schemas.js';
 
 export interface ScannedDoc {
@@ -20,10 +26,10 @@ export interface ScannedProfile {
 
 /** Files validate/index must not treat as category content. */
 export function excludedFromCategories(manifest: Manifest): (relPath: string) => boolean {
-   const profilesDir = manifest.machine?.agentProfilesPath;
+   const profilesDir = effectiveAgentProfilesPath(manifest);
    return (relPath: string) => {
       if (relPath === manifest.bootProfilePath) return true;
-      if (profilesDir && underPath(relPath, profilesDir)) return true;
+      if (underPath(relPath, profilesDir)) return true;
       if (path.posix.basename(relPath).toLowerCase() === 'readme.md') return true;
       return false;
    };
@@ -85,8 +91,7 @@ function scanFrontmatterArtifacts(
 }
 
 export function scanAgentProfiles(root: string, manifest: Manifest): ScannedProfile[] {
-   const dir = manifest.machine?.agentProfilesPath;
-   if (!dir) return [];
+   const dir = effectiveAgentProfilesPath(manifest);
    return scanFrontmatterArtifacts(root, dir, 'agent-profile', 'profile-frontmatter');
 }
 
@@ -94,7 +99,7 @@ export function scanDecisionRecords(root: string, manifest: Manifest): ScannedPr
    // Scan the declared records path and every mapped decisions path; a layer
    // may map several and valid records can live in any of them.
    const dirs = new Set<string>();
-   if (manifest.machine?.decisionRecordsPath) dirs.add(manifest.machine.decisionRecordsPath);
+   dirs.add(effectiveDecisionRecordsPath(manifest));
    for (const p of manifest.categories.decisions?.paths ?? []) dirs.add(p);
    const seen = new Set<string>();
    const out: ScannedProfile[] = [];

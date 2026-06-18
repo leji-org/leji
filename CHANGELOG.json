@@ -22,6 +22,23 @@
       ],
       "proposedBy": "Vuong Nguyen",
       "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "release-1-1-0",
+      "date": "2026-06-18",
+      "type": "added",
+      "summary": "Agent onboarding for the reference SDKs (spec and schemas unchanged, still the v1.0 line; all three SDKs to 1.1.0, backward compatible): leji adopt brings an existing repository into a context layer; leji detect and init --agent wire a coding-agent redirect; init writes an onboarding brief and --dry-run previews writes; validate --content and conformance --explain report what is unfinished; leji changelog compact folds old entries; undeclared machine paths resolve to rootPath defaults for a minimal leji.json.",
+      "paths": [
+        "templates/",
+        "packages/sdk/",
+        "packages/sdk-py/",
+        "packages/sdk-go/",
+        "packages/create-leji/",
+        "scripts/",
+        "fixtures/"
+      ],
+      "proposedBy": "Vuong Nguyen",
+      "approvedBy": "Vuong Nguyen"
     }
   ]
 }

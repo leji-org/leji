@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/freshness"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
@@ -46,7 +47,7 @@ func Report(root string) Result {
 	var fs []findings.Finding
 	m := manifest.LoadManifest(root).Manifest
 
-	validation := validate.ValidateLayer(root)
+	validation := validate.ValidateLayer(root, false)
 	errorsBy := func(rules ...string) []findings.Finding {
 		var out []findings.Finding
 		for _, f := range validation.Findings {
@@ -132,11 +133,8 @@ func Report(root string) Result {
 	add("index-current", "indexed", "a generated context index, current with the tree",
 		indexStatus, firstMsg(indexResult.Findings))
 
-	var changelogRel string
-	if m.Machine != nil {
-		changelogRel = m.Machine.ChangelogPath
-	}
-	if changelogRel != "" && fsx.IsFile(filepath.Join(root, changelogRel)) {
+	changelogRel := manifest.EffectiveChangelogPath(m)
+	if fsx.IsFile(filepath.Join(root, changelogRel)) {
 		changelog := validate.CheckChangelogAppendOnly(root, changelogRel, false)
 		var changelogErrors []findings.Finding
 		for _, f := range changelog.Findings {
@@ -154,11 +152,8 @@ func Report(root string) Result {
 			add("changelog", "indexed", "a machine-readable changelog; layer changes append entries", Pass, "")
 		}
 	} else {
-		detail := "no machine.changelogPath declared"
-		if changelogRel != "" {
-			detail = "declared changelog " + changelogRel + " does not exist"
-		}
-		add("changelog", "indexed", "a machine-readable changelog; layer changes append entries", Fail, detail)
+		add("changelog", "indexed", "a machine-readable changelog; layer changes append entries", Fail,
+			"changelog "+changelogRel+" does not exist")
 	}
 
 	add("review-gate", "governed", "layer changes ride the repository's review gate; people approve", Manual, "")
@@ -244,4 +239,57 @@ func Report(root string) Result {
 	}
 
 	return Result{ClaimedLevel: claimed, VerifiedLevel: verified, Items: items, Findings: findings.Sort(fs)}
+}
+
+// RenderExplain produces actionable guidance (`conformance --explain`): what it
+// would take to reach the next level above the one currently verified, listing
+// the not-yet-passing items (manual ones flagged as process steps), plus a
+// pointer to the content lint.
+func RenderExplain(result Result) string {
+	levels := manifest.ConformanceLevels
+	verifiedIdx := -1
+	if result.VerifiedLevel != "" {
+		verifiedIdx = slices.Index(levels, result.VerifiedLevel)
+	}
+	verified := result.VerifiedLevel
+	if verified == "" {
+		verified = "none"
+	}
+	claimed := result.ClaimedLevel
+	if claimed == "" {
+		claimed = "none"
+	}
+	lines := []string{fmt.Sprintf("Verified level: %s (claimed: %s).", verified, claimed)}
+	nextIdx := verifiedIdx + 1
+	if nextIdx >= len(levels) {
+		lines = append(lines, "This layer is at the top conformance level (federated). Nothing further to reach.")
+		return strings.Join(lines, "\n")
+	}
+	next := levels[nextIdx]
+	var blockers []ChecklistItem
+	for _, it := range result.Items {
+		if it.Level == next && it.Status != Pass {
+			blockers = append(blockers, it)
+		}
+	}
+	lines = append(lines, "", fmt.Sprintf("To reach %q:", next))
+	if len(blockers) == 0 {
+		lines = append(lines, fmt.Sprintf("   - all %q checks already pass; set conformance.claimedLevel to %q in leji.json", next, next))
+	} else {
+		for _, b := range blockers {
+			how := ""
+			if b.Status == Manual {
+				how = " (process step; tooling cannot verify)"
+			}
+			detail := ""
+			if b.Detail != "" {
+				detail = " — " + b.Detail
+			}
+			lines = append(lines, fmt.Sprintf("   - %s%s%s", b.Description, detail, how))
+		}
+	}
+	lines = append(lines,
+		"",
+		"Content quality (not a conformance gate): run `leji validate --content` for placeholder and thin-content warnings.")
+	return strings.Join(lines, "\n")
 }

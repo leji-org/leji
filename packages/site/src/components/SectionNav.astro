@@ -1,7 +1,5 @@
 ---
-// One stable site sidebar, the same on every documentation page so navigation
-// never jumps; only the highlighted item moves. Groups are collapsible, and the
-// open/closed state persists across pages (localStorage), so a collapse sticks.
+// Stable doc sidebar; only the active item changes. Collapsible groups persist open/closed across pages (localStorage).
 import { SPEC_DOCS, specPath } from '../data/spec-docs';
 const { current } = Astro.props as { current: string };
 

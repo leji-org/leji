@@ -171,6 +171,9 @@ func TestCLIDocumentedCommandsAreKnown(t *testing.T) {
 		if c.Name == "init" {
 			full = append(full, "--yes")
 		}
+		if c.Name == "changelog compact" {
+			full = append(full, "--keep", "1")
+		}
 		code, _, errs := captureRun(t, full)
 		if strings.Contains(errs, "unknown command") {
 			t.Fatalf("%q should be known", c.Name)

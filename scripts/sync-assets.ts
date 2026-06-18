@@ -23,12 +23,16 @@ const TARGETS = [
 ];
 
 // Single-file mirrors that are not under /schemas or /templates. cli.json is
-// authored canonically in packages/sdk and embedded by the Go SDK; keep them
-// byte-identical so the three CLIs describe the same surface.
+// authored canonically in packages/sdk and embedded by the Go and Python SDKs;
+// keep them byte-identical so the three CLIs describe the same surface.
 const FILE_MIRRORS = [
    {
       src: path.join(repoRoot, 'packages', 'sdk', 'cli.json'),
       dest: path.join(repoRoot, 'packages', 'sdk-go', 'internal', 'assets', 'cli.json'),
+   },
+   {
+      src: path.join(repoRoot, 'packages', 'sdk', 'cli.json'),
+      dest: path.join(repoRoot, 'packages', 'sdk-py', 'src', 'leji', '_assets', 'cli.json'),
    },
 ];
 

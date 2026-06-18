@@ -1,0 +1,77 @@
+---
+// Self-contained `leji conformance` demo: real CLI output scoring a context layer against the four levels. `heading`/`blurb` optional.
+// Transcript is real output on examples/monorepo, trimmed: `pass` is machine-verified, `manual` is person-attested.
+interface Props {
+   heading?: string;
+   blurb?: string;
+}
+const { heading, blurb } = Astro.props;
+
+const lines: { mark: 'cmd' | 'pass' | 'manual' | 'ok'; text: string }[] = [
+   { mark: 'cmd', text: '$ leji conformance' },
+   { mark: 'pass', text: 'pass   [core] leji.json at the repository root, valid against the schema' },
+   { mark: 'pass', text: 'pass   [core] a boot profile covering identity, loading, and posture' },
+   { mark: 'pass', text: 'pass   [core] domain or system mapped, plus a real decision record' },
+   { mark: 'pass', text: 'pass   [indexed] a generated context index, current with the tree' },
+   { mark: 'pass', text: 'pass   [indexed] a machine-readable changelog; changes append entries' },
+   { mark: 'manual', text: 'manual [governed] layer changes ride the repository review gate; people approve' },
+   { mark: 'pass', text: 'pass   [governed] freshness horizons are declared and checked' },
+   { mark: 'manual', text: 'manual [federated] consumed by another repository as a pinned docs-only mount' },
+   { mark: 'ok', text: 'ok (0 errors, 0 warnings; claimed: indexed, verified: indexed)' },
+];
+---
+
+<section class="conformance-peek">
+   {heading && <h2>{heading}</h2>}
+   {blurb && <p class="blurb">{blurb}</p>}
+   <pre
+      class="transcript"
+      aria-label="Example leji conformance output">{lines.map((l) => <span class={`ln ${l.mark}`}>{l.text + '\n'}</span>)}</pre>
+</section>
+
+<style>
+   .conformance-peek {
+      margin-top: 4.5rem;
+   }
+   .conformance-peek h2 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: clamp(1.5rem, 2.6vw, 2rem);
+      color: var(--blue-deep);
+      margin: 0 0 0.6rem;
+   }
+   .blurb {
+      color: var(--ink-soft);
+      max-width: 56ch;
+      margin: 0 0 1.2rem;
+   }
+   .transcript {
+      margin: 0;
+      background: var(--blue-deep);
+      color: var(--white-soft);
+      border-radius: 12px;
+      padding: 1.3rem 1.5rem;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.7;
+      overflow-x: auto;
+      white-space: pre;
+      box-shadow: 0 14px 40px rgba(22, 41, 96, 0.16);
+   }
+   .ln {
+      display: inline;
+   }
+   .ln.cmd {
+      color: var(--gold-bright);
+   }
+   .ln.pass {
+      color: #6fc7a6;
+   }
+   .ln.manual {
+      color: var(--gold-bright);
+      opacity: 0.85;
+   }
+   .ln.ok {
+      color: #8fd4b8;
+   }
+</style>

@@ -126,9 +126,73 @@ func TestScanAgentProfilesValidatesFrontmatter(t *testing.T) {
 	}
 }
 
-func TestScanAgentProfilesNilWhenNoMachine(t *testing.T) {
+func TestScanAgentProfilesNilWhenNoDefaultDir(t *testing.T) {
+	// With no machine block and no default agents/ directory present, the scan
+	// resolves the default path but finds nothing.
 	if got := ScanAgentProfiles(t.TempDir(), &manifest.Manifest{}); got != nil {
-		t.Fatalf("expected nil with no machine, got %#v", got)
+		t.Fatalf("expected nil with no agent profiles, got %#v", got)
+	}
+}
+
+// TestNoMachineBlockResolvesDefaults mirrors the Node units test: a manifest
+// with no machine block resolves agents/decisions to docs/agents/ and
+// docs/decisions/. A profile dropped at the default location is scanned (and
+// valid), and docs/agents/ is excluded from category content even though it is
+// undeclared.
+func TestNoMachineBlockResolvesDefaults(t *testing.T) {
+	root := t.TempDir()
+	m := &manifest.Manifest{
+		RootPath:        "docs/",
+		BootProfilePath: "docs/boot-profile.md",
+		Categories: map[string]manifest.CategoryMapping{
+			"domain":    {Paths: []string{"docs/domain/"}},
+			"decisions": {Paths: []string{"docs/decisions/"}},
+		},
+	}
+	if m.Machine != nil {
+		t.Fatalf("manifest unexpectedly has a machine block")
+	}
+
+	// A valid agent profile at the default profiles location (docs/agents/).
+	profile := "---\n" +
+		"id: core\n" +
+		"name: Core\n" +
+		"role: core\n" +
+		"requiredRead:\n" +
+		"  - docs/boot-profile.md\n" +
+		"mustAskWhen:\n" +
+		"  - a proposal weakens an invariant\n" +
+		"---\n\n# Core\n\nA profile under the default agents directory.\n"
+	writeFile(t, root, "docs/agents/core.md", profile)
+	// A domain doc so the agents profile is clearly not category content.
+	writeFile(t, root, "docs/domain/overview.md", "---\nsummary: x\n---\n\n# Overview\n\n- a term\n")
+
+	profiles := ScanAgentProfiles(root, m)
+	var valid bool
+	for _, p := range profiles {
+		if p.RelPath == "docs/agents/core.md" && len(p.Findings) == 0 {
+			valid = true
+		}
+	}
+	if !valid {
+		t.Fatalf("profile under docs/agents/ should be scanned and valid, got %#v", profiles)
+	}
+
+	// docs/agents/ is excluded from category content even when undeclared.
+	excluded := excludedFromCategories(m)
+	if !excluded("docs/agents/core.md") {
+		t.Fatalf("docs/agents/ should be excluded from categories")
+	}
+	docs := ScanCategories(root, m)
+	for _, d := range docs {
+		if d.RelPath == "docs/agents/core.md" {
+			t.Fatalf("agent profile must not be treated as category content")
+		}
+	}
+
+	// Decisions resolve to docs/decisions/ as well.
+	if got := manifest.EffectiveDecisionRecordsPath(m); got != "docs/decisions/" {
+		t.Fatalf("decisions path = %q, want docs/decisions/", got)
 	}
 }
 

@@ -3,7 +3,6 @@
 package docs
 
 import (
-	"encoding/json"
 	"html"
 	"net"
 	"net/http"
@@ -17,8 +16,18 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
+	"github.com/leji-org/leji/packages/sdk-go/internal/jsonenc"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 )
+
+// docsifyConfig is the Docsify viewer config embedded in index.html. Field order
+// (name, then homepage) and the absence of HTML escaping in jsonenc.Marshal make
+// the serialized form byte-identical to the Node SDK's JSON.stringify output,
+// before scriptSafeJSON escapes it for <script> embedding.
+type docsifyConfig struct {
+	Name     string `json:"name"`
+	Homepage string `json:"homepage"`
+}
 
 // ResolveDocsPort: explicit flag, then manifest docs.port, then 5354.
 func ResolveDocsPort(m *manifest.Manifest, flagPort *int) int {
@@ -99,9 +108,10 @@ func BuildSidebar(m *manifest.Manifest, entries []indexgen.IndexEntry) string {
 	return strings.Join(sections, "\n\n---\n\n") + "\n"
 }
 
-// scriptSafeJSON makes a JSON blob safe to embed in an HTML <script> element.
-// Go's json.Marshal already escapes <, >, & to < etc.; the two Unicode
-// line separators are not escaped by json.Marshal, so handle them explicitly.
+// scriptSafeJSON makes a JSON blob safe to embed in an HTML <script> element by
+// neutralizing a closing tag and the two JS line terminators U+2028/U+2029. The
+// input comes from jsonenc.Marshal (no HTML escaping), so <, >, and & are
+// literal here and escaped to < etc., matching the Node SDK's jsonForScript.
 func scriptSafeJSON(b []byte) string {
 	s := string(b)
 	s = strings.ReplaceAll(s, "<", "\\u003c")
@@ -129,7 +139,7 @@ func GenerateDocs(root string, m *manifest.Manifest) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	configBytes, err := json.Marshal(map[string]string{"name": m.Name, "homepage": boot})
+	configBytes, err := jsonenc.Marshal(docsifyConfig{Name: m.Name, Homepage: boot})
 	if err != nil {
 		return Result{}, err
 	}

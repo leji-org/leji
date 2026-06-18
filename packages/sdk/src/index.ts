@@ -1,28 +1,36 @@
 import { type Finding, sortFindings, summarize } from './lib/findings.js';
-import { loadManifest } from './lib/manifest.js';
+import { effectiveChangelogPath, effectiveIndexPath, loadManifest } from './lib/manifest.js';
 import { type CliOption, SDK_VERSION, SUPPORTED_LINES, loadCliSpec } from './lib/schemas.js';
 import { checkIndex, generateIndex, writeIndex } from './commands/indexgen.js';
 import { checkChangelogAppendOnly, validateLayer } from './commands/validate.js';
-import { conformanceReport } from './commands/conformance.js';
+import { compactChangelog } from './commands/changelog.js';
+import { conformanceReport, renderExplain } from './commands/conformance.js';
 import { generateDocs, resolveDocsPort, serveDocs } from './commands/docs.js';
 import { freshnessReport } from './commands/freshness.js';
-import { enteringTheLayer, initLayer } from './commands/init.js';
+import { adoptLayer, enteringAdopted, enteringTheLayer, initLayer } from './commands/init.js';
+import { detectLayer, renderDetect } from './commands/detect.js';
+import { renderWritePlan } from './lib/writeplan.js';
 
 export { validateLayer } from './commands/validate.js';
 export { checkIndex, generateIndex, writeIndex } from './commands/indexgen.js';
 export { checkChangelogAppendOnly } from './commands/validate.js';
-export { conformanceReport } from './commands/conformance.js';
+export { compactChangelog, serializeChangelog } from './commands/changelog.js';
+export { conformanceReport, renderExplain } from './commands/conformance.js';
 export { buildSidebar, generateDocs, resolveDocsPort, serveDocs } from './commands/docs.js';
 export { freshnessReport } from './commands/freshness.js';
-export { initLayer } from './commands/init.js';
+export { initLayer, adoptLayer } from './commands/init.js';
+export { detectLayer, renderDetect } from './commands/detect.js';
+export { buildWritePlan, renderWritePlan } from './lib/writeplan.js';
+export { detectHosts, resolveHostId, adapterContent, HOST_SPECS } from './lib/detect.js';
 export { loadManifest } from './lib/manifest.js';
 export { SDK_VERSION, SUPPORTED_LINES } from './lib/schemas.js';
 export type { Finding, Severity } from './lib/findings.js';
 export type { Manifest, ConformanceLevel, CategoryId } from './lib/manifest.js';
 export type { ContextIndex, IndexEntry } from './commands/indexgen.js';
+export type { CompactOptions, CompactResult } from './commands/changelog.js';
 export type { ConformanceResult, ChecklistItem } from './commands/conformance.js';
 export type { FreshnessReport } from './commands/freshness.js';
-export type { InitOptions, InitResult } from './commands/init.js';
+export type { InitOptions, InitResult, AdoptOptions, AdoptResult } from './commands/init.js';
 
 /** Terminal help, generated from cli.json so it cannot drift from the docs site. */
 function buildUsage(): string {
@@ -59,10 +67,21 @@ interface Flags {
    strict: boolean;
    yes: boolean;
    serve: boolean;
+   content: boolean;
+   dryRun: boolean;
+   wireAdapters: boolean;
+   explain: boolean;
+   ci: boolean;
+   help: boolean;
+   version: boolean;
    port?: number;
    dir: string;
    level?: 'core' | 'indexed';
    name?: string;
+   agent?: string;
+   reviewer?: string;
+   keep?: number;
+   before?: string;
 }
 
 function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: string } {
@@ -73,6 +92,13 @@ function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: str
       strict: false,
       yes: false,
       serve: false,
+      content: false,
+      dryRun: false,
+      wireAdapters: false,
+      explain: false,
+      ci: false,
+      help: false,
+      version: false,
       dir: '.',
    };
    const rest: string[] = [];
@@ -97,6 +123,26 @@ function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: str
             flags.name = argv[++i];
             if (!flags.name) return { flags, rest, error: '--name requires a value' };
             break;
+         case '--agent':
+            flags.agent = argv[++i];
+            if (!flags.agent) return { flags, rest, error: '--agent requires a value' };
+            break;
+         case '--reviewer':
+            flags.reviewer = argv[++i];
+            if (!flags.reviewer) return { flags, rest, error: '--reviewer requires a value' };
+            break;
+         case '--keep': {
+            const raw = argv[++i];
+            const v = Number(raw);
+            if (!raw || !Number.isInteger(v) || v < 1)
+               return { flags, rest, error: '--keep must be a positive integer' };
+            flags.keep = v;
+            break;
+         }
+         case '--before':
+            flags.before = argv[++i];
+            if (!flags.before) return { flags, rest, error: '--before requires a value' };
+            break;
          case '--serve':
             flags.serve = true;
             break;
@@ -112,6 +158,21 @@ function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: str
          case '--check':
             flags.check = true;
             break;
+         case '--content':
+            flags.content = true;
+            break;
+         case '--dry-run':
+            flags.dryRun = true;
+            break;
+         case '--wire-adapters':
+            flags.wireAdapters = true;
+            break;
+         case '--explain':
+            flags.explain = true;
+            break;
+         case '--ci':
+            flags.ci = true;
+            break;
          case '--strict':
             flags.strict = true;
             break;
@@ -119,8 +180,16 @@ function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: str
          case '-y':
             flags.yes = true;
             break;
+         case '-h':
+         case '--help':
+            flags.help = true;
+            break;
+         case '-V':
+         case '--version':
+            flags.version = true;
+            break;
          default:
-            if (arg.startsWith('-') && arg !== '-h' && arg !== '--help' && arg !== '-V' && arg !== '--version') {
+            if (arg.startsWith('-')) {
                return { flags, rest, error: `unknown option ${arg}` };
             }
             rest.push(arg);
@@ -133,7 +202,17 @@ function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: str
 // command accepts the global options plus its own declared options, and any other
 // command flag is a usage error rather than being silently ignored. (Meta-flag
 // `-h`/`-V` handling, short-circuited above, is a separate concern.)
-const VALUE_FLAGS = new Set(['--root', '--dir', '--level', '--name', '--port']);
+const VALUE_FLAGS = new Set([
+   '--root',
+   '--dir',
+   '--level',
+   '--name',
+   '--port',
+   '--agent',
+   '--reviewer',
+   '--keep',
+   '--before',
+]);
 
 function flagTokens(flagsStr: string): string[] {
    // "--yes, -y" -> ["--yes","-y"]; "--port <n>" -> ["--port"].
@@ -201,12 +280,23 @@ export async function run(argv: string[]): Promise<number> {
       console.error(USAGE);
       return 2;
    }
+   // Meta-flags short-circuit before dispatch, wherever they appear in argv, so
+   // `leji <command> --help`/`--version` shows usage or the version and never
+   // runs the command (a help request must not have side effects).
+   if (flags.help) {
+      console.log(USAGE);
+      return 0;
+   }
+   if (flags.version) {
+      console.log(SDK_VERSION);
+      return 0;
+   }
    const [command, sub] = rest;
-   if (!command || command === '-h' || command === '--help' || command === 'help') {
+   if (!command || command === 'help') {
       console.log(USAGE);
       return command ? 0 : 2;
    }
-   if (command === '-V' || command === '--version' || command === 'version') {
+   if (command === 'version') {
       console.log(SDK_VERSION);
       return 0;
    }
@@ -228,7 +318,7 @@ export async function run(argv: string[]): Promise<number> {
    try {
       switch (command) {
          case 'validate': {
-            const result = validateLayer(flags.root);
+            const result = validateLayer(flags.root, { content: flags.content });
             return emit('validate', result.findings, flags.json);
          }
          case 'index': {
@@ -242,31 +332,38 @@ export async function run(argv: string[]): Promise<number> {
             }
             const result = writeIndex(flags.root, manifest);
             return emit('index', [...findings, ...result.findings], flags.json, {
-               written: manifest.machine?.indexPath ?? '',
+               written: effectiveIndexPath(manifest),
                entries: result.index?.entries.length ?? 0,
             });
          }
          case 'changelog': {
-            if (sub !== 'check') {
-               console.error('leji: usage: leji changelog check\n');
-               return 2;
-            }
-            const { manifest, findings } = loadManifest(flags.root);
-            if (!manifest) return emit('changelog check', findings, flags.json);
-            const rel = manifest.machine?.changelogPath;
-            if (!rel) {
-               findings.push({
-                  rule: 'changelog-required',
-                  severity: 'error',
-                  path: 'leji.json',
-                  message: 'no machine.changelogPath declared in leji.json',
+            if (sub === 'check') {
+               const { manifest, findings } = loadManifest(flags.root);
+               if (!manifest) return emit('changelog check', findings, flags.json);
+               const rel = effectiveChangelogPath(manifest);
+               const result = checkChangelogAppendOnly(flags.root, rel, flags.strict);
+               return emit('changelog check', [...findings, ...result.findings], flags.json, {
+                  verified: result.verified,
                });
-               return emit('changelog check', findings, flags.json);
             }
-            const result = checkChangelogAppendOnly(flags.root, rel, flags.strict);
-            return emit('changelog check', [...findings, ...result.findings], flags.json, {
-               verified: result.verified,
-            });
+            if (sub === 'compact') {
+               if (flags.keep === undefined && flags.before === undefined) {
+                  console.error('leji: changelog compact requires --keep or --before\n');
+                  console.error(USAGE);
+                  return 2;
+               }
+               const { manifest, findings } = loadManifest(flags.root);
+               if (!manifest) return emit('changelog compact', findings, flags.json);
+               const result = compactChangelog(flags.root, manifest, { keep: flags.keep, before: flags.before });
+               return emit('changelog compact', [...findings, ...result.findings], flags.json, {
+                  changelog: result.path,
+                  folded: result.folded,
+                  kept: result.kept,
+                  note: result.folded === 0 && result.findings.length === 0 ? 'nothing to compact' : undefined,
+               });
+            }
+            console.error('leji: usage: leji changelog <check|compact>\n');
+            return 2;
          }
          case 'freshness': {
             const { manifest, findings } = loadManifest(flags.root);
@@ -291,6 +388,7 @@ export async function run(argv: string[]): Promise<number> {
                   console.log(`${mark} [${item.level}] ${item.description}${item.detail ? ` — ${item.detail}` : ''}`);
                }
                console.log('');
+               if (flags.explain) console.log(renderExplain(result) + '\n');
             }
             return emit('conformance', result.findings, flags.json, {
                claimedLevel: result.claimedLevel ?? 'none',
@@ -320,13 +418,51 @@ export async function run(argv: string[]): Promise<number> {
             await new Promise<void>((resolve) => server.on('close', resolve));
             return 0;
          }
+         case 'detect': {
+            const result = detectLayer(flags.root);
+            if (flags.json) {
+               console.log(JSON.stringify({ command: 'detect', ok: true, hosts: result.hosts }, null, 2));
+            } else {
+               console.log(renderDetect(result.hosts));
+            }
+            return 0;
+         }
+         case 'adopt': {
+            const result = await adoptLayer({
+               dir: flags.dir === '.' && flags.root !== '.' ? flags.root : flags.dir,
+               yes: flags.yes,
+               name: flags.name,
+               dryRun: flags.dryRun,
+               wireAdapters: flags.wireAdapters,
+               agent: flags.agent,
+            });
+            if (result.dryRun) {
+               console.log(`\nAdopting the existing repository (context root: ${result.detectedRoot}).`);
+               console.log('\n' + renderWritePlan(result.plan));
+               console.log('\nNo files written (--dry-run). Re-run without --dry-run to apply.');
+               return 0;
+            }
+            console.log(`\nWrote ${result.written.length} files (context root: ${result.detectedRoot}):`);
+            for (const rel of result.written) console.log(`   ${rel}`);
+            console.log(enteringAdopted(result));
+            return 0;
+         }
          case 'init': {
             const result = await initLayer({
                dir: flags.dir === '.' && flags.root !== '.' ? flags.root : flags.dir,
                yes: flags.yes,
                name: flags.name,
                level: flags.level,
+               dryRun: flags.dryRun,
+               agent: flags.agent,
+               reviewer: flags.reviewer,
+               ci: flags.ci,
             });
+            if (result.dryRun) {
+               console.log('\n' + renderWritePlan(result.plan));
+               console.log('\nNo files written (--dry-run). Re-run without --dry-run to create them.');
+               return 0;
+            }
             console.log(`\nWrote ${result.written.length} files:`);
             for (const rel of result.written) console.log(`   ${rel}`);
             console.log(enteringTheLayer(result.manifest));

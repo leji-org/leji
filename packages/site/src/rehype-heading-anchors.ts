@@ -1,7 +1,4 @@
-// Appends a grabbable permalink to each section heading (h2-h4) in the rendered
-// markdown, so any section of the spec can be linked and cited directly. Heading
-// ids are reused when present (Astro injects them) and otherwise derived with
-// the same slugger Astro uses, so anchors stay stable and match the headings.
+// Appends a permalink anchor to each heading (h2-h4) so any section can be linked; reuses Astro's ids/slugger so anchors stay stable.
 
 import GithubSlugger from 'github-slugger';
 

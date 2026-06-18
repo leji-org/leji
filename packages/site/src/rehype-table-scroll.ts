@@ -1,6 +1,4 @@
-// Wraps every markdown table in a scroll container so a table wider than the
-// reading column scrolls within its own box instead of pushing the whole page
-// (and the doc sidebar) wider than the viewport on narrow screens.
+// Wraps every markdown table in a scroll container so a wide table scrolls in its own box instead of widening the page.
 
 interface HastNode {
    type: string;

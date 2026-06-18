@@ -2,7 +2,8 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
+
+	"github.com/leji-org/leji/packages/sdk-go/internal/jsonenc"
 )
 
 // jsonObj is an insertion-ordered JSON object encoded with 2-space indent,
@@ -32,7 +33,7 @@ func (o *jsonObj) encode(buf *bytes.Buffer, prefix, indent string) {
 	inner := prefix + indent
 	for i, k := range o.keys {
 		buf.WriteString(inner)
-		kb, _ := json.Marshal(k)
+		kb, _ := jsonenc.Marshal(k)
 		buf.Write(kb)
 		buf.WriteString(": ")
 		writeJSONValue(buf, o.values[k], inner, indent)
@@ -67,7 +68,7 @@ func writeJSONValue(buf *bytes.Buffer, value any, prefix, indent string) {
 		buf.WriteString(prefix)
 		buf.WriteByte(']')
 	default:
-		b, _ := json.Marshal(v)
+		b, _ := jsonenc.Marshal(v)
 		buf.Write(b)
 	}
 }

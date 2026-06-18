@@ -14,29 +14,46 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/leji-org/leji/packages/sdk-go/internal/commands/changelog"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/conformance"
+	detectcmd "github.com/leji-org/leji/packages/sdk-go/internal/commands/detect"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/docs"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/freshness"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
 	initcmd "github.com/leji-org/leji/packages/sdk-go/internal/commands/init"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/validate"
+	"github.com/leji-org/leji/packages/sdk-go/internal/detect"
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/schemas"
+	"github.com/leji-org/leji/packages/sdk-go/internal/writeplan"
 )
 
 type flags struct {
-	root    string
-	json    bool
-	check   bool
-	strict  bool
-	yes     bool
-	serve   bool
-	port    *int
-	dir     string
-	level   string
-	name    string
-	hasName bool
+	root         string
+	json         bool
+	check        bool
+	strict       bool
+	yes          bool
+	serve        bool
+	content      bool
+	dryRun       bool
+	wireAdapters bool
+	explain      bool
+	ci           bool
+	help         bool
+	version      bool
+	port         *int
+	dir          string
+	level        string
+	name         string
+	hasName      bool
+	agent        string
+	reviewer     string
+	keep         int
+	hasKeep      bool
+	before       string
+	hasBefore    bool
 }
 
 func parseFlags(argv []string) (flags, []string, string) {
@@ -84,6 +101,43 @@ func parseFlags(argv []string) (flags, []string, string) {
 				return f, rest, "--name requires a value"
 			}
 			f.hasName = true
+		case "--agent":
+			i++
+			if i < len(argv) {
+				f.agent = argv[i]
+			}
+			if f.agent == "" {
+				return f, rest, "--agent requires a value"
+			}
+		case "--reviewer":
+			i++
+			if i < len(argv) {
+				f.reviewer = argv[i]
+			}
+			if f.reviewer == "" {
+				return f, rest, "--reviewer requires a value"
+			}
+		case "--keep":
+			i++
+			var raw string
+			if i < len(argv) {
+				raw = argv[i]
+			}
+			v, err := strconv.Atoi(raw)
+			if raw == "" || err != nil || v < 1 {
+				return f, rest, "--keep must be a positive integer"
+			}
+			f.keep = v
+			f.hasKeep = true
+		case "--before":
+			i++
+			if i < len(argv) {
+				f.before = argv[i]
+			}
+			if f.before == "" {
+				return f, rest, "--before requires a value"
+			}
+			f.hasBefore = true
 		case "--serve":
 			f.serve = true
 		case "--port":
@@ -101,12 +155,26 @@ func parseFlags(argv []string) (flags, []string, string) {
 			f.json = true
 		case "--check":
 			f.check = true
+		case "--content":
+			f.content = true
+		case "--dry-run":
+			f.dryRun = true
+		case "--wire-adapters":
+			f.wireAdapters = true
+		case "--explain":
+			f.explain = true
+		case "--ci":
+			f.ci = true
 		case "--strict":
 			f.strict = true
 		case "--yes", "-y":
 			f.yes = true
+		case "-h", "--help":
+			f.help = true
+		case "-V", "--version":
+			f.version = true
 		default:
-			if strings.HasPrefix(arg, "-") && arg != "-h" && arg != "--help" && arg != "-V" && arg != "--version" {
+			if strings.HasPrefix(arg, "-") {
 				return f, rest, "unknown option " + arg
 			}
 			rest = append(rest, arg)
@@ -225,7 +293,7 @@ func emitJSON(command string, ok bool, fs []findings.Finding, summary findings.S
 // command accepts the global options plus its own, and any other command flag is a
 // usage error rather than being silently ignored. (Meta-flag -h/-V handling,
 // short-circuited above, is a separate concern.)
-var valueFlags = map[string]bool{"--root": true, "--dir": true, "--level": true, "--name": true, "--port": true}
+var valueFlags = map[string]bool{"--root": true, "--dir": true, "--level": true, "--name": true, "--port": true, "--agent": true, "--reviewer": true, "--keep": true, "--before": true}
 
 func flagTokens(s string) []string {
 	var out []string
@@ -287,6 +355,17 @@ func Run(argv []string) int {
 		fmt.Fprintln(os.Stderr, usage)
 		return 2
 	}
+	// Meta-flags short-circuit before dispatch, wherever they appear in argv, so
+	// `leji <command> --help`/`--version` shows usage or the version and never
+	// runs the command (a help request must not have side effects).
+	if f.help {
+		fmt.Println(usage)
+		return 0
+	}
+	if f.version {
+		fmt.Println(schemas.SDKVersion)
+		return 0
+	}
 	var command, sub string
 	if len(rest) > 0 {
 		command = rest[0]
@@ -294,14 +373,14 @@ func Run(argv []string) int {
 	if len(rest) > 1 {
 		sub = rest[1]
 	}
-	if command == "" || command == "-h" || command == "--help" || command == "help" {
+	if command == "" || command == "help" {
 		fmt.Println(usage)
 		if command != "" {
 			return 0
 		}
 		return 2
 	}
-	if command == "-V" || command == "--version" || command == "version" {
+	if command == "version" {
 		fmt.Println(schemas.SDKVersion)
 		return 0
 	}
@@ -325,7 +404,7 @@ func Run(argv []string) int {
 
 	switch command {
 	case "validate":
-		result := validate.ValidateLayer(f.root)
+		result := validate.ValidateLayer(f.root, f.content)
 		return emit("validate", result.Findings, f.json, nil)
 	case "index":
 		load := manifest.LoadManifest(f.root)
@@ -348,11 +427,7 @@ func Run(argv []string) int {
 			return 2
 		}
 		extra := newExtra()
-		written := ""
-		if load.Manifest.Machine != nil {
-			written = load.Manifest.Machine.IndexPath
-		}
-		extra.set("written", written)
+		extra.set("written", manifest.EffectiveIndexPath(load.Manifest))
 		entries := 0
 		if result.Index != nil {
 			entries = len(result.Index.Entries)
@@ -360,27 +435,41 @@ func Run(argv []string) int {
 		extra.set("entries", entries)
 		return emit("index", append(load.Findings, result.Findings...), f.json, extra)
 	case "changelog":
-		if sub != "check" {
-			fmt.Fprint(os.Stderr, "leji: usage: leji changelog check\n\n")
-			return 2
+		if sub == "check" {
+			load := manifest.LoadManifest(f.root)
+			if load.Manifest == nil {
+				return emit("changelog check", load.Findings, f.json, nil)
+			}
+			rel := manifest.EffectiveChangelogPath(load.Manifest)
+			result := validate.CheckChangelogAppendOnly(f.root, rel, f.strict)
+			extra := newExtra()
+			extra.set("verified", result.Verified)
+			return emit("changelog check", append(load.Findings, result.Findings...), f.json, extra)
 		}
-		load := manifest.LoadManifest(f.root)
-		if load.Manifest == nil {
-			return emit("changelog check", load.Findings, f.json, nil)
+		if sub == "compact" {
+			if !f.hasKeep && !f.hasBefore {
+				fmt.Fprint(os.Stderr, "leji: changelog compact requires --keep or --before\n\n")
+				fmt.Fprintln(os.Stderr, usage)
+				return 2
+			}
+			load := manifest.LoadManifest(f.root)
+			if load.Manifest == nil {
+				return emit("changelog compact", load.Findings, f.json, nil)
+			}
+			result := changelog.CompactChangelog(f.root, load.Manifest, changelog.CompactOptions{
+				Keep: f.keep, HasKeep: f.hasKeep, Before: f.before, HasBefore: f.hasBefore,
+			})
+			extra := newExtra()
+			extra.set("changelog", result.Path)
+			extra.set("folded", result.Folded)
+			extra.set("kept", result.Kept)
+			if result.Folded == 0 && len(result.Findings) == 0 {
+				extra.set("note", "nothing to compact")
+			}
+			return emit("changelog compact", append(load.Findings, result.Findings...), f.json, extra)
 		}
-		var rel string
-		if load.Manifest.Machine != nil {
-			rel = load.Manifest.Machine.ChangelogPath
-		}
-		if rel == "" {
-			fs := append(load.Findings, findings.New("changelog-required", findings.Error,
-				"no machine.changelogPath declared in leji.json", "leji.json"))
-			return emit("changelog check", fs, f.json, nil)
-		}
-		result := validate.CheckChangelogAppendOnly(f.root, rel, f.strict)
-		extra := newExtra()
-		extra.set("verified", result.Verified)
-		return emit("changelog check", append(load.Findings, result.Findings...), f.json, extra)
+		fmt.Fprint(os.Stderr, "leji: usage: leji changelog <check|compact>\n\n")
+		return 2
 	case "freshness":
 		load := manifest.LoadManifest(f.root)
 		if load.Manifest == nil {
@@ -420,6 +509,9 @@ func Run(argv []string) int {
 				fmt.Printf("%s [%s] %s%s\n", mark, item.Level, item.Description, detail)
 			}
 			fmt.Println("")
+			if f.explain {
+				fmt.Println(conformance.RenderExplain(result) + "\n")
+			}
 		}
 		extra := newExtra()
 		claimed := result.ClaimedLevel
@@ -484,12 +576,46 @@ func Run(argv []string) int {
 			}
 			return 0
 		}
+	case "detect":
+		hosts := detectcmd.DetectLayer(f.root)
+		if f.json {
+			fmt.Println(detectJSON(hosts))
+		} else {
+			fmt.Println(detectcmd.RenderDetect(hosts))
+		}
+		return 0
+	case "adopt":
+		dir := f.dir
+		if f.dir == "." && f.root != "." {
+			dir = f.root
+		}
+		opts := initcmd.AdoptOptions{Dir: dir, Yes: f.yes, DryRun: f.dryRun, WireAdapters: f.wireAdapters, Agent: f.agent}
+		if f.hasName {
+			opts.Name = f.name
+		}
+		result, err := initcmd.AdoptLayer(opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
+			return 2
+		}
+		if result.DryRun {
+			fmt.Printf("\nAdopting the existing repository (context root: %s).\n", result.DetectedRoot)
+			fmt.Println("\n" + writeplan.Render(result.Plan))
+			fmt.Println("\nNo files written (--dry-run). Re-run without --dry-run to apply.")
+			return 0
+		}
+		fmt.Printf("\nWrote %d files (context root: %s):\n", len(result.Written), result.DetectedRoot)
+		for _, rel := range result.Written {
+			fmt.Printf("   %s\n", rel)
+		}
+		fmt.Println(initcmd.EnteringAdopted(result))
+		return 0
 	case "init":
 		dir := f.dir
 		if f.dir == "." && f.root != "." {
 			dir = f.root
 		}
-		opts := initcmd.Options{Dir: dir, Yes: f.yes, Level: f.level}
+		opts := initcmd.Options{Dir: dir, Yes: f.yes, Level: f.level, DryRun: f.dryRun, Agent: f.agent, Reviewer: f.reviewer, Ci: f.ci}
 		if f.hasName {
 			opts.Name = f.name
 		}
@@ -497,6 +623,11 @@ func Run(argv []string) int {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
 			return 2
+		}
+		if result.DryRun {
+			fmt.Println("\n" + writeplan.Render(result.Plan))
+			fmt.Println("\nNo files written (--dry-run). Re-run without --dry-run to create them.")
+			return 0
 		}
 		fmt.Printf("\nWrote %d files:\n", len(result.Written))
 		for _, rel := range result.Written {
@@ -509,6 +640,35 @@ func Run(argv []string) int {
 		fmt.Fprintln(os.Stderr, usage)
 		return 2
 	}
+}
+
+// detectJSON renders the detect result as {command, ok, hosts:[...]}, with each
+// host's keys in the Node DetectedHost order and a null adapter for directory-
+// style hosts.
+func detectJSON(hosts []detect.DetectedHost) string {
+	root := newJSONObj()
+	root.set("command", "detect")
+	root.set("ok", true)
+	arr := make([]any, 0, len(hosts))
+	for _, h := range hosts {
+		o := newJSONObj()
+		o.set("id", h.ID)
+		o.set("name", h.Name)
+		o.set("strength", string(h.Strength))
+		o.set("onPath", h.OnPath)
+		o.set("inRepo", h.InRepo)
+		o.set("userConfig", h.UserConfig)
+		if h.Adapter == "" {
+			o.set("adapter", nil)
+		} else {
+			o.set("adapter", h.Adapter)
+		}
+		arr = append(arr, o)
+	}
+	root.set("hosts", arr)
+	var buf bytes.Buffer
+	root.encode(&buf, "", "  ")
+	return buf.String()
 }
 
 func freshItems(items []freshness.Item) []any {

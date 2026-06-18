@@ -1,9 +1,5 @@
 ---
-// The hero's animated rendering of the official icon. The icon path renders
-// complete and untouched; background-colored cover circles sit over the three
-// node rings and shrink away on load, revealing the real rings outside-in.
-// Each cover ends inside the ring's hole (background-colored anyway), so the
-// settled frame is the pristine asset with no overlays on any visible pixel.
+// Animated hero icon: cover circles over the three node rings shrink away on load, revealing the rings outside-in.
 import svg from '../assets/leji-icon.svg?raw';
 
 const { size = 150 } = Astro.props;
@@ -11,8 +7,7 @@ const width = Math.round((size * 370) / 391);
 
 const iconPath = /d="([^"]+)"/.exec(svg)![1];
 
-// Ring centers from the icon path geometry (outer r 40.68, hole r 12.3).
-// Cover r=43 hides a ring fully; scaled to 0.26 it sits inside the hole.
+// Ring centers from the icon geometry; cover r=43 hides a ring, scaled to 0.26 it tucks into the hole.
 const nodes = [
    { cx: 185.05, cy: 118.61 }, // center, under the capital
    { cx: 258.78, cy: 249.62 }, // right trace

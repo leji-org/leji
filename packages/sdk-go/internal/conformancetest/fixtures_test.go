@@ -99,7 +99,7 @@ func TestFixtureValidate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join(fd, name)
 			exp := loadExpected(t, dir)
-			result := validate.ValidateLayer(dir)
+			result := validate.ValidateLayer(dir, false)
 
 			var got []string
 			for _, f := range result.Findings {

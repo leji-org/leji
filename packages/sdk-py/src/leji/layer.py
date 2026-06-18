@@ -11,7 +11,12 @@ from typing import Any, Callable, Optional
 from .findings import Finding
 from .frontmatter import parse_frontmatter
 from .fsx import under_path, walk_md
-from .manifest import CATEGORY_IDS, Manifest
+from .manifest import (
+    CATEGORY_IDS,
+    Manifest,
+    effective_agent_profiles_path,
+    effective_decision_records_path,
+)
 from .schemas import schema_errors
 
 
@@ -32,12 +37,12 @@ class ScannedProfile:
 
 def excluded_from_categories(manifest: Manifest) -> Callable[[str], bool]:
     """Files validate/index must not treat as category content."""
-    profiles_dir = (manifest.get("machine") or {}).get("agentProfilesPath")
+    profiles_dir = effective_agent_profiles_path(manifest)
 
     def excluded(rel_path: str) -> bool:
         if rel_path == manifest["bootProfilePath"]:
             return True
-        if profiles_dir and under_path(rel_path, profiles_dir):
+        if under_path(rel_path, profiles_dir):
             return True
         if posixpath.basename(rel_path).lower() == "readme.md":
             return True
@@ -96,19 +101,14 @@ def _scan_frontmatter_artifacts(
 
 
 def scan_agent_profiles(root: str, manifest: Manifest) -> list[ScannedProfile]:
-    directory = (manifest.get("machine") or {}).get("agentProfilesPath")
-    if not directory:
-        return []
+    directory = effective_agent_profiles_path(manifest)
     return _scan_frontmatter_artifacts(root, directory, "agent-profile", "profile-frontmatter")
 
 
 def scan_decision_records(root: str, manifest: Manifest) -> list[ScannedProfile]:
     # Scan the declared records path and every mapped decisions path; a layer
     # may map several and valid records can live in any of them.
-    dirs: list[str] = []
-    declared = (manifest.get("machine") or {}).get("decisionRecordsPath")
-    if declared:
-        dirs.append(declared)
+    dirs: list[str] = [effective_decision_records_path(manifest)]
     decisions = manifest["categories"].get("decisions")
     for p in (decisions or {}).get("paths", []):
         if p not in dirs:

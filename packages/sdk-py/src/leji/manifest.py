@@ -80,3 +80,31 @@ def claimed_level(manifest: Manifest) -> str:
 
 def level_at_least(level: str, threshold: str) -> bool:
     return CONFORMANCE_LEVELS.index(level) >= CONFORMANCE_LEVELS.index(threshold)
+
+
+# Effective foundational-path resolvers. The spec (machine-readable-surface.md)
+# defines default locations under rootPath for the machine surface, so tooling
+# resolves an undeclared path to its default rather than failing: leji.json
+# lives at the repository root; everything else defaults under rootPath/.
+def effective_index_path(manifest: Manifest) -> str:
+    return (manifest.get("machine") or {}).get(
+        "indexPath"
+    ) or f"{manifest['rootPath']}context-index.json"
+
+
+def effective_changelog_path(manifest: Manifest) -> str:
+    return (manifest.get("machine") or {}).get("changelogPath") or (
+        f"{manifest['rootPath']}context-changelog.json"
+    )
+
+
+def effective_agent_profiles_path(manifest: Manifest) -> str:
+    return (manifest.get("machine") or {}).get(
+        "agentProfilesPath"
+    ) or f"{manifest['rootPath']}agents/"
+
+
+def effective_decision_records_path(manifest: Manifest) -> str:
+    return (manifest.get("machine") or {}).get(
+        "decisionRecordsPath"
+    ) or f"{manifest['rootPath']}decisions/"

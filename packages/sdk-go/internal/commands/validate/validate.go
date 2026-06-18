@@ -25,8 +25,10 @@ import (
 var KnownVendorFiles = []string{
 	"CLAUDE.md",
 	"AGENTS.md",
+	"GEMINI.md",
 	".cursorrules",
 	".cursor/rules",
+	".windsurfrules",
 	".github/copilot-instructions.md",
 }
 
@@ -49,13 +51,6 @@ func checkDeclaredFile(root, rel, what string, fs *[]findings.Finding) bool {
 		return false
 	}
 	return true
-}
-
-func firstDecisionsPath(m *manifest.Manifest) string {
-	if dec, ok := m.Categories["decisions"]; ok && len(dec.Paths) > 0 {
-		return dec.Paths[0]
-	}
-	return ""
 }
 
 func checkBootProfile(root string, m *manifest.Manifest, fs *[]findings.Finding) {
@@ -82,14 +77,11 @@ func checkBootProfile(root string, m *manifest.Manifest, fs *[]findings.Finding)
 		}
 	}
 
-	var changelogPath, decisionsPath string
+	var changelogPath string
 	if m.Machine != nil {
 		changelogPath = m.Machine.ChangelogPath
-		decisionsPath = m.Machine.DecisionRecordsPath
 	}
-	if decisionsPath == "" {
-		decisionsPath = firstDecisionsPath(m)
-	}
+	decisionsPath := manifest.EffectiveDecisionRecordsPath(m)
 	mentions := func(p string) bool {
 		if p == "" {
 			return false
@@ -184,16 +176,13 @@ func checkOwners(m *manifest.Manifest, fs *[]findings.Finding) {
 }
 
 func checkAgentsMap(root string, m *manifest.Manifest, fs *[]findings.Finding) {
-	var profilesDir string
-	if m.Machine != nil {
-		profilesDir = m.Machine.AgentProfilesPath
-	}
+	profilesDir := manifest.EffectiveAgentProfilesPath(m)
 	for _, role := range sortedKeys(m.Agents) {
 		rel := m.Agents[role]
 		if !checkDeclaredFile(root, rel, fmt.Sprintf("agents.%s profile", role), fs) {
 			continue
 		}
-		if profilesDir != "" && fsx.UnderPath(rel, profilesDir) {
+		if fsx.UnderPath(rel, profilesDir) {
 			continue
 		}
 		text, _ := fsx.ReadText(filepath.Join(root, rel))
@@ -308,12 +297,7 @@ func checkProfilesAndDecisions(root string, m *manifest.Manifest, fs *[]findings
 		}
 	}
 	if validDecisions == 0 {
-		where := "leji.json"
-		if m.Machine != nil && m.Machine.DecisionRecordsPath != "" {
-			where = m.Machine.DecisionRecordsPath
-		} else if p := firstDecisionsPath(m); p != "" {
-			where = p
-		}
+		where := manifest.EffectiveDecisionRecordsPath(m)
 		*fs = append(*fs, findings.New("decisions-empty", findings.Error,
 			"no valid decision record found; core conformance requires at least one", where))
 	}
@@ -354,7 +338,7 @@ func CheckChangelogAppendOnly(root, rel string, strict bool) ChangelogCheckResul
 	if data == nil {
 		return ChangelogCheckResult{
 			Findings: []findings.Finding{findings.New("changelog-required", findings.Error,
-				"declared changelog "+rel+" does not exist", rel)},
+				"changelog "+rel+" does not exist", rel)},
 			Verified: false,
 		}
 	}
@@ -526,8 +510,117 @@ func extractEntries(data any) []changelogEntry {
 	return out
 }
 
-// ValidateLayer runs the full layer validation.
-func ValidateLayer(root string) Result {
+// placeholderRe matches the placeholder markers a freshly scaffolded layer
+// carries until it is populated: the `TODO:` lines init seeds, or any `<…>`
+// angle-bracket stub.
+var placeholderRe = regexp.MustCompile(`\bTODO:|<[A-Za-z][^>\n]*>`)
+
+// unconfirmedRe matches high-stakes inferences an agent drafted but the owner has
+// not confirmed yet: `TODO(confirm-invariant|gate|owner): …` markers, or
+// `UNCONFIRMED:` lines. The `TODO(confirm-…)` form deliberately does not match
+// placeholderRe's `TODO:`.
+var unconfirmedRe = regexp.MustCompile(`TODO\(confirm[-:][^)\n]*\)|UNCONFIRMED:`)
+
+// genericIdentity is the generic identity init writes by default; real layers replace it.
+const genericIdentity = "Shared context layer for this repository."
+
+var sectionBodyHeadingRe = regexp.MustCompile(`(?m)^#{1,6}\s+`)
+
+// sectionBody returns the body text of the first heading whose title contains
+// `heading`, up to the next heading.
+func sectionBody(text, heading string) string {
+	re := regexp.MustCompile(`(?im)^#{1,6}\s+.*` + regexp.QuoteMeta(heading) + `.*$`)
+	loc := re.FindStringIndex(text)
+	if loc == nil {
+		return ""
+	}
+	rest := text[loc[1]:]
+	if next := sectionBodyHeadingRe.FindStringIndex(rest); next != nil {
+		return strings.TrimSpace(rest[:next[0]])
+	}
+	return strings.TrimSpace(rest)
+}
+
+var concreteBulletRe = regexp.MustCompile(`^\s*-\s+\S`)
+
+// ContentFindings is the opt-in content lint (`validate --content`): warning-only
+// signals that a layer is still a scaffold rather than real context — placeholder
+// text, a generic boot identity, thin domain/system categories. Never errors and
+// never affects a conformance level; this is guidance toward a layer worth reading.
+func ContentFindings(root string, m *manifest.Manifest) []findings.Finding {
+	var out []findings.Finding
+	bootRel := m.BootProfilePath
+	if fsx.IsFile(filepath.Join(root, bootRel)) {
+		boot, _ := fsx.ReadText(filepath.Join(root, bootRel))
+		if placeholderRe.MatchString(boot) {
+			out = append(out, findings.New("content-placeholder", findings.Warning,
+				"boot profile still contains placeholder text (TODO: or <…>)", bootRel))
+		}
+		identity := sectionBody(boot, "identity")
+		if identity == "" || strings.Contains(identity, genericIdentity) || placeholderRe.MatchString(identity) {
+			out = append(out, findings.New("content-identity", findings.Warning,
+				"boot profile Identity is empty or generic; say what this repository is, who it serves, and its stage", bootRel))
+		}
+		if unconfirmedRe.MatchString(boot) {
+			out = append(out, findings.New("content-unconfirmed", findings.Warning,
+				"boot profile has inferences awaiting owner confirmation", bootRel))
+		}
+	}
+	for _, cat := range []string{"domain", "system", "practice", "governance"} {
+		mapping, ok := m.Categories[cat]
+		if !ok {
+			continue
+		}
+		concrete := 0
+		for _, declared := range mapping.Paths {
+			for _, rel := range fsx.WalkMd(root, declared) {
+				text, _ := fsx.ReadText(filepath.Join(root, rel))
+				if placeholderRe.MatchString(text) {
+					out = append(out, findings.New("content-placeholder", findings.Warning,
+						cat+" document still contains placeholder text", rel))
+				}
+				if unconfirmedRe.MatchString(text) {
+					out = append(out, findings.New("content-unconfirmed", findings.Warning,
+						cat+" document has inferences awaiting owner confirmation", rel))
+				}
+				for _, line := range strings.Split(text, "\n") {
+					if concreteBulletRe.MatchString(line) && !placeholderRe.MatchString(line) {
+						concrete++
+					}
+				}
+			}
+		}
+		if (cat == "domain" || cat == "system") && concrete < 3 {
+			bullets := "bullets"
+			if concrete == 1 {
+				bullets = "bullet"
+			}
+			where := ""
+			if len(mapping.Paths) > 0 {
+				where = mapping.Paths[0]
+			}
+			out = append(out, findings.New("content-thin", findings.Warning,
+				fmt.Sprintf("%s has %d concrete %s; aim for at least 3 repository-specific ones", cat, concrete, bullets), where))
+		}
+	}
+	// Decisions an agent proposed but the owner has not yet accepted.
+	for _, d := range layer.ScanDecisionRecords(root, m) {
+		if d.Frontmatter == nil || d.Frontmatter["status"] != "proposed" {
+			continue
+		}
+		idText := "?"
+		if id, ok := d.Frontmatter["id"].(string); ok && id != "" {
+			idText = id
+		}
+		out = append(out, findings.New("content-unconfirmed", findings.Warning,
+			fmt.Sprintf("decision %q is proposed; awaiting owner confirmation", idText), d.RelPath))
+	}
+	return out
+}
+
+// ValidateLayer runs the full layer validation. With content, appends the
+// warning-only content lint.
+func ValidateLayer(root string, content bool) Result {
 	load := manifest.LoadManifest(root)
 	m := load.Manifest
 	fs := load.Findings
@@ -555,11 +648,8 @@ func ValidateLayer(root string) Result {
 	checkFederationMounts(root, m, &fs)
 	checkProfilesAndDecisions(root, m, &fs)
 
-	var indexRel string
-	if m.Machine != nil {
-		indexRel = m.Machine.IndexPath
-	}
-	indexExists := indexRel != "" && fsx.IsFile(filepath.Join(root, indexRel))
+	indexRel := manifest.EffectiveIndexPath(m)
+	indexExists := fsx.IsFile(filepath.Join(root, indexRel))
 	if manifest.LevelAtLeast(level, "indexed") || indexExists {
 		if !manifest.LevelAtLeast(level, "indexed") && indexExists {
 			data, pf := layer.ReadJSONArtifact(root, indexRel)
@@ -576,19 +666,11 @@ func ValidateLayer(root string) Result {
 		}
 	}
 
-	var changelogRel string
-	if m.Machine != nil {
-		changelogRel = m.Machine.ChangelogPath
-	}
-	changelogExists := changelogRel != "" && fsx.IsFile(filepath.Join(root, changelogRel))
+	changelogRel := manifest.EffectiveChangelogPath(m)
+	changelogExists := fsx.IsFile(filepath.Join(root, changelogRel))
 	if manifest.LevelAtLeast(level, "indexed") && !changelogExists {
-		msg := "no machine.changelogPath declared; indexed conformance requires a machine changelog"
-		where := "leji.json"
-		if changelogRel != "" {
-			msg = "declared changelog " + changelogRel + " does not exist"
-			where = changelogRel
-		}
-		fs = append(fs, findings.New("changelog-required", findings.Error, msg, where))
+		fs = append(fs, findings.New("changelog-required", findings.Error,
+			"changelog "+changelogRel+" does not exist", changelogRel))
 	} else if changelogExists {
 		fs = append(fs, CheckChangelogAppendOnly(root, changelogRel, false).Findings...)
 	}
@@ -602,13 +684,14 @@ func ValidateLayer(root string) Result {
 			}
 		}
 		if valid == 0 {
-			where := "leji.json"
-			if m.Machine != nil && m.Machine.AgentProfilesPath != "" {
-				where = m.Machine.AgentProfilesPath
-			}
 			fs = append(fs, findings.New("profile-required", findings.Error,
-				"governed conformance requires at least one valid agent profile", where))
+				"governed conformance requires at least one valid agent profile",
+				manifest.EffectiveAgentProfilesPath(m)))
 		}
+	}
+
+	if content {
+		fs = append(fs, ContentFindings(root, m)...)
 	}
 
 	return Result{Findings: findings.Sort(fs), Manifest: m}

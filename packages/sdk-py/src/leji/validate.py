@@ -23,6 +23,10 @@ from .manifest import (
     CATEGORY_IDS,
     Manifest,
     claimed_level,
+    effective_agent_profiles_path,
+    effective_changelog_path,
+    effective_decision_records_path,
+    effective_index_path,
     level_at_least,
     load_manifest,
 )
@@ -31,8 +35,10 @@ from .schemas import SUPPORTED_LINES, schema_errors
 KNOWN_VENDOR_FILES = [
     "CLAUDE.md",
     "AGENTS.md",
+    "GEMINI.md",
     ".cursorrules",
     ".cursor/rules",
+    ".windsurfrules",
     ".github/copilot-instructions.md",
 ]
 
@@ -81,9 +87,8 @@ def _check_boot_profile(root: str, manifest: Manifest, findings: list[Finding]) 
                 )
             )
 
-    machine = manifest.get("machine") or {}
-    changelog_path = machine.get("changelogPath")
-    decisions_path = machine.get("decisionRecordsPath") or _first_decisions_path(manifest)
+    changelog_path = (manifest.get("machine") or {}).get("changelogPath")
+    decisions_path = effective_decision_records_path(manifest)
 
     def mentions(p: Optional[str]) -> bool:
         if not p:
@@ -101,11 +106,6 @@ def _check_boot_profile(root: str, manifest: Manifest, findings: list[Finding]) 
                 rel,
             )
         )
-
-
-def _first_decisions_path(manifest: Manifest) -> Optional[str]:
-    decisions = manifest["categories"].get("decisions")
-    return decisions["paths"][0] if decisions else None
 
 
 def _check_categories(root: str, manifest: Manifest, findings: list[Finding]) -> None:
@@ -197,13 +197,13 @@ def _check_owners(manifest: Manifest, findings: list[Finding]) -> None:
 
 
 def _check_agents_map(root: str, manifest: Manifest, findings: list[Finding]) -> None:
-    profiles_dir = (manifest.get("machine") or {}).get("agentProfilesPath")
+    profiles_dir = effective_agent_profiles_path(manifest)
     for role, rel in (manifest.get("agents") or {}).items():
         if not _check_declared_file(root, rel, f"agents.{role} profile", findings):
             continue
         # Targets under agentProfilesPath are validated by the directory scan;
         # targets outside it still owe a valid agent-profile frontmatter.
-        if profiles_dir and under_path(rel, profiles_dir):
+        if under_path(rel, profiles_dir):
             continue
         fm = parse_frontmatter((Path(root) / rel).read_text(encoding="utf-8"))
         if fm.error:
@@ -332,8 +332,7 @@ def _check_profiles_and_decisions(root: str, manifest: Manifest, findings: list[
     findings.extend(duplicate_id_findings(decision_ids, "decision record"))
 
     if not [d for d in decisions if not d.findings]:
-        machine = manifest.get("machine") or {}
-        where = machine.get("decisionRecordsPath") or _first_decisions_path(manifest) or "leji.json"
+        where = effective_decision_records_path(manifest)
         findings.append(
             Finding(
                 "decisions-empty",
@@ -394,9 +393,7 @@ def check_changelog_append_only(root: str, rel: str, strict: bool = False) -> Ch
     if data is None:
         return ChangelogCheckResult(
             findings=[
-                Finding(
-                    "changelog-required", "error", f"declared changelog {rel} does not exist", rel
-                )
+                Finding("changelog-required", "error", f"changelog {rel} does not exist", rel)
             ],
             verified=False,
         )
@@ -502,11 +499,129 @@ def check_changelog_append_only(root: str, rel: str, strict: bool = False) -> Ch
     return ChangelogCheckResult(findings=findings, verified=True)
 
 
-def validate_layer(root: str) -> ValidateResult:
+# Placeholder markers a freshly scaffolded layer carries until it is populated:
+# the `TODO:` lines init seeds, or any `<…>` angle-bracket stub.
+_PLACEHOLDER_RE = re.compile(r"\bTODO:|<[A-Za-z][^>\n]*>")
+# High-stakes inferences an agent drafted but the owner has not confirmed yet:
+# `TODO(confirm-invariant|gate|owner): …` markers, or `UNCONFIRMED:` lines. The
+# `TODO(confirm-…)` form deliberately does not match _PLACEHOLDER_RE's `TODO:`.
+_UNCONFIRMED_RE = re.compile(r"TODO\(confirm[-:][^)\n]*\)|UNCONFIRMED:")
+# The generic identity init writes by default; real layers replace it.
+_GENERIC_IDENTITY = "Shared context layer for this repository."
+_BULLET_RE = re.compile(r"^\s*-\s+\S")
+
+
+def _section_body(text: str, heading: str) -> str:
+    """Body text of the first heading whose title contains ``heading``, up to
+    the next heading."""
+    m = re.search(rf"^#{{1,6}}\s+.*{heading}.*$", text, re.IGNORECASE | re.MULTILINE)
+    if not m:
+        return ""
+    rest = text[m.end() :]
+    nxt = re.search(r"^#{1,6}\s+", rest, re.MULTILINE)
+    return (rest[: nxt.start()] if nxt else rest).strip()
+
+
+def content_findings(root: str, manifest: Manifest) -> list[Finding]:
+    """Opt-in content lint (``validate --content``): warning-only signals that a
+    layer is still a scaffold rather than real context — placeholder text, a
+    generic boot identity, thin domain/system categories. Never errors and never
+    affects a conformance level; this is guidance toward a layer worth reading."""
+    out: list[Finding] = []
+    boot_rel = manifest["bootProfilePath"]
+    if (Path(root) / boot_rel).is_file():
+        boot = (Path(root) / boot_rel).read_text(encoding="utf-8")
+        if _PLACEHOLDER_RE.search(boot):
+            out.append(
+                Finding(
+                    "content-placeholder",
+                    "warning",
+                    "boot profile still contains placeholder text (TODO: or <…>)",
+                    boot_rel,
+                )
+            )
+        identity = _section_body(boot, "identity")
+        if identity == "" or _GENERIC_IDENTITY in identity or _PLACEHOLDER_RE.search(identity):
+            out.append(
+                Finding(
+                    "content-identity",
+                    "warning",
+                    "boot profile Identity is empty or generic; say what this repository is, "
+                    "who it serves, and its stage",
+                    boot_rel,
+                )
+            )
+        if _UNCONFIRMED_RE.search(boot):
+            out.append(
+                Finding(
+                    "content-unconfirmed",
+                    "warning",
+                    "boot profile has inferences awaiting owner confirmation",
+                    boot_rel,
+                )
+            )
+    for cat in ("domain", "system", "practice", "governance"):
+        mapping = manifest["categories"].get(cat)
+        if not mapping:
+            continue
+        concrete = 0
+        for declared in mapping["paths"]:
+            for rel in walk_md(root, declared):
+                text = (Path(root) / rel).read_text(encoding="utf-8")
+                if _PLACEHOLDER_RE.search(text):
+                    out.append(
+                        Finding(
+                            "content-placeholder",
+                            "warning",
+                            f"{cat} document still contains placeholder text",
+                            rel,
+                        )
+                    )
+                if _UNCONFIRMED_RE.search(text):
+                    out.append(
+                        Finding(
+                            "content-unconfirmed",
+                            "warning",
+                            f"{cat} document has inferences awaiting owner confirmation",
+                            rel,
+                        )
+                    )
+                for line in text.split("\n"):
+                    if _BULLET_RE.search(line) and not _PLACEHOLDER_RE.search(line):
+                        concrete += 1
+        if cat in ("domain", "system") and concrete < 3:
+            plural = "" if concrete == 1 else "s"
+            out.append(
+                Finding(
+                    "content-thin",
+                    "warning",
+                    f"{cat} has {concrete} concrete bullet{plural}; "
+                    "aim for at least 3 repository-specific ones",
+                    mapping["paths"][0],
+                )
+            )
+    # Decisions an agent proposed but the owner has not yet accepted.
+    for d in scan_decision_records(root, manifest):
+        fm = d.frontmatter or {}
+        if fm.get("status") == "proposed":
+            out.append(
+                Finding(
+                    "content-unconfirmed",
+                    "warning",
+                    f'decision "{fm.get("id") if fm.get("id") is not None else "?"}" '
+                    "is proposed; awaiting owner confirmation",
+                    d.rel_path,
+                )
+            )
+    return out
+
+
+def validate_layer(root: str, content: bool = False) -> ValidateResult:
     """Manifest, level-aware artifact requirements, schema checks, frontmatter
     contracts, lint rules. Index and changelog are required from ``indexed``;
     at least one valid agent profile from ``governed``. Artifacts present
-    below their required level are still schema-validated."""
+    below their required level are still schema-validated. With ``content``,
+    appends the warning-only content lint."""
     load = load_manifest(root)
     manifest, findings = load.manifest, load.findings
     if manifest is None:
@@ -537,12 +652,10 @@ def validate_layer(root: str) -> ValidateResult:
     _check_federation_mounts(root, manifest, findings)
     _check_profiles_and_decisions(root, manifest, findings)
 
-    machine = manifest.get("machine") or {}
-    index_rel = machine.get("indexPath")
-    index_exists = index_rel is not None and (Path(root) / index_rel).is_file()
+    index_rel = effective_index_path(manifest)
+    index_exists = (Path(root) / index_rel).is_file()
     if level_at_least(level, "indexed") or index_exists:
         if not level_at_least(level, "indexed") and index_exists:
-            assert index_rel is not None  # index_exists implies a declared path
             data, parse_finding = read_json_artifact(root, index_rel)
             if parse_finding:
                 findings.append(parse_finding)
@@ -554,21 +667,18 @@ def validate_layer(root: str) -> ValidateResult:
             # check_index covers schema, schemaVersion, and currency.
             findings.extend(check_index(root, manifest).findings)
 
-    changelog_rel = machine.get("changelogPath")
-    changelog_exists = changelog_rel is not None and (Path(root) / changelog_rel).is_file()
+    changelog_rel = effective_changelog_path(manifest)
+    changelog_exists = (Path(root) / changelog_rel).is_file()
     if level_at_least(level, "indexed") and not changelog_exists:
         findings.append(
             Finding(
                 "changelog-required",
                 "error",
-                f"declared changelog {changelog_rel} does not exist"
-                if changelog_rel
-                else "no machine.changelogPath declared; indexed conformance requires a machine changelog",
-                changelog_rel or "leji.json",
+                f"changelog {changelog_rel} does not exist",
+                changelog_rel,
             )
         )
     elif changelog_exists:
-        assert changelog_rel is not None  # changelog_exists implies a declared path
         findings.extend(check_changelog_append_only(root, changelog_rel).findings)
 
     if level_at_least(level, "governed"):
@@ -579,8 +689,11 @@ def validate_layer(root: str) -> ValidateResult:
                     "profile-required",
                     "error",
                     "governed conformance requires at least one valid agent profile",
-                    machine.get("agentProfilesPath") or "leji.json",
+                    effective_agent_profiles_path(manifest),
                 )
             )
+
+    if content:
+        findings.extend(content_findings(root, manifest))
 
     return ValidateResult(findings=sort_findings(findings), manifest=manifest)

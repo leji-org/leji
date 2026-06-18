@@ -1,6 +1,4 @@
-// Single source of truth for the supported runtimes. The SupportedRuntimes
-// component renders the chips from `label`/`icon`; the Quickstart builds its
-// install snippet from `install`. Add a runtime here and both update together.
+// Single source of truth for supported runtimes; add one here and the chips and install snippet both update.
 import nodeIcon from '../assets/node.svg?raw';
 import pythonIcon from '../assets/python.svg?raw';
 import goIcon from '../assets/go.svg?raw';
@@ -12,7 +10,7 @@ export interface Runtime {
    icon: string;
    /** The install line shown in the Quickstart (kept aligned for the code block). */
    install: string;
-   /** Wordmark-style logos (wider than tall) render at a reduced height for optical balance with square marks. */
+   /** Wide logos render shorter to balance with square marks. */
    wide?: boolean;
 }
 

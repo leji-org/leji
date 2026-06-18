@@ -5,6 +5,10 @@ import CircleChart from '../components/CircleChart.astro';
 import HeroMark from '../components/HeroMark.astro';
 import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
+import ConformancePeek from '../components/ConformancePeek.astro';
+import InstallCommand from '../components/InstallCommand.astro';
+
+const heroInstall = `npm create leji`;
 
 const peekJson = `{
   "leji": "1.0",
@@ -39,11 +43,15 @@ const peekJson = `{
             <p class="lede reveal r3">
                Leji defines the <strong>shared context layer</strong> of <a href="/ai-native/">AI-native teams</a>: one
                versioned, repo-owned record of how a team thinks (domain language, constraints, decisions, conventions,
-               guardrails). People and AI agents read it on every task; changes pass the same governance gate.
+               guardrails). People and AI agents read it on every task; changes ride the same pull-request review as
+               code.
             </p>
             <div class="cta reveal r4">
-               <a class="btn solid" href="/spec/">Read the spec</a>
-               <a class="btn ghost" href="/quickstart/">Quickstart</a>
+               <a class="btn solid" href="/quickstart/">Start with the CLI</a>
+               <a class="btn ghost" href="/spec/">Read the spec</a>
+            </div>
+            <div class="hero-install reveal r5">
+               <InstallCommand command={heroInstall} />
             </div>
          </section>
       </div>
@@ -64,7 +72,8 @@ const peekJson = `{
                <h2>A circle, not a tier</h2>
                <p>
                   Human-to-human, human-to-AI, and human-to-AI-to-human are first-class flows around one shared context
-                  layer. Equal access, not equal authority: everyone reads, anyone proposes, people approve.
+                  layer. Equal access, not equal authority: everyone reads, anyone proposes, people approve through pull
+                  requests.
                </p>
             </article>
          </section>
@@ -76,6 +85,30 @@ const peekJson = `{
    </div>
 
    <div class="wrap">
+      <section class="task-example reveal" aria-labelledby="task-example-title">
+         <p class="task-eyebrow">One agent task</p>
+         <h2 id="task-example-title">The same change, with a declared context layer.</h2>
+         <div class="task-columns">
+            <article>
+               <h3>Without Leji</h3>
+               <p>
+                  The agent reads scattered docs, misses a decision record, repeats a stale convention, and leaves the
+                  fix in chat. The code may change; the context that would prevent the next miss does not.
+               </p>
+            </article>
+            <article>
+               <h3>With Leji</h3>
+               <p>
+                  The agent loads <code>docs/boot-profile.md</code>, follows the mapped domain, system, and decision
+                  docs, then proposes a code change and a context delta in one pull request. CI catches a stale index or
+                  changelog before a person approves.
+               </p>
+            </article>
+         </div>
+      </section>
+   </div>
+
+   <div class="wrap">
       <section class="levels">
          <h2>Adopt by degrees</h2>
          <p class="levels-lede">Partial adoption is by design. Four conformance levels, each containing the last.</p>
@@ -84,13 +117,21 @@ const peekJson = `{
                <code>core</code><span>manifest, boot profile, real content, a first decision, a named owner.</span>
             </li>
             <li><code>indexed</code><span>a generated index and a machine-readable changelog: a tooling run.</span></li>
-            <li><code>governed</code><span>review-gated changes, agent profiles, CI on the mechanics.</span></li>
+            <li>
+               <code>governed</code><span
+                  >pull-request review for context changes, agent profiles, CI on the mechanics.</span
+               >
+            </li>
             <li>
                <code>federated</code><span
                   >one context layer across a multi-repo org, pinned, with sibling context layers intact.</span
                >
             </li>
          </ol>
+         <ConformancePeek
+            heading="See it score a layer"
+            blurb="leji conformance checks each item and reports the level a context layer has actually reached. Machine-checkable items pass or fail; process items show as manual."
+         />
       </section>
 
       <section class="manifest-peek">
@@ -245,6 +286,67 @@ const peekJson = `{
    .r6 {
       animation-delay: 0.74s;
    }
+   .r7 {
+      animation-delay: 0.86s;
+   }
+   .r8 {
+      animation-delay: 0.98s;
+   }
+
+   .hero-install {
+      margin-top: 1.6rem;
+   }
+
+   /* before/after task example (first light section, below the monument) */
+   .task-example {
+      padding: 4rem 0 0;
+   }
+   .task-eyebrow {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin: 0 0 0.8rem;
+   }
+   .task-example h2 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 2rem;
+      color: var(--blue-deep);
+      margin: 0 0 1.6rem;
+      max-width: 26ch;
+   }
+   .task-columns {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.6rem 2.8rem;
+   }
+   .task-columns article {
+      border-left: 3px solid var(--gold);
+      padding-left: 1.3rem;
+   }
+   .task-columns h3 {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin: 0 0 0.5rem;
+   }
+   .task-columns p {
+      color: var(--ink-soft);
+      line-height: 1.7;
+      margin: 0;
+   }
+   .task-columns code {
+      font-size: 0.88em;
+      color: var(--blue-deep);
+      background: rgba(34, 63, 147, 0.07);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+   }
+
    @keyframes rise {
       to {
          opacity: 1;
@@ -264,7 +366,7 @@ const peekJson = `{
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
       gap: 1.4rem;
-      margin-top: 1rem;
+      margin-top: 0;
    }
    .tablet {
       border: 1px solid rgba(255, 189, 110, 0.28);
@@ -295,7 +397,7 @@ const peekJson = `{
 
    /* circle vs tier diagram */
    .circle-diagram {
-      margin-top: 1.4rem;
+      margin-top: 2.6rem;
       border: 1px dashed rgba(255, 189, 110, 0.3);
       border-radius: 12px;
       padding: clamp(1rem, 3vw, 2rem);
@@ -303,7 +405,7 @@ const peekJson = `{
 
    /* ── light sections ─────────────────────────────────── */
    .levels {
-      padding: 4.5rem 0 1rem;
+      padding: 5.5rem 0 1rem;
    }
    .levels h2,
    .manifest-peek h2 {
@@ -365,7 +467,7 @@ const peekJson = `{
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
       gap: 2.5rem;
       align-items: center;
-      padding: 3.5rem 0 4.5rem;
+      padding: 4.5rem 0 5.5rem;
    }
    .peek-text p {
       color: var(--ink-soft);

@@ -100,3 +100,20 @@ export function claimedLevel(manifest: Manifest): ConformanceLevel {
 export function levelAtLeast(level: ConformanceLevel, threshold: ConformanceLevel): boolean {
    return CONFORMANCE_LEVELS.indexOf(level) >= CONFORMANCE_LEVELS.indexOf(threshold);
 }
+
+// Effective foundational-path resolvers. The spec (machine-readable-surface.md)
+// defines default locations under rootPath for the machine surface, so tooling
+// resolves an undeclared path to its default rather than failing: leji.json
+// lives at the repository root; everything else defaults under rootPath/.
+export function effectiveIndexPath(manifest: Manifest): string {
+   return manifest.machine?.indexPath ?? `${manifest.rootPath}context-index.json`;
+}
+export function effectiveChangelogPath(manifest: Manifest): string {
+   return manifest.machine?.changelogPath ?? `${manifest.rootPath}context-changelog.json`;
+}
+export function effectiveAgentProfilesPath(manifest: Manifest): string {
+   return manifest.machine?.agentProfilesPath ?? `${manifest.rootPath}agents/`;
+}
+export function effectiveDecisionRecordsPath(manifest: Manifest): string {
+   return manifest.machine?.decisionRecordsPath ?? `${manifest.rootPath}decisions/`;
+}

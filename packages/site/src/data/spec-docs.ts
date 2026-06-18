@@ -1,7 +1,4 @@
-// Single source of truth for the spec documents: their canonical reading order
-// and curated labels. Imported by the sidebar (SectionNav), the consolidated
-// one-page view (spec/full.astro), and the per-document pages (spec/[...slug])
-// so titles, navigation, and ordering never drift apart.
+// Single source of truth for spec documents: reading order and labels, shared by the sidebar, full view, and per-document pages.
 export interface SpecDoc {
    id: string;
    label: string;
@@ -22,8 +19,7 @@ export const SPEC_DOCS: SpecDoc[] = [
 
 const LABELS = new Map(SPEC_DOCS.map((d) => [d.id, d.label]));
 
-// The page title for a single spec document. The overview reads as the spec's
-// own front page; every other doc uses its curated label.
+// Page title for a single spec doc; the overview uses the spec's own title, others their curated label.
 export function specDocTitle(id: string): string {
    if (id === 'readme') return 'The Leji Specification';
    return LABELS.get(id) ?? id.replace(/-/g, ' ');

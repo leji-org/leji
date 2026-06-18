@@ -1,4 +1,8 @@
+# Content Signal preferences (https://contentsignals.org). Leji is an open
+# specification meant to be read and propagated: search indexing, use as input
+# to AI answers and agents, and model training are all allowed.
 User-agent: *
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 Allow: /
 
 Sitemap: https://leji.org/sitemap-index.xml

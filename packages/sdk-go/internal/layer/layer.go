@@ -33,15 +33,12 @@ type ScannedProfile struct {
 // excludedFromCategories returns a predicate for files that must not be treated
 // as category content.
 func excludedFromCategories(m *manifest.Manifest) func(string) bool {
-	var profilesDir string
-	if m.Machine != nil {
-		profilesDir = m.Machine.AgentProfilesPath
-	}
+	profilesDir := manifest.EffectiveAgentProfilesPath(m)
 	return func(relPath string) bool {
 		if relPath == m.BootProfilePath {
 			return true
 		}
-		if profilesDir != "" && fsx.UnderPath(relPath, profilesDir) {
+		if fsx.UnderPath(relPath, profilesDir) {
 			return true
 		}
 		if strings.ToLower(path.Base(relPath)) == "readme.md" {
@@ -121,10 +118,8 @@ func scanFrontmatterArtifacts(root, dir, schemaName, rule string) []ScannedProfi
 }
 
 func ScanAgentProfiles(root string, m *manifest.Manifest) []ScannedProfile {
-	if m.Machine == nil || m.Machine.AgentProfilesPath == "" {
-		return nil
-	}
-	return scanFrontmatterArtifacts(root, m.Machine.AgentProfilesPath, "agent-profile", "profile-frontmatter")
+	dir := manifest.EffectiveAgentProfilesPath(m)
+	return scanFrontmatterArtifacts(root, dir, "agent-profile", "profile-frontmatter")
 }
 
 func ScanDecisionRecords(root string, m *manifest.Manifest) []ScannedProfile {
@@ -137,9 +132,7 @@ func ScanDecisionRecords(root string, m *manifest.Manifest) []ScannedProfile {
 		}
 		dirs = append(dirs, p)
 	}
-	if m.Machine != nil && m.Machine.DecisionRecordsPath != "" {
-		add(m.Machine.DecisionRecordsPath)
-	}
+	add(manifest.EffectiveDecisionRecordsPath(m))
 	if dec, ok := m.Categories["decisions"]; ok {
 		for _, p := range dec.Paths {
 			add(p)

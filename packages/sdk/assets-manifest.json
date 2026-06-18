@@ -1,6 +1,6 @@
 {
   "specLine": "1.0",
-  "sourceCommit": "53f0d9b6153af74ee35f42553ff36e7bce2dd66e",
+  "sourceCommit": "5e53940bd44f17ed29a4902c97623b66bf1c48d0",
   "files": {
     "schemas/README.md": "sha256:8dc011dbb3c5b33d4aac4e35a4f38264da3b582f0da83e04a5c8cefb4c1408cf",
     "schemas/agent-profile.schema.json": "sha256:4502ddf71db0c0839a3a0d9b1b01a00f03b3871db4bfe399c464791640054077",
@@ -20,6 +20,7 @@
     "templates/docs-viewer-assets/search.min.js": "sha256:397f54df759c3093069b2d2acb3a2b19edd33e2d77af09c445d34d2c4853a015",
     "templates/docs-viewer-assets/vue.css": "sha256:6c4015a7fa6e48e6c3994060ebb66a601bfc848a835700b522ce4bea456f123d",
     "templates/docs-viewer.html": "sha256:c07e61583f56acadb44d82de36b682ef39236e2873e83af384283f196f037d9b",
-    "templates/leji.json": "sha256:4f6a33ab4152c0fa2ab5d1dfa35363bded25294ebb36118918d05396ee9a3a65"
+    "templates/leji.json": "sha256:4f6a33ab4152c0fa2ab5d1dfa35363bded25294ebb36118918d05396ee9a3a65",
+    "templates/onboarding-brief.md": "sha256:d55e2164c63c157fa5efa7b01f0f2866db0cb9dfde4fae5eb21ef3d775b06573"
   }
 }

@@ -1,7 +1,5 @@
 ---
-// The "what now?" page: spec read, interest caught, hands on keyboard.
-// SDK-led quickstart in four steps, then CI wiring, direct invocation,
-// by-situation doors into the adoption guides, and the library surface.
+// SDK-led quickstart: four steps, then CI wiring, direct invocation, adoption doors, and the library surface.
 import { Code } from 'astro:components';
 import Base from '../layouts/Base.astro';
 import SiteHeader from '../components/SiteHeader.astro';
@@ -12,11 +10,15 @@ import { installSnippet } from '../data/runtimes';
 
 const installCode = installSnippet;
 
-const initCode = `leji init               # interactive bootstrap`;
+const initCode = `leji init               # bootstrap a new context layer
+leji adopt              # or: adopt an existing repo
+
+# then hand the scaffold to your agent to populate:
+claude "Read ./docs/.leji/onboarding-brief.md and follow it."`;
 
 const validateCode = `leji validate           # schemas + lint rules
-leji index              # generate the index
-leji freshness          # review horizons`;
+leji validate --content # + placeholder / thin-content warnings
+leji index              # generate the index`;
 
 const conformanceCode = `leji conformance        # score the claim`;
 
@@ -67,17 +69,18 @@ const { findings } = validateLayer('.');`;
 
                <article class="step">
                   <div class="step-text">
-                     <h2><span class="step-num">02</span>Bootstrap a context layer, or map the one you have</h2>
+                     <h2><span class="step-num">02</span>Bootstrap a new layer, or adopt an existing repo</h2>
                      <p>
-                        <code>leji init</code> walks you through it: a <code>leji.json</code> manifest at the repository root,
-                        a boot profile, and category mappings, generated from the spec's templates.
+                        <code>leji init</code> scaffolds a new context layer: a <code>leji.json</code> manifest at the
+                        repository root, a boot profile, seeded category documents, a first decision record, and an agent
+                        onboarding brief. The scaffold starts as placeholder; hand it to your agent to fill in from the
+                        real repository, or edit the seeded documents yourself.
                      </p>
                      <aside class="map-note">
-                        <strong>Already have a <code>docs/</code> tree?</strong> Map, don't rename. Point the categories at
-                        the directories where that content already lives; a boot profile at <code>docs/Agent.md</code> is
-                        as conformant as the default, and an existing ADR directory already qualifies as <code
-                           >decisions</code
-                        >.
+                        <strong>Already have a <code>docs/</code> tree?</strong> <code>leji adopt</code> reuses it: it maps
+                        your existing directories, migrates any vendor entrypoint (<code>CLAUDE.md</code>,
+                        <code>AGENTS.md</code>) into the layer without touching the originals, and, with
+                        <code>--wire-adapters</code>, converts them to one-line redirects.
                      </aside>
                   </div>
                   <div class="step-code"><Code code={initCode} lang="bash" theme="night-owl" wrap /></div>
@@ -118,8 +121,8 @@ const { findings } = validateLayer('.');`;
                <div class="duo-cell">
                   <h2>Keep it honest in CI</h2>
                   <p>
-                     The mechanical guarantees are cheap to enforce. Three checks in CI and the context layer can't
-                     silently rot:
+                     <code>leji init --ci</code> writes a workflow that runs <code>leji validate</code> on every change.
+                     For indexed and higher layers, add the index and changelog gates so nothing silently rots:
                   </p>
                   <Code code={ciCode} lang="bash" theme="night-owl" wrap />
                   <p class="fine">

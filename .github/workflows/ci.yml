@@ -102,6 +102,27 @@ jobs:
           workdir: packages/sdk-go
           args: check
 
+  parity:
+    name: Cross-SDK parity (golden CLI output)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      # Runs the Node, Go, and Python CLIs on identical inputs and asserts
+      # byte-identical stdout and written file trees across all three.
+      - run: npm run parity
+
   site:
     name: Site (build)
     runs-on: ubuntu-latest
@@ -114,3 +135,18 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npm run build -w leji-site
+
+  dogfood:
+    name: Dogfood (repo conforms to its own spec)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run build -w packages/sdk
+      # The repo runs its own reference CLI against its own context layer: the
+      # manifest validates, no placeholder content remains, and the claimed
+      # conformance level still holds.
+      - run: npm run dogfood

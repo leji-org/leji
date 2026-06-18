@@ -68,7 +68,7 @@ func mustWriteIndex(t *testing.T, dir string, m *manifest.Manifest) indexgen.Res
 }
 
 func TestExampleValidatesClean(t *testing.T) {
-	result := validate.ValidateLayer(exampleDir(t))
+	result := validate.ValidateLayer(exampleDir(t), false)
 	for _, f := range result.Findings {
 		if f.Severity == findings.Error {
 			t.Fatalf("unexpected error finding: %s %s", f.Rule, f.Message)
@@ -246,7 +246,7 @@ func TestInitYesValidatesCleanCore(t *testing.T) {
 	}
 	// init does not `git init`, so a freshly scaffolded layer in a bare temp dir
 	// carries exactly the not-in-git warning; its content is otherwise clean.
-	v := validate.ValidateLayer(dir)
+	v := validate.ValidateLayer(dir, false)
 	for _, f := range v.Findings {
 		if f.Rule != "git-required" {
 			t.Fatalf("expected only git-required, got %v", v.Findings)
@@ -262,7 +262,7 @@ func TestInitIndexedVerifiesImmediately(t *testing.T) {
 	if _, err := initcmd.InitLayer(initcmd.Options{Dir: dir, Yes: true, Level: "indexed", Name: "acme-context"}); err != nil {
 		t.Fatal(err)
 	}
-	v := validate.ValidateLayer(dir)
+	v := validate.ValidateLayer(dir, false)
 	for _, f := range v.Findings {
 		if f.Severity == findings.Error {
 			t.Fatalf("unexpected error: %s", f.Rule)

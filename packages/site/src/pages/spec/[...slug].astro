@@ -34,7 +34,7 @@ const articleLd = {
 };
 ---
 
-<Doc title={title}>
+<Doc title={title} alternate={`/spec/${doc.id}.md`}>
    <script type="application/ld+json" set:html={JSON.stringify(articleLd)} />
    <Content />
 </Doc>

@@ -42,6 +42,14 @@ def get_validator(name: SchemaName) -> Draft202012Validator:
     return Draft202012Validator(schema)
 
 
+@lru_cache(maxsize=None)
+def load_cli_spec() -> dict[str, object]:
+    """The canonical CLI description, single-sourced from the vendored cli.json
+    (byte-identical to packages/sdk/cli.json). The terminal help renders from
+    this so it cannot drift from the Node/Go SDKs or the docs site."""
+    return json.loads((_assets_dir() / "cli.json").read_text(encoding="utf-8"))
+
+
 def schema_errors(name: SchemaName, data: object) -> list[str]:
     """Human-readable schema violations; [] when valid."""
     validator = get_validator(name)

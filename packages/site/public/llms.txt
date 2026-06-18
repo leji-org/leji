@@ -16,6 +16,8 @@ Do not confuse: Leji is a specification, not a SaaS product, a consulting method
 
 ## Specification
 
+Each page below is also raw markdown at the same path with a `.md` suffix (e.g. https://leji.org/spec/context-layer.md), and the whole spec as one file at https://leji.org/llms-full.txt .
+
 - [Overview & vocabulary](https://leji.org/spec/): entry point, the two ideas, defined terms
 - [The context layer](https://leji.org/spec/context-layer/): what the layer is and owns
 - [Content categories](https://leji.org/spec/content-categories/): domain, system, practice, governance, decisions

@@ -90,7 +90,11 @@ def generate_docs(root: str, manifest: Manifest) -> DocsResult:
     entries = (result.index or {}).get("entries", [])
 
     boot = _relative_to_root(manifest["bootProfilePath"], manifest["rootPath"]) or "boot-profile.md"
-    config = json.dumps({"name": manifest["name"], "homepage": boot}, ensure_ascii=False)
+    config = json.dumps(
+        {"name": manifest["name"], "homepage": boot},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     # Script-safe: the blob lives inside a <script type="application/json"> tag,
     # so neutralize sequences that could break out of it (a layer name can never
     # break the script context). Matches the reference SDK's injection.

@@ -19,6 +19,7 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
 	"github.com/leji-org/leji/packages/sdk-go/internal/git"
+	"github.com/leji-org/leji/packages/sdk-go/internal/jsonenc"
 	"github.com/leji-org/leji/packages/sdk-go/internal/layer"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/schemas"
@@ -118,18 +119,11 @@ func strArray(v any) []string {
 	return out
 }
 
-func DeclaredIndexPath(m *manifest.Manifest) string {
-	if m.Machine == nil {
-		return ""
-	}
-	return m.Machine.IndexPath
-}
-
 // LoadStoredIndex reads and parses the stored index as a generic map.
 func LoadStoredIndex(root string, m *manifest.Manifest) map[string]any {
-	rel := DeclaredIndexPath(m)
+	rel := manifest.EffectiveIndexPath(m)
 	abs := filepath.Join(root, rel)
-	if rel == "" || !fsx.IsFile(abs) || !fsx.ResolvesUnder(root, abs) {
+	if !fsx.IsFile(abs) || !fsx.ResolvesUnder(root, abs) {
 		return nil
 	}
 	data, _ := layer.ReadJSONArtifact(root, rel)
@@ -355,31 +349,26 @@ func stableWrite(sb *strings.Builder, value any) {
 			if i > 0 {
 				sb.WriteByte(',')
 			}
-			kb, _ := json.Marshal(k)
+			kb, _ := jsonenc.Marshal(k)
 			sb.Write(kb)
 			sb.WriteByte(':')
 			stableWrite(sb, v[k])
 		}
 		sb.WriteByte('}')
 	default:
-		b, _ := json.Marshal(v)
+		b, _ := jsonenc.Marshal(v)
 		sb.Write(b)
 	}
 }
 
 // CheckIndex compares the stored index against a regeneration.
 func CheckIndex(root string, m *manifest.Manifest) Result {
-	rel := DeclaredIndexPath(m)
+	rel := manifest.EffectiveIndexPath(m)
 	var fs []findings.Finding
 	staleTrue := true
-	if rel == "" || !fsx.IsFile(filepath.Join(root, rel)) {
-		msg := "no machine.indexPath declared in leji.json"
-		where := "leji.json"
-		if rel != "" {
-			msg = "declared index " + rel + " does not exist; run `leji index`"
-			where = rel
-		}
-		fs = append(fs, findings.New("index-required", findings.Error, msg, where))
+	if !fsx.IsFile(filepath.Join(root, rel)) {
+		fs = append(fs, findings.New("index-required", findings.Error,
+			"index "+rel+" does not exist; run `leji index`", rel))
 		return Result{Index: nil, Findings: fs, Stale: &staleTrue}
 	}
 
@@ -551,14 +540,9 @@ func orderedEntryJSON(e IndexEntry) json.RawMessage {
 	return json.RawMessage(buf.Bytes())
 }
 
-// WriteIndex generates and writes the index to the declared path.
+// WriteIndex generates and writes the index to the effective path.
 func WriteIndex(root string, m *manifest.Manifest) (Result, error) {
-	rel := DeclaredIndexPath(m)
-	if rel == "" {
-		return Result{Index: nil, Findings: []findings.Finding{
-			findings.New("index-required", findings.Error, "no machine.indexPath declared in leji.json", "leji.json"),
-		}}, nil
-	}
+	rel := manifest.EffectiveIndexPath(m)
 	result := GenerateIndex(root, m)
 	if result.Index != nil {
 		abs := filepath.Join(root, rel)

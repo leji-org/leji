@@ -15,7 +15,7 @@ from .findings import Finding
 from .fsx import is_contained
 from .gitutil import git_last_modified, git_toplevel
 from .layer import duplicate_id_findings, read_json_artifact, scan_categories
-from .manifest import Manifest
+from .manifest import Manifest, effective_index_path
 from .schemas import SDK_VERSION, SUPPORTED_LINES, schema_errors
 
 ID_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -67,14 +67,8 @@ def _str_array(v: Any) -> Optional[list[str]]:
     return out or None
 
 
-def declared_index_path(manifest: Manifest) -> Optional[str]:
-    return (manifest.get("machine") or {}).get("indexPath")
-
-
 def load_stored_index(root: str, manifest: Manifest) -> Optional[dict]:
-    rel = declared_index_path(manifest)
-    if not rel:
-        return None
+    rel = effective_index_path(manifest)
     abs_path = Path(root) / rel
     # Refuse an artifact whose real path escapes the repo root (e.g. a symlinked
     # index pointing outside the tree); a layer's index lives inside the layer.
@@ -199,17 +193,15 @@ def check_index(root: str, manifest: Manifest) -> IndexResult:
     ``generatedAt``, ``generator``, and ``lastModified`` are excluded from the
     comparison: content drift is what ``contentHash`` catches deterministically.
     """
-    rel = declared_index_path(manifest)
+    rel = effective_index_path(manifest)
     findings: list[Finding] = []
-    if not rel or not (Path(root) / rel).is_file() or not is_contained(root, Path(root) / rel):
+    if not (Path(root) / rel).is_file() or not is_contained(root, Path(root) / rel):
         findings.append(
             Finding(
                 "index-required",
                 "error",
-                f"declared index {rel} does not exist; run `leji index`"
-                if rel
-                else "no machine.indexPath declared in leji.json",
-                rel or "leji.json",
+                f"index {rel} does not exist; run `leji index`",
+                rel,
             )
         )
         return IndexResult(index=None, findings=findings, stale=True)
@@ -289,19 +281,7 @@ def serialize_index(index: dict) -> str:
 
 
 def write_index(root: str, manifest: Manifest) -> IndexResult:
-    rel = declared_index_path(manifest)
-    if not rel:
-        return IndexResult(
-            index=None,
-            findings=[
-                Finding(
-                    "index-required",
-                    "error",
-                    "no machine.indexPath declared in leji.json",
-                    "leji.json",
-                )
-            ],
-        )
+    rel = effective_index_path(manifest)
     result = generate_index(root, manifest)
     if result.index is not None:
         abs_path = Path(root) / rel

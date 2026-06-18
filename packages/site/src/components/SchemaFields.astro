@@ -1,8 +1,5 @@
 ---
-// Generated field reference for a JSON Schema: walks properties to two levels
-// of nesting (including array-of-object items and $ref-resolved objects),
-// resolves $defs names, marks required fields. Single-sourced from the schema,
-// so reference and contract agree.
+// Generated field reference for a JSON Schema (two levels deep, $defs resolved); single-sourced so reference and contract agree.
 const { schema } = Astro.props;
 
 function resolve(prop: any): any {
@@ -13,10 +10,7 @@ function resolve(prop: any): any {
    return prop;
 }
 
-// The type column shows the actual JSON Schema type. $refs resolve to their
-// target's type (relPath/isoDate are strings, owner/categoryMapping are
-// objects), so semantic-but-not-a-type labels like "path" never appear; the
-// path or date nature is carried by the field name, pattern, and description.
+// Type column shows the resolved JSON Schema type ($refs resolved to their target's type).
 function typeOf(prop: any): string {
    if (!prop) return 'value';
    if (prop.$ref) return typeOf(resolve(prop));

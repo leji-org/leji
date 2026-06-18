@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.1.0 · 2026-06-18
+
+Agent onboarding. New commands and flags let an AI agent bring a repository into a
+context layer and hand off cleanly. The specification and schemas are unchanged
+(still the v1.0 line); all three SDKs move to 1.1.0 together. Backward compatible.
+
+- **`leji adopt`**: adopt an existing repository. Reuses its `docs/` root and
+  migrates vendor files (`CLAUDE.md`, `AGENTS.md`) into the layer, originals untouched.
+- **`leji detect`** and **`init --agent <host>`**: detect installed coding agents
+  (Claude Code, Codex, Copilot, Gemini, Cursor, Windsurf) and wire a one-line
+  redirect, never overwriting an existing file.
+- **`init`** writes an onboarding brief that walks an agent through filling the
+  layer; **`--dry-run`** previews every write first.
+- **`validate --content`** flags placeholder, thin, and owner-unconfirmed content;
+  **`conformance --explain`** says what reaching the next level takes.
+- **`leji changelog compact`** folds old changelog entries; undeclared machine
+  paths resolve to their `rootPath` defaults, so a minimal `leji.json` just works.
+
 ## 1.0.0 · 2026-06-12
 
 Initial public release. Everything ships together as one coherent v1: the

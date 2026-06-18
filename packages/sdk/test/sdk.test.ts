@@ -95,6 +95,37 @@ test('init --yes at indexed level verifies its claim immediately', async () => {
    assert.equal(conformance.verifiedLevel, 'indexed');
 });
 
+test('init emits no machine block (core), the minimal manifest', async () => {
+   const dir = tmpdir();
+   const result = await initLayer({ dir, yes: true });
+   assert.equal(result.manifest.machine, undefined, 'in-memory manifest carries no machine key');
+   const written = JSON.parse(fs.readFileSync(path.join(dir, 'leji.json'), 'utf8'));
+   assert.equal('machine' in written, false, 'leji.json on disk has no machine key');
+   // Decisions and agents still resolve to their defaults under rootPath.
+   assert.ok(fs.existsSync(path.join(dir, 'docs', 'decisions', '0001-adopt-leji.md')));
+   assert.ok(fs.existsSync(path.join(dir, 'docs', 'agents', 'core.md')));
+});
+
+test('indexed init: no machine key, yet the index and changelog are written at the defaults', async () => {
+   const dir = tmpdir();
+   const result = await initLayer({ dir, yes: true, level: 'indexed', name: 'acme-context' });
+   assert.equal(result.manifest.machine, undefined, 'no machine key even at indexed level');
+   const written = JSON.parse(fs.readFileSync(path.join(dir, 'leji.json'), 'utf8'));
+   assert.equal('machine' in written, false, 'leji.json on disk has no machine key');
+   // The files are still created at their default locations.
+   assert.ok(fs.existsSync(path.join(dir, 'docs', 'context-index.json')), 'index written at default path');
+   assert.ok(fs.existsSync(path.join(dir, 'docs', 'context-changelog.json')), 'changelog written at default path');
+   assert.ok(result.written.includes('docs/context-index.json'));
+   // The resolvers find them: validate reports no errors and conformance verifies indexed.
+   const validation = validateLayer(dir);
+   assert.deepEqual(
+      validation.findings.filter((f) => f.severity === 'error'),
+      [],
+   );
+   const conformance = conformanceReport(dir);
+   assert.equal(conformance.verifiedLevel, 'indexed');
+});
+
 test('init refuses to overwrite an existing layer', async () => {
    const dir = tmpdir();
    await initLayer({ dir, yes: true });

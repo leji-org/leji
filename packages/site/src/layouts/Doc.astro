@@ -4,11 +4,11 @@ import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
 import SectionNav from '../components/SectionNav.astro';
 
-const { title, description } = Astro.props;
+const { title, description, alternate } = Astro.props;
 const current = Astro.url.pathname;
 ---
 
-<Base title={title} description={description}>
+<Base title={title} description={description} alternate={alternate}>
    <SiteHeader />
    <div class="wrap">
       <div class="doc-shell">

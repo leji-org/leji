@@ -52,6 +52,36 @@ export function realpathWithin(rootAbs: string, abs: string): boolean {
 }
 
 /**
+ * True when `abs` resolves (following symlinks) to a path within `rootAbs`,
+ * even when `abs` does not yet exist. Unlike `realpathWithin`, a non-existent
+ * target is checked by resolving its nearest existing ancestor and re-appending
+ * the remainder, so a symlinked ancestor that escapes root is caught before a
+ * write creates the final file under it.
+ */
+export function resolvedWithinRoot(rootAbs: string, abs: string): boolean {
+   let real: string;
+   try {
+      real = fs.realpathSync(abs); // path exists (e.g. overwrite target / vendor file)
+   } catch {
+      // Does not exist yet: resolve the nearest existing ancestor, then re-append.
+      let p = path.dirname(abs);
+      while (!fs.existsSync(p) && path.dirname(p) !== p) p = path.dirname(p);
+      try {
+         real = path.join(fs.realpathSync(p), path.relative(p, abs));
+      } catch {
+         return false;
+      }
+   }
+   let realRoot: string;
+   try {
+      realRoot = fs.realpathSync(rootAbs);
+   } catch {
+      return false;
+   }
+   return real === realRoot || real.startsWith(realRoot + path.sep);
+}
+
+/**
  * Recursively collect markdown files under a declared path (file or directory),
  * returned as repository-root-relative POSIX paths, sorted. Entries whose real
  * path (after resolving symlinks) escapes `root` are excluded.

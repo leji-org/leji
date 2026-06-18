@@ -8,6 +8,7 @@ import {
    type Manifest,
    CONFORMANCE_LEVELS,
    claimedLevel,
+   effectiveChangelogPath,
    loadManifest,
 } from '../lib/manifest.js';
 import { checkIndex } from './indexgen.js';
@@ -128,8 +129,8 @@ export function conformanceReport(root: string): ConformanceResult {
       indexResult.findings[0]?.message,
    );
 
-   const changelogRel = manifest.machine?.changelogPath;
-   if (changelogRel && isFile(path.join(root, changelogRel))) {
+   const changelogRel = effectiveChangelogPath(manifest);
+   if (isFile(path.join(root, changelogRel))) {
       const changelog = checkChangelogAppendOnly(root, changelogRel);
       const changelogErrors = changelog.findings.filter((f) => f.severity === 'error');
       if (changelogErrors.length > 0) {
@@ -157,7 +158,7 @@ export function conformanceReport(root: string): ConformanceResult {
          'indexed',
          'a machine-readable changelog; layer changes append entries',
          'fail',
-         changelogRel ? `declared changelog ${changelogRel} does not exist` : 'no machine.changelogPath declared',
+         `changelog ${changelogRel} does not exist`,
       );
    }
 
@@ -246,4 +247,36 @@ export function conformanceReport(root: string): ConformanceResult {
    }
 
    return { claimedLevel: claimed, verifiedLevel: verified, items, findings: sortFindings(findings) };
+}
+
+/**
+ * Actionable guidance (`conformance --explain`): what it would take to reach the
+ * next level above the one currently verified, listing the not-yet-passing items
+ * (manual ones flagged as process steps), plus a pointer to the content lint.
+ */
+export function renderExplain(result: ConformanceResult): string {
+   const levels = CONFORMANCE_LEVELS;
+   const verifiedIdx = result.verifiedLevel ? levels.indexOf(result.verifiedLevel) : -1;
+   const lines = [`Verified level: ${result.verifiedLevel ?? 'none'} (claimed: ${result.claimedLevel ?? 'none'}).`];
+   const nextIdx = verifiedIdx + 1;
+   if (nextIdx >= levels.length) {
+      lines.push('This layer is at the top conformance level (federated). Nothing further to reach.');
+      return lines.join('\n');
+   }
+   const next = levels[nextIdx];
+   const blockers = result.items.filter((i) => i.level === next && i.status !== 'pass');
+   lines.push('', `To reach "${next}":`);
+   if (blockers.length === 0) {
+      lines.push(`   - all "${next}" checks already pass; set conformance.claimedLevel to "${next}" in leji.json`);
+   } else {
+      for (const b of blockers) {
+         const how = b.status === 'manual' ? ' (process step; tooling cannot verify)' : '';
+         lines.push(`   - ${b.description}${b.detail ? ` — ${b.detail}` : ''}${how}`);
+      }
+   }
+   lines.push(
+      '',
+      'Content quality (not a conformance gate): run `leji validate --content` for placeholder and thin-content warnings.',
+   );
+   return lines.join('\n');
 }

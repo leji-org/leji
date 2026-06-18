@@ -85,6 +85,32 @@ def test_init_refuses_overwrite(tmp_path: Path) -> None:
         init_layer(str(tmp_path), yes=True)
 
 
+def test_init_emits_no_machine_block_core(tmp_path: Path) -> None:
+    result = init_layer(str(tmp_path), yes=True)
+    assert "machine" not in result.manifest, "in-memory manifest carries no machine key"
+    written = json.loads((tmp_path / "leji.json").read_text())
+    assert "machine" not in written, "leji.json on disk has no machine key"
+    # Decisions and agents still resolve to their defaults under rootPath.
+    assert (tmp_path / "docs" / "decisions" / "0001-adopt-leji.md").is_file()
+    assert (tmp_path / "docs" / "agents" / "core.md").is_file()
+
+
+def test_indexed_init_no_machine_key_yet_writes_index_and_changelog(tmp_path: Path) -> None:
+    result = init_layer(str(tmp_path), yes=True, level="indexed", name="acme-context")
+    assert "machine" not in result.manifest, "no machine key even at indexed level"
+    written = json.loads((tmp_path / "leji.json").read_text())
+    assert "machine" not in written, "leji.json on disk has no machine key"
+    # The files are still created at their default locations.
+    assert (tmp_path / "docs" / "context-index.json").is_file(), "index at default path"
+    assert (tmp_path / "docs" / "context-changelog.json").is_file(), "changelog at default path"
+    assert "docs/context-index.json" in result.written
+    # The resolvers find them: validate reports no errors, conformance verifies indexed.
+    validation = validate_layer(str(tmp_path))
+    assert [f for f in validation.findings if f.severity == "error"] == []
+    conformance = conformance_report(str(tmp_path))
+    assert conformance.verified_level == "indexed"
+
+
 def test_changelog_append_only_detects_modified_entry(tmp_path: Path) -> None:
     layer = tmp_path / "layer"
     shutil.copytree(EXAMPLE, layer)

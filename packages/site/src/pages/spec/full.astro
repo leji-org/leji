@@ -4,19 +4,10 @@ import { experimental_AstroContainer as AstroContainer } from 'astro/container';
 import Doc from '../../layouts/Doc.astro';
 import { SPEC_DOCS, specPath } from '../../data/spec-docs';
 
-// One consolidated reading/search copy of the normative spec, in the canonical
-// reading order. Per-section permalinks and citation anchors live on the
-// individual documents (linked from each section heading); this page is for
-// reading straight through, full-text search, and print.
+// One straight-through copy of the spec in canonical order; per-section anchors live on the individual documents.
 const ORDER = SPEC_DOCS;
 
-// Each source document opens with its own <h1>. On the consolidated page that
-// would mean ~10 <h1>s plus the page's own — a broken outline for screen
-// readers. Render each section to HTML and demote its leading document <h1> to
-// an <h2>, shifting every deeper heading down one level too, so the page keeps
-// exactly one <h1> and a correctly nested outline. The individual spec pages
-// are untouched. Content is our own trusted spec markdown, already rendered to
-// safe HTML by the markdown pipeline.
+// Each source doc opens with its own <h1>; demote those to <h2> (and shift deeper headings down) so the page keeps one <h1> and a valid outline.
 const container = await AstroContainer.create();
 const shiftHeadings = (html: string) =>
    html.replace(/<(\/?)(h[1-5])\b/gi, (_m, slash: string, tag: string) => {
@@ -35,7 +26,7 @@ const sections = await Promise.all(
 );
 ---
 
-<Doc title="The Leji Specification (one page) · Leji">
+<Doc title="The Leji Specification (one page) · Leji" alternate="/llms-full.txt">
    <div class="spec-full">
       <h1>The Leji Specification</h1>
       <p class="sp-lede">

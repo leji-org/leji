@@ -19,8 +19,11 @@ import (
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/assets"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
+	"github.com/leji-org/leji/packages/sdk-go/internal/commands/validate"
+	"github.com/leji-org/leji/packages/sdk-go/internal/detect"
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
+	"github.com/leji-org/leji/packages/sdk-go/internal/writeplan"
 )
 
 type Options struct {
@@ -28,6 +31,14 @@ type Options struct {
 	Yes   bool
 	Name  string
 	Level string // "core" | "indexed"
+	// DryRun computes and returns the write plan without touching the filesystem.
+	DryRun bool
+	// Agent wires a vendor adapter: a host id/alias, "auto" (top detected), or "none".
+	Agent string
+	// Reviewer designates a second host as the `reviewer` role (multi-agent workflow).
+	Reviewer string
+	// Ci writes a GitHub Actions workflow that runs `leji validate` in CI.
+	Ci bool
 	// In/Out are overridable for tests; default to os.Stdin / os.Stdout.
 	In  io.Reader
 	Out io.Writer
@@ -46,6 +57,9 @@ type answers struct {
 type Result struct {
 	Written  []string
 	Manifest *manifest.Manifest
+	// Plan is the classified write plan (always populated; the only output under DryRun).
+	Plan   []writeplan.PlanEntry
+	DryRun bool
 }
 
 func gitConfig(key string) string {
@@ -241,6 +255,9 @@ func writeFileOnce(root, rel, content string, written *[]string) error {
 	if err != nil {
 		return err
 	}
+	if !fsx.ResolvesUnder(root, abs) {
+		return fmt.Errorf("refusing to write through a symlink that escapes the target: %q", rel)
+	}
 	if _, err := os.Stat(abs); err == nil {
 		return nil
 	}
@@ -261,24 +278,28 @@ type categoryStub struct {
 var categoryStubs = map[string]categoryStub{
 	"domain": {"glossary.md", "Glossary",
 		"What the core terms of this product mean, in our own words.",
-		"- **<Term>**: <what it means here, including what it does not mean>.\n"},
+		"- TODO: define a core term in your own words, including what it does not mean.\n"},
 	"system": {"invariants.md", "System Invariants",
 		"The constraints every change lives with.",
-		"- <An invariant every change must respect, e.g. \"money values are integer minor units\">.\n"},
+		"- TODO: state an invariant every change must respect (e.g. money values are integer minor units).\n"},
 	"practice": {"conventions.md", "Conventions",
 		"Conventions and patterns applied automatically.",
-		"- <A convention that has proven out at least twice (the proven-twice gate)>.\n"},
+		"- TODO: record a convention that has proven out at least twice (the proven-twice gate).\n"},
 	"governance": {"operating-rules.md", "Operating Rules",
 		"What agents may do unprompted and what needs a human gate.",
-		"- Proceed without asking when: <defaults>.\n- Stop and ask when: <escalation triggers>.\n"},
+		"- TODO: list what an agent may do without asking.\n- TODO: list what requires a human gate.\n"},
 }
 
 func stubContent(title, summary, body string) string {
 	return "---\nsummary: " + summary + "\n---\n\n# " + title + "\n\n" + body
 }
 
-// buildManifest constructs the typed manifest and the ordered serialization.
-func buildManifest(a answers) (*manifest.Manifest, []byte) {
+// buildManifest constructs the typed manifest and the ordered root through the
+// `conformance` key. adapters, when non-empty, is recorded as vendorAdapters on
+// the typed manifest. The ordered root has neither vendorAdapters nor agents yet;
+// those keys are appended by serializeManifest after any reviewer wiring, so the
+// emitted key order matches Node's object-mutation order.
+func buildManifest(a answers, adapters []string) (*manifest.Manifest, *ordered) {
 	template := readTemplate("leji.json")
 	var tmpl map[string]any
 	_ = json.Unmarshal([]byte(template), &tmpl)
@@ -293,10 +314,6 @@ func buildManifest(a answers) (*manifest.Manifest, []byte) {
 		RootPath:        r,
 		BootProfilePath: r + "boot-profile.md",
 		Categories:      map[string]manifest.CategoryMapping{},
-		Machine: &manifest.Machine{
-			AgentProfilesPath:   r + "agents/",
-			DecisionRecordsPath: r + "decisions/",
-		},
 		Owners: manifest.Owners{
 			Primary: manifest.Owner{Name: a.ownerName, Contact: a.ownerContact},
 		},
@@ -305,16 +322,14 @@ func buildManifest(a answers) (*manifest.Manifest, []byte) {
 			ClaimedAt:    time.Now().UTC().Format("2006-01-02"),
 		},
 	}
-	if a.level == "indexed" {
-		m.Machine = &manifest.Machine{
-			IndexPath:           r + "context-index.json",
-			ChangelogPath:       r + "context-changelog.json",
-			AgentProfilesPath:   r + "agents/",
-			DecisionRecordsPath: r + "decisions/",
-		}
-	}
+	// No `machine` block: every machine-surface path resolves to its spec default
+	// under rootPath/, so init writes a minimal leji.json and the resolvers
+	// (Effective*Path) find the files at their default locations.
 	for _, c := range a.categories {
 		m.Categories[c] = manifest.CategoryMapping{Paths: []string{r + c + "/"}}
+	}
+	if len(adapters) > 0 {
+		m.VendorAdapters = adapters
 	}
 
 	// Ordered serialization matching the Node object construction order.
@@ -332,14 +347,6 @@ func buildManifest(a answers) (*manifest.Manifest, []byte) {
 		cats.set(c, cat)
 	}
 	root.set("categories", cats)
-	machine := newOrdered()
-	if a.level == "indexed" {
-		machine.set("indexPath", r+"context-index.json")
-		machine.set("changelogPath", r+"context-changelog.json")
-	}
-	machine.set("agentProfilesPath", r+"agents/")
-	machine.set("decisionRecordsPath", r+"decisions/")
-	root.set("machine", machine)
 	owners := newOrdered()
 	primary := newOrdered()
 	primary.set("name", a.ownerName)
@@ -352,11 +359,19 @@ func buildManifest(a answers) (*manifest.Manifest, []byte) {
 	conf.set("claimedLevel", a.level)
 	conf.set("claimedAt", m.Conformance.ClaimedAt)
 	root.set("conformance", conf)
+	if len(adapters) > 0 {
+		root.set("vendorAdapters", adapters)
+	}
 
+	return m, root
+}
+
+// serializeManifest renders the finalized ordered root into the leji.json bytes.
+func serializeManifest(root *ordered) []byte {
 	var buf bytes.Buffer
 	root.encode(&buf)
 	buf.WriteByte('\n')
-	return m, buf.Bytes()
+	return buf.Bytes()
 }
 
 var loadLineRe = regexp.MustCompile("- `[^`]+domain/`[^\n]*\n- `[^`]+system/`[^\n]*\n- `[^`]+decisions/`[^\n]*")
@@ -450,7 +465,149 @@ func buildChangelog(a answers, written []string) string {
 	return buf.String()
 }
 
+// buildBrief returns the transient onboarding brief, rewritten for the chosen root.
+func buildBrief(a answers) string {
+	return strings.ReplaceAll(readTemplate("onboarding-brief.md"), "<root>/", a.rootPath)
+}
+
+// BriefPath is the path of the transient onboarding brief, under a dot-directory
+// so it is excluded from the index, the docs viewer, and the changelog.
+func BriefPath(rootPath string) string {
+	return rootPath + ".leji/onboarding-brief.md"
+}
+
+// BuildCiWorkflow is the governed on-ramp: a CI job that runs `leji validate`
+// on every change. The YAML is byte-identical across SDKs.
+func BuildCiWorkflow() string {
+	return "name: leji\n" +
+		"on: [push, pull_request]\n" +
+		"jobs:\n" +
+		"  validate:\n" +
+		"    runs-on: ubuntu-latest\n" +
+		"    steps:\n" +
+		"      - uses: actions/checkout@v4\n" +
+		"      - uses: actions/setup-node@v4\n" +
+		"        with:\n" +
+		"          node-version: '22'\n" +
+		"      - run: npx -y @leji-org/leji@latest validate\n"
+}
+
+// resolveAdapter resolves the file-style vendor adapter to create, honoring
+// the --agent option (a host id/alias, "auto" for the top detected host, or
+// "none"/unset for nothing). It never targets an existing entrypoint — those
+// are migrated with consent during adoption, never overwritten here — so it
+// returns "" when the file is already present.
+func resolveAdapter(root, agent string) (string, error) {
+	if agent == "" || agent == "none" {
+		return "", nil
+	}
+	var spec *detect.HostSpec
+	if agent == "auto" {
+		topID := ""
+		for _, h := range detect.DetectHosts(detect.Options{Root: root}) {
+			if h.Adapter != "" {
+				topID = h.ID
+				break
+			}
+		}
+		if topID == "" {
+			return "", nil
+		}
+		spec = detect.SpecByID(topID)
+	} else {
+		id := detect.ResolveHostId(agent)
+		if id != "" {
+			spec = detect.SpecByID(id)
+		}
+		if spec == nil {
+			return "", fmt.Errorf("unknown agent %q; known: %s", agent, strings.Join(hostIDs(), ", "))
+		}
+		if spec.Adapter == "" {
+			return "", fmt.Errorf("%s uses a directory-style adapter; wiring it is not yet supported", spec.Name)
+		}
+	}
+	if spec == nil || spec.Adapter == "" {
+		return "", nil
+	}
+	if fsx.IsFile(filepath.Join(root, spec.Adapter)) {
+		return "", nil
+	}
+	return spec.Adapter, nil
+}
+
+func hostIDs() []string {
+	ids := make([]string, len(detect.HostSpecs))
+	for i, s := range detect.HostSpecs {
+		ids[i] = s.ID
+	}
+	return ids
+}
+
+// BuildRoleProfile is an agent profile for a named role bound to a specific host
+// (multi-agent).
+func BuildRoleProfile(role, hostID, rootPath string) string {
+	title := strings.ToUpper(role[:1]) + role[1:]
+	return "---\n" +
+		"id: " + role + "\n" +
+		"name: " + title + "\n" +
+		"role: " + role + "\n" +
+		"host: " + hostID + "\n" +
+		"inherits: core\n" +
+		"purpose: Independent review of proposed context-layer changes before a person approves.\n" +
+		"requiredRead:\n" +
+		"  - " + rootPath + "boot-profile.md\n" +
+		"  - " + rootPath + "agents/core.md\n" +
+		"mustAskWhen:\n" +
+		"  - a proposal weakens an invariant or guardrail\n" +
+		"  - a change to settled behavior lacks a decision record\n" +
+		"---\n\n" +
+		"# " + title + "\n\n" +
+		"A second agent (host `" + hostID + "`) that reviews context-layer proposals against the spec and this\n" +
+		"layer's own rules before a person approves. Inherits the core posture; it never loosens it.\n\n" +
+		"## Review focus\n\n" +
+		"- The proposal matches how this team actually works (domain, system, governance).\n" +
+		"- Placeholders are gone and claims are grounded in the repository.\n" +
+		"- A change to settled behavior carries a decision record.\n"
+}
+
+// WireReviewer designates a secondary host as the `reviewer` role: write its
+// agent profile, bind it in manifest.agents, and wire its vendor adapter when
+// absent. Mutates the typed manifest (Agents + VendorAdapters) and the ordered
+// root (so the emitted key order matches Node's object-mutation order) and
+// returns the files to write.
+func WireReviewer(root, reviewer string, m *manifest.Manifest, ord *ordered, r string) ([]writeplan.PlannedWrite, error) {
+	id := detect.ResolveHostId(reviewer)
+	var spec *detect.HostSpec
+	if id != "" {
+		spec = detect.SpecByID(id)
+	}
+	if spec == nil {
+		return nil, fmt.Errorf("unknown agent %q; known: %s", reviewer, strings.Join(hostIDs(), ", "))
+	}
+	var out []writeplan.PlannedWrite
+	profileRel := r + "agents/reviewer.md"
+	out = append(out, writeplan.PlannedWrite{Rel: profileRel, Content: BuildRoleProfile("reviewer", spec.ID, r)})
+	if m.Agents == nil {
+		m.Agents = map[string]string{}
+	}
+	m.Agents["reviewer"] = profileRel
+	agents := newOrdered()
+	agents.set("reviewer", profileRel)
+	ord.set("agents", agents)
+	if spec.Adapter != "" && !fsx.IsFile(filepath.Join(root, spec.Adapter)) {
+		adapters := m.VendorAdapters
+		if !contains(adapters, spec.Adapter) {
+			adapters = append(adapters, spec.Adapter)
+		}
+		m.VendorAdapters = adapters
+		ord.set("vendorAdapters", adapters)
+		out = append(out, writeplan.PlannedWrite{Rel: spec.Adapter, Content: detect.AdapterContent(m.BootProfilePath)})
+	}
+	return out, nil
+}
+
 // InitLayer bootstraps a context layer. Returns an error when leji.json exists.
+// With DryRun, computes the write plan and touches nothing.
 func InitLayer(opts Options) (Result, error) {
 	root, _ := filepath.Abs(opts.Dir)
 	if _, err := os.Stat(filepath.Join(root, "leji.json")); err == nil {
@@ -463,70 +620,452 @@ func InitLayer(opts Options) (Result, error) {
 	if err := validateRelPath(fsx.StripSlash(a.rootPath)); err != nil {
 		return Result{}, fmt.Errorf("context root %q is not a safe relative path: %w", a.rootPath, err)
 	}
-	m, manifestBytes := buildManifest(a)
-	var written []string
-	r := a.rootPath
-
-	if err := writeFileOnce(root, m.BootProfilePath, buildBootProfile(a), &written); err != nil {
+	adapter, err := resolveAdapter(root, opts.Agent)
+	if err != nil {
 		return Result{}, err
 	}
+	var adapters []string
+	if adapter != "" {
+		adapters = []string{adapter}
+	}
+	m, ord := buildManifest(a, adapters)
+	r := a.rootPath
+	// Multi-agent: a reviewer role bound to a second host (mutates the manifest
+	// and the ordered root before leji.json is serialized below).
+	var reviewerWrites []writeplan.PlannedWrite
+	if opts.Reviewer != "" {
+		reviewerWrites, err = WireReviewer(root, opts.Reviewer, m, ord, r)
+		if err != nil {
+			return Result{}, err
+		}
+	}
+	manifestBytes := serializeManifest(ord)
+
+	// Assemble the files init owns, in write order. leji.json comes first so the
+	// overwrite guard is effective on a retry after an interrupted run.
+	writes := []writeplan.PlannedWrite{{Rel: "leji.json", Content: string(manifestBytes)}}
+	writes = append(writes, writeplan.PlannedWrite{Rel: m.BootProfilePath, Content: buildBootProfile(a)})
 	for _, category := range a.categories {
 		if category == "decisions" {
 			continue
 		}
 		stub := categoryStubs[category]
-		if err := writeFileOnce(root, r+category+"/"+stub.file, stubContent(stub.title, stub.summary, stub.body), &written); err != nil {
-			return Result{}, err
-		}
+		writes = append(writes, writeplan.PlannedWrite{
+			Rel:     r + category + "/" + stub.file,
+			Content: stubContent(stub.title, stub.summary, stub.body),
+		})
 	}
-	if err := writeFileOnce(root, r+"decisions/0001-adopt-leji.md", buildFirstDecision(a), &written); err != nil {
-		return Result{}, err
+	writes = append(writes, writeplan.PlannedWrite{Rel: r + "decisions/0001-adopt-leji.md", Content: buildFirstDecision(a)})
+	writes = append(writes, writeplan.PlannedWrite{Rel: r + "agents/core.md", Content: buildCoreProfile(a)})
+	writes = append(writes, writeplan.PlannedWrite{Rel: BriefPath(r), Content: buildBrief(a)})
+	if adapter != "" {
+		writes = append(writes, writeplan.PlannedWrite{Rel: adapter, Content: detect.AdapterContent(m.BootProfilePath)})
 	}
-	if err := writeFileOnce(root, r+"agents/core.md", buildCoreProfile(a), &written); err != nil {
-		return Result{}, err
+	writes = append(writes, reviewerWrites...)
+	if opts.Ci {
+		writes = append(writes, writeplan.PlannedWrite{Rel: ".github/workflows/leji.yml", Content: BuildCiWorkflow()})
 	}
-
 	if a.level == "indexed" {
-		changelogPaths := append(append([]string{}, written...), "leji.json")
-		if err := writeFileOnce(root, m.Machine.ChangelogPath, buildChangelog(a, changelogPaths), &written); err != nil {
-			return Result{}, err
+		// The changelog records the paths seeded; compute from the planned set
+		// (everything except the changelog and the generated index).
+		seeded := make([]string, len(writes))
+		for i, w := range writes {
+			seeded[i] = w.Rel
 		}
+		sort.Strings(seeded)
+		writes = append(writes, writeplan.PlannedWrite{Rel: manifest.EffectiveChangelogPath(m), Content: buildChangelog(a, seeded)})
 	}
 
+	// Foreign entrypoint files Leji detects but will never modify.
+	var wontModify []string
+	for _, rel := range validate.KnownVendorFiles {
+		if fsx.IsFile(filepath.Join(root, rel)) {
+			wontModify = append(wontModify, rel)
+		}
+	}
+	planWrites := writes
+	if a.level == "indexed" {
+		planWrites = append(append([]writeplan.PlannedWrite{}, writes...),
+			writeplan.PlannedWrite{Rel: manifest.EffectiveIndexPath(m), Content: ""})
+	}
+	plan := writeplan.Build(root, planWrites, wontModify, nil)
+
+	if opts.DryRun {
+		return Result{Written: []string{}, Manifest: m, Plan: plan, DryRun: true}, nil
+	}
+
+	var written []string
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return Result{}, err
+	}
+	// leji.json is written directly (the guard above already proved it absent);
+	// every other file goes through writeFileOnce so nothing is overwritten.
+	if !fsx.ResolvesUnder(root, filepath.Join(root, "leji.json")) {
+		return Result{}, fmt.Errorf("refusing to write through a symlink that escapes the target: %q", "leji.json")
 	}
 	if err := os.WriteFile(filepath.Join(root, "leji.json"), manifestBytes, 0o644); err != nil {
 		return Result{}, err
 	}
 	written = append(written, "leji.json")
+	for _, w := range writes[1:] {
+		if err := writeFileOnce(root, w.Rel, w.Content, &written); err != nil {
+			return Result{}, err
+		}
+	}
 
 	if a.level == "indexed" {
 		if _, err := indexgen.WriteIndex(root, m); err != nil {
 			return Result{}, err
 		}
-		written = append(written, m.Machine.IndexPath)
+		written = append(written, manifest.EffectiveIndexPath(m))
 	}
 
 	sort.Strings(written)
-	return Result{Written: written, Manifest: m}, nil
+	return Result{Written: written, Manifest: m, Plan: plan, DryRun: false}, nil
 }
 
 // EnteringTheLayer is the post-init guidance printed by the CLI.
 func EnteringTheLayer(m *manifest.Manifest) string {
-	boot := m.BootProfilePath
+	brief := BriefPath(m.RootPath)
 	lines := []string{
 		"",
-		"Enter the layer by direct invocation, so the boot profile is the agent's first context:",
+		"The scaffold is in place, but the content is still placeholder. Hand it to your agent",
+		"to populate from your actual repository:",
 		"",
-		"   claude \"Read ./" + boot + ", follow all instructions, and tell me when you are ready to begin.\"",
-		"   codex \"Read ./" + boot + " and follow it before doing anything else.\"",
+		"   claude \"Read ./" + brief + " and follow it.\"",
+		"   codex \"Read ./" + brief + " and follow it.\"",
 		"",
-		"Package the invocation for the whole team (package.json):",
+		"The brief teaches the agent the Leji spec and points it at this repo: it reads your",
+		"code, asks what it cannot infer, and fills in real context. Prefer to do it yourself?",
+		"Edit the seeded documents directly. Either way, check progress with:",
 		"",
-		"   \"start\": \"claude 'Read ./" + boot + ", follow all instructions, and tell me when you are ready to begin.'\"",
-		"",
-		"Next: fill in the seeded documents, then run `leji validate` and `leji conformance`.",
+		"   leji validate --content   # placeholder / thin-content warnings",
+		"   leji conformance          # the level reached and what is next",
+	}
+	return strings.Join(lines, "\n")
+}
+
+// --- adoption (existing repositories) ---
+
+var docsCandidates = []string{"docs/", "doc/", "documentation/"}
+
+// AdoptOptions configures adoptLayer: bringing Leji into an existing repository.
+type AdoptOptions struct {
+	Dir    string
+	Yes    bool
+	DryRun bool
+	// WireAdapters converts present vendor entrypoints to redirects (consented overwrite).
+	WireAdapters bool
+	Agent        string
+	Name         string
+}
+
+// AdoptResult is the init result plus what adoption found and did.
+type AdoptResult struct {
+	Result
+	DetectedRoot string
+	// Migrated lists vendor files whose content was migrated into the layer.
+	Migrated []string
+	// Draft is true when a non-redirecting vendor file remains, so the layer is
+	// not yet core-conformant.
+	Draft bool
+}
+
+var mdExtRe = regexp.MustCompile(`(?i)\.md$`)
+
+// importedSlug derives the imported-file slug: basename, strip a trailing .md,
+// lowercase, non-alnum runs to '-', trim leading/trailing '-'.
+func importedSlug(rel string) string {
+	base := filepath.Base(rel)
+	base = mdExtRe.ReplaceAllString(base, "")
+	base = strings.ToLower(base)
+	base = nonAlnum.ReplaceAllString(base, "-")
+	base = trimDash.ReplaceAllString(base, "")
+	return base
+}
+
+// longestBacktickRun returns the longest run of consecutive backticks anywhere
+// in content (0 if none).
+func longestBacktickRun(content string) int {
+	longest, run := 0, 0
+	for _, c := range content {
+		if c == '`' {
+			run++
+			if run > longest {
+				longest = run
+			}
+		} else {
+			run = 0
+		}
+	}
+	return longest
+}
+
+func migrationDoc(sourceRel, content string) string {
+	summary := "Agent instructions migrated verbatim from " + sourceRel + "; refine into the right categories."
+	// Wrap the migrated content in a fenced code block so raw HTML/Markdown is
+	// shown verbatim, never rendered (no stored XSS in the Docsify local preview).
+	// The fence is one backtick longer than the longest run in the content.
+	fenceLen := longestBacktickRun(content) + 1
+	if fenceLen < 3 {
+		fenceLen = 3
+	}
+	fence := strings.Repeat("`", fenceLen)
+	return "---\nsummary: " + summary + "\n---\n\n# Imported agent instructions (" + sourceRel + ")\n\n" +
+		"<!-- Migrated by `leji adopt` from " + sourceRel + ". Split this into domain/system/practice/governance " +
+		"as appropriate; the original file is unchanged. -->\n\n" + fence + "\n" + strings.TrimSpace(content) + "\n" + fence + "\n"
+}
+
+func adoptExistingDecision(a answers, migrated []string) string {
+	today := time.Now().UTC().Format("2006-01-02")
+	return "---\n" +
+		"id: adopt-existing-agent-context\n" +
+		"title: Adopt existing agent instructions into the context layer\n" +
+		"status: accepted\n" +
+		"date: " + today + "\n" +
+		"deciders:\n" +
+		"  - " + a.ownerName + "\n" +
+		"---\n\n" +
+		"# Adopt existing agent instructions into the context layer\n\n" +
+		"## Context\n\n" +
+		"This repository already carried agent configuration (" + strings.Join(migrated, ", ") + "). That content is team knowledge that belonged in the context layer, not in a per-tool file.\n\n" +
+		"## Decision\n\n" +
+		"Its content was migrated into the layer (see `" + a.rootPath + "governance/`). The original file(s) were left unchanged; converting them to one-line redirects is a separate, consented step (`leji adopt --wire-adapters`).\n\n" +
+		"## Consequences\n\n" +
+		"The context layer is the single source of truth. Until the vendor entrypoints redirect, the layer does not claim core conformance.\n"
+}
+
+// AdoptLayer brings Leji into an existing repository: reuse an existing docs
+// root, migrate the content of any vendor entrypoints into the layer (originals
+// untouched), and seed the standard scaffold. Refuses when a layer already
+// exists. With WireAdapters, converts the present entrypoints to redirects (a
+// consented overwrite, after their content has been migrated); otherwise the
+// result is an adoption draft that is not yet core-conformant.
+func AdoptLayer(opts AdoptOptions) (AdoptResult, error) {
+	root, _ := filepath.Abs(opts.Dir)
+	if _, err := os.Stat(filepath.Join(root, "leji.json")); err == nil {
+		return AdoptResult{}, errors.New("leji.json already exists here; this repository already has a Leji layer")
+	}
+	detectedRoot := "docs/"
+	for _, d := range docsCandidates {
+		if fsx.IsDir(filepath.Join(root, d)) {
+			detectedRoot = d
+			break
+		}
+	}
+	if err := validateRelPath(fsx.StripSlash(detectedRoot)); err != nil {
+		return AdoptResult{}, fmt.Errorf("context root %q is not a safe relative path: %w", detectedRoot, err)
+	}
+
+	bootRel := detectedRoot + "boot-profile.md"
+	canonicalRedirect := strings.TrimSpace(detect.AdapterContent(bootRel))
+	var vendorPresent []string
+	for _, rel := range validate.KnownVendorFiles {
+		abs := filepath.Join(root, rel)
+		// A vendor file that is a symlink resolving outside root is neither read,
+		// migrated, nor converted: it is treated as absent.
+		if fsx.IsFile(abs) && fsx.ResolvesUnder(root, abs) {
+			vendorPresent = append(vendorPresent, rel)
+		}
+	}
+	// Migrate any vendor file that is not already exactly Leji's redirect, so its
+	// content (whether on its own lines or sharing a line with the boot-path
+	// reference) is archived before --wire-adapters overwrites it. A file that is
+	// already the canonical redirect, or empty, has nothing to preserve.
+	var toMigrate []string
+	for _, rel := range vendorPresent {
+		t, _ := fsx.ReadText(filepath.Join(root, rel))
+		trimmed := strings.TrimSpace(t)
+		if trimmed != "" && trimmed != canonicalRedirect {
+			toMigrate = append(toMigrate, rel)
+		}
+	}
+
+	base := slugBase(root)
+	name := opts.Name
+	if name == "" {
+		name = base + "-context"
+	}
+	ownerName := gitConfig("user.name")
+	if ownerName == "" {
+		ownerName = "<named owner>"
+	}
+	categories := []string{"domain", "system"}
+	if len(toMigrate) > 0 {
+		categories = append(categories, "governance")
+	}
+	categories = append(categories, "decisions")
+	a := answers{
+		name:         name,
+		description:  "Shared context layer for this repository.",
+		rootPath:     detectedRoot,
+		ownerName:    ownerName,
+		ownerContact: gitConfig("user.email"),
+		categories:   categories,
+		level:        "core",
+	}
+
+	newAdapter, err := resolveAdapter(root, opts.Agent)
+	if err != nil {
+		return AdoptResult{}, err
+	}
+	r := a.rootPath
+
+	// Convert only files that aren't already the canonical redirect; each has been
+	// captured in toMigrate above, so the overwrite never loses content.
+	var toConvert []string
+	if opts.WireAdapters {
+		for _, rel := range vendorPresent {
+			t, _ := fsx.ReadText(filepath.Join(root, rel))
+			if strings.TrimSpace(t) != canonicalRedirect {
+				toConvert = append(toConvert, rel)
+			}
+		}
+	}
+	var adapters []string
+	if newAdapter != "" {
+		adapters = append(adapters, newAdapter)
+	}
+	for _, rel := range toConvert {
+		if !contains(adapters, rel) {
+			adapters = append(adapters, rel)
+		}
+	}
+	m, ord := buildManifest(a, adapters)
+	manifestBytes := serializeManifest(ord)
+
+	writes := []writeplan.PlannedWrite{{Rel: "leji.json", Content: string(manifestBytes)}}
+	writes = append(writes, writeplan.PlannedWrite{Rel: m.BootProfilePath, Content: buildBootProfile(a)})
+	for _, category := range a.categories {
+		if category == "decisions" {
+			continue
+		}
+		stub := categoryStubs[category]
+		writes = append(writes, writeplan.PlannedWrite{
+			Rel:     r + category + "/" + stub.file,
+			Content: stubContent(stub.title, stub.summary, stub.body),
+		})
+	}
+	writes = append(writes, writeplan.PlannedWrite{Rel: r + "decisions/0001-adopt-leji.md", Content: buildFirstDecision(a)})
+	writes = append(writes, writeplan.PlannedWrite{Rel: r + "agents/core.md", Content: buildCoreProfile(a)})
+	writes = append(writes, writeplan.PlannedWrite{Rel: BriefPath(r), Content: buildBrief(a)})
+
+	var migrated []string
+	usedSlugs := map[string]bool{}
+	for _, rel := range toMigrate {
+		base := importedSlug(rel)
+		// Disambiguate when two source files would collide on the same slug.
+		slug := base
+		for n := 2; usedSlugs[slug]; n++ {
+			slug = fmt.Sprintf("%s-%d", base, n)
+		}
+		usedSlugs[slug] = true
+		content, _ := fsx.ReadText(filepath.Join(root, rel))
+		writes = append(writes, writeplan.PlannedWrite{
+			Rel:     r + "governance/imported-" + slug + ".md",
+			Content: migrationDoc(rel, content),
+		})
+		migrated = append(migrated, rel)
+	}
+	if len(migrated) > 0 {
+		writes = append(writes, writeplan.PlannedWrite{
+			Rel:     r + "decisions/0002-adopt-existing-agent-context.md",
+			Content: adoptExistingDecision(a, migrated),
+		})
+	}
+
+	if newAdapter != "" {
+		writes = append(writes, writeplan.PlannedWrite{Rel: newAdapter, Content: detect.AdapterContent(m.BootProfilePath)})
+	}
+	for _, rel := range toConvert {
+		writes = append(writes, writeplan.PlannedWrite{Rel: rel, Content: detect.AdapterContent(m.BootProfilePath)})
+	}
+
+	var wontModify []string
+	for _, rel := range vendorPresent {
+		if !contains(toConvert, rel) {
+			wontModify = append(wontModify, rel)
+		}
+	}
+	plan := writeplan.Build(root, writes, wontModify, toConvert)
+	draft := false
+	for _, rel := range wontModify {
+		t, _ := fsx.ReadText(filepath.Join(root, rel))
+		if !strings.Contains(t, bootRel) {
+			draft = true
+			break
+		}
+	}
+
+	if opts.DryRun {
+		return AdoptResult{
+			Result:       Result{Written: []string{}, Manifest: m, Plan: plan, DryRun: true},
+			DetectedRoot: detectedRoot,
+			Migrated:     migrated,
+			Draft:        draft,
+		}, nil
+	}
+
+	var written []string
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return AdoptResult{}, err
+	}
+	if !fsx.ResolvesUnder(root, filepath.Join(root, "leji.json")) {
+		return AdoptResult{}, fmt.Errorf("refusing to write through a symlink that escapes the target: %q", "leji.json")
+	}
+	if err := os.WriteFile(filepath.Join(root, "leji.json"), manifestBytes, 0o644); err != nil {
+		return AdoptResult{}, err
+	}
+	written = append(written, "leji.json")
+	convert := map[string]bool{}
+	for _, rel := range toConvert {
+		convert[rel] = true
+	}
+	for _, w := range writes[1:] {
+		if convert[w.Rel] {
+			abs, rerr := resolveUnderRoot(root, w.Rel)
+			if rerr != nil {
+				return AdoptResult{}, rerr
+			}
+			if !fsx.ResolvesUnder(root, abs) {
+				return AdoptResult{}, fmt.Errorf("refusing to write through a symlink that escapes the target: %q", w.Rel)
+			}
+			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+				return AdoptResult{}, err
+			}
+			if err := os.WriteFile(abs, []byte(w.Content), 0o644); err != nil {
+				return AdoptResult{}, err
+			}
+			written = append(written, w.Rel)
+		} else {
+			if err := writeFileOnce(root, w.Rel, w.Content, &written); err != nil {
+				return AdoptResult{}, err
+			}
+		}
+	}
+
+	sort.Strings(written)
+	return AdoptResult{
+		Result:       Result{Written: written, Manifest: m, Plan: plan, DryRun: false},
+		DetectedRoot: detectedRoot,
+		Migrated:     migrated,
+		Draft:        draft,
+	}, nil
+}
+
+// EnteringAdopted is the post-adopt guidance printed by the CLI.
+func EnteringAdopted(result AdoptResult) string {
+	lines := []string{EnteringTheLayer(result.Manifest)}
+	if len(result.Migrated) > 0 {
+		lines = append(lines, "",
+			"Migrated "+strings.Join(result.Migrated, ", ")+" into "+result.Manifest.RootPath+"governance/ (originals untouched); refine into the right categories.")
+	}
+	if result.Draft {
+		lines = append(lines, "",
+			"This is an adoption draft: NOT yet core-conformant, because an existing vendor entrypoint",
+			"does not redirect to the boot profile (the spec requires it). Finish with:",
+			"",
+			"   leji adopt --wire-adapters   # convert them to redirects (their content is already migrated)")
 	}
 	return strings.Join(lines, "\n")
 }
