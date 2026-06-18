@@ -71,14 +71,15 @@ const { findings } = validateLayer('.');`;
                   <div class="step-text">
                      <h2><span class="step-num">02</span>Bootstrap a new layer, or adopt an existing repo</h2>
                      <p>
-                        <code>leji init</code> scaffolds a new context layer: a <code>leji.json</code> manifest at the
-                        repository root, a boot profile, seeded category documents, a first decision record, and an agent
-                        onboarding brief. The scaffold starts as placeholder; hand it to your agent to fill in from the
-                        real repository, or edit the seeded documents yourself.
+                        <code>leji init</code> scaffolds a new context layer: a <code>leji.json</code> manifest at the repository
+                        root, a boot profile, seeded category documents, a first decision record, and an agent onboarding
+                        brief. The scaffold starts as placeholder; hand it to your agent to fill in from the real repository,
+                        or edit the seeded documents yourself.
                      </p>
                      <aside class="map-note">
-                        <strong>Already have a <code>docs/</code> tree?</strong> <code>leji adopt</code> reuses it: it maps
-                        your existing directories, migrates any vendor entrypoint (<code>CLAUDE.md</code>,
+                        <strong>Already have a <code>docs/</code> tree?</strong>
+                        <code>leji adopt</code> reuses it: it maps your existing directories, migrates any vendor entrypoint
+                        (<code>CLAUDE.md</code>,
                         <code>AGENTS.md</code>) into the layer without touching the originals, and, with
                         <code>--wire-adapters</code>, converts them to one-line redirects.
                      </aside>
@@ -121,8 +122,8 @@ const { findings } = validateLayer('.');`;
                <div class="duo-cell">
                   <h2>Keep it honest in CI</h2>
                   <p>
-                     <code>leji init --ci</code> writes a workflow that runs <code>leji validate</code> on every change.
-                     For indexed and higher layers, add the index and changelog gates so nothing silently rots:
+                     <code>leji init --ci</code> writes a workflow that runs <code>leji validate</code> on every change. For
+                     indexed and higher layers, add the index and changelog gates so nothing silently rots:
                   </p>
                   <Code code={ciCode} lang="bash" theme="night-owl" wrap />
                   <p class="fine">
