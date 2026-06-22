@@ -153,6 +153,7 @@ jobs:
           PKG="$(node -p "require('./packages/mcp/package.json').version")"
           test "$TAG" = "$PKG" || { echo "tag packages/mcp/v$TAG != packages/mcp version $PKG"; exit 1; }
       - run: npm run assets:check
+      - run: npm run build -w packages/sdk
       - run: npm run build -w packages/mcp
       - run: npm test -w packages/mcp
       # Tag AFTER packages/sdk/v* is live (MCP depends on @leji-org/leji).

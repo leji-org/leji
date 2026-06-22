@@ -448,32 +448,32 @@ class _SafeViewerHandler(BaseHTTPRequestHandler):
 
     def _serve_from(self, mount_root: str, sub: str) -> None:
         # Serve `sub` (a clean relative path) from under `mount_root`; '' -> index.html.
-        # realpath-contains the resolved target under its mount so a symlink can't escape.
-        abs_path = (
-            os.path.join(mount_root, "index.html") if sub == "" else os.path.join(mount_root, sub)
-        )
-        if abs_path != mount_root and not abs_path.startswith(mount_root + os.sep):
+        # Resolve to a realpath and confirm containment before any filesystem access,
+        # then read only that validated path, so neither traversal nor a symlink escapes.
+        root_real = os.path.realpath(mount_root)
+        target = os.path.join(root_real, "index.html") if sub == "" else os.path.join(root_real, sub)
+        real = os.path.realpath(target)
+        if real != root_real and not real.startswith(root_real + os.sep):
             self.send_response(403)
             self.end_headers()
             self.wfile.write(b"forbidden")
             return
-        try:
-            if os.path.isdir(abs_path):
-                abs_path = os.path.join(abs_path, "index.html")
-            real = os.path.realpath(abs_path)
-            if real != mount_root and not real.startswith(mount_root + os.sep):
+        if os.path.isdir(real):
+            real = os.path.realpath(os.path.join(real, "index.html"))
+            if real != root_real and not real.startswith(root_real + os.sep):
                 self.send_response(403)
                 self.end_headers()
                 self.wfile.write(b"forbidden")
                 return
-            with open(abs_path, "rb") as fh:
+        try:
+            with open(real, "rb") as fh:
                 body = fh.read()
         except OSError:
             self.send_response(404)
             self.end_headers()
             self.wfile.write(b"not found")
             return
-        ct = CONTENT_TYPES.get(os.path.splitext(abs_path)[1].lower(), "application/octet-stream")
+        ct = CONTENT_TYPES.get(os.path.splitext(real)[1].lower(), "application/octet-stream")
         self.send_response(200)
         self.send_header("content-type", ct)
         self.end_headers()

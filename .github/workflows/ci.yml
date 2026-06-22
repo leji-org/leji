@@ -80,6 +80,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
+      - run: npm run build -w packages/sdk
       - run: npm run build -w packages/mcp
       - run: npm test -w packages/mcp
 
