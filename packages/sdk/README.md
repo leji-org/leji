@@ -12,13 +12,23 @@ leji index --check      # fail when the index is stale
 leji changelog check    # append-only discipline
 leji freshness          # review-horizon report
 leji conformance        # score the layer against its claimed level
-leji docs               # project a browsable viewer (--serve for a localhost preview)
+leji viewer             # generate the static viewer for the context layer
+leji view               # generate, serve, and open it in your browser
+leji detect             # find installed agent hosts
+leji start              # open the layer in a detected agent host
+leji adopt              # map an existing entrypoint into a context layer
+leji ci                 # add a validate workflow (--provider github|gitlab|circleci|azure)
+leji agent --name <n>   # bind an additional named agent into the layer
 ```
 
-Behaviorally identical to the `leji` package on PyPI: same commands, same
-flags, same findings, same exit codes (0 clean, 1 findings, 2 usage error).
-Both implementations are tested against one shared fixture suite. Install
-whichever matches your toolchain; agents and CI see the same tool either way.
+See the full command reference (flags, exit codes, examples) at
+https://leji.org/cli/.
+
+Behaviorally identical to the `leji` package on PyPI and the Go SDK: same
+commands, same flags, same findings, same exit codes (0 clean, 1 findings, 2
+usage error). All three implementations are tested against one shared fixture
+suite. Install whichever matches your toolchain; agents and CI see the same
+tool either way.
 
 Supports spec line **1.0**. Schemas and templates for that line ship inside
 the package; no network access is needed.

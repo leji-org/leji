@@ -1,29 +1,39 @@
-// Single source of truth for supported runtimes; add one here and the chips and install snippet both update.
+// Single source of truth for supported runtimes; add one here and the chips and install tabs both update.
 import nodeIcon from '../assets/node.svg?raw';
 import pythonIcon from '../assets/python.svg?raw';
 import goIcon from '../assets/go.svg?raw';
 
 export interface Runtime {
+   /** Short runtime name, e.g. "Node". */
+   name: string;
    /** Display label with its minimum version, e.g. "Node.js 22+". */
    label: string;
    /** Inline SVG markup for the runtime's icon. */
    icon: string;
-   /** The install line shown in the Quickstart (kept aligned for the code block). */
-   install: string;
+   /** The bare install command (no comments), for copy-to-clipboard. */
+   command: string;
    /** Wide logos render shorter to balance with square marks. */
    wide?: boolean;
 }
 
 export const runtimes: Runtime[] = [
-   { label: 'Node.js 22+', icon: nodeIcon, install: 'npm install -g @leji-org/leji   # or: npx @leji-org/leji' },
-   { label: 'Python 3.10+', icon: pythonIcon, install: 'pip install leji        # the PyPI twin' },
    {
+      name: 'Node',
+      label: 'Node.js 22+',
+      icon: nodeIcon,
+      command: 'npm install -g @leji-org/leji',
+   },
+   {
+      name: 'Python',
+      label: 'Python 3.10+',
+      icon: pythonIcon,
+      command: 'pip install leji',
+   },
+   {
+      name: 'Go',
       label: 'Go 1.23+',
       icon: goIcon,
-      install: 'go install github.com/leji-org/leji/packages/sdk-go/cmd/leji@latest   # single binary, no runtime',
+      command: 'go install github.com/leji-org/leji/packages/sdk-go/cmd/leji@latest',
       wide: true,
    },
 ];
-
-/** The Quickstart install snippet, one line per runtime. */
-export const installSnippet = runtimes.map((r) => r.install).join('\n');

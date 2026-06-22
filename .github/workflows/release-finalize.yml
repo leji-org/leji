@@ -1,16 +1,11 @@
 name: Release finalize
 
-# The aggregator step from release-runbook.md (step 4): publish the DRAFT GitHub
-# Release that goreleaser created on the Go tag, and enable Discussions.
+# Manual aggregator (workflow_dispatch): publish the DRAFT GitHub Release that
+# goreleaser created on the Go tag, and enable Discussions.
 #
-# This is MANUAL (workflow_dispatch) on purpose. The four publish jobs run in
-# SEPARATE workflow runs (one per path-prefixed tag), so GitHub Actions cannot
-# `needs:`-gate a single aggregator across them. The human gate is the runbook's
-# intent: confirm npm `@leji-org/leji`, npm `create-leji`, JSR `@leji-org/leji`, PyPI `leji`,
-# and Go module indexing are ALL green, then run this to flip the release live.
-#
-# Run AFTER the smoke + publish jobs have all succeeded and post-publish smoke
-# tests pass (smoke-tests.md).
+# Manual on purpose: the publish jobs run in separate workflow runs (one per
+# path-prefixed tag), so a single aggregator can't `needs:`-gate across them.
+# Run it after all publish and post-publish smoke jobs are green.
 
 on:
   workflow_dispatch:
@@ -18,7 +13,7 @@ on:
       release_tag:
         description: "Tag the draft release is attached to (the goreleaser/Go tag)"
         required: true
-        default: "packages/sdk-go/v1.0.0"
+        default: "packages/sdk-go/v1.2.0"
 
 permissions:
   contents: write # publish the release
@@ -28,16 +23,33 @@ jobs:
   finalize:
     name: Publish release + enable Discussions
     runs-on: ubuntu-latest
+    env:
+      # Bind the dispatch input to an env var so it is never interpolated
+      # directly into a `run:` shell (avoids command injection on the input).
+      RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Confirm the draft release exists
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Validate the tag shape
+        # Only a path-prefixed release tag for a known package may be finalized.
+        run: |
+          if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^packages/(sdk|create-leji|sdk-py|sdk-go|mcp)/v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
+            echo "Refusing: '$RELEASE_TAG' is not a packages/<pkg>/vX.Y.Z release tag"
+            exit 1
+          fi
+      - name: Confirm the release exists and is still a draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release view "${{ inputs.release_tag }}" --json isDraft,name,tagName
+        run: |
+          IS_DRAFT="$(gh release view "$RELEASE_TAG" --json isDraft,name,tagName --jq '.isDraft')"
+          echo "release $RELEASE_TAG isDraft=$IS_DRAFT"
+          if [ "$IS_DRAFT" != "true" ]; then
+            echo "Refusing: '$RELEASE_TAG' is not a draft release (already published or missing)"
+            exit 1
+          fi
       - name: Publish the draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ inputs.release_tag }}" --draft=false
+        run: gh release edit "$RELEASE_TAG" --draft=false
       # Enabling Discussions is a repo setting; the default GITHUB_TOKEN may lack
       # the scope. Best-effort: if it fails, enable it once by hand in repo
       # Settings -> General -> Features -> Discussions.

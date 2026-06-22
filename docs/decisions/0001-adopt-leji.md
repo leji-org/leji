@@ -5,6 +5,13 @@ status: accepted
 date: 2026-06-18
 deciders:
   - Vuong Nguyen
+affectedPaths:
+  - leji.json
+  - docs/
+affectedCategories:
+  - domain
+  - system
+  - decisions
 ---
 
 # Adopt the Leji context layer

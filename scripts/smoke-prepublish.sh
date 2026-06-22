@@ -36,7 +36,10 @@ no(){ printf "  \033[31mFAIL\033[0m %s\n" "$1"; FAIL=$((FAIL+1)); }
 chk(){ local exp="$1" lbl="$2"; shift 3; "$@" >/dev/null 2>&1; local got=$?; [ "$got" = "$exp" ] && ok "$lbl (exit $got)" || no "$lbl (exit $got, want $exp)"; }
 _md5(){ if command -v md5sum >/dev/null 2>&1; then md5sum | awk '{print $1}'; else md5 -q; fi; }
 
-echo "== Layer 0: assets sync + build =="
+echo "== Layer 0: version coherence + assets sync + build =="
+# All 9 version locations must agree before we build artifacts that bake the
+# version in; a drifting Go SDKVersion would otherwise ship mismatched.
+npm run version:check >/dev/null 2>&1 && ok "version coherent ($VER)" || no "version drift (run: npm run version:set <x>)"
 npm run assets:check >/dev/null 2>&1 && ok "assets in sync" || no "assets drift (run: npm run assets)"
 npm run build -w packages/sdk >/dev/null 2>&1 && ok "JS SDK build" || no "JS SDK build"
 
@@ -95,7 +98,7 @@ J_GO="$("$GO"  validate --root "$EX" --json 2>/dev/null | _md5)"
 echo
 echo "== RESULT: $PASS passed, $FAIL failed =="
 if [ "$FAIL" = 0 ]; then
-   echo "Pre-publish smoke GREEN. Proceed to the clean-room gate, then tag."
+   echo "Pre-publish smoke GREEN."
    exit 0
 else
    echo "Pre-publish smoke RED. Do NOT tag until resolved."

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://leji.org/schemas/v1.0/context-index.schema.json",
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-06-22T06:24:43.167Z",
+  "generator": {
+    "name": "leji",
+    "version": "1.2.0"
+  },
+  "rootPath": "docs/",
+  "entries": [
+    {
+      "id": "adopt-leji",
+      "path": "docs/decisions/0001-adopt-leji.md",
+      "title": "Adopt the Leji context layer",
+      "category": "decisions",
+      "lastModified": "2026-06-21",
+      "contentHash": "sha256:ae3cedfeb931eec4"
+    },
+    {
+      "id": "raise-to-governed",
+      "path": "docs/decisions/0002-raise-to-governed.md",
+      "title": "Raise the Leji context layer to governed conformance",
+      "category": "decisions",
+      "lastModified": "2026-06-21",
+      "contentHash": "sha256:66eb91ecee293b8d",
+      "links": [
+        "0001-adopt-leji.md"
+      ]
+    },
+    {
+      "id": "glossary",
+      "path": "docs/domain/glossary.md",
+      "title": "Glossary",
+      "category": "domain",
+      "summary": "What the core terms of this repository mean, in our own words.",
+      "lastModified": "2026-06-21",
+      "contentHash": "sha256:3f481c1cd47e78dd",
+      "freshness": {
+        "reviewAfter": "2027-06-21"
+      }
+    },
+    {
+      "id": "porting-ts-to-go-py",
+      "path": "docs/practice/porting-ts-to-go-py.md",
+      "title": "Porting TypeScript → Go / Python",
+      "category": "practice",
+      "summary": "How to port a change from the TypeScript reference SDK to the Go and Python SDKs without breaking parity.",
+      "lastModified": "2026-06-22",
+      "contentHash": "sha256:8caa7c2cb25a849f",
+      "freshness": {
+        "reviewAfter": "2026-12-21"
+      }
+    },
+    {
+      "id": "invariants",
+      "path": "docs/system/invariants.md",
+      "title": "System Invariants",
+      "category": "system",
+      "summary": "The constraints every change to this repository lives with.",
+      "lastModified": "2026-06-21",
+      "contentHash": "sha256:4fce598e93125c22",
+      "freshness": {
+        "reviewAfter": "2027-06-21"
+      }
+    }
+  ]
+}

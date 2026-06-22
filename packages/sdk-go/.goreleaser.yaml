@@ -1,16 +1,7 @@
 # goreleaser config for the Leji Go SDK (single-binary distribution).
-#
-# This module lives at a SUBDIRECTORY of the monorepo
-# (github.com/leji-org/leji/packages/sdk-go), so it is released from a
-# path-prefixed tag: `packages/sdk-go/v1.0.0` (see docs/leji/launch/go-release.md
-# and decisions/0004). goreleaser's monorepo `tag_prefix` is Pro-only, so the
-# release workflow MUST strip the prefix and pass the bare version in
-# GORELEASER_CURRENT_TAG before invoking goreleaser. This file assumes that has
-# been done and `{{ .Version }}` resolves to e.g. `1.0.0`.
-#
-# It builds cross-platform `leji` binaries and uploads them to a DRAFT GitHub
-# Release. The release is published last by the finalize step, after every
-# registry publish has succeeded (release-runbook.md step 4).
+# Released from a path-prefixed tag; the workflow passes the bare
+# version in GORELEASER_CURRENT_TAG, so `{{ .Version }}` resolves to e.g. 1.0.0.
+# Builds cross-platform binaries into a DRAFT release the finalize step publishes.
 version: 2
 
 project_name: leji
@@ -23,9 +14,7 @@ builds:
       - CGO_ENABLED=0
     flags:
       - -trimpath
-    # Stamp the version that ldflags-overridable SDKVersion defaults to 1.0.0
-    # (internal/schemas/schemas.go), so the binary's `leji --version` matches
-    # the released tag rather than the source default.
+    # Stamp SDKVersion so the binary's `leji --version` matches the released tag.
     ldflags:
       - -s -w
       - -X github.com/leji-org/leji/packages/sdk-go/internal/schemas.SDKVersion={{ .Version }}
@@ -48,8 +37,7 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
-# Release notes are authored by hand and applied by the finalize step; goreleaser
-# should not generate its own changelog.
+# Release notes are authored by hand; goreleaser generates no changelog.
 changelog:
   disable: true
 
@@ -57,10 +45,8 @@ snapshot:
   version_template: "{{ incpatch .Version }}-snapshot"
 
 release:
-  # Upload binaries to a DRAFT release; the aggregator/finalize step flips it to
-  # published only after npm, JSR, PyPI, and Go indexing have all succeeded.
+  # DRAFT release; the finalize step publishes it after all registries succeed.
   draft: true
-  # The underlying git tag is the path-prefixed `packages/sdk-go/v1.0.0`, but the
-  # human-facing release is titled "Leji v1.0.0".
+  # Path-prefixed git tag, but the human-facing release is titled "Leji v1.0.0".
   name_template: "Leji v{{ .Version }}"
   # The repo (leji-org/leji) is inferred from the git remote / GITHUB_REPOSITORY.

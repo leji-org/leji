@@ -5,7 +5,7 @@
 
 ## Identity
 
-This is the Leji repository: the home of the Leji specification, its reference SDK, and the leji.org site. Leji is an open specification for the shared context layer of AI-native teams, a versioned, repo-owned record of how a team thinks, read by people and AI agents alike. The spec is released at 1.0.0. This repo ships three things and nothing else: the normative spec (`spec/`), the reference `leji` CLI in TypeScript, Python, and Go (`packages/`), and the website (`packages/site`). It is public.
+This is the Leji repository: the home of the Leji specification, its reference SDKs and tooling, and the leji.org site. Leji is an open specification for the shared context layer of AI-native teams: a versioned, repo-owned record of how a team thinks, read by people and AI agents alike. It is public. Everything here is single-sourced: the normative spec (`spec/`) and its JSON Schemas (`schemas/`), the reference `leji` CLI in TypeScript, Python, and Go (`packages/sdk`, `packages/sdk-py`, `packages/sdk-go`), the MCP server and `create-leji` scaffolder (`packages/mcp`, `packages/create-leji`), and the website (`packages/site`). The spec and schemas stay on the v1.0 line; the packages release together, currently 1.2.0.
 
 ## Loading
 
@@ -18,6 +18,7 @@ Load by task type (only the slice the task needs):
 - Editing the spec → `spec/` (normative; single-sourced, so change the source, not a copy).
 - Schema change → `schemas/` plus each SDK's vendored copy (they must stay in sync).
 - SDK or CLI change → `packages/sdk`, `packages/sdk-py`, `packages/sdk-go`, and `fixtures/` (all three SDKs at parity).
+- MCP server or scaffolder change → `packages/mcp`, `packages/create-leji`.
 - Site change → `packages/site`.
 - Term meanings → `docs/domain/`. Recorded decisions → `docs/decisions/`.
 

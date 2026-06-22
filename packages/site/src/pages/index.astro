@@ -1,32 +1,51 @@
 ---
 import { Code } from 'astro:components';
 import Base from '../layouts/Base.astro';
-import CircleChart from '../components/CircleChart.astro';
 import HeroMark from '../components/HeroMark.astro';
 import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
-import ConformancePeek from '../components/ConformancePeek.astro';
-import InstallCommand from '../components/InstallCommand.astro';
+import AnimatedTerminal from '../components/AnimatedTerminal.astro';
+import ViewerGlimpse from '../components/ViewerGlimpse.astro';
+import InstallTabs from '../components/InstallTabs.astro';
+import githubIcon from '../assets/github.svg?raw';
 
-const heroInstall = `npm create leji`;
+const heroSession = [
+   { cmd: 'leji adopt --yes --wire-adapters' },
+   { out: 'Wrote 12 files (context root: docs/):' },
+   { out: '   leji.json   docs/boot-profile.md   docs/agents/core.md   …', mark: 'dim' },
+   { gap: true },
+   { cmd: 'leji validate' },
+   { out: 'ok (0 errors, 0 warnings)', mark: 'ok' },
+   { gap: true },
+   { cmd: 'leji conformance' },
+   { out: 'ok (0 errors, 0 warnings; verifiedLevel: core)', mark: 'ok' },
+];
 
 const peekJson = `{
+  "$schema": "https://leji.org/schemas/v1.0/context-manifest.schema.json",
   "leji": "1.0",
-  "name": "your-team-context",
+  "name": "ai-native-team-context",
   "rootPath": "docs/",
   "bootProfilePath": "docs/boot-profile.md",
   "categories": {
     "domain": { "paths": ["docs/business/"] },
-    "system": { "paths": ["docs/architecture/"] },
-    "decisions": { "paths": ["docs/decisions/"] }
+    "decisions": { "paths": ["docs/decisions/"] },
+    ...
+  },
+  "machine": {
+    "indexPath": "docs/context-index.json",
+    "changelogPath": "docs/context-changelog.json",
+    ...
   },
   "agents": {
+    "reviewer": "docs/agents/reviewer.md",
     "thought-partner": "docs/agents/thought-partner.md"
   },
   "owners": {
-    "primary": { "name": "A. Named Owner" }
+    "primary": { "name": "John Smith" }
   },
-  …
+  "conformance": { "claimedLevel": "indexed" },
+  ...
 }`;
 ---
 
@@ -35,41 +54,158 @@ const peekJson = `{
       <SiteHeader flush />
       <div class="wrap">
          <section class="hero">
-            <div class="hero-mark reveal"><HeroMark size={150} /></div>
-            <p class="inscription reveal r1">
-               /LEH-jee/&ensp;·&ensp;is <em>legible</em>&ensp;·&ensp;an open specification
-            </p>
-            <h1 class="reveal r2">Legible to everyone<br />working in it.</h1>
-            <p class="lede reveal r3">
-               Leji defines the <strong>shared context layer</strong> of <a href="/ai-native/">AI-native teams</a>: one
-               versioned, repo-owned record of how a team thinks (domain language, constraints, decisions, conventions,
-               guardrails). People and AI agents read it on every task; changes ride the same pull-request review as
-               code.
-            </p>
-            <div class="cta reveal r4">
-               <a class="btn solid" href="/quickstart/">Start with the CLI</a>
-               <a class="btn ghost" href="/spec/">Read the spec</a>
+            <div class="hero-text">
+               <p class="kicker reveal r1">
+                  <span>/Leh jee/</span><i class="sep" aria-hidden="true">◆</i><span>Open specification & tooling</span>
+               </p>
+               <h1 class="reveal r2">Make your context <span class="gild">legible</span>.</h1>
+               <div class="carved-rule reveal r2" aria-hidden="true"></div>
+               <p class="lede reveal r3">
+                  Leji is an open specification & tooling that turns intent scattered across many threads and per-tool
+                  instructions into one <strong>reviewed and governed</strong>
+                  <a href="/spec/context-layer/">shared context layer</a> for your
+                  <a href="/ai-native/">AI-native teams</a>.
+               </p>
+               <div class="cta reveal r4">
+                  <a class="btn solid" href="/quickstart/">Quickstart</a>
+                  <a class="btn ghost" href="/spec/">Read the spec</a>
+               </div>
             </div>
-            <div class="hero-install reveal r5">
-               <InstallCommand command={heroInstall} />
+
+            <div class="hero-proof reveal r5">
+               <AnimatedTerminal
+                  lines={heroSession}
+                  title="ai-native-repo  ·  ~60s"
+                  glimpseTitle="leji view  ·  AI-native Team"
+                  label="A real leji session: adopt an existing repo, validate it, score it"
+               >
+                  <HeroMark slot="brand" size={64} loop />
+                  <ViewerGlimpse slot="glimpse" />
+                  <InstallTabs slot="footer" />
+               </AnimatedTerminal>
+               <p class="hero-license">
+                  <a class="oss-link" href="https://github.com/leji-org/leji" target="_blank" rel="noopener">
+                     <span class="gh-icon" set:html={githubIcon} /><span class="free">Free &amp; open source</span>
+                  </a>&ensp;·&ensp;Apache-2.0&ensp;·&ensp;CC-BY-4.0
+               </p>
             </div>
          </section>
       </div>
+   </div>
 
+   <div class="levels-band">
       <div class="wrap">
+         <section class="levels">
+            <p class="section-eyebrow">From scattered AI use to governed team context</p>
+            <h2 class="section-title levels-title">Start from the repo you have.</h2>
+            <p class="levels-lede">
+               The Leji CLI and SDK read the codebase and docs you already have, turning scattered intent into one
+               shared context layer, useful from day one.
+            </p>
+            <ol class="adopt-flow">
+               <li class="adopt-step">
+                  <span class="step-when">First</span>
+                  <h3>Reads what exists</h3>
+                  <p>Code, docs, decisions, and agent instructions become the source.</p>
+               </li>
+               <li class="adopt-step">
+                  <span class="step-when">Then</span>
+                  <h3>Organizes in place</h3>
+                  <p>Existing files map into the context layer without a rewrite.</p>
+               </li>
+               <li class="adopt-step">
+                  <span class="step-when">Ongoing</span>
+                  <h3>Governs from there</h3>
+                  <p>Every change passes review and validation to stay current.</p>
+               </li>
+            </ol>
+            <p class="ladder-intro">
+               Conformance is Leji's standard scale for how far a shared context layer has matured, across 4 cumulative
+               levels.
+            </p>
+            <ol class="ladder">
+               <li>
+                  <span class="rung-tag">core</span>
+                  <strong class="rung-cap">Shared team context</strong>
+                  <span>manifest, boot profile, real content, a first decision, a named owner.</span>
+               </li>
+               <li>
+                  <span class="rung-tag">indexed</span>
+                  <strong class="rung-cap">Legible to tooling</strong>
+                  <span>a generated index and a machine-readable changelog.</span>
+               </li>
+               <li>
+                  <span class="rung-tag">governed</span>
+                  <strong class="rung-cap">Reviewed and current</strong>
+                  <span>pull-request review, agent profiles, CI, and checked freshness horizons.</span>
+               </li>
+               <li>
+                  <span class="rung-tag">federated</span>
+                  <strong class="rung-cap">Org-wide practice</strong>
+                  <span>a pinned docs-only mount in other repos, with stale-pin reporting.</span>
+               </li>
+            </ol>
+         </section>
+      </div>
+   </div>
+
+   <div class="wrap">
+      <section class="surfaces">
+         <p class="section-eyebrow">One context layer, two surfaces</p>
+         <h2 class="section-title surfaces-title">Read by people, reached by agents.</h2>
+         <p class="surfaces-lede">
+            The shared context layer is a repo-owned record of how a team thinks (domain language, constraints,
+            decisions, conventions, agent guardrails), read by people and AI agents and changed through one review gate.
+         </p>
+         <div class="chart">
+            <div class="chart-source">
+               <span class="chart-source-name">Shared Context Layer</span>
+               <span class="chart-source-tag">reviewed &amp; governed</span>
+            </div>
+            <svg class="chart-fork" viewBox="0 0 40 100" preserveAspectRatio="none" aria-hidden="true">
+               <path d="M0 50 H20 M20 23 V77 M20 23 H40 M20 77 H40"></path>
+            </svg>
+            <div class="chart-surfaces">
+               <article class="surface">
+                  <p class="surface-label">For people</p>
+                  <p class="surface-body">
+                     Anyone on the team can read exactly what agents read. <code>leji view</code> opens the
+                     <strong>shared context layer</strong>, rendered human-readable in the browser.
+                  </p>
+               </article>
+               <article class="surface">
+                  <p class="surface-label">For agents</p>
+                  <p class="surface-body">
+                     Agents read the same shared context layer from the repo, then use the <strong>MCP server</strong>
+                     to retrieve the spec and schemas, <a href="/mcp/">validate it and score conformance</a>.
+                  </p>
+               </article>
+            </div>
+         </div>
+      </section>
+   </div>
+
+   <div class="why-band">
+      <div class="wrap">
+         <p class="section-eyebrow why-eyebrow">Why it's built this way</p>
+         <h2 class="section-title levels-title">Durable intent, shared in a circle.</h2>
+         <p class="why-lede">
+            An AI-native team is a team where people and AI agents work from one shared, versioned, governed context
+            layer.
+         </p>
          <section class="theses">
-            <article class="tablet reveal r5">
-               <span class="num">I</span>
-               <h2>Intent over instructions</h2>
+            <article class="thesis">
+               <h3><span class="thesis-num">I.</span> Intent over instructions</h3>
                <p>
-                  Most AI adoption writes imperative, per-vendor instructions. Leji captures durable intent (what things
-                  mean, what must hold, why it is so) and lets people and agents derive actions from declared intent
-                  plus task context.
+                  Most AI adoption writes imperative, per-vendor instructions. Leji's spec and tooling help enforce
+                  durable intent and let people and agents derive actions from it. Vendor entrypoints redirect into the
+                  shared context layer rather than being the source, so your team's truth survives any tooling or AI
+                  model upgrade.
                </p>
             </article>
-            <article class="tablet reveal r6">
-               <span class="num">II</span>
-               <h2>A circle, not a tier</h2>
+            <div class="theses-divider" aria-hidden="true"></div>
+            <article class="thesis">
+               <h3><span class="thesis-num">II.</span> A circle, not a tier</h3>
                <p>
                   Human-to-human, human-to-AI, and human-to-AI-to-human are first-class flows around one shared context
                   layer. Equal access, not equal authority: everyone reads, anyone proposes, people approve through pull
@@ -77,78 +213,29 @@ const peekJson = `{
                </p>
             </article>
          </section>
-
-         <section class="circle-diagram" aria-label="A tier compared with the circle">
-            <CircleChart />
-         </section>
       </div>
    </div>
 
    <div class="wrap">
-      <section class="task-example reveal" aria-labelledby="task-example-title">
-         <p class="task-eyebrow">One agent task</p>
-         <h2 id="task-example-title">The same change, with a declared context layer.</h2>
-         <div class="task-columns">
-            <article>
-               <h3>Without Leji</h3>
-               <p>
-                  The agent reads scattered docs, misses a decision record, repeats a stale convention, and leaves the
-                  fix in chat. The code may change; the context that would prevent the next miss does not.
-               </p>
-            </article>
-            <article>
-               <h3>With Leji</h3>
-               <p>
-                  The agent loads <code>docs/boot-profile.md</code>, follows the mapped domain, system, and decision
-                  docs, then proposes a code change and a context delta in one pull request. CI catches a stale index or
-                  changelog before a person approves.
-               </p>
-            </article>
-         </div>
-      </section>
-   </div>
-
-   <div class="wrap">
-      <section class="levels">
-         <h2>Adopt by degrees</h2>
-         <p class="levels-lede">Partial adoption is by design. Four conformance levels, each containing the last.</p>
-         <ol class="ladder">
-            <li>
-               <code>core</code><span>manifest, boot profile, real content, a first decision, a named owner.</span>
-            </li>
-            <li><code>indexed</code><span>a generated index and a machine-readable changelog: a tooling run.</span></li>
-            <li>
-               <code>governed</code><span
-                  >pull-request review for context changes, agent profiles, CI on the mechanics.</span
-               >
-            </li>
-            <li>
-               <code>federated</code><span
-                  >one context layer across a multi-repo org, pinned, with sibling context layers intact.</span
-               >
-            </li>
-         </ol>
-         <ConformancePeek
-            heading="See it score a layer"
-            blurb="leji conformance checks each item and reports the level a context layer has actually reached. Machine-checkable items pass or fail; process items show as manual."
-         />
-      </section>
-
       <section class="manifest-peek">
          <div class="peek-text">
-            <h2>One manifest file</h2>
+            <p class="section-eyebrow">The machine entrypoint</p>
+            <h2 class="section-title">One manifest file</h2>
             <p>
-               <code>leji.json</code> at the repository root is the machine entrypoint: it declares the context root, the
-               boot profile, the category mappings, and the conformance claim. Your existing <code>docs/</code> tree conforms
-               by <em>mapping</em>, not by renaming.
+               Your existing <code>docs/</code> tree conforms by <em>mapping</em>, not renaming. A single
+               <code>leji.json</code> at the repository root declares the context root, the boot profile, the category mappings,
+               and the conformance claim.
             </p>
             <p>
                The cleanest context layer needs no vendor files at all: invocation points the agent host straight at the
-               boot profile, zero hops. Vendor entrypoints (<code>CLAUDE.md</code>,
-               <code>AGENTS.md</code>, <code>.cursor/rules</code>) are the fallback for cold starts; any you must keep
-               becomes a one-line redirect, never a home.
+               boot profile, or <code>leji start</code> opens a detected host there.
             </p>
-            <p class="peek-more"><a href="/manifest/">Manifest reference</a></p>
+            <p>
+               Leji's CLI and SDK never create vendor entrypoints (<code>CLAUDE.md</code>, <code>AGENTS.md</code>, and
+               the like). If your repo already keeps one, <code>adopt --wire-adapters</code> turns it into a one-line redirect
+               to the boot profile, not where context lives.
+            </p>
+            <p class="peek-more"><a href="/manifest/">Manifest reference →</a></p>
          </div>
          <div class="peek-code">
             <Code code={peekJson} lang="json" theme="night-owl" wrap />
@@ -159,194 +246,266 @@ const peekJson = `{
 </Base>
 
 <style>
-   /* ── the monument (deep brand blue) ─────────────────── */
    .monument {
-      background:
-         radial-gradient(1200px 600px at 70% -10%, rgba(255, 189, 110, 0.13), transparent 60%),
-         radial-gradient(900px 500px at 10% 110%, rgba(61, 86, 160, 0.5), transparent 60%), var(--blue-deep);
-      color: var(--white);
-      padding-bottom: 5rem;
+      --grain: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='160'%20height='160'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.8'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20type='saturate'%20values='0'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url(%23n)'/%3E%3C/svg%3E");
       position: relative;
       overflow: hidden;
+      color: var(--white);
+      background:
+         radial-gradient(120% 80% at 50% -20%, rgba(255, 205, 146, 0.16), transparent 55%),
+         radial-gradient(90% 60% at 50% 118%, rgba(61, 86, 160, 0.55), transparent 60%),
+         linear-gradient(180deg, #0c1736 0%, var(--blue-deep) 32%, #18306e 100%);
+      padding-bottom: clamp(3.5rem, 8vh, 6rem);
    }
-   .monument::after {
-      /* engraved fluting: faint vertical lines */
+   /* stone grain */
+   .monument::before {
       content: '';
       position: absolute;
       inset: 0;
-      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(255, 189, 110, 0.05) 78px 79px);
+      background-image: var(--grain);
+      background-size: 160px 160px;
+      opacity: 0.07;
+      mix-blend-mode: overlay;
       pointer-events: none;
+      z-index: 0;
+   }
+   /* engraved fluting */
+   .monument::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: repeating-linear-gradient(90deg, transparent 0 86px, rgba(255, 189, 110, 0.045) 86px 87px);
+      pointer-events: none;
+      z-index: 0;
    }
    .monument > * {
       position: relative;
       z-index: 1;
    }
-
    .hero {
-      padding: clamp(3rem, 9vh, 6.5rem) 0 4rem;
-      max-width: 860px;
+      padding: clamp(2.6rem, 8vh, 5.5rem) 0 clamp(1.5rem, 4vh, 3rem);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.06fr);
+      gap: clamp(2.2rem, 5vw, 4.5rem);
+      align-items: start;
    }
-   .hero-mark {
-      margin-bottom: 1.6rem;
+   @media (max-width: 900px) {
+      .hero {
+         grid-template-columns: 1fr;
+         gap: 2.6rem;
+         max-width: 680px;
+      }
+   }
+   .hero-text {
+      min-width: 0;
    }
 
-   .inscription {
+   .kicker {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
       font-family: var(--mono);
-      font-size: 0.78rem;
-      letter-spacing: 0.22em;
+      font-size: 0.72rem;
+      letter-spacing: 0.24em;
       text-transform: uppercase;
       color: var(--gold-bright);
-      margin: 0 0 1.1rem;
+      margin: 0 0 1.3rem;
    }
-   .inscription em {
+   .kicker .sep {
       font-style: normal;
-      border-bottom: 1px solid var(--line-dark);
+      font-size: 0.5rem;
+      color: var(--gold);
+      opacity: 0.7;
+      transform: translateY(-1px);
    }
 
    h1 {
       font-family: var(--serif-display);
-      font-size: clamp(2.7rem, 7.5vw, 5rem);
-      font-weight: 480;
-      font-variation-settings: 'opsz' 100;
-      line-height: 1.04;
-      letter-spacing: -0.015em;
-      margin: 0 0 1.4rem;
+      font-variation-settings: 'opsz' 144;
+      font-weight: 460;
+      font-size: clamp(2.5rem, 5vw, 4.05rem);
+      line-height: 1.02;
+      letter-spacing: -0.02em;
+      color: var(--white);
+      margin: 0;
+      max-width: 19ch;
+   }
+   .gild {
+      position: relative;
+      white-space: nowrap;
+      color: var(--gold-bright);
+      font-style: italic;
+      font-variation-settings: 'opsz' 144;
+      text-shadow: 0 0 34px rgba(255, 189, 110, 0.4);
+   }
+
+   .carved-rule {
+      width: 92px;
+      height: 2px;
+      margin: 1.7rem 0 0;
+      background: linear-gradient(90deg, var(--gold-bright), rgba(255, 189, 110, 0.05));
+      border-radius: 2px;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
    }
 
    .lede {
-      font-size: clamp(1.02rem, 1.6vw, 1.18rem);
-      line-height: 1.7;
+      font-family: var(--serif-text);
+      font-size: clamp(1.04rem, 1.5vw, 1.17rem);
+      line-height: 1.72;
       color: var(--white-soft);
-      max-width: 60ch;
-      margin: 0 0 2.2rem;
+      max-width: 50ch;
+      margin: 1.7rem 0 2.1rem;
    }
    .lede strong {
-      color: var(--gold-bright);
+      color: var(--white);
       font-weight: 600;
+   }
+   .lede code {
+      font-size: 0.84em;
+      color: var(--white-strong);
+      background: rgba(255, 255, 255, 0.09);
+      border: 1px solid rgba(255, 189, 110, 0.16);
+      padding: 0.06em 0.36em;
+      border-radius: 4px;
+   }
+   .lede a {
+      color: inherit;
+      text-decoration: underline;
+      text-decoration-color: rgba(255, 189, 110, 0.28);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+      transition:
+         color 0.15s ease,
+         text-decoration-color 0.15s ease;
+   }
+   .lede a:hover {
+      color: var(--gold-bright);
+      text-decoration-color: var(--gold-bright);
    }
 
    .cta {
       display: flex;
-      gap: 1rem;
+      gap: 0.9rem;
       flex-wrap: wrap;
+   }
+   .hero-license {
+      margin: 1.1rem 0 0;
+      padding-left: 1.4rem;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      color: var(--white-faint);
+   }
+   .hero-license .oss-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45em;
+      color: var(--gold-bright);
+      text-decoration: none;
+   }
+   .hero-license .gh-icon {
+      display: inline-flex;
+      color: var(--white);
+   }
+   .hero-license .gh-icon :global(svg) {
+      display: block;
+      height: 1.05em;
+      width: auto;
+   }
+   .hero-license .free {
+      color: var(--gold-bright);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+   }
+   .hero-license .oss-link:hover .free {
+      text-decoration: underline;
+      text-decoration-color: var(--gold);
+      text-underline-offset: 3px;
    }
    .btn {
       font-family: var(--mono);
-      font-size: 0.82rem;
-      letter-spacing: 0.06em;
+      font-size: 0.8rem;
+      letter-spacing: 0.07em;
       text-transform: uppercase;
       text-decoration: none;
-      padding: 0.85rem 1.5rem;
-      border-radius: 6px;
+      padding: 0.9rem 1.6rem;
+      border-radius: 7px;
       transition:
-         transform 0.15s ease,
-         box-shadow 0.15s ease,
-         background 0.15s;
+         transform 0.16s ease,
+         box-shadow 0.16s ease,
+         background 0.16s ease,
+         border-color 0.16s ease;
    }
    .btn.solid {
-      background: var(--gold);
+      background: linear-gradient(180deg, var(--gold-bright), var(--gold));
       color: var(--blue-deep);
-      font-weight: 500;
+      font-weight: 600;
+      box-shadow:
+         inset 0 1px 0 rgba(255, 255, 255, 0.45),
+         0 10px 28px rgba(255, 189, 110, 0.26);
    }
    .btn.solid:hover {
-      background: var(--gold-bright);
       transform: translateY(-2px);
-      box-shadow: 0 8px 24px rgba(255, 189, 110, 0.25);
+      box-shadow:
+         inset 0 1px 0 rgba(255, 255, 255, 0.55),
+         0 16px 40px rgba(255, 189, 110, 0.38);
    }
    .btn.ghost {
       border: 1px solid rgba(255, 189, 110, 0.45);
       color: var(--gold-bright);
    }
    .btn.ghost:hover {
+      background: rgba(255, 189, 110, 0.1);
       border-color: var(--gold-bright);
       transform: translateY(-2px);
    }
-
-   /* staggered reveal */
+   .hero-proof {
+      position: relative;
+      min-width: 0;
+   }
+   .hero-proof::before {
+      content: '';
+      position: absolute;
+      inset: -12% -8% -16%;
+      background: radial-gradient(58% 60% at 62% 34%, rgba(255, 189, 110, 0.18), transparent 72%);
+      filter: blur(18px);
+      pointer-events: none;
+      z-index: 0;
+   }
+   .hero-proof > * {
+      position: relative;
+      z-index: 1;
+   }
+   .hero-proof :global(.term) {
+      box-shadow:
+         0 1px 0 rgba(255, 255, 255, 0.06) inset,
+         0 34px 80px rgba(7, 14, 38, 0.55),
+         0 0 0 1px rgba(255, 189, 110, 0.16);
+   }
    .reveal {
       opacity: 0;
-      transform: translateY(14px);
-      animation: rise 0.7s cubic-bezier(0.2, 0.6, 0.2, 1) forwards;
+      transform: translateY(16px);
+      animation: rise 0.72s cubic-bezier(0.2, 0.6, 0.2, 1) forwards;
    }
    .r1 {
-      animation-delay: 0.1s;
+      animation-delay: 0.12s;
    }
    .r2 {
-      animation-delay: 0.22s;
+      animation-delay: 0.24s;
    }
    .r3 {
-      animation-delay: 0.36s;
+      animation-delay: 0.4s;
    }
    .r4 {
-      animation-delay: 0.5s;
+      animation-delay: 0.54s;
    }
    .r5 {
-      animation-delay: 0.62s;
+      animation-delay: 0.46s;
    }
-   .r6 {
-      animation-delay: 0.74s;
-   }
-   .r7 {
-      animation-delay: 0.86s;
-   }
-   .r8 {
-      animation-delay: 0.98s;
-   }
-
-   .hero-install {
-      margin-top: 1.6rem;
-   }
-
-   /* before/after task example (first light section, below the monument) */
-   .task-example {
-      padding: 4rem 0 0;
-   }
-   .task-eyebrow {
-      font-family: var(--mono);
-      font-size: 0.78rem;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
-      color: var(--blue);
-      margin: 0 0 0.8rem;
-   }
-   .task-example h2 {
-      font-family: var(--serif-display);
-      font-weight: 560;
-      font-size: 2rem;
-      color: var(--blue-deep);
-      margin: 0 0 1.6rem;
-      max-width: 26ch;
-   }
-   .task-columns {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 1.6rem 2.8rem;
-   }
-   .task-columns article {
-      border-left: 3px solid var(--gold);
-      padding-left: 1.3rem;
-   }
-   .task-columns h3 {
-      font-family: var(--mono);
-      font-size: 0.72rem;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--blue);
-      margin: 0 0 0.5rem;
-   }
-   .task-columns p {
-      color: var(--ink-soft);
-      line-height: 1.7;
-      margin: 0;
-   }
-   .task-columns code {
-      font-size: 0.88em;
-      color: var(--blue-deep);
-      background: rgba(34, 63, 147, 0.07);
-      padding: 0.1em 0.35em;
-      border-radius: 4px;
-   }
-
    @keyframes rise {
       to {
          opacity: 1;
@@ -360,122 +519,440 @@ const peekJson = `{
          transform: none;
       }
    }
-
-   /* ── theses tablets ─────────────────────────────────── */
-   .theses {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
-      gap: 1.4rem;
-      margin-top: 0;
+   .section-eyebrow {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin: 0 0 0.9rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
    }
-   .tablet {
-      border: 1px solid rgba(255, 189, 110, 0.28);
-      border-radius: 12px;
-      padding: 1.7rem 1.8rem 1.5rem;
-      background: rgba(22, 41, 96, 0.45);
-      /* no backdrop-filter: it forced a compositing layer Chrome sometimes
-         fails to re-paint when scrolling back up, leaving blank tablets */
+   .section-eyebrow::before {
+      content: '';
+      width: 1.6rem;
+      height: 2px;
+      background: var(--gold);
+      border-radius: 2px;
    }
-   .tablet .num {
+   .section-title {
       font-family: var(--serif-display);
-      font-size: 1rem;
-      color: var(--gold);
-      letter-spacing: 0.2em;
-   }
-   .tablet h2 {
-      font-family: var(--serif-display);
-      font-weight: 560;
-      font-size: 1.45rem;
-      margin: 0.4rem 0 0.6rem;
-      color: var(--white);
-   }
-   .tablet p {
-      margin: 0;
-      color: var(--white-soft);
-      font-size: 0.98rem;
-   }
-
-   /* circle vs tier diagram */
-   .circle-diagram {
-      margin-top: 2.6rem;
-      border: 1px dashed rgba(255, 189, 110, 0.3);
-      border-radius: 12px;
-      padding: clamp(1rem, 3vw, 2rem);
-   }
-
-   /* ── light sections ─────────────────────────────────── */
-   .levels {
-      padding: 5.5rem 0 1rem;
-   }
-   .levels h2,
-   .manifest-peek h2 {
-      font-family: var(--serif-display);
-      font-weight: 560;
-      font-size: 2rem;
+      font-variation-settings: 'opsz' 80;
+      font-weight: 540;
+      font-size: clamp(1.7rem, 3vw, 2.3rem);
+      line-height: 1.12;
+      letter-spacing: -0.012em;
       color: var(--blue-deep);
-      margin: 0 0 0.5rem;
+      margin: 0 0 0.6rem;
+      max-width: 22ch;
+   }
+   .levels {
+      padding: 0;
+   }
+   .levels-title {
+      max-width: 34ch;
+      margin-bottom: 0.9rem;
    }
    .levels-lede {
       color: var(--ink-soft);
-      margin-top: 0;
+      margin: 0;
+      max-width: 74ch;
+      font-size: 1.05rem;
+      line-height: 1.7;
+   }
+   .levels-lede code {
+      font-size: 0.85em;
+      background: rgba(34, 63, 147, 0.07);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      color: var(--blue-deep);
+   }
+   .adopt-flow {
+      list-style: none;
+      margin: 2.2rem 0 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: clamp(1.2rem, 3.5vw, 2.6rem);
+   }
+   .adopt-step {
+      position: relative;
+      padding-top: 1rem;
+   }
+   .adopt-step::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: var(--gold);
+   }
+   .step-when {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 0.5rem;
+   }
+   .adopt-step h3 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 1.1rem;
+      color: var(--blue-deep);
+      margin: 0 0 0.4rem;
+   }
+   .adopt-step p {
+      color: var(--ink-soft);
+      margin: 0;
+      font-size: 0.92rem;
+      line-height: 1.6;
+   }
+   @media (max-width: 720px) {
+      .adopt-flow {
+         grid-template-columns: 1fr;
+         gap: 1.5rem;
+      }
+      .adopt-step::before {
+         width: 50%;
+      }
+   }
+   .ladder-intro {
+      margin: clamp(3rem, 5.5vh, 4.5rem) 0 0;
+      color: var(--ink-soft);
+      font-size: 1rem;
+      line-height: 1.6;
+      max-width: none;
    }
    .ladder {
       list-style: none;
-      margin: 2rem 0 0;
+      margin: clamp(1.7rem, 3.2vh, 2.3rem) 0 0;
       padding: 0;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(218px, 1fr));
       gap: 1rem;
       counter-reset: ladder;
    }
    .ladder li {
       counter-increment: ladder;
       border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 1.2rem 1.3rem;
-      background: var(--white);
+      border-radius: 12px;
+      padding: 1.4rem 1.4rem 1.3rem;
+      background: linear-gradient(180deg, var(--white), #fbf8f2);
       position: relative;
+      transition:
+         transform 0.16s ease,
+         box-shadow 0.16s ease,
+         border-color 0.16s ease;
+   }
+   .ladder li:hover {
+      transform: translateY(-3px);
+      border-color: var(--gold);
+      box-shadow: 0 14px 34px rgba(22, 41, 96, 0.1);
    }
    .ladder li::before {
       content: counter(ladder);
       position: absolute;
       top: -0.85rem;
-      left: 1rem;
+      left: 1.1rem;
       font-family: var(--serif-display);
       font-weight: 620;
       color: var(--blue-deep);
       background: var(--gold);
-      padding: 0.08rem 0.55rem;
+      padding: 0.06rem 0.6rem;
       border-radius: 999px;
       font-size: 0.92rem;
-      line-height: 1.45;
+      box-shadow: 0 3px 10px rgba(22, 41, 96, 0.18);
    }
-   .ladder code {
-      display: block;
-      font-size: 0.95rem;
+   .ladder .rung-tag {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
       color: var(--blue);
-      font-weight: 500;
-      margin-bottom: 0.4rem;
+      margin-bottom: 0.55rem;
+   }
+   .ladder .rung-cap {
+      display: block;
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.05rem;
+      line-height: 1.2;
+      color: var(--blue-deep);
+      margin-bottom: 0.5rem;
    }
    .ladder span {
       font-size: 0.9rem;
       color: var(--ink-soft);
+      line-height: 1.55;
    }
 
+   .levels-band {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(3rem, 7vh, 5rem) 0;
+      background:
+         radial-gradient(75% 60% at 88% -15%, rgba(34, 63, 147, 0.025), transparent 60%),
+         linear-gradient(180deg, #f7f2e9, #f5eee2);
+      border-top: 1px solid var(--line-dark);
+      border-bottom: 1px solid var(--line-dark);
+   }
+   .levels-band::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: var(--grain);
+      background-size: 160px 160px;
+      opacity: 0.04;
+      mix-blend-mode: multiply;
+      pointer-events: none;
+   }
+   .levels-band::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: repeating-linear-gradient(90deg, transparent 0 86px, rgba(255, 189, 110, 0.04) 86px 87px);
+      pointer-events: none;
+   }
+   .levels-band > * {
+      position: relative;
+      z-index: 1;
+   }
+   .surfaces {
+      padding: clamp(3rem, 7vh, 5rem) 0;
+   }
+   .surfaces-title {
+      max-width: none;
+   }
+   .surfaces-lede {
+      color: var(--ink-soft);
+      margin: 0.6rem 0 0;
+      max-width: 74ch;
+      font-size: 1.05rem;
+      line-height: 1.7;
+   }
+   .chart {
+      display: grid;
+      grid-template-columns: minmax(190px, 260px) clamp(2rem, 5vw, 3.5rem) 1fr;
+      align-items: center;
+      margin-top: 2.4rem;
+   }
+   .chart-source {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      padding: 1.3rem 1.5rem;
+      border: 1px solid var(--gold);
+      border-radius: 14px;
+      background: var(--white);
+      box-shadow: 0 14px 32px rgba(22, 41, 96, 0.1);
+   }
+   .chart-source-name {
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.18rem;
+      line-height: 1.15;
+      color: var(--blue-deep);
+   }
+   .chart-source-tag {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--blue);
+   }
+   .chart-fork {
+      align-self: stretch;
+      width: 100%;
+      height: 100%;
+   }
+   .chart-fork path {
+      fill: none;
+      stroke: var(--gold);
+      stroke-width: 1.25;
+      vector-effect: non-scaling-stroke;
+      opacity: 0.75;
+   }
+   .chart-surfaces {
+      display: flex;
+      flex-direction: column;
+      gap: clamp(0.9rem, 2.2vw, 1.5rem);
+   }
+   .surface {
+      position: relative;
+      padding: 1.4rem 1.6rem;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: linear-gradient(180deg, var(--white), #fbf8f2);
+   }
+   .surface::before {
+      content: '';
+      position: absolute;
+      left: -4.5px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--gold);
+      box-shadow: 0 0 0 3px var(--paper);
+   }
+   .surface-label {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin: 0 0 0.6rem;
+   }
+   .surface-body {
+      color: var(--ink-soft);
+      margin: 0;
+      line-height: 1.7;
+   }
+   .surface strong {
+      color: var(--blue-deep);
+      font-weight: 600;
+   }
+   .surface code {
+      background: rgba(34, 63, 147, 0.07);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--blue-deep);
+   }
+   .surface a {
+      color: var(--blue);
+      text-decoration-color: var(--gold);
+      text-underline-offset: 3px;
+   }
+   @media (max-width: 720px) {
+      .chart {
+         grid-template-columns: 1fr;
+         gap: 1.4rem;
+      }
+      .chart-fork {
+         display: none;
+      }
+      .surface::before {
+         display: none;
+      }
+   }
+   .why-band {
+      margin-top: 0;
+      padding: clamp(3.5rem, 7vh, 5.5rem) 0 clamp(4rem, 8vh, 6rem);
+      position: relative;
+      overflow: hidden;
+      color: var(--white);
+      background:
+         radial-gradient(90% 70% at 85% -20%, rgba(255, 205, 146, 0.12), transparent 58%),
+         radial-gradient(80% 60% at 0% 120%, rgba(61, 86, 160, 0.5), transparent 60%),
+         linear-gradient(180deg, #16295e, var(--blue-deep));
+   }
+   .why-band::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: var(--grain);
+      background-size: 160px 160px;
+      opacity: 0.06;
+      mix-blend-mode: overlay;
+      pointer-events: none;
+   }
+   .why-band::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: repeating-linear-gradient(90deg, transparent 0 86px, rgba(255, 189, 110, 0.04) 86px 87px);
+      pointer-events: none;
+   }
+   .why-band > * {
+      position: relative;
+      z-index: 1;
+   }
+   .why-eyebrow {
+      color: var(--gold-bright);
+   }
+   .why-eyebrow::before {
+      background: var(--gold);
+   }
+   .why-band .section-title {
+      color: var(--white);
+      margin-bottom: 1rem;
+   }
+   .why-lede {
+      color: var(--white-soft);
+      max-width: 58ch;
+      font-size: 1.05rem;
+      line-height: 1.7;
+      margin: 0 0 2rem;
+   }
+   .theses {
+      display: grid;
+      grid-template-columns: 1fr 1px 1fr;
+      gap: clamp(2rem, 5vw, 3.6rem);
+      align-items: start;
+      margin-top: 0;
+   }
+   @media (max-width: 720px) {
+      .theses {
+         grid-template-columns: 1fr;
+         gap: 2.4rem;
+      }
+      .theses-divider {
+         display: none;
+      }
+   }
+   .theses-divider {
+      align-self: stretch;
+      background: linear-gradient(
+         180deg,
+         transparent,
+         rgba(255, 189, 110, 0.28) 14%,
+         rgba(255, 189, 110, 0.28) 86%,
+         transparent
+      );
+   }
+   .thesis-num {
+      color: var(--gold);
+      margin-right: 0.15em;
+   }
+   .thesis h3 {
+      font-family: var(--serif-display);
+      font-variation-settings: 'opsz' 72;
+      font-weight: 560;
+      font-size: 1.55rem;
+      margin: 0 0 0.7rem;
+      color: var(--white);
+   }
+   .thesis p {
+      margin: 0;
+      color: var(--white-soft);
+      font-size: 1rem;
+      line-height: 1.72;
+   }
    .manifest-peek {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 2.5rem;
+      gap: clamp(2rem, 4vw, 3rem);
       align-items: center;
-      padding: 4.5rem 0 5.5rem;
+      padding: clamp(3.5rem, 8vh, 6rem) 0;
    }
    .peek-text p {
       color: var(--ink-soft);
       max-width: 52ch;
    }
+   .peek-text em {
+      color: var(--blue-deep);
+   }
    .peek-more a {
       font-family: var(--mono);
-      font-size: 0.78rem;
+      font-size: 0.76rem;
       letter-spacing: 0.06em;
       text-transform: uppercase;
       color: var(--blue);
@@ -496,11 +973,11 @@ const peekJson = `{
    }
    .peek-code :global(.astro-code) {
       background: var(--blue-deep) !important;
-      border-radius: 12px;
-      padding: 1.4rem 1.6rem;
+      border-radius: 14px;
+      padding: 1.5rem 1.7rem;
       font-size: var(--code-fz);
       line-height: 1.65;
-      box-shadow: 0 18px 50px rgba(22, 41, 96, 0.18);
+      box-shadow: 0 24px 60px rgba(22, 41, 96, 0.2);
       margin: 0;
    }
 </style>

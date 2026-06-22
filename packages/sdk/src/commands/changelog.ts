@@ -1,9 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { type Finding, finding } from '../lib/findings.js';
-import { realpathWithin } from '../lib/fsx.js';
+import { resolvedWithinRoot } from '../lib/fsx.js';
 import { readJsonArtifact } from '../lib/layer.js';
-import { type Manifest, effectiveChangelogPath } from '../lib/manifest.js';
+import { type Manifest, claimedLevel, effectiveChangelogPath, levelAtLeast } from '../lib/manifest.js';
 
 interface ChangelogEntry {
    id?: string;
@@ -98,17 +98,69 @@ function today(): string {
 }
 
 /**
+ * Seed the machine changelog if the layer claims `indexed` (or higher) and the
+ * file is missing. The changelog is an indexed-level surface, so `leji init` only
+ * writes it at that level; this lets `leji index` complete the indexed surface for
+ * a layer that claimed indexed after the fact (e.g. an upgrade from core). Returns
+ * the seeded path, or null when nothing was written (not indexed, already present,
+ * or a symlink would escape the root). Never overwrites an existing changelog.
+ */
+export function seedChangelogIfMissing(root: string, manifest: Manifest): string | null {
+   if (!levelAtLeast(claimedLevel(manifest), 'indexed')) return null;
+   const rel = effectiveChangelogPath(manifest);
+   const abs = path.join(root, rel);
+   if (fs.existsSync(abs)) return null;
+   if (!resolvedWithinRoot(path.resolve(root), abs)) return null;
+   const log: Changelog = {
+      $schema: 'https://leji.org/schemas/v1.0/context-changelog.schema.json',
+      schemaVersion: '1.0',
+      entries: [
+         {
+            id: 'seed-changelog',
+            date: today(),
+            type: 'added',
+            summary: 'Started the machine changelog for the indexed level.',
+            paths: [rel],
+            proposedBy: 'leji index',
+            approvedBy: manifest.owners.primary.name,
+         },
+      ],
+   };
+   fs.mkdirSync(path.dirname(abs), { recursive: true });
+   fs.writeFileSync(abs, serializeChangelog(log));
+   return rel;
+}
+
+/**
  * Compact the oldest entries of the changelog. An entry folds iff every ACTIVE
  * flag marks it foldable: `keep` ⇒ its canonical index is older than the newest
  * `keep` entries; `before` ⇒ its date is strictly before `before`. Inactive
  * flags are neutral. Because both predicates select a prefix of the canonical
  * (date, id) order, the folded set is always a contiguous run from the oldest
- * end — exactly what the append-only rule requires. The folded entries are
+ * end, exactly what the append-only rule requires. The folded entries are
  * dropped and a single `compaction` entry is appended, recording the count and
  * the id range it removed. Surviving entries keep their original array order.
  */
 export function compactChangelog(root: string, manifest: Manifest, opts: CompactOptions): CompactResult {
    const rel = effectiveChangelogPath(manifest);
+   // Validate options at the API level too (the CLI also checks --keep): SDK
+   // callers must not be able to fold with keep < 1 or a malformed `before` date.
+   if (opts.keep !== undefined && (!Number.isInteger(opts.keep) || opts.keep < 1)) {
+      return {
+         findings: [finding('invalid-argument', 'error', 'keep must be a positive integer', rel)],
+         folded: 0,
+         kept: 0,
+         path: rel,
+      };
+   }
+   if (opts.before !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(opts.before)) {
+      return {
+         findings: [finding('invalid-argument', 'error', 'before must be a YYYY-MM-DD date', rel)],
+         folded: 0,
+         kept: 0,
+         path: rel,
+      };
+   }
    const { data, finding: parseFinding } = readJsonArtifact(root, rel);
    if (parseFinding) return { findings: [parseFinding], folded: 0, kept: 0, path: rel };
    if (!data) {
@@ -172,7 +224,7 @@ export function compactChangelog(root: string, manifest: Manifest, opts: Compact
    const next: Changelog = { ...log, entries: [...survivors, compaction] };
 
    const abs = path.join(root, rel);
-   if (!realpathWithin(path.resolve(root), abs)) {
+   if (!resolvedWithinRoot(path.resolve(root), abs)) {
       return {
          findings: [finding('artifact-parse', 'error', `changelog path ${rel} resolves outside the layer root`, rel)],
          folded: 0,

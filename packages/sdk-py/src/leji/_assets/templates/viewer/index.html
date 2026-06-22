@@ -1,0 +1,45 @@
+<!doctype html>
+<!--
+   Docsify viewer for a Leji context layer. Docsify (v4.13.1), its theme, and the
+   search + sidebar-collapse plugins are vendored locally under assets/
+   and written alongside this file by `leji viewer`; nothing is loaded from a remote
+   CDN. The layer name and homepage are injected by the SDK as a JSON config blob
+   (not interpolated into JS source), so a layer name can never break out of the
+   script context.
+-->
+<html lang="en">
+   <head>
+      <meta charset="UTF-8" />
+      <!--
+         Strict CSP: scripts load only from this origin (vendored Docsify core,
+         plugins, and viewer-boot.js), so a <script> or inline handler injected
+         through a served Markdown document cannot execute. The layer config is a
+         JSON data block, not executable script. Styles allow 'unsafe-inline' because
+         Docsify sets element styles at runtime; that is not a script-execution path.
+      -->
+      <meta
+         http-equiv="Content-Security-Policy"
+         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+      />
+      <title>{{LEJI_NAME_HTML}}</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <link rel="stylesheet" href="assets/vue.css" />
+      <link rel="stylesheet" href="assets/docsify-sidebar-collapse.min.css" />
+   </head>
+   <body>
+      <div id="app">Loading the context layer…</div>
+      <script id="leji-docsify-config" type="application/json">
+         {{DOCSIFY_CONFIG}}
+      </script>
+      <script src="assets/viewer-boot.js"></script>
+      <script src="assets/docsify.min.js"></script>
+      <script src="assets/prism-bash.min.js"></script>
+      <script src="assets/prism-json.min.js"></script>
+      <script src="assets/prism-typescript.min.js"></script>
+      <script src="assets/prism-markdown.min.js"></script>
+      <script src="assets/search.min.js"></script>
+      <script src="assets/docsify-sidebar-collapse.min.js"></script>
+      <script src="assets/docsify-copy-code.min.js"></script>
+      <script src="assets/zoom-image.min.js"></script>{{MERMAID_SCRIPTS}}
+   </body>
+</html>

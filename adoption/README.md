@@ -2,7 +2,21 @@
 
 Existing repositories **SHOULD** map their lived paths rather than rename (a boot profile at `docs/Agent.md` is as conformant as the default); new context layers **SHOULD** start from the lowercase-kebab defaults.
 
-Three guides, one per situation. All of them end at the same place: one context layer, every participant reading it.
+However you adopt, you end at the same place: one context layer that every participant reads.
+
+## Start with the CLI
+
+The reference CLI does the adoption for you. The guides below are what it writes, and how to do each step by hand.
+
+```bash
+leji adopt              # existing repo: reuse docs/, migrate CLAUDE.md / AGENTS.md into the context layer
+leji init               # new repo: scaffold leji.json, a boot profile, category seeds, a first decision
+leji adopt --dry-run    # preview every write first
+leji detect             # list the agent hosts installed on this machine
+leji adopt --wire-adapters      # convert an existing CLAUDE.md/AGENTS.md into a one-line redirect
+```
+
+`adopt` reuses your existing `docs/` tree and migrates any vendor entrypoints (`CLAUDE.md`, `AGENTS.md`) into the context layer without changing the originals. `--wire-adapters` then converts those entrypoints into one-line redirects; `--agent <host>` instead opens that host in the layer afterward (an interactive handoff that writes no vendor file). `init` writes an onboarding brief you hand to your agent. Both refuse when a `leji.json` already exists, and `--dry-run` previews every write.
 
 ## Monorepo
 
@@ -12,7 +26,7 @@ Three guides, one per situation. All of them end at the same place: one context 
 4. Write (or adopt) your first decision record; `templates/decision-record.md` is the shape. An existing Architecture Decision Record (ADR) directory already qualifies: map it.
 5. Delete or empty every vendor file (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules`) you can; enter the context layer by direct invocation instead (see "Entering the context layer"). Any vendor file you must keep becomes a one-line redirect to the boot profile, never content.
 
-That's `core` conformance. `indexed` adds the generated index and the machine changelog (the SDK does both).
+That's `core` conformance. `indexed` adds the generated index and the machine changelog (`leji index` generates the index; `leji changelog check` verifies the changelog).
 
 ## Multi-repo
 
@@ -51,14 +65,15 @@ Vendor entrypoint files are the fallback for cold starts: someone who opens the 
 
 ## Presenting the context layer
 
-The context layer can be presented directly from its markdown; a viewer projects the index rather than duplicating content, and the generated viewer is itself a derived surface (see [spec/machine-readable-surface.md](../spec/machine-readable-surface.md)). `context-index.json` already carries what a viewer needs (title, category, path, summary per document), so any docs tool that can consume it can render the context layer. The SDK ships the reference projection:
+The context layer can be presented directly from its markdown; a viewer projects the index rather than duplicating content, and the generated viewer is itself a derived surface (see [spec/machine-readable-surface.md](../spec/machine-readable-surface.md)). `context-index.json` already carries what a viewer needs (title, category, path, summary per document), so any docs tool that can consume it can render the context layer. The CLI ships the reference projection:
 
 ```bash
-leji docs            # writes <root>/index.html (Docsify viewer) + <root>/_sidebar.md from the index
-leji docs --serve    # same, then serves the repository at http://127.0.0.1:5354/<root>/ (5354: LEJI on a phone keypad)
+leji viewer            # generates the contained viewer under <root>/.leji/viewer/ from the index
+leji viewer serve      # same, then serves it at http://127.0.0.1:5354/ (5354: LEJI on a phone keypad); leji view also opens a browser
+leji viewer build      # exports a self-contained static folder for internal hosting
 ```
 
-The generated viewer strips YAML frontmatter before rendering and opens on the boot profile. Serve the output with anything static (`python -m http.server`, `npx serve`, GitHub Pages), on infrastructure whose audience matches the context layer's: a public host like GitHub Pages only for a public context layer, since the viewer is a derived surface (see [spec/machine-readable-surface.md](../spec/machine-readable-surface.md)). `--serve` is a localhost preview, never hosting. Teams can declare a preferred preview port in the manifest (`"docs": { "port": 5354 }`); `--port` overrides it.
+The generated viewer strips YAML frontmatter before rendering and opens on the boot profile. The contained viewer lives under `<root>/.leji/viewer/` (gitignored); `leji viewer build` exports a self-contained copy you can serve with anything static (`python -m http.server`, `npx serve`, GitHub Pages), on infrastructure whose audience matches the context layer's: a public host like GitHub Pages only for a public context layer, since the viewer is a derived surface (see [spec/machine-readable-surface.md](../spec/machine-readable-surface.md)). `leji viewer serve` is a localhost preview, never hosting. Teams can declare a preferred preview port in the manifest (`"viewer": { "port": 5354 }`); `--port` overrides it.
 
 Already on MkDocs or another docs tool? Point it at the context root and project its nav from `context-index.json`; MkDocs ignores frontmatter natively. The index is the contract; the viewer is your choice.
 
@@ -71,6 +86,8 @@ Some interfaces expose only file *content*, never an accessible git working tree
 ## Vendor wiring (fallback only)
 
 Implemented properly, the context layer needs none of these files: invocation points straight at the boot profile and there is nothing to redirect. Vendor files serve repositories that cannot control how agents are launched, or hosts that auto-load their own entrypoint on a cold start. If a vendor file exists, it is a pointer, never a home.
+
+Leji never writes one for you: `leji detect` lists the agent hosts installed on this machine, and `leji adopt --wire-adapters` converts a *present* entrypoint into a redirect after migrating its content. To open a host in the layer without any vendor file, use `leji start` (or `--agent <host>` on `init`/`adopt`).
 
 | Agent-host entrypoint | Contents |
 |---|---|

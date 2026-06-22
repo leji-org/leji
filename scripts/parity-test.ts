@@ -5,10 +5,10 @@
 // any divergence fails. Run: `npm run parity` (needs node, go, python3).
 //
 // Two environment modes:
-//   neutralized — empty PATH + fresh HOME, so host detection finds nothing and
-//                 the git-config owner lookup fails the same way in all three.
-//   real        — a fake PATH with executable host stubs, a HOME with host
-//                 config dirs, and an initialized git repo with a fixed identity,
+//   neutralized: empty PATH + fresh HOME, so host detection finds nothing and
+//                the git-config owner lookup fails the same way in all three.
+//   real:        a fake PATH with executable host stubs, a HOME with host
+//                config dirs, and an initialized git repo with a fixed identity,
 //                 so detection, git-owner defaults, and git-backed behavior are
 //                 exercised deterministically.
 // The only nondeterministic field (context-index.json `generatedAt`, a per-run
@@ -44,7 +44,7 @@ function gitDir(): string {
 function makeRealEnv(): { PATH: string; HOME: string; GIT_CONFIG_GLOBAL: string } {
    const stubs = mkAbs('leji-parity-stubs-');
    // An executable `claude` stub (confirmed via PATH) and a non-executable
-   // `gemini` (must NOT count as confirmed — exercises the executable-bit check).
+   // `gemini` (must NOT count as confirmed; exercises the executable-bit check).
    fs.writeFileSync(path.join(stubs, 'claude'), '#!/bin/sh\n', { mode: 0o755 });
    fs.writeFileSync(path.join(stubs, 'gemini'), 'not executable\n', { mode: 0o644 });
    const home = mkAbs('leji-parity-realhome-');
@@ -115,8 +115,7 @@ function fileKey(abs: string, rel: string): string {
          body = buf.toString('utf8');
       }
    } else {
-      // eslint-disable-next-line no-control-regex
-      const looksText = !buf.includes(0) && /^[\s\S]*$/.test(buf.toString('utf8'));
+      const looksText = !buf.includes(0);
       body = looksText
          ? buf.toString('utf8')
          : `binary sha256:${crypto.createHash('sha256').update(buf).digest('hex')}`;
@@ -153,6 +152,8 @@ interface Scenario {
    mode?: 'neutral' | 'real';
    setup: (dir: string) => void;
    args: string[];
+   /** Extra env vars merged into the run (e.g. test-only fault injection). */
+   env?: Record<string, string>;
 }
 
 function nodeRun(args: string[], cwd: string): void {
@@ -161,6 +162,19 @@ function nodeRun(args: string[], cwd: string): void {
 /** Seed a core layer with the Node CLI (identical input for read commands). */
 function seedLayer(dir: string): void {
    nodeRun(['init', '--yes', '--name', 'demo-context'], dir);
+}
+/** A seeded layer that already has one agent wired, for the `agent` append /
+ * idempotency scenarios (the first binding must be identical across SDKs). */
+function seedWithAgent(dir: string): void {
+   seedLayer(dir);
+   nodeRun(['agent', '--host', 'codex', '--name', 'reviewer'], dir);
+}
+/** A layer that claims indexed but has no changelog yet (the upgrade case): core
+ * init, then bump claimedLevel to indexed. `leji index` must seed the changelog. */
+function indexedNoChangelog(dir: string): void {
+   nodeRun(['init', '--yes', '--name', 'demo-context'], dir);
+   const mp = path.join(dir, 'leji.json');
+   fs.writeFileSync(mp, fs.readFileSync(mp, 'utf8').replace('"claimedLevel": "core"', '"claimedLevel": "indexed"'));
 }
 const exampleDir = path.join(repoRoot, 'examples', 'monorepo');
 function copyExample(dir: string): void {
@@ -176,6 +190,172 @@ function gitLayer(dir: string): void {
    git('add', '-A');
    git('-c', 'user.name=Parity Tester', '-c', 'user.email=parity@example.com', 'commit', '-q', '-m', 'seed');
 }
+/** A git repo with an uncommitted (untracked) file, for the init/adopt dirty-guard. */
+function dirtyGitRepo(dir: string): void {
+   execFileSync('git', ['init', '-q'], { cwd: dir, env: { ...realEnv, GIT_DIR: undefined }, stdio: 'ignore' });
+   fs.writeFileSync(path.join(dir, 'NOTES.md'), 'work in progress\n');
+}
+
+// An existing path outside any layer root, identical across the three runs (each
+// run gets its own temp root). Symlinking a declared file here exercises the
+// read-side confinement guards; the symlink target string is byte-identical, so
+// the tree snapshots stay comparable.
+const ESCAPE_TARGET = '/etc/hosts';
+/** Replace a declared file in the example layer with a symlink escaping the root. */
+function symlinkOver(rel: string): (dir: string) => void {
+   return (dir) => {
+      copyExample(dir);
+      const p = path.join(dir, rel);
+      fs.rmSync(p, { force: true });
+      fs.symlinkSync(ESCAPE_TARGET, p);
+   };
+}
+/** The example layer plus a symlink in the content tree that escapes the root, for
+ * the viewer-export symlink-skip contract. */
+function symlinkInContent(dir: string): void {
+   copyExample(dir);
+   fs.symlinkSync(ESCAPE_TARGET, path.join(dir, 'docs', 'evil-link.md'));
+}
+/** Seeded layer with a pre-existing .gitlab-ci.yml (trailing newline) for the merge case. */
+function seedLayerWithGitlab(dir: string): void {
+   seedLayer(dir);
+   fs.writeFileSync(path.join(dir, '.gitlab-ci.yml'), 'stages:\n  - test\n');
+}
+/** Seeded layer with a .gitlab-ci.yml lacking a trailing newline (the \n\n separator). */
+function seedLayerWithGitlabNoNl(dir: string): void {
+   seedLayer(dir);
+   fs.writeFileSync(path.join(dir, '.gitlab-ci.yml'), 'stages:\n  - test');
+}
+/** Seeded layer that already carries the managed gitlab block (idempotency). */
+function seedLayerWithGitlabManaged(dir: string): void {
+   seedLayer(dir);
+   nodeRun(['ci', '--provider', 'gitlab'], dir);
+}
+/** Seeded layer with a pre-existing .circleci/config.yml (manual-snippet case). */
+function seedLayerWithCircle(dir: string): void {
+   seedLayer(dir);
+   fs.mkdirSync(path.join(dir, '.circleci'), { recursive: true });
+   fs.writeFileSync(
+      path.join(dir, '.circleci', 'config.yml'),
+      'version: 2.1\njobs:\n  build:\n    docker:\n      - image: node:22\n',
+   );
+}
+/** Seeded layer whose .gitlab-ci.yml is a symlink escaping the root (refusal). */
+function seedLayerGitlabSymlink(dir: string): void {
+   seedLayer(dir);
+   fs.symlinkSync(ESCAPE_TARGET, path.join(dir, '.gitlab-ci.yml'));
+}
+/** Seeded layer with an empty .gitlab-ci.yml (the empty-file merge case). */
+function seedLayerWithGitlabEmpty(dir: string): void {
+   seedLayer(dir);
+   fs.writeFileSync(path.join(dir, '.gitlab-ci.yml'), '');
+}
+/** Seeded layer with a STALE managed block + surrounding content (block replacement). */
+function seedLayerWithGitlabStale(dir: string): void {
+   seedLayer(dir);
+   fs.writeFileSync(
+      path.join(dir, '.gitlab-ci.yml'),
+      'before:\n  keep: 1\n\n# >>> leji ci (managed) >>>\nleji-validate:\n  image: node:18\n# <<< leji ci (managed) <<<\n\nafter:\n  keep: 2\n',
+   );
+}
+/** Seeded layer with TWO managed blocks (the first is replaced, the rest dropped). */
+function seedLayerWithGitlabDuplicate(dir: string): void {
+   seedLayer(dir);
+   fs.writeFileSync(
+      path.join(dir, '.gitlab-ci.yml'),
+      'before:\n  keep: 1\n\n# >>> leji ci (managed) >>>\nleji-validate:\n  image: node:18\n# <<< leji ci (managed) <<<\n\nmiddle:\n  keep: 2\n\n# >>> leji ci (managed) >>>\nleji-validate:\n  image: node:20\n# <<< leji ci (managed) <<<\n\nafter:\n  keep: 3\n',
+   );
+}
+/** Seeded layer that already carries the GitHub workflow (the already-present case). */
+function seedLayerWithGithub(dir: string): void {
+   seedLayer(dir);
+   nodeRun(['ci', '--provider', 'github'], dir);
+}
+/** Seeded layer whose .github/workflows is a symlink escaping the root (refusal). */
+function seedLayerGithubParentSymlink(dir: string): void {
+   seedLayer(dir);
+   fs.mkdirSync(path.join(dir, '.github'), { recursive: true });
+   fs.symlinkSync('/etc', path.join(dir, '.github', 'workflows'));
+}
+/** Seeded layer whose .circleci is a symlink escaping the root (refusal). */
+function seedLayerCircleParentSymlink(dir: string): void {
+   seedLayer(dir);
+   fs.symlinkSync('/etc', path.join(dir, '.circleci'));
+}
+/** Seeded layer that already carries the azure pipeline file (idempotency). */
+function seedLayerWithAzure(dir: string): void {
+   seedLayer(dir);
+   nodeRun(['ci', '--provider', 'azure'], dir);
+}
+/** Seeded layer whose .azure-pipelines is a symlink escaping the root (refusal). */
+function seedLayerAzureParentSymlink(dir: string): void {
+   seedLayer(dir);
+   fs.symlinkSync('/etc', path.join(dir, '.azure-pipelines'));
+}
+/** Seeded layer whose GitHub workflow FILE is a symlink to an existing path outside
+ * the root: the target exists, so it must be refused before the exists short-circuit. */
+function seedLayerGithubTargetSymlink(dir: string): void {
+   seedLayer(dir);
+   fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
+   fs.symlinkSync(ESCAPE_TARGET, path.join(dir, '.github', 'workflows', 'leji.yml'));
+}
+/** Seeded layer whose GitHub workflow dir is read-only: the write fails, and the
+ * normalized OS-text-free error must be byte-identical across SDKs. (As root, perms
+ * are bypassed so all three create the file instead; still identical across SDKs.) */
+function seedLayerGithubUnwritable(dir: string): void {
+   seedLayer(dir);
+   const wf = path.join(dir, '.github', 'workflows');
+   fs.mkdirSync(wf, { recursive: true });
+   fs.chmodSync(wf, 0o555);
+}
+/** Seeded layer whose .github exists but is read-only and .github/workflows is absent:
+ * creating the workflows dir fails, exercising the normalized mkdir-failure path. */
+function seedLayerGithubUnwritableParent(dir: string): void {
+   seedLayer(dir);
+   const gh = path.join(dir, '.github');
+   fs.mkdirSync(gh, { recursive: true });
+   fs.chmodSync(gh, 0o555);
+}
+/** Seeded layer whose CircleCI config FILE is a symlink escaping the root (refusal). */
+function seedLayerCircleTargetSymlink(dir: string): void {
+   seedLayer(dir);
+   fs.mkdirSync(path.join(dir, '.circleci'), { recursive: true });
+   fs.symlinkSync(ESCAPE_TARGET, path.join(dir, '.circleci', 'config.yml'));
+}
+/** Seeded layer whose Azure pipeline FILE is a symlink escaping the root (refusal). */
+function seedLayerAzureTargetSymlink(dir: string): void {
+   seedLayer(dir);
+   fs.mkdirSync(path.join(dir, '.azure-pipelines'), { recursive: true });
+   fs.symlinkSync(ESCAPE_TARGET, path.join(dir, '.azure-pipelines', 'leji.yml'));
+}
+/** Seed a layer, then plant `<rel>.leji-tmp` (the atomic-write sibling) as a symlink
+ * escaping the root: the write must refuse it rather than follow it through. */
+function seedLayerTempSymlink(rel: string): (dir: string) => void {
+   return (dir) => {
+      seedLayer(dir);
+      const tmp = path.join(dir, `${rel}.leji-tmp`);
+      fs.mkdirSync(path.dirname(tmp), { recursive: true });
+      fs.symlinkSync(ESCAPE_TARGET, tmp);
+   };
+}
+/** The example layer whose contained viewer dir (rootPath/.leji) is a symlink
+ * escaping the root: viewer generation refuses every write, so `viewer build` must
+ * abort with findings before any destructive cleanup (not report success). */
+function symlinkedViewerDir(dir: string): void {
+   copyExample(dir);
+   fs.symlinkSync('/etc', path.join(dir, 'docs', '.leji'));
+}
+/** The example layer with an agent declared OUTSIDE the agent-profiles directory,
+ * symlinked to escape the root, to exercise the agents-map confinement guard
+ * (the `_check_agents_map` path, not the directory scan's symlink skip). */
+function symlinkedAgentOutsideProfiles(dir: string): void {
+   copyExample(dir);
+   const mp = path.join(dir, 'leji.json');
+   const m = JSON.parse(fs.readFileSync(mp, 'utf8'));
+   m.agents = { ...(m.agents ?? {}), external: 'docs/external-agent.md' };
+   fs.writeFileSync(mp, JSON.stringify(m, null, 2) + '\n');
+   fs.symlinkSync(ESCAPE_TARGET, path.join(dir, 'docs', 'external-agent.md'));
+}
 
 const SCENARIOS: Scenario[] = [
    // --- init / adopt (neutralized) ---
@@ -183,10 +363,27 @@ const SCENARIOS: Scenario[] = [
    { name: 'init indexed', setup: () => {}, args: ['init', '--yes', '--level', 'indexed', '--name', 'demo-context'] },
    { name: 'init --agent', setup: () => {}, args: ['init', '--yes', '--name', 'demo', '--agent', 'claude-code'] },
    {
-      name: 'init multi-agent + ci',
-      setup: () => {},
-      args: ['init', '--yes', '--name', 'demo', '--agent', 'claude-code', '--reviewer', 'codex', '--ci'],
+      name: 'init --agent + agent (post-init reviewer)',
+      setup: seedLayer,
+      args: ['agent', '--host', 'codex', '--name', 'reviewer'],
    },
+   {
+      name: 'agent --json (post-init reviewer)',
+      setup: seedLayer,
+      args: ['agent', '--host', 'codex', '--name', 'reviewer', '--json'],
+   },
+   {
+      name: 'agent appends a second binding (--role)',
+      setup: seedWithAgent,
+      args: ['agent', '--host', 'claude-code', '--name', 'thought-partner', '--role', 'advisor'],
+   },
+   {
+      name: 'agent is idempotent (re-run same args)',
+      setup: seedWithAgent,
+      args: ['agent', '--host', 'codex', '--name', 'reviewer'],
+   },
+   { name: 'agent with no manifest', setup: () => {}, args: ['agent', '--host', 'codex', '--name', 'reviewer'] },
+   { name: 'agent without --host (resident, no vendor file)', setup: seedLayer, args: ['agent', '--name', 'porter'] },
    {
       name: 'init --dry-run with existing vendor file',
       setup: (d) => fs.writeFileSync(path.join(d, 'CLAUDE.md'), 'pre-existing config\n'),
@@ -225,6 +422,7 @@ const SCENARIOS: Scenario[] = [
       args: ['adopt', '--yes', '--dry-run'],
    },
    { name: 'detect --json (no hosts)', setup: () => {}, args: ['detect', '--json'] },
+   { name: 'start with no manifest', setup: () => {}, args: ['start'] },
    // --- read commands on the indexed example (neutralized) ---
    { name: 'validate --content', setup: seedLayer, args: ['validate', '--content'] },
    {
@@ -269,12 +467,239 @@ const SCENARIOS: Scenario[] = [
    { name: 'changelog compact (no flag) errors', setup: copyExample, args: ['changelog', 'compact'] },
    // Core layer with no declared machine paths: index/changelog resolve to defaults.
    { name: 'index on a core layer (default path)', setup: seedLayer, args: ['index'] },
+   { name: 'ci writes the workflow (seeded layer)', setup: seedLayer, args: ['ci'] },
+   { name: 'ci --provider github (explicit)', setup: seedLayer, args: ['ci', '--provider', 'github'] },
+   { name: 'ci --provider github (create, --json)', setup: seedLayer, args: ['ci', '--provider', 'github', '--json'] },
+   { name: 'ci --provider github (already present)', setup: seedLayerWithGithub, args: ['ci', '--provider', 'github'] },
+   {
+      name: 'ci --provider github (already present, --json)',
+      setup: seedLayerWithGithub,
+      args: ['ci', '--provider', 'github', '--json'],
+   },
+   { name: 'ci --provider gitlab (create)', setup: seedLayer, args: ['ci', '--provider', 'gitlab'] },
+   { name: 'ci --provider gitlab (create, --json)', setup: seedLayer, args: ['ci', '--provider', 'gitlab', '--json'] },
+   {
+      name: 'ci --provider gitlab (merge, trailing nl)',
+      setup: seedLayerWithGitlab,
+      args: ['ci', '--provider', 'gitlab'],
+   },
+   {
+      name: 'ci --provider gitlab (merge -> updated, --json)',
+      setup: seedLayerWithGitlab,
+      args: ['ci', '--provider', 'gitlab', '--json'],
+   },
+   {
+      name: 'ci --provider gitlab (merge, no trailing nl)',
+      setup: seedLayerWithGitlabNoNl,
+      args: ['ci', '--provider', 'gitlab'],
+   },
+   {
+      name: 'ci --provider gitlab (merge, no trailing nl, --json)',
+      setup: seedLayerWithGitlabNoNl,
+      args: ['ci', '--provider', 'gitlab', '--json'],
+   },
+   {
+      name: 'ci --provider gitlab (merge into empty file)',
+      setup: seedLayerWithGitlabEmpty,
+      args: ['ci', '--provider', 'gitlab'],
+   },
+   {
+      name: 'ci --provider gitlab (merge into empty file, --json)',
+      setup: seedLayerWithGitlabEmpty,
+      args: ['ci', '--provider', 'gitlab', '--json'],
+   },
+   {
+      name: 'ci --provider gitlab (replace stale managed block)',
+      setup: seedLayerWithGitlabStale,
+      args: ['ci', '--provider', 'gitlab'],
+   },
+   {
+      name: 'ci --provider gitlab (collapse duplicate managed blocks)',
+      setup: seedLayerWithGitlabDuplicate,
+      args: ['ci', '--provider', 'gitlab'],
+   },
+   {
+      name: 'ci --provider gitlab (collapse duplicate managed blocks, --json)',
+      setup: seedLayerWithGitlabDuplicate,
+      args: ['ci', '--provider', 'gitlab', '--json'],
+   },
+   {
+      name: 'ci --provider gitlab (replace stale managed block, --json)',
+      setup: seedLayerWithGitlabStale,
+      args: ['ci', '--provider', 'gitlab', '--json'],
+   },
+   {
+      name: 'ci --provider gitlab (idempotent on managed block)',
+      setup: seedLayerWithGitlabManaged,
+      args: ['ci', '--provider', 'gitlab'],
+   },
+   {
+      name: 'ci --provider gitlab (symlinked target refused)',
+      setup: seedLayerGitlabSymlink,
+      args: ['ci', '--provider', 'gitlab'],
+   },
+   {
+      name: 'ci --provider github (escaping parent dir refused)',
+      setup: seedLayerGithubParentSymlink,
+      args: ['ci', '--provider', 'github'],
+   },
+   {
+      name: 'ci --provider github (escaping target symlink refused)',
+      setup: seedLayerGithubTargetSymlink,
+      args: ['ci', '--provider', 'github'],
+   },
+   {
+      name: 'ci --provider github (unwritable target dir)',
+      setup: seedLayerGithubUnwritable,
+      args: ['ci', '--provider', 'github'],
+   },
+   {
+      name: 'ci --provider github (unwritable parent dir, mkdir fails)',
+      setup: seedLayerGithubUnwritableParent,
+      args: ['ci', '--provider', 'github'],
+   },
+   {
+      name: 'ci --provider github (write fails after temp; cleans up, no partial)',
+      setup: seedLayer,
+      args: ['ci', '--provider', 'github'],
+      env: { LEJI_TEST_FAIL_RENAME: '1' },
+   },
+   {
+      name: 'ci --provider gitlab (merge write fails after temp; original intact)',
+      setup: seedLayerWithGitlab,
+      args: ['ci', '--provider', 'gitlab'],
+      env: { LEJI_TEST_FAIL_RENAME: '1' },
+   },
+   {
+      name: 'ci --provider circleci (escaping parent dir refused)',
+      setup: seedLayerCircleParentSymlink,
+      args: ['ci', '--provider', 'circleci'],
+   },
+   {
+      name: 'ci --provider circleci (escaping target symlink refused)',
+      setup: seedLayerCircleTargetSymlink,
+      args: ['ci', '--provider', 'circleci'],
+   },
+   { name: 'ci --provider circleci (create)', setup: seedLayer, args: ['ci', '--provider', 'circleci'] },
+   {
+      name: 'ci --provider circleci (create, --json)',
+      setup: seedLayer,
+      args: ['ci', '--provider', 'circleci', '--json'],
+   },
+   {
+      name: 'ci --provider circleci (exists -> manual)',
+      setup: seedLayerWithCircle,
+      args: ['ci', '--provider', 'circleci'],
+   },
+   {
+      name: 'ci --provider circleci (exists -> manual, --json)',
+      setup: seedLayerWithCircle,
+      args: ['ci', '--provider', 'circleci', '--json'],
+   },
+   { name: 'ci --provider azure (create)', setup: seedLayer, args: ['ci', '--provider', 'azure'] },
+   { name: 'ci --provider azure (create, --json)', setup: seedLayer, args: ['ci', '--provider', 'azure', '--json'] },
+   { name: 'ci --provider azure (idempotent)', setup: seedLayerWithAzure, args: ['ci', '--provider', 'azure'] },
+   {
+      name: 'ci --provider azure (idempotent, --json)',
+      setup: seedLayerWithAzure,
+      args: ['ci', '--provider', 'azure', '--json'],
+   },
+   {
+      name: 'ci --provider azure (escaping parent dir refused)',
+      setup: seedLayerAzureParentSymlink,
+      args: ['ci', '--provider', 'azure'],
+   },
+   {
+      name: 'ci --provider azure (escaping target symlink refused)',
+      setup: seedLayerAzureTargetSymlink,
+      args: ['ci', '--provider', 'azure'],
+   },
+   {
+      name: 'ci --provider github (escaping temp symlink refused)',
+      setup: seedLayerTempSymlink('.github/workflows/leji.yml'),
+      args: ['ci', '--provider', 'github'],
+   },
+   {
+      name: 'ci --provider gitlab (escaping temp symlink refused)',
+      setup: seedLayerTempSymlink('.gitlab-ci.yml'),
+      args: ['ci', '--provider', 'gitlab'],
+   },
+   {
+      name: 'ci --provider circleci (escaping temp symlink refused)',
+      setup: seedLayerTempSymlink('.circleci/config.yml'),
+      args: ['ci', '--provider', 'circleci'],
+   },
+   {
+      name: 'ci --provider azure (escaping temp symlink refused)',
+      setup: seedLayerTempSymlink('.azure-pipelines/leji.yml'),
+      args: ['ci', '--provider', 'azure'],
+   },
+   { name: 'ci --provider bogus (reject)', setup: seedLayer, args: ['ci', '--provider', 'bogus'] },
+   {
+      name: 'ci --provider bogus (reject before manifest, no layer)',
+      setup: () => {},
+      args: ['ci', '--provider', 'bogus'],
+   },
+   { name: 'ci (valid provider, no manifest)', setup: () => {}, args: ['ci'] },
+   { name: 'ci (valid provider, no manifest, --json)', setup: () => {}, args: ['ci', '--json'] },
+   { name: 'ci --provider (missing value)', setup: seedLayer, args: ['ci', '--provider'] },
+   { name: 'validate --provider (scope reject)', setup: seedLayer, args: ['validate', '--provider', 'github'] },
+   { name: 'index auto-seeds the changelog (indexed claim, none yet)', setup: indexedNoChangelog, args: ['index'] },
    { name: 'changelog check on a core layer (default path)', setup: seedLayer, args: ['changelog', 'check'] },
-   { name: 'docs', setup: copyExample, args: ['docs'] },
+   { name: 'viewer', setup: copyExample, args: ['viewer'] },
+   {
+      name: 'viewer (mermaid disabled)',
+      setup: (d) => {
+         copyExample(d);
+         const mp = path.join(d, 'leji.json');
+         const m = JSON.parse(fs.readFileSync(mp, 'utf8'));
+         m.viewer = { ...(m.viewer ?? {}), mermaid: false };
+         fs.writeFileSync(mp, JSON.stringify(m, null, 2) + '\n');
+      },
+      args: ['viewer'],
+   },
+   { name: 'viewer build (static export)', setup: copyExample, args: ['viewer', 'build', '--out', 'site'] },
+   { name: 'viewer build default out (.leji/viewer-dist)', setup: copyExample, args: ['viewer', 'build'] },
+   {
+      name: 'viewer build --out ../escape (reject)',
+      setup: copyExample,
+      args: ['viewer', 'build', '--out', '../escape'],
+   },
+   { name: 'viewer build --out . (root, reject)', setup: copyExample, args: ['viewer', 'build', '--out', '.'] },
+   {
+      name: 'viewer build --out absolute (reject)',
+      setup: copyExample,
+      args: ['viewer', 'build', '--out', '/tmp/leji-parity-out-abs'],
+   },
+   { name: 'viewer build skips a symlinked content file', setup: symlinkInContent, args: ['viewer', 'build'] },
+   { name: 'viewer build aborts on an escaping viewer dir', setup: symlinkedViewerDir, args: ['viewer', 'build'] },
+   {
+      name: 'symlinked agent outside profiles dir (validate)',
+      setup: symlinkedAgentOutsideProfiles,
+      args: ['validate'],
+   },
+   { name: 'symlinked leji.json refused (manifest confinement)', setup: symlinkOver('leji.json'), args: ['validate'] },
+   { name: 'symlinked boot profile (validate)', setup: symlinkOver('docs/boot-profile.md'), args: ['validate'] },
+   { name: 'symlinked boot profile (conformance)', setup: symlinkOver('docs/boot-profile.md'), args: ['conformance'] },
+   {
+      name: 'symlinked context-index.json (artifact confinement)',
+      setup: symlinkOver('docs/context-index.json'),
+      args: ['index', '--check'],
+   },
+   {
+      name: 'symlinked agent profile (validate)',
+      setup: symlinkOver('docs/agents/thought-partner.md'),
+      args: ['validate'],
+   },
    // --- meta ---
    { name: '--version', setup: () => {}, args: ['--version'] },
+   { name: '-v', setup: () => {}, args: ['-v'] },
    { name: '--help', setup: () => {}, args: ['--help'] },
    { name: 'unknown command', setup: () => {}, args: ['frobnicate'] },
+   // Numeric-flag range guards reject pre-dispatch (exit 2, no writes) in all
+   // three SDKs; the empty setup + tree compare also asserts nothing is written.
+   { name: 'view --port out of range (range error)', setup: () => {}, args: ['view', '--port', '99999'] },
+   { name: 'changelog compact --keep 0 (range error)', setup: () => {}, args: ['changelog', 'compact', '--keep', '0'] },
    // --- real env: detection + git-backed behavior ---
    { name: 'detect --json (real PATH+HOME stubs)', mode: 'real', setup: () => {}, args: ['detect', '--json'] },
    {
@@ -283,6 +708,19 @@ const SCENARIOS: Scenario[] = [
       setup: () => {},
       args: ['init', '--yes', '--name', 'demo-context'],
    },
+   {
+      name: 'init refuses on a dirty git tree',
+      mode: 'real',
+      setup: dirtyGitRepo,
+      args: ['init', '--yes', '--name', 'demo'],
+   },
+   {
+      name: 'init --dry-run is allowed on a dirty git tree',
+      mode: 'real',
+      setup: dirtyGitRepo,
+      args: ['init', '--yes', '--name', 'demo', '--dry-run'],
+   },
+   { name: 'adopt refuses on a dirty git tree', mode: 'real', setup: dirtyGitRepo, args: ['adopt', '--yes'] },
    { name: 'validate on a committed git layer', mode: 'real', setup: gitLayer, args: ['validate'] },
    { name: 'conformance on a committed git layer', mode: 'real', setup: gitLayer, args: ['conformance', '--json'] },
    { name: 'changelog check on a committed git layer', mode: 'real', setup: gitLayer, args: ['changelog', 'check'] },
@@ -310,7 +748,7 @@ function capture(runner: Runner, sc: Scenario, env: NodeJS.ProcessEnv): Captured
    const dir = path.join(mkAbs(`leji-parity-`), 'repo');
    fs.mkdirSync(dir);
    sc.setup(dir);
-   const r = runner(sc.args, dir, env);
+   const r = runner(sc.args, dir, sc.env ? { ...env, ...sc.env } : env);
    return { exit: r.exit, stdout: r.stdout, stderr: r.stderr, tree: snapshot(dir) };
 }
 

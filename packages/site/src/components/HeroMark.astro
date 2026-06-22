@@ -2,7 +2,7 @@
 // Animated hero icon: cover circles over the three node rings shrink away on load, revealing the rings outside-in.
 import svg from '../assets/leji-icon.svg?raw';
 
-const { size = 150 } = Astro.props;
+const { size = 150, loop = false } = Astro.props;
 const width = Math.round((size * 370) / 391);
 
 const iconPath = /d="([^"]+)"/.exec(svg)![1];
@@ -16,7 +16,7 @@ const nodes = [
 ---
 
 <svg
-   class="hero-mark-svg"
+   class:list={['hero-mark-svg', { loop }]}
    width={width}
    height={size}
    viewBox="0 0 370 391"
@@ -47,6 +47,37 @@ const nodes = [
    @keyframes conceal {
       to {
          transform: scale(0.26);
+      }
+   }
+
+   /* looping variant: the circuit nodes reveal outside-in, hold, then re-cover
+      and repeat. Covers are blue-deep, so over a blue-deep surface (the
+      terminal) the conceal/reveal reads as the nodes powering on and off. */
+   .loop .cover {
+      animation: conceal-loop 3.6s ease-in-out infinite;
+   }
+   /* each node breathes at its own tempo, so they drift in and out of phase */
+   .loop .c1 {
+      animation-duration: 3.4s;
+      animation-delay: -0.2s;
+   }
+   .loop .c2 {
+      animation-duration: 4.7s;
+      animation-delay: -1.6s;
+   }
+   .loop .c3 {
+      animation-duration: 2.9s;
+      animation-delay: -0.9s;
+   }
+   /* gently breathe between revealed (0.26) and half-covered (0.62); the covers
+      never grow back to a full blue circle, so the nodes stay partly lit */
+   @keyframes conceal-loop {
+      0%,
+      100% {
+         transform: scale(0.26);
+      }
+      50% {
+         transform: scale(0.62);
       }
    }
    @media (prefers-reduced-motion: reduce) {

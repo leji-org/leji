@@ -46,6 +46,9 @@ export interface CliCommand {
    summary: string;
    usage: string;
    description: string;
+   /** Optional scannable sub-points rendered as bullets on the docs site only;
+    * the terminal help renders `summary`, never this. */
+   details?: string[];
    options: CliOption[];
    examples: string[];
 }

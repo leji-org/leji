@@ -13,12 +13,16 @@ from leji import (
     compact_changelog,
     conformance_report,
     freshness_report,
-    generate_docs,
+    generate_viewer,
     load_manifest,
     validate_layer,
     write_index,
 )
 from leji.fsx import under_path, walk_md
+from leji.manifest import (
+    bind_agent_in_manifest_text,
+    declare_vendor_adapter_in_manifest_text,
+)
 from leji.layer import (
     excluded_from_categories,
     scan_agent_profiles,
@@ -488,99 +492,226 @@ def test_changelog_modifying_surviving_entry_fails(tmp_path: Path) -> None:
     )
 
 
-def test_docs_generates_viewer_and_sidebar(tmp_path: Path) -> None:
+def test_viewer_generates_viewer_and_sidebar(tmp_path: Path) -> None:
     layer = _copy(EXAMPLE, tmp_path)
     manifest = load_manifest(str(layer)).manifest
-    result = generate_docs(str(layer), manifest)
+    result = generate_viewer(str(layer), manifest)
     assert result.written == [
-        "docs/index.html",
-        "docs/_sidebar.md",
-        "docs/docs-viewer-assets/docsify-sidebar-collapse.min.css",
-        "docs/docs-viewer-assets/docsify-sidebar-collapse.min.js",
-        "docs/docs-viewer-assets/docsify.min.js",
-        "docs/docs-viewer-assets/search.min.js",
-        "docs/docs-viewer-assets/vue.css",
+        "docs/.leji/viewer/index.html",
+        "docs/.leji/viewer/_sidebar.md",
+        "docs/.leji/viewer/assets/docsify-copy-code.min.js",
+        "docs/.leji/viewer/assets/docsify-mermaid.js",
+        "docs/.leji/viewer/assets/docsify-sidebar-collapse.min.css",
+        "docs/.leji/viewer/assets/docsify-sidebar-collapse.min.js",
+        "docs/.leji/viewer/assets/docsify.min.js",
+        "docs/.leji/viewer/assets/leji-logo.svg",
+        "docs/.leji/viewer/assets/mermaid.min.js",
+        "docs/.leji/viewer/assets/prism-bash.min.js",
+        "docs/.leji/viewer/assets/prism-json.min.js",
+        "docs/.leji/viewer/assets/prism-markdown.min.js",
+        "docs/.leji/viewer/assets/prism-typescript.min.js",
+        "docs/.leji/viewer/assets/search.min.js",
+        "docs/.leji/viewer/assets/viewer-boot.js",
+        "docs/.leji/viewer/assets/vue.css",
+        "docs/.leji/viewer/assets/zoom-image.min.js",
+        "docs/overview.md",
     ]
-    html = (layer / "docs" / "index.html").read_text()
-    # Name + homepage are injected as a compact JSON config blob (byte-identical
-    # across SDKs: name then homepage, no spaces), not interpolated JS.
-    assert '{"name":"acme-billing-context","homepage":"boot-profile.md"}' in html
-    assert "stripFrontmatter" in html
+    viewer = layer / "docs" / ".leji" / "viewer"
+    html = (viewer / "index.html").read_text()
+    # The layer name is baked into the JSON config and the document title.
+    assert "acme-billing-context" in html
+    assert "<title>acme-billing-context</title>" in html
+    assert '"homepage":"overview.md"' in html
+    # Default theming: the Leji mark (in the name HTML, served relative to the page
+    # so basePath does not break it) and the brand blue.
+    assert "/assets/leji-logo.svg" in html
+    assert '"themeColor":"#223F93"' in html
+    assert (viewer / "assets" / "leji-logo.svg").is_file()
+    # Mermaid is on by default: the two scripts + their assets are present.
+    assert "assets/mermaid.min.js" in html
+    assert "assets/docsify-mermaid.js" in html
+    assert (viewer / "assets" / "mermaid.min.js").is_file()
+    # The frontmatter hook moved to a vendored boot script; index.html references
+    # it, and the copied boot.js carries the stripFrontmatter hook + content mount.
+    assert "viewer-boot.js" in html
+    boot_js = (viewer / "assets" / "viewer-boot.js").read_text()
+    assert "stripFrontmatter" in boot_js
+    assert "basePath: '/content/'" in boot_js
     # Vendored assets (core + theme + search/collapse plugins) are copied locally;
     # no remote CDN, PROVENANCE not shipped.
-    assert (layer / "docs" / "docs-viewer-assets" / "docsify.min.js").is_file()
-    assert (layer / "docs" / "docs-viewer-assets" / "vue.css").is_file()
-    assert (layer / "docs" / "docs-viewer-assets" / "search.min.js").is_file()
-    assert (layer / "docs" / "docs-viewer-assets" / "docsify-sidebar-collapse.min.js").is_file()
-    assert not (layer / "docs" / "docs-viewer-assets" / "PROVENANCE.txt").exists()
-    sidebar = (layer / "docs" / "_sidebar.md").read_text()
+    assert (viewer / "assets" / "docsify.min.js").is_file()
+    assert (viewer / "assets" / "vue.css").is_file()
+    assert (viewer / "assets" / "search.min.js").is_file()
+    assert (viewer / "assets" / "docsify-sidebar-collapse.min.js").is_file()
+    assert not (viewer / "assets" / "PROVENANCE.txt").exists()
+    sidebar = (viewer / "_sidebar.md").read_text()
     assert sidebar == "\n".join(
         [
-            "- [Boot profile](boot-profile.md)",
+            "- [🤖 Boot profile](boot-profile.md)",
             "",
             "---",
             "",
-            "- Domain",
+            "- 📖 Domain",
             "  - [Glossary](domain/glossary.md)",
-            "- System",
+            "- ⚙️ System",
             "  - [System Invariants](system/invariants.md)",
-            "- Decisions",
+            "- 🧭 Decisions",
             "  - [Adopt the Leji context layer](decisions/0001-adopt-leji.md)",
             "",
         ]
     )
-    generate_docs(str(layer), manifest)
-    assert (layer / "docs" / "_sidebar.md").read_text() == sidebar
+    generate_viewer(str(layer), manifest)
+    assert (viewer / "_sidebar.md").read_text() == sidebar
 
 
-def test_docs_after_init(tmp_path: Path) -> None:
+def test_viewer_theme_overrides(tmp_path: Path) -> None:
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    manifest["viewer"] = {
+        "logo": "assets/brand.svg",
+        "theme": {"primary": "#FF6600"},
+        "categoryEmojis": {"domain": "💰"},
+    }
+    generate_viewer(str(layer), manifest)
+    viewer = layer / "docs" / ".leji" / "viewer"
+    html = (viewer / "index.html").read_text()
+    # A relative logo path is served from the content mount; configured primary wins.
+    assert "/content/assets/brand.svg" in html
+    assert '"themeColor":"#FF6600"' in html
+    sidebar = (viewer / "_sidebar.md").read_text()
+    assert "- 💰 Domain" in sidebar
+    assert "- ⚙️ System" in sidebar
+
+
+def test_viewer_seeds_overview_with_layer_map(tmp_path: Path) -> None:
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    generate_viewer(str(layer), manifest)
+    overview = layer / "docs" / "overview.md"
+    assert overview.is_file()
+    text = overview.read_text()
+    assert "# acme-billing-context" in text
+    assert "<!-- leji:generated-map:start -->" in text
+    assert "```mermaid\nflowchart TD" in text
+    assert "boot --> cat_domain" in text
+    assert "cat_domain --> n_glossary" in text
+
+
+def test_viewer_overview_seeded_once(tmp_path: Path) -> None:
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    generate_viewer(str(layer), manifest)
+    overview = layer / "docs" / "overview.md"
+    edited = (
+        "# My own title\n\nHand-written intro.\n\n"
+        "<!-- leji:generated-map:start -->\nstale\n<!-- leji:generated-map:end -->\n\n"
+        "More prose.\n"
+    )
+    overview.write_text(edited)
+    result = generate_viewer(str(layer), manifest)
+    after = overview.read_text()
+    assert "# My own title" in after
+    assert "More prose." in after
+    assert "```mermaid\nflowchart TD" in after
+    assert "\nstale\n" not in after
+    assert not any(f.rule == "overview-markers-missing" for f in result.findings)
+
+
+def test_viewer_overview_without_markers_warns(tmp_path: Path) -> None:
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    generate_viewer(str(layer), manifest)
+    overview = layer / "docs" / "overview.md"
+    custom = "# Fully custom\n\nNo markers here at all.\n"
+    overview.write_text(custom)
+    result = generate_viewer(str(layer), manifest)
+    assert overview.read_text() == custom
+    assert any(
+        f.rule == "overview-markers-missing" and f.severity == "warning" for f in result.findings
+    )
+
+
+def test_viewer_mermaid_disabled(tmp_path: Path) -> None:
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    manifest["viewer"] = {"mermaid": False}
+    result = generate_viewer(str(layer), manifest)
+    viewer = layer / "docs" / ".leji" / "viewer"
+    html = (viewer / "index.html").read_text()
+    assert "mermaid.min.js" not in html
+    assert "docsify-mermaid.js" not in html
+    assert not (viewer / "assets" / "mermaid.min.js").exists()
+    assert not any("mermaid" in w for w in result.written)
+    # The non-mermaid polish plugins still ship.
+    assert "docsify-copy-code.min.js" in html
+
+
+def test_viewer_after_init(tmp_path: Path) -> None:
     from leji import init_layer
 
     init_layer(str(tmp_path), yes=True, name="demo-context")
     manifest = load_manifest(str(tmp_path)).manifest
-    result = generate_docs(str(tmp_path), manifest)
+    result = generate_viewer(str(tmp_path), manifest)
     assert result.entries == 3
-    assert (tmp_path / "docs" / "index.html").is_file()
+    assert (tmp_path / "docs" / ".leji" / "viewer" / "index.html").is_file()
 
 
-def test_docs_serve_localhost(tmp_path: Path) -> None:
+def test_viewer_serve_localhost(tmp_path: Path) -> None:
     import threading
+    import urllib.error
     import urllib.request
 
-    from leji import serve_docs
+    from leji import serve_viewer
 
     layer = _copy(EXAMPLE, tmp_path)
     manifest = load_manifest(str(layer)).manifest
-    generate_docs(str(layer), manifest)
-    server = serve_docs(str(layer), 0)
+    generate_viewer(str(layer), manifest)
+    server = serve_viewer(str(layer), 0, manifest["rootPath"])
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+
+    def status(path: str) -> int:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}") as resp:
+                return resp.status
+        except urllib.error.HTTPError as err:
+            return err.code
+
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/docs/") as page:
+        # The viewer chrome is served at the web root, no redirect needed.
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as page:
             assert page.status == 200
-            assert b"stripFrontmatter" in page.read()
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/docs/domain/glossary.md") as md:
-            assert md.status == 200
+            assert b"viewer-boot.js" in page.read()
+        # Viewer assets are served from the root.
+        assert status("/assets/docsify.min.js") == 200
+        # The layer's markdown is mounted under /content/.
+        assert status("/content/domain/glossary.md") == 200
+        # The generated sidebar is served as if at the content root.
+        assert status("/content/_sidebar.md") == 200
+        # The internal .leji path is not reachable by a direct URL.
+        assert status("/content/.leji/viewer/index.html") == 404
+        # Path traversal is refused.
+        assert status("/..%2f..%2fetc%2fpasswd") != 200
     finally:
         server.shutdown()
 
 
-def test_docs_port_precedence(tmp_path: Path) -> None:
-    from leji import resolve_docs_port
+def test_viewer_port_precedence(tmp_path: Path) -> None:
+    from leji import resolve_viewer_port
 
     base = json.loads((EXAMPLE / "leji.json").read_text())
-    assert resolve_docs_port(base) == 5354
-    assert resolve_docs_port({**base, "docs": {"port": 21300}}) == 21300
-    assert resolve_docs_port({**base, "docs": {"port": 21300}}, 4000) == 4000
-    assert resolve_docs_port({**base, "docs": {"port": 21300}}, 0) == 0
+    assert resolve_viewer_port(base) == 5354
+    assert resolve_viewer_port({**base, "viewer": {"port": 21300}}) == 21300
+    assert resolve_viewer_port({**base, "viewer": {"port": 21300}}, 4000) == 4000
+    assert resolve_viewer_port({**base, "viewer": {"port": 21300}}, 0) == 0
 
 
-def test_docs_block_in_manifest_validates(tmp_path: Path) -> None:
+def test_viewer_block_in_manifest_validates(tmp_path: Path) -> None:
     layer = _copy(EXAMPLE, tmp_path)
     manifest_path = layer / "leji.json"
     manifest = json.loads(manifest_path.read_text())
-    manifest["docs"] = {"port": 21300}
+    manifest["viewer"] = {"port": 21300}
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     result = validate_layer(str(layer))
     assert [f for f in result.findings if f.severity == "error"] == []
@@ -711,3 +842,77 @@ def test_compact_missing_changelog_errors(tmp_path: Path) -> None:
         f.rule == "changelog-required" and "context-changelog.json does not exist" in f.message
         for f in result.findings
     )
+
+
+# --- in-place manifest text edits (byte-exact, the cross-SDK parity contract) ---
+
+_MANIFEST_NO_AGENTS = """{
+  "leji": "1.0",
+  "categories": {},
+  "owners": {
+    "primary": { "name": "x" }
+  }
+}
+"""
+
+
+def test_bind_agent_creates_map_in_schema_position() -> None:
+    text, changed = bind_agent_in_manifest_text(
+        _MANIFEST_NO_AGENTS, "reviewer", "docs/agents/reviewer.md"
+    )
+    assert changed is True
+    assert (
+        text
+        == """{
+  "leji": "1.0",
+  "categories": {},
+  "agents": {
+    "reviewer": "docs/agents/reviewer.md"
+  },
+  "owners": {
+    "primary": { "name": "x" }
+  }
+}
+"""
+    )
+
+
+def test_bind_agent_prepends_second_and_is_idempotent() -> None:
+    one, _ = bind_agent_in_manifest_text(_MANIFEST_NO_AGENTS, "reviewer", "docs/agents/reviewer.md")
+    two, changed = bind_agent_in_manifest_text(
+        one, "thought-partner", "docs/agents/thought-partner.md"
+    )
+    assert changed is True
+    assert (
+        '"agents": {\n'
+        '    "thought-partner": "docs/agents/thought-partner.md",\n'
+        '    "reviewer": "docs/agents/reviewer.md"\n'
+        "  },"
+    ) in two
+    again, changed_again = bind_agent_in_manifest_text(two, "reviewer", "docs/agents/reviewer.md")
+    assert changed_again is False
+    assert again == two
+
+
+def test_declare_vendor_adapter_creates_prepends_dedupes() -> None:
+    created, changed = declare_vendor_adapter_in_manifest_text(_MANIFEST_NO_AGENTS, "AGENTS.md")
+    assert changed is True
+    assert (
+        created
+        == """{
+  "leji": "1.0",
+  "categories": {},
+  "vendorAdapters": [
+    "AGENTS.md"
+  ],
+  "owners": {
+    "primary": { "name": "x" }
+  }
+}
+"""
+    )
+    second, _ = declare_vendor_adapter_in_manifest_text(created, "CLAUDE.md")
+    assert ('"vendorAdapters": [\n    "CLAUDE.md",\n    "AGENTS.md"\n  ],') in second
+    dupe, changed_dupe = declare_vendor_adapter_in_manifest_text(second, "AGENTS.md")
+    assert changed_dupe is False
+    assert dupe == second

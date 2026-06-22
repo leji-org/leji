@@ -371,6 +371,11 @@ func CheckIndex(root string, m *manifest.Manifest) Result {
 			"index "+rel+" does not exist; run `leji index`", rel))
 		return Result{Index: nil, Findings: fs, Stale: &staleTrue}
 	}
+	if !fsx.ResolvesUnder(root, filepath.Join(root, rel)) {
+		fs = append(fs, findings.New("artifact-parse", findings.Error,
+			fmt.Sprintf("artifact %s resolves outside the layer root", rel), rel))
+		return Result{Index: nil, Findings: fs, Stale: &staleTrue}
+	}
 
 	stored := LoadStoredIndex(root, m)
 	if stored == nil {
@@ -546,8 +551,13 @@ func WriteIndex(root string, m *manifest.Manifest) (Result, error) {
 	result := GenerateIndex(root, m)
 	if result.Index != nil {
 		abs := filepath.Join(root, rel)
+		// Contain before creating any directory: ResolvesUnder resolves the nearest
+		// existing ancestor, so a symlinked ancestor of this not-yet-existing target
+		// is caught before mkdir/write can escape the layer root.
 		if !fsx.ResolvesUnder(root, abs) {
-			return result, fmt.Errorf("index artifact %q resolves outside the layer root", rel)
+			result.Findings = append(result.Findings, findings.New("artifact-parse", findings.Error,
+				fmt.Sprintf("index path %s resolves outside the layer root", rel), rel))
+			return result, nil
 		}
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 			return result, err

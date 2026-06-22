@@ -52,3 +52,18 @@ export function gitShowHead(root: string, relPath: string): string | null {
    const fromTop = toPosix(path.relative(resolvedTop, resolvedFile));
    return git(root, ['show', `HEAD:${fromTop}`]);
 }
+
+/**
+ * Working-tree state for the init/adopt dirty-guard. Returns null when `root` is
+ * not inside a git repository (no commit-backed undo exists, so the guard does
+ * not apply); true when the tree is clean; false when there are uncommitted
+ * changes (staged, unstaged, or untracked). The guard refuses to mutate a dirty
+ * tree so its writes stay cleanly reversible with `git restore`/`git clean`.
+ */
+export function workingTreeClean(root: string): boolean | null {
+   const top = gitToplevel(root);
+   if (!top) return null;
+   const status = git(top, ['status', '--porcelain', '--untracked-files=all']);
+   if (status === null) return null;
+   return status.trim() === '';
+}

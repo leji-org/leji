@@ -195,7 +195,14 @@ test('cli.json documents exactly the commands the CLI accepts', async () => {
    for (const name of documented) {
       const argv = name.split(' '); // e.g. "changelog check" -> ["changelog","check"]
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cmd-'));
-      const extra = name === 'init' ? ['--yes'] : name === 'changelog compact' ? ['--keep', '1'] : [];
+      const extra =
+         name === 'init'
+            ? ['--yes']
+            : name === 'changelog compact'
+              ? ['--keep', '1']
+              : name === 'agent'
+                ? ['--host', 'codex', '--name', 'reviewer']
+                : [];
       const result = await runCli([...argv, '--root', dir, ...extra]);
       assert.ok(!/unknown command/.test(result.stderr), `"${name}" should be a known command`);
       assert.notEqual(result.code, 2, `"${name}" should not be a usage error`);
@@ -206,15 +213,21 @@ test('cli.json documents exactly the commands the CLI accepts', async () => {
    // The documented set matches the canonical command list.
    assert.deepEqual(documented, [
       'adopt',
+      'agent',
       'changelog check',
       'changelog compact',
+      'ci',
       'conformance',
       'detect',
-      'docs',
       'freshness',
       'index',
       'init',
+      'start',
       'validate',
+      'view',
+      'viewer',
+      'viewer build',
+      'viewer serve',
    ]);
 });
 

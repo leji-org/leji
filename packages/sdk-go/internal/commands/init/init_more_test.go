@@ -188,3 +188,31 @@ func TestIndexedInitNoMachineKeyButFilesAtDefaults(t *testing.T) {
 		t.Fatalf("conformance verifiedLevel = %q, want indexed", got)
 	}
 }
+
+// TestInitWritesGitignore checks that init writes a repo-root .gitignore containing
+// the exact line `.leji/`, idempotently and without adding it to the written list.
+func TestInitWritesGitignore(t *testing.T) {
+	dir := t.TempDir()
+	res, err := InitLayer(Options{Dir: dir, Yes: true})
+	if err != nil {
+		t.Fatalf("InitLayer: %v", err)
+	}
+	gitignore := filepath.Join(dir, ".gitignore")
+	data, err := os.ReadFile(gitignore)
+	if err != nil {
+		t.Fatalf("expected .gitignore at the repo root: %v", err)
+	}
+	lines := strings.Split(string(data), "\n")
+	count := 0
+	for _, l := range lines {
+		if l == ".leji/" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf(".leji/ should appear exactly once, got %d in %q", count, data)
+	}
+	if contains(res.Written, ".gitignore") {
+		t.Fatalf(".gitignore must not be in the written list, got %v", res.Written)
+	}
+}

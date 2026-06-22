@@ -41,6 +41,70 @@ def test_version_prints_sdk_version() -> None:
     assert result.stdout.strip().count(".") == 2
 
 
+def test_version_flag_aliases(capsys) -> None:
+    # --version and lowercase -v print the version and exit 0.
+    expected_code, expected_out, _ = run_cli(capsys, ["--version"])
+    code, out, _ = run_cli(capsys, ["-v"])
+    assert code == expected_code == 0
+    assert out == expected_out
+    # -V was removed (no --verbose to guard against); it is no longer a version flag.
+    code, _, _ = run_cli(capsys, ["-V"])
+    assert code == 2
+
+
+def test_v_flag_short_circuits_command(capsys, tmp_path) -> None:
+    # `init -v` prints the version and must not scaffold (no side effects).
+    code, out, _ = run_cli(capsys, ["init", "--dir", str(tmp_path), "-v"])
+    assert code == 0
+    assert out.strip().count(".") == 2
+    assert not (tmp_path / "leji.json").exists()
+
+
+def test_index_auto_seeds_changelog_when_indexed(capsys, tmp_path) -> None:
+    run_cli(capsys, ["init", "--dir", str(tmp_path), "--yes", "--name", "demo-context"])
+    cl = tmp_path / "docs" / "context-changelog.json"
+    assert not cl.exists()  # core init writes no changelog
+    mp = tmp_path / "leji.json"
+    mp.write_text(mp.read_text().replace('"claimedLevel": "core"', '"claimedLevel": "indexed"'))
+    code, out, _ = run_cli(capsys, ["index", "--root", str(tmp_path), "--json"])
+    assert code == 0
+    assert json.loads(out)["changelog"] == "docs/context-changelog.json"
+    assert cl.exists()
+    # A second run must not re-seed (never overwrites an existing changelog).
+    _, out2, _ = run_cli(capsys, ["index", "--root", str(tmp_path), "--json"])
+    assert "changelog" not in json.loads(out2)
+
+
+def test_index_does_not_seed_changelog_on_core_layer(capsys, tmp_path) -> None:
+    run_cli(capsys, ["init", "--dir", str(tmp_path), "--yes", "--name", "demo-context"])
+    _, out, _ = run_cli(capsys, ["index", "--root", str(tmp_path), "--json"])
+    assert "changelog" not in json.loads(out)
+    assert not (tmp_path / "docs" / "context-changelog.json").exists()
+
+
+def test_index_refuses_symlinked_ancestor_escape(capsys, tmp_path) -> None:
+    # writeIndex must refuse to write through a symlinked ancestor that escapes
+    # the layer root (the H1 fix). Point machine.indexPath under docs/evil, a
+    # symlink to an outside dir, and assert the escape is reported, exit 1, and
+    # nothing lands outside the root.
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    layer = tmp_path / "layer"
+    layer.mkdir()
+    run_cli(capsys, ["init", "--dir", str(layer), "--yes", "--level", "indexed", "--name", "demo"])
+    (layer / "docs" / "evil").symlink_to(outside, target_is_directory=True)
+    mp = layer / "leji.json"
+    manifest = json.loads(mp.read_text())
+    machine = manifest.get("machine") or {}
+    machine["indexPath"] = "docs/evil/context-index.json"
+    manifest["machine"] = machine
+    mp.write_text(json.dumps(manifest, indent=2) + "\n")
+    code, out, err = run_cli(capsys, ["index", "--root", str(layer), "--json"])
+    assert code == 1, out + err
+    assert "resolves outside the layer root" in (out + err)
+    assert not (outside / "context-index.json").exists()
+
+
 def test_no_command_shows_usage_exits_2(capsys) -> None:
     code, out, _ = run_cli(capsys, [])
     assert code == 2
@@ -56,9 +120,9 @@ def test_unknown_command_exits_2(capsys) -> None:
 
 
 def test_unknown_flag_exits_2() -> None:
-    with pytest.raises(SystemExit) as exc:
-        main(["validate", "--frobnicate"])
-    assert exc.value.code == 2
+    # A flag not declared for the command is a usage error (exit 2), rejected by
+    # the cli.json-driven allowed-flags path (parity with Node/Go).
+    assert main(["validate", "--frobnicate"]) == 2
 
 
 def test_validate_json_emits_stable_shape(capsys) -> None:
@@ -129,17 +193,15 @@ def test_freshness_json_carries_lists(capsys) -> None:
 
 def test_rejects_undeclared_flags() -> None:
     # Per-command flag surface from cli.json: a flag not declared for the command is
-    # a usage error (exit 2). argparse enforces this natively.
+    # a usage error (exit 2), rejected by the cli.json-driven allowed-flags path.
     for argv in (
         ["validate", "--strict"],
         ["validate", "--check"],
-        ["validate", "--serve"],
+        ["validate", "--open"],
         ["conformance", "--strict"],
-        ["index", "--serve"],
+        ["index", "--open"],
     ):
-        with pytest.raises(SystemExit) as exc:
-            main([*argv, "--root", str(EXAMPLE)])
-        assert exc.value.code == 2
+        assert main([*argv, "--root", str(EXAMPLE)]) == 2
 
 
 def test_init_and_adopt_accept_global_json_flag(tmp_path, capsys) -> None:
@@ -156,9 +218,7 @@ def test_init_and_adopt_accept_global_json_flag(tmp_path, capsys) -> None:
 
 def test_adopt_rejects_name_flag_exits_2() -> None:
     # adopt does not declare --name (parity with Node/Go); it is a usage error.
-    with pytest.raises(SystemExit) as exc:
-        main(["adopt", "--name", "x", "--yes"])
-    assert exc.value.code == 2
+    assert main(["adopt", "--name", "x", "--yes"]) == 2
 
 
 def test_conformance_json_carries_items(capsys) -> None:
@@ -273,26 +333,34 @@ def test_clijson_documents_exactly_the_accepted_commands(capsys, tmp_path) -> No
             argv.append("--yes")  # these prompt otherwise
         elif name == "changelog compact":
             argv += ["--keep", "1"]  # compact requires --keep or --before
+        elif name == "agent":
+            argv += ["--host", "codex", "--name", "reviewer"]  # agent requires both
         code = main(argv)
         capsys.readouterr()
         assert code != 2, f'"{name}" should not be a usage error'
     # The documented set matches the canonical command list.
     assert documented == [
         "adopt",
+        "agent",
         "changelog check",
         "changelog compact",
+        "ci",
         "conformance",
         "detect",
-        "docs",
         "freshness",
         "index",
         "init",
+        "start",
         "validate",
+        "view",
+        "viewer",
+        "viewer build",
+        "viewer serve",
     ]
 
 
 # --- Filesystem-mutation invariant ------------------------------------------
-# Only write-intent commands (init, adopt, index, docs) may touch the filesystem.
+# Only write-intent commands (init, adopt, index, viewer) may touch the filesystem.
 # Read/analysis commands, and any command invoked with a --help/--version meta-
 # flag, must leave the working tree unchanged. Regression guard for the bug where
 # `leji adopt --help` ran adopt and scaffolded files instead of printing help.
@@ -355,3 +423,81 @@ def test_init_writes_proving_detector(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     assert code == 0
     assert _snapshot(tmp_path) != before, "init --yes should have written files"
+
+
+def test_viewer_prints_serve_hint(tmp_path, capsys) -> None:
+    # The serve hint must match the Node/Python/Go SDKs byte-for-byte (parity).
+    layer = tmp_path / "layer"
+    shutil.copytree(EXAMPLE, layer)
+    code, out, _ = run_cli(capsys, ["viewer", "--root", str(layer)])
+    assert code == 0, out
+    assert "serve locally: leji view" in out
+
+
+def test_viewer_rejects_open(tmp_path, capsys) -> None:
+    # --open belongs to `viewer serve`/`view`, not bare `viewer` (which only
+    # generates): it must be a usage error, not silently accepted.
+    layer = tmp_path / "layer"
+    shutil.copytree(EXAMPLE, layer)
+    assert main(["viewer", "--open", "--root", str(layer)]) == 2
+
+
+def test_viewer_bad_subcommand_is_usage_error(tmp_path, capsys) -> None:
+    layer = tmp_path / "layer"
+    shutil.copytree(EXAMPLE, layer)
+    code, out, err = run_cli(capsys, ["viewer", "frobnicate", "--root", str(layer)])
+    assert code == 2
+    assert "usage: leji viewer [serve|build]" in (out + err)
+
+
+def test_viewer_build_exports_static_folder(tmp_path, capsys) -> None:
+    # `leji viewer build` exports a self-contained static folder carrying the
+    # protect warning (mirrors the Node units.test.ts viewer build test).
+    layer = tmp_path / "layer"
+    shutil.copytree(EXAMPLE, layer)
+    code, out, err = run_cli(capsys, ["viewer", "build", "--out", "out", "--root", str(layer)])
+    assert code == 0, err
+    assert "Exported the static viewer to out/" in out
+    out_dir = layer / "out"
+    assert (out_dir / "index.html").exists()
+    assert (out_dir / "assets" / "docsify.min.js").exists()
+    assert (out_dir / "content" / "boot-profile.md").exists()
+    assert (out_dir / "content" / "overview.md").exists()
+    assert (out_dir / "content" / "_sidebar.md").exists()
+    assert (out_dir / "content" / "domain" / "glossary.md").exists()
+    assert not (out_dir / "content" / ".leji").exists()
+    html = (out_dir / "index.html").read_text(encoding="utf-8")
+    assert html.startswith("<!--")
+    assert "Host the exported folder behind internal authentication" in html
+
+
+def test_view_command_recognized_no_manifest_exits_1(capsys, tmp_path) -> None:
+    # `view` (alias for `viewer serve`) must dispatch, not be an unknown command. On
+    # a dir with no manifest it returns 1 before binding a server, so it can't hang.
+    missing = tmp_path / "no-manifest-here"
+    missing.mkdir()
+    code, _, _ = run_cli(capsys, ["view", "--root", str(missing)])
+    assert code == 1
+
+
+def test_view_bad_subcommand_is_usage_error(tmp_path, capsys) -> None:
+    layer = tmp_path / "layer"
+    shutil.copytree(EXAMPLE, layer)
+    code, out, err = run_cli(capsys, ["view", "serve", "--root", str(layer)])
+    assert code == 2
+    assert "usage: leji view" in (out + err)
+
+
+def test_start_no_manifest_exits_1(capsys, tmp_path) -> None:
+    code, out, err = run_cli(capsys, ["start", "--root", str(tmp_path / "no-such-layer")])
+    assert code == 1
+    assert "manifest-missing" in (out + err) or "no leji.json" in (out + err)
+
+
+def test_start_on_core_layer_non_tty_falls_back(capsys, tmp_path) -> None:
+    # Build a real core layer, then `start` it. Under pytest stdin is not a TTY, so
+    # interactive=False: never launch, never hang; print the boot commands, exit 0.
+    run_cli(capsys, ["init", "--dir", str(tmp_path), "--yes", "--name", "demo"])
+    code, out, err = run_cli(capsys, ["start", "--root", str(tmp_path)])
+    assert code == 0, out + err
+    assert "To enter this context layer" in out

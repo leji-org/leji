@@ -10,6 +10,9 @@ dist/
 .astro/
 .vite/
 
+# Leji generated viewer (leji viewer / view output)
+.leji/
+
 # Tests & coverage
 coverage/
 coverage.out

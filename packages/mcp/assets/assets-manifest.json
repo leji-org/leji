@@ -1,0 +1,22 @@
+{
+  "specLine": "1.0",
+  "sourceCommit": "840c51ef81657d261a2bebb284a97ba953b3e4e7",
+  "files": {
+    "spec/README.md": "sha256:c96e3f647d4987cc802160506c0e54f299ff1ac708c1e85c84e3555b873e3861",
+    "spec/boot-profile.md": "sha256:a13a9a9255ee2308c0ef4b2247f1b9b9431fd6693e17e81672c70b27a136d7d6",
+    "spec/conformance.md": "sha256:0e6d26209f4a2ac1cb9bd72f0f89f34c077158366d6e555e9fc8d3d1942eaea8",
+    "spec/content-categories.md": "sha256:bf85f2488b1cd13a3d799c53e203b7f84544288eb4e8a8fa1d73fdc8134c8375",
+    "spec/context-layer.md": "sha256:729ad7672a7ae3251e296d1ad5a129445b66aa1a4a5b78f48333f0facba78145",
+    "spec/decisions.md": "sha256:72caa2508a82a35e92c687e5d8a9a8de18f33be7973f232b5b81e0e8283144c4",
+    "spec/distribution.md": "sha256:7a3bd2d5063943ef328ec7e3ba13b57ba1d2142c1c82dab6df0b91325d87eb2b",
+    "spec/governance.md": "sha256:0e955b8bf7fa98d456b68a23820ec94982f9b4ae188004d5e859c3fd9edb4dec",
+    "spec/machine-readable-surface.md": "sha256:ca9f2c037bb72e2d1ebcbce7408f1b6bde6910dbb6bd4c8183e138dbd3ad1126",
+    "spec/versioning.md": "sha256:ba9aa262210264d8f63f512c42ea7b96edf830df9e0dc53e33307300d0197239",
+    "schemas/README.md": "sha256:8dc011dbb3c5b33d4aac4e35a4f38264da3b582f0da83e04a5c8cefb4c1408cf",
+    "schemas/agent-profile.schema.json": "sha256:4502ddf71db0c0839a3a0d9b1b01a00f03b3871db4bfe399c464791640054077",
+    "schemas/context-changelog.schema.json": "sha256:b3dd88286f1900d17695422bf5b1b166a84d3c95370029004f34b70e61b015b1",
+    "schemas/context-index.schema.json": "sha256:41f254829e8116767ab1c72f5b041746ff3c66c1832d3d0d416c9344237a5c99",
+    "schemas/context-manifest.schema.json": "sha256:50c23df3e006fe43171aa5aa303ce6ee7590407134d747ac17d1f2d60fbb7d3d",
+    "schemas/decision-record.schema.json": "sha256:ad870d1943196e1a40303228b839a170b11e4de4ede324cdd103dfe87f317772"
+  }
+}

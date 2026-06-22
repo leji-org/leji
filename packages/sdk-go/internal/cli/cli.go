@@ -17,11 +17,11 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/changelog"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/conformance"
 	detectcmd "github.com/leji-org/leji/packages/sdk-go/internal/commands/detect"
-	"github.com/leji-org/leji/packages/sdk-go/internal/commands/docs"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/freshness"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
 	initcmd "github.com/leji-org/leji/packages/sdk-go/internal/commands/init"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/validate"
+	"github.com/leji-org/leji/packages/sdk-go/internal/commands/viewer"
 	"github.com/leji-org/leji/packages/sdk-go/internal/detect"
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
@@ -35,12 +35,11 @@ type flags struct {
 	check        bool
 	strict       bool
 	yes          bool
-	serve        bool
+	open         bool
 	content      bool
 	dryRun       bool
 	wireAdapters bool
 	explain      bool
-	ci           bool
 	help         bool
 	version      bool
 	port         *int
@@ -49,11 +48,22 @@ type flags struct {
 	name         string
 	hasName      bool
 	agent        string
-	reviewer     string
+	host         string
+	role         string
+	out          string
+	hasOut       bool
 	keep         int
 	hasKeep      bool
 	before       string
 	hasBefore    bool
+	provider     string
+}
+
+// isFlagToken reports whether a following token is itself a flag (not a bare
+// "-") and so cannot be a value: `--root --json` is a missing value, not
+// root="--json". Mirrors the Node SDK helper.
+func isFlagToken(v string, ok bool) bool {
+	return ok && v != "-" && strings.HasPrefix(v, "-")
 }
 
 func parseFlags(argv []string) (flags, []string, string) {
@@ -64,29 +74,32 @@ func parseFlags(argv []string) (flags, []string, string) {
 		switch arg {
 		case "--root":
 			i++
-			if i < len(argv) {
-				f.root = argv[i]
-			} else {
-				f.root = ""
+			v, ok := "", i < len(argv)
+			if ok {
+				v = argv[i]
 			}
-			if f.root == "" {
+			if v == "" || isFlagToken(v, ok) {
 				return f, rest, "--root requires a value"
 			}
+			f.root = v
 		case "--dir":
 			i++
-			if i < len(argv) {
-				f.dir = argv[i]
-			} else {
-				f.dir = ""
+			v, ok := "", i < len(argv)
+			if ok {
+				v = argv[i]
 			}
-			if f.dir == "" {
+			if v == "" || isFlagToken(v, ok) {
 				return f, rest, "--dir requires a value"
 			}
+			f.dir = v
 		case "--level":
 			i++
-			var v string
-			if i < len(argv) {
+			v, ok := "", i < len(argv)
+			if ok {
 				v = argv[i]
+			}
+			if v == "" || isFlagToken(v, ok) {
+				return f, rest, "--level requires a value"
 			}
 			if v != "core" && v != "indexed" {
 				return f, rest, "--level must be core or indexed"
@@ -94,57 +107,102 @@ func parseFlags(argv []string) (flags, []string, string) {
 			f.level = v
 		case "--name":
 			i++
-			if i < len(argv) {
-				f.name = argv[i]
+			v, ok := "", i < len(argv)
+			if ok {
+				v = argv[i]
 			}
-			if f.name == "" {
+			if v == "" || isFlagToken(v, ok) {
 				return f, rest, "--name requires a value"
 			}
+			f.name = v
 			f.hasName = true
 		case "--agent":
 			i++
-			if i < len(argv) {
-				f.agent = argv[i]
+			v, ok := "", i < len(argv)
+			if ok {
+				v = argv[i]
 			}
-			if f.agent == "" {
+			if v == "" || isFlagToken(v, ok) {
 				return f, rest, "--agent requires a value"
 			}
-		case "--reviewer":
+			f.agent = v
+		case "--host":
 			i++
-			if i < len(argv) {
-				f.reviewer = argv[i]
+			v, ok := "", i < len(argv)
+			if ok {
+				v = argv[i]
 			}
-			if f.reviewer == "" {
-				return f, rest, "--reviewer requires a value"
+			if v == "" || isFlagToken(v, ok) {
+				return f, rest, "--host requires a value"
 			}
+			f.host = v
+		case "--role":
+			i++
+			v, ok := "", i < len(argv)
+			if ok {
+				v = argv[i]
+			}
+			if v == "" || isFlagToken(v, ok) {
+				return f, rest, "--role requires a value"
+			}
+			f.role = v
+		case "--out":
+			i++
+			v, ok := "", i < len(argv)
+			if ok {
+				v = argv[i]
+			}
+			if v == "" || isFlagToken(v, ok) {
+				return f, rest, "--out requires a value"
+			}
+			f.out = v
+			f.hasOut = true
 		case "--keep":
 			i++
-			var raw string
-			if i < len(argv) {
+			raw, ok := "", i < len(argv)
+			if ok {
 				raw = argv[i]
 			}
+			if raw == "" || isFlagToken(raw, ok) {
+				return f, rest, "--keep requires a value"
+			}
 			v, err := strconv.Atoi(raw)
-			if raw == "" || err != nil || v < 1 {
+			if err != nil || v < 1 {
 				return f, rest, "--keep must be a positive integer"
 			}
 			f.keep = v
 			f.hasKeep = true
 		case "--before":
 			i++
-			if i < len(argv) {
-				f.before = argv[i]
+			v, ok := "", i < len(argv)
+			if ok {
+				v = argv[i]
 			}
-			if f.before == "" {
+			if v == "" || isFlagToken(v, ok) {
 				return f, rest, "--before requires a value"
 			}
+			f.before = v
 			f.hasBefore = true
-		case "--serve":
-			f.serve = true
+		case "--provider":
+			i++
+			v, ok := "", i < len(argv)
+			if ok {
+				v = argv[i]
+			}
+			if v == "" || isFlagToken(v, ok) {
+				return f, rest, "--provider requires a value"
+			}
+			f.provider = v
+		case "--open":
+			f.open = true
 		case "--port":
 			i++
-			var raw string
-			if i < len(argv) {
+			raw, ok := "", i < len(argv)
+			if ok {
 				raw = argv[i]
+			}
+			if raw == "" || isFlagToken(raw, ok) {
+				return f, rest, "--port requires a value"
 			}
 			v, err := strconv.Atoi(raw)
 			if err != nil || v < 0 || v > 65535 {
@@ -163,15 +221,15 @@ func parseFlags(argv []string) (flags, []string, string) {
 			f.wireAdapters = true
 		case "--explain":
 			f.explain = true
-		case "--ci":
-			f.ci = true
 		case "--strict":
 			f.strict = true
 		case "--yes", "-y":
 			f.yes = true
 		case "-h", "--help":
 			f.help = true
-		case "-V", "--version":
+		// Version: -v and --version. No -V, there is no --verbose flag to
+		// collide with, so the GNU "-v means verbose" convention does not apply.
+		case "-v", "--version":
 			f.version = true
 		default:
 			if strings.HasPrefix(arg, "-") {
@@ -288,12 +346,20 @@ func emitJSON(command string, ok bool, fs []findings.Finding, summary findings.S
 	return buf.String()
 }
 
+// stdinIsTTY reports whether stdin is an interactive terminal (a character
+// device), the gate for the post-scaffold handoff offer. Dependency-free, so it
+// stays false under piped/redirected stdin (the parity and CI scenarios).
+func stdinIsTTY() bool {
+	fi, err := os.Stdin.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
 // Run executes the CLI and returns the process exit code.
 // Per-command flag validation, driven by cli.json (the documented surface): each
 // command accepts the global options plus its own, and any other command flag is a
-// usage error rather than being silently ignored. (Meta-flag -h/-V handling,
+// usage error rather than being silently ignored. (Meta-flag -h/-v handling,
 // short-circuited above, is a separate concern.)
-var valueFlags = map[string]bool{"--root": true, "--dir": true, "--level": true, "--name": true, "--port": true, "--agent": true, "--reviewer": true, "--keep": true, "--before": true}
+var valueFlags = map[string]bool{"--root": true, "--dir": true, "--level": true, "--name": true, "--port": true, "--agent": true, "--host": true, "--role": true, "--out": true, "--keep": true, "--before": true, "--provider": true}
 
 func flagTokens(s string) []string {
 	var out []string
@@ -319,14 +385,20 @@ func seenFlags(argv []string) []string {
 	return out
 }
 
+// twoWordCommands take a subcommand (a second positional word), e.g. `changelog
+// check`, `viewer serve`. The bare form (no sub) is valid only when cli.json
+// documents it (e.g. `viewer`); a bare `changelog` is not documented and falls
+// through to the dispatcher's usage error.
+var twoWordCommands = map[string]bool{"changelog": true, "viewer": true}
+
 func allowedFlagsFor(command, sub string) (map[string]bool, bool) {
 	spec, err := schemas.LoadCliSpec()
 	if err != nil {
 		return nil, false
 	}
 	name := command
-	if command == "changelog" {
-		name = strings.TrimSpace("changelog " + sub)
+	if twoWordCommands[command] && sub != "" {
+		name = command + " " + sub
 	}
 	var cmd *schemas.CliCommand
 	for i := range spec.Commands {
@@ -392,7 +464,7 @@ func Run(argv []string) int {
 		for _, t := range seenFlags(argv) {
 			if !allowed[t] {
 				where := command
-				if command == "changelog" && sub != "" {
+				if twoWordCommands[command] && sub != "" {
 					where = command + " " + sub
 				}
 				fmt.Fprintf(os.Stderr, "leji: %s is not valid for %q\n\n", t, where)
@@ -433,6 +505,16 @@ func Run(argv []string) int {
 			entries = len(result.Index.Entries)
 		}
 		extra.set("entries", entries)
+		// Complete the indexed surface: if the layer claims indexed (or higher) and
+		// has no changelog yet, seed it (otherwise only `init --level indexed` does).
+		seeded, err := changelog.SeedChangelogIfMissing(f.root, load.Manifest)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
+			return 2
+		}
+		if seeded != "" {
+			extra.set("changelog", seeded)
+		}
 		return emit("index", append(load.Findings, result.Findings...), f.json, extra)
 	case "changelog":
 		if sub == "check" {
@@ -528,12 +610,61 @@ func Run(argv []string) int {
 			extra.set("items", checklistItems(result.Items))
 		}
 		return emit("conformance", result.Findings, f.json, extra)
-	case "docs":
+	case "view", "viewer":
+		// `leji view` is an alias for `leji viewer serve` that also opens the
+		// browser. `leji viewer` generates only; `leji viewer serve` serves.
+		isAlias := command == "view"
+		if command == "viewer" && sub != "" && sub != "serve" && sub != "build" {
+			fmt.Fprint(os.Stderr, "leji: usage: leji viewer [serve|build]\n\n")
+			fmt.Fprintln(os.Stderr, usage)
+			return 2
+		}
+		if isAlias && sub != "" {
+			fmt.Fprint(os.Stderr, "leji: usage: leji view\n\n")
+			fmt.Fprintln(os.Stderr, usage)
+			return 2
+		}
+		if command == "viewer" && sub == "build" {
+			load := manifest.LoadManifest(f.root)
+			if load.Manifest == nil {
+				return emit("viewer build", load.Findings, f.json, nil)
+			}
+			out := ""
+			if f.hasOut {
+				out = f.out
+			}
+			r, err := viewer.BuildViewer(f.root, load.Manifest, out)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
+				return 2
+			}
+			for _, fnd := range r.Findings {
+				if fnd.Severity == findings.Error {
+					return emit("viewer build", r.Findings, f.json, nil)
+				}
+			}
+			if f.json {
+				o := newJSONObj()
+				o.set("command", "viewer build")
+				o.set("ok", true)
+				o.set("out", r.Out)
+				o.set("warning", viewer.ProtectWarning)
+				var buf bytes.Buffer
+				o.encode(&buf, "", "  ")
+				fmt.Println(buf.String())
+			} else {
+				fmt.Printf("Exported the static viewer to %s/\n", r.Out)
+				fmt.Printf("\n%s\n", viewer.ProtectWarning)
+			}
+			return 0
+		}
+		wantServe := isAlias || sub == "serve"
+		wantOpen := f.open || isAlias
 		load := manifest.LoadManifest(f.root)
 		if load.Manifest == nil {
-			return emit("docs", load.Findings, f.json, nil)
+			return emit("viewer", load.Findings, f.json, nil)
 		}
-		result, err := docs.GenerateDocs(f.root, load.Manifest)
+		result, err := viewer.GenerateViewer(f.root, load.Manifest)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
 			return 2
@@ -541,15 +672,15 @@ func Run(argv []string) int {
 		extra := newExtra()
 		extra.set("written", strings.Join(result.Written, ", "))
 		extra.set("entries", result.Entries)
-		code := emit("docs", append(load.Findings, result.Findings...), f.json, extra)
-		if !f.serve || code != 0 {
+		code := emit("viewer", append(load.Findings, result.Findings...), f.json, extra)
+		if !wantServe || code != 0 {
 			if !f.json && code == 0 {
-				fmt.Println("serve locally: leji docs --serve   (or any static server at the repository root)")
+				fmt.Println("serve locally: leji view   (or any static server at the repository root)")
 			}
 			return code
 		}
-		port := docs.ResolveDocsPort(load.Manifest, f.port)
-		ln, srv, err := docs.Serve(f.root, port)
+		port := viewer.ResolveViewerPort(load.Manifest, f.port)
+		ln, srv, err := viewer.Serve(f.root, port, load.Manifest.RootPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
 			return 2
@@ -558,7 +689,14 @@ func Run(argv []string) int {
 		if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
 			actual = tcp.Port
 		}
-		fmt.Printf("serving http://127.0.0.1:%d/%s; Ctrl+C to stop\n", actual, load.Manifest.RootPath)
+		// Display localhost (nicer, still a secure context); the server stays bound
+		// to 127.0.0.1, which localhost resolves to on loopback. The viewer is served
+		// at the web root, so the URL is just `/`.
+		url := fmt.Sprintf("http://localhost:%d/", actual)
+		fmt.Printf("serving %s; Ctrl+C to stop\n", url)
+		if wantOpen {
+			viewer.OpenBrowser(url)
+		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
 		serveErr := make(chan error, 1)
@@ -608,14 +746,22 @@ func Run(argv []string) int {
 		for _, rel := range result.Written {
 			fmt.Printf("   %s\n", rel)
 		}
-		fmt.Println(initcmd.EnteringAdopted(result))
+		hio := initcmd.DefaultHandoffIO(os.Stdin, os.Stdout)
+		launched, herr := initcmd.HandoffOffer(result.Manifest, result.Detected, !f.yes && stdinIsTTY(), hio, os.Stdout, f.agent)
+		if herr != nil {
+			fmt.Fprintf(os.Stderr, "leji: %s\n", herr.Error())
+			return 2
+		}
+		if !launched {
+			fmt.Println(initcmd.EnteringAdopted(result))
+		}
 		return 0
 	case "init":
 		dir := f.dir
 		if f.dir == "." && f.root != "." {
 			dir = f.root
 		}
-		opts := initcmd.Options{Dir: dir, Yes: f.yes, Level: f.level, DryRun: f.dryRun, Agent: f.agent, Reviewer: f.reviewer, Ci: f.ci}
+		opts := initcmd.Options{Dir: dir, Yes: f.yes, Level: f.level, DryRun: f.dryRun, Agent: f.agent}
 		if f.hasName {
 			opts.Name = f.name
 		}
@@ -633,7 +779,142 @@ func Run(argv []string) int {
 		for _, rel := range result.Written {
 			fmt.Printf("   %s\n", rel)
 		}
-		fmt.Println(initcmd.EnteringTheLayer(result.Manifest))
+		hio := initcmd.DefaultHandoffIO(os.Stdin, os.Stdout)
+		launched, herr := initcmd.HandoffOffer(result.Manifest, result.Detected, !f.yes && stdinIsTTY(), hio, os.Stdout, f.agent)
+		if herr != nil {
+			fmt.Fprintf(os.Stderr, "leji: %s\n", herr.Error())
+			return 2
+		}
+		if !launched {
+			fmt.Println(initcmd.EnteringTheLayer(result.Manifest))
+		}
+		return 0
+	case "start":
+		load := manifest.LoadManifest(f.root)
+		if load.Manifest == nil {
+			return emit("start", load.Findings, f.json, nil)
+		}
+		detected := detect.DetectHosts(detect.Options{Root: f.root})
+		interactive := !f.yes && stdinIsTTY()
+		hio := initcmd.DefaultHandoffIO(os.Stdin, os.Stdout)
+		outcome, err := initcmd.EnterLayer(initcmd.StartOptions{
+			Root: f.root, Manifest: load.Manifest, Detected: detected, Agent: f.agent, Interactive: interactive,
+		}, hio, os.Stdout)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
+			return 2
+		}
+		if outcome == initcmd.StartBootMissing {
+			fmt.Fprintf(os.Stderr, "leji: boot profile %s is missing or invalid; run leji validate\n", load.Manifest.BootProfilePath)
+			return 1
+		}
+		if outcome == initcmd.StartFallback {
+			fmt.Println(initcmd.EnteringViaBoot(load.Manifest))
+		}
+		return 0
+	case "ci":
+		provider := f.provider
+		if provider == "" {
+			provider = "github"
+		}
+		if provider != "github" && provider != "gitlab" && provider != "circleci" && provider != "azure" {
+			fmt.Fprintf(os.Stderr, "leji: unknown provider %q; expected github, gitlab, circleci, or azure\n\n", provider)
+			return 2
+		}
+		load := manifest.LoadManifest(f.root)
+		if load.Manifest == nil {
+			return emit("ci", load.Findings, f.json, nil)
+		}
+		r, err := initcmd.EnsureCiWorkflow(f.root, provider)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
+			return 2
+		}
+		if f.json {
+			o := newJSONObj()
+			o.set("command", "ci")
+			o.set("ok", true)
+			o.set("provider", r.Provider)
+			o.set("workflow", r.Path)
+			o.set("action", r.Action)
+			o.set("created", r.Action == "created")
+			if r.Action == "manual" {
+				o.set("snippet", r.Snippet)
+			}
+			if r.Note != "" {
+				o.set("note", r.Note)
+			}
+			var buf bytes.Buffer
+			o.encode(&buf, "", "  ")
+			fmt.Println(buf.String())
+		} else {
+			switch r.Action {
+			case "created":
+				fmt.Printf("Wrote %s\n", r.Path)
+			case "updated":
+				fmt.Printf("Updated %s\n", r.Path)
+			case "unchanged":
+				fmt.Printf("%s already present; nothing to do.\n", r.Path)
+			case "manual":
+				fmt.Printf("%s already exists; not modifying it. Add this to your CircleCI config:\n\n%s\n", r.Path, r.Snippet)
+			}
+			if r.Note != "" {
+				fmt.Println(r.Note)
+			}
+		}
+		return 0
+	case "agent":
+		if f.name == "" {
+			fmt.Fprint(os.Stderr, "leji: agent requires --name\n\n")
+			fmt.Fprintln(os.Stderr, usage)
+			return 2
+		}
+		load := manifest.LoadManifest(f.root)
+		if load.Manifest == nil {
+			return emit("agent", load.Findings, f.json, nil)
+		}
+		r, err := initcmd.AddAgent(f.root, load.Manifest, initcmd.AgentOptions{Host: f.host, Name: f.name, Role: f.role})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
+			return 2
+		}
+		if f.json {
+			o := newJSONObj()
+			o.set("command", "agent")
+			o.set("ok", true)
+			o.set("name", r.Name)
+			o.set("role", r.Role)
+			if r.HostID == "" {
+				o.set("host", nil)
+			} else {
+				o.set("host", r.HostID)
+			}
+			o.set("profile", r.ProfilePath)
+			created := newJSONObj()
+			created.set("profile", r.ProfileCreated)
+			created.set("manifest", r.ManifestChanged)
+			o.set("created", created)
+			var buf bytes.Buffer
+			o.encode(&buf, "", "  ")
+			fmt.Println(buf.String())
+		} else {
+			var lines []string
+			if r.ProfileCreated {
+				lines = append(lines, "Wrote "+r.ProfilePath)
+			} else {
+				lines = append(lines, r.ProfilePath+" already present")
+			}
+			roleHost := "role " + r.Role
+			if r.HostID != "" {
+				roleHost = "role " + r.Role + ", host " + r.HostID
+			}
+			if r.ManifestChanged {
+				lines = append(lines, fmt.Sprintf("Bound agent %q (%s) in leji.json", r.Name, roleHost))
+			} else {
+				lines = append(lines, fmt.Sprintf("agent %q already bound in leji.json; nothing to do.", r.Name))
+			}
+			fmt.Println(strings.Join(lines, "\n"))
+		}
 		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "leji: unknown command %q\n\n", command)

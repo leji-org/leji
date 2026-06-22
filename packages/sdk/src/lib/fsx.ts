@@ -30,6 +30,19 @@ export function readText(abs: string): string {
 }
 
 /**
+ * Read a declared file's text, but only if it is a regular file whose real path
+ * (after resolving symlinks) stays within `rootAbs`. Returns null when the
+ * target is missing, is not a regular file, or escapes the root via a symlink.
+ * Use this for every read of a repository-relative path a manifest declares, so
+ * a hostile layer cannot use a symlink to redirect a reader (the CLI, or an MCP
+ * exposing these reads to an agent) outside the layer root.
+ */
+export function readTextWithin(rootAbs: string, abs: string): string | null {
+   if (!isFile(abs) || !realpathWithin(rootAbs, abs)) return null;
+   return readText(abs);
+}
+
+/**
  * True when `abs` resolves (following symlinks) to a path that remains within
  * `rootAbs` (itself resolved). Symlinks that escape the served/scanned root are
  * rejected. A path that does not yet exist cannot escape, so it is allowed.

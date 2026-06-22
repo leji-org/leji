@@ -18,7 +18,7 @@ from leji import (
     validate_layer,
     write_index,
 )
-from leji.docs_cmd import _relative_to_root
+from leji.viewer_cmd import _relative_to_root
 from leji.findings import Finding, has_errors
 from leji.gitutil import git_last_modified, git_show_head
 from leji.layer import read_json_artifact, scan_categories
@@ -111,14 +111,14 @@ def test_cli_init_text_output_lists_written_files(tmp_path, capsys) -> None:
     assert "leji validate --content" in out
 
 
-def test_cli_docs_text_output_serve_hint(tmp_path, capsys) -> None:
+def test_cli_viewer_text_output_serve_hint(tmp_path, capsys) -> None:
     from leji.cli import main
 
     layer = _copy(EXAMPLE, tmp_path)
-    code = main(["docs", "--root", str(layer)])
+    code = main(["viewer", "--root", str(layer)])
     out = capsys.readouterr().out
     assert code == 0
-    assert "serve locally: leji docs --serve" in out
+    assert "serve locally: leji view" in out
 
 
 def test_cli_default_argv_from_sys_argv(monkeypatch, capsys) -> None:
@@ -150,12 +150,38 @@ def test_cli_docs_serve_starts_and_stops(tmp_path, monkeypatch, capsys) -> None:
             self.shutdown_called = True
 
     fake = FakeServer()
-    monkeypatch.setattr(cli, "serve_docs", lambda _root, _port: fake)
-    code = cli.main(["docs", "--root", str(layer), "--serve"])
+    monkeypatch.setattr(cli, "serve_viewer", lambda _root, _port, _root_rel="": fake)
+    code = cli.main(["viewer", "serve", "--root", str(layer)])
     out = capsys.readouterr().out
     assert code == 0
-    assert "serving http://127.0.0.1:5354/" in out
+    assert "serving http://localhost:5354/" in out
     assert fake.shutdown_called is True
+
+
+def test_cli_view_command_opens_browser(tmp_path, monkeypatch, capsys) -> None:
+    from leji import cli
+
+    layer = _copy(EXAMPLE, tmp_path)
+
+    class FakeServer:
+        server_address = ("127.0.0.1", 5354)
+
+        def serve_forever(self) -> None:
+            raise KeyboardInterrupt
+
+        def shutdown(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "serve_viewer", lambda _root, _port, _root_rel="": FakeServer())
+    opened: list[str] = []
+    monkeypatch.setattr(cli, "open_browser", lambda url: opened.append(url))
+    # `leji view` == viewer serve --open: it serves and opens the browser.
+    code = cli.main(["view", "--root", str(layer)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "serving http://localhost:5354/" in out
+    assert len(opened) == 1
+    assert opened[0] == out.split("serving ", 1)[1].split(";", 1)[0]
 
 
 # --- layer.py ---------------------------------------------------------------
@@ -376,7 +402,7 @@ def test_freshness_includes_agent_profile_horizon(tmp_path) -> None:
     assert any(i["path"] == "docs/agents/stale.md" for i in report.expired)
 
 
-# --- docs_cmd.py ------------------------------------------------------------
+# --- viewer_cmd.py ------------------------------------------------------------
 
 
 def test_relative_to_root_dot_root_passthrough() -> None:

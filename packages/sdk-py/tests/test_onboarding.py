@@ -24,6 +24,22 @@ from leji import (
     write_index,
 )
 from leji.conformance import ChecklistItem
+from leji.init_cmd import add_agent
+
+
+def _git_init(dir_: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=dir_, check=True)
+
+
+def _git_commit_all(dir_: Path) -> None:
+    """Stage and commit everything so the working tree is clean before init/adopt
+    runs (the dirty-tree guard refuses an uncommitted tree)."""
+    subprocess.run(["git", "add", "-A"], cwd=dir_, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=T", "-c", "user.email=t@e.com", "commit", "-q", "-m", "seed"],
+        cwd=dir_,
+        check=True,
+    )
 
 
 def test_init_dry_run_writes_nothing_and_reports_plan(tmp_path: Path) -> None:
@@ -170,11 +186,11 @@ def test_detect_hosts_requires_executable_bit_on_posix(tmp_path: Path) -> None:
 
 def test_init_agent_wires_redirect_and_validates_clean(tmp_path: Path) -> None:
     res = init_layer(str(tmp_path), yes=True, agent="claude-code")
-    assert "CLAUDE.md" in res.written, "adapter is created"
-    assert "docs/boot-profile.md" in (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "CLAUDE.md" not in res.written, "init --agent no longer creates a vendor adapter"
+    assert not (tmp_path / "CLAUDE.md").exists()
     manifest = load_manifest(str(tmp_path)).manifest
     assert manifest is not None
-    assert manifest["vendorAdapters"] == ["CLAUDE.md"]
+    assert "vendorAdapters" not in manifest
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     result = validate_layer(str(tmp_path))
     assert [f for f in result.findings if f.severity == "error"] == []
@@ -191,8 +207,14 @@ def test_init_agent_never_overwrites_existing_entrypoint(tmp_path: Path) -> None
 
 
 def test_init_agent_rejects_unknown_host(tmp_path: Path) -> None:
-    with pytest.raises(RuntimeError, match="unknown agent"):
-        init_layer(str(tmp_path), yes=True, agent="frobnicate")
+    # init --agent no longer resolves a vendor adapter, so a bogus --agent no
+    # longer errors from adapter resolution: the layer scaffolds with no vendor file.
+    res = init_layer(str(tmp_path), yes=True, agent="frobnicate")
+    assert "leji.json" in res.written
+    manifest = load_manifest(str(tmp_path)).manifest
+    assert manifest is not None
+    assert "vendorAdapters" not in manifest
+    assert not (tmp_path / "CLAUDE.md").exists()
 
 
 def test_adopt_reuses_docs_root_and_migrates_vendor_content_draft(tmp_path: Path) -> None:
@@ -200,6 +222,7 @@ def test_adopt_reuses_docs_root_and_migrates_vendor_content_draft(tmp_path: Path
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "README.md").write_text("# Docs\n", encoding="utf-8")
     (tmp_path / "CLAUDE.md").write_text("Always run tests. Use 3-space indent.\n", encoding="utf-8")
+    _git_commit_all(tmp_path)
 
     res = adopt_layer(str(tmp_path), yes=True)
     assert res.detected_root == "docs/"
@@ -223,6 +246,7 @@ def test_adopt_reuses_docs_root_and_migrates_vendor_content_draft(tmp_path: Path
 def test_adopt_wire_adapters_converts_entrypoint_and_validates_clean(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "CLAUDE.md").write_text("Always run tests.\n", encoding="utf-8")
+    _git_commit_all(tmp_path)
 
     res = adopt_layer(str(tmp_path), yes=True, wire_adapters=True)
     assert res.draft is False
@@ -243,6 +267,7 @@ def test_adopt_wire_adapters_migrates_mixed_redirect_and_instructions(tmp_path: 
         "Always run the full test suite before committing.\n",
         encoding="utf-8",
     )
+    _git_commit_all(tmp_path)
     res = adopt_layer(str(tmp_path), yes=True, wire_adapters=True)
     assert "CLAUDE.md" in res.migrated, "mixed file is migrated, not silently overwritten"
     imported = (tmp_path / "docs" / "governance" / "imported-claude.md").read_text(encoding="utf-8")
@@ -259,6 +284,7 @@ def test_adopt_wire_adapters_skips_file_already_canonical_redirect(tmp_path: Pat
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     # A vendor file that is already exactly Leji's canonical redirect.
     (tmp_path / "CLAUDE.md").write_text(adapter_content("docs/boot-profile.md"), encoding="utf-8")
+    _git_commit_all(tmp_path)
     res = adopt_layer(str(tmp_path), yes=True, wire_adapters=True)
     assert "CLAUDE.md" not in res.migrated, (
         "a file already equal to the canonical redirect is not migrated"
@@ -281,26 +307,85 @@ def test_adopt_refuses_when_layer_exists(tmp_path: Path) -> None:
         adopt_layer(str(tmp_path), yes=True)
 
 
-def test_init_agent_plus_reviewer_wires_multi_agent_and_validates_clean(tmp_path: Path) -> None:
+def test_agent_wires_named_reviewer_into_existing_layer(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    res = init_layer(str(tmp_path), yes=True, agent="claude-code", reviewer="codex")
+    init_layer(str(tmp_path), yes=True, agent="claude-code")
+    m = load_manifest(str(tmp_path)).manifest
+    assert m is not None
+    res = add_agent(str(tmp_path), m, host="codex", name="reviewer")
+    assert (res.profile_created, res.manifest_changed) == (True, True)
+    assert res.host_id == "codex"
     manifest = load_manifest(str(tmp_path)).manifest
     assert manifest is not None
-    # Primary adapter + reviewer role binding + reviewer adapter.
+    # The agent's binding; no vendor adapter is created.
     assert manifest["agents"]["reviewer"] == "docs/agents/reviewer.md"
-    assert "CLAUDE.md" in manifest["vendorAdapters"]
-    assert "AGENTS.md" in manifest["vendorAdapters"]
+    assert "vendorAdapters" not in manifest
+    assert not (tmp_path / "AGENTS.md").exists()
     reviewer = (tmp_path / "docs" / "agents" / "reviewer.md").read_text(encoding="utf-8")
+    assert "\nid: reviewer\n" in reviewer
     assert "\nrole: reviewer\n" in reviewer
     assert "\nhost: codex\n" in reviewer
-    assert "docs/agents/reviewer.md" in res.written
     v = validate_layer(str(tmp_path))
     assert [f for f in v.findings if f.severity == "error"] == []
 
 
-def test_init_reviewer_rejects_unknown_host(tmp_path: Path) -> None:
-    with pytest.raises(RuntimeError, match="unknown agent"):
-        init_layer(str(tmp_path), yes=True, reviewer="frobnicate")
+def test_agent_binds_resident_without_host(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    init_layer(str(tmp_path), yes=True)
+    m = load_manifest(str(tmp_path)).manifest
+    assert m is not None
+    res = add_agent(str(tmp_path), m, host=None, name="reviewer")
+    assert (res.profile_created, res.manifest_changed) == (True, True)
+    assert res.host_id is None
+    manifest = load_manifest(str(tmp_path)).manifest
+    assert manifest is not None
+    assert manifest["agents"]["reviewer"] == "docs/agents/reviewer.md"
+    assert "vendorAdapters" not in manifest
+    reviewer = (tmp_path / "docs" / "agents" / "reviewer.md").read_text(encoding="utf-8")
+    assert "\nhost:" not in reviewer, "resident agent must not pin a host"
+    assert "(host " not in reviewer, "resident agent prose must not mention a host"
+    assert "\nid: reviewer\n" in reviewer
+    assert "\nrole: reviewer\n" in reviewer
+
+
+def test_agent_is_idempotent(tmp_path: Path) -> None:
+    init_layer(str(tmp_path), yes=True)
+    m = load_manifest(str(tmp_path)).manifest
+    assert m is not None
+    add_agent(str(tmp_path), m, host="codex", name="reviewer")
+    after = (tmp_path / "leji.json").read_text(encoding="utf-8")
+    res2 = add_agent(str(tmp_path), m, host="codex", name="reviewer")
+    assert (res2.profile_created, res2.manifest_changed) == (False, False)
+    assert (tmp_path / "leji.json").read_text(encoding="utf-8") == after
+
+
+def test_agent_appends_second_binding_without_disturbing_first(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    init_layer(str(tmp_path), yes=True)
+    add_agent(str(tmp_path), load_manifest(str(tmp_path)).manifest, host="codex", name="reviewer")
+    add_agent(
+        str(tmp_path),
+        load_manifest(str(tmp_path)).manifest,
+        host="claude-code",
+        name="thought-partner",
+        role="advisor",
+    )
+    manifest = load_manifest(str(tmp_path)).manifest
+    assert manifest is not None
+    assert manifest["agents"]["reviewer"] == "docs/agents/reviewer.md"
+    assert manifest["agents"]["thought-partner"] == "docs/agents/thought-partner.md"
+    profile = (tmp_path / "docs" / "agents" / "thought-partner.md").read_text(encoding="utf-8")
+    assert "\nrole: advisor\n" in profile
+    v = validate_layer(str(tmp_path))
+    assert [f for f in v.findings if f.severity == "error"] == []
+
+
+def test_agent_rejects_unknown_host_and_non_kebab_name(tmp_path: Path) -> None:
+    m = init_layer(str(tmp_path), yes=True).manifest
+    with pytest.raises(RuntimeError, match="unknown host"):
+        add_agent(str(tmp_path), m, host="frobnicate", name="reviewer")
+    with pytest.raises(RuntimeError, match="lowercase letters"):
+        add_agent(str(tmp_path), m, host="codex", name="Bad Name")
 
 
 def test_conformance_explain_guides_toward_the_next_level(tmp_path: Path) -> None:
@@ -316,13 +401,11 @@ def test_init_agent_cursor_wires_directory_style_adapter_validates_clean(
 ) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     res = init_layer(str(tmp_path), yes=True, agent="cursor")
-    assert ".cursor/rules/leji.md" in res.written
-    assert "docs/boot-profile.md" in (tmp_path / ".cursor" / "rules" / "leji.md").read_text(
-        encoding="utf-8"
-    )
+    assert ".cursor/rules/leji.md" not in res.written, "init --agent no longer creates an adapter"
+    assert not (tmp_path / ".cursor" / "rules" / "leji.md").exists()
     manifest = load_manifest(str(tmp_path)).manifest
     assert manifest is not None
-    assert manifest["vendorAdapters"] == [".cursor/rules/leji.md"]
+    assert "vendorAdapters" not in manifest
     result = validate_layer(str(tmp_path))
     assert [f for f in result.findings if f.severity == "error"] == []
 
@@ -352,6 +435,7 @@ def test_adopt_wire_adapters_refuses_symlinked_outside_vendor_file(tmp_path: Pat
     secret.write_text("OUTSIDE SECRET CONTENT\n", encoding="utf-8")
     # CLAUDE.md is a symlink pointing at a file outside the repository.
     os.symlink(secret, dir_ / "CLAUDE.md")
+    _git_commit_all(dir_)
 
     adopt_layer(str(dir_), yes=True, wire_adapters=True)
 
@@ -369,6 +453,7 @@ def test_adopt_does_not_migrate_symlinked_outside_vendor_file(tmp_path: Path) ->
     secret = outside / "secret.txt"
     secret.write_text("TOP SECRET DO NOT MIGRATE\n", encoding="utf-8")
     os.symlink(secret, dir_ / "CLAUDE.md")
+    _git_commit_all(dir_)
 
     res = adopt_layer(str(dir_), yes=True)
 
@@ -387,6 +472,7 @@ def test_migration_doc_fences_script_payload(tmp_path: Path) -> None:
     (tmp_path / "CLAUDE.md").write_text(
         "Instructions.\n<script>alert(1)</script>\n", encoding="utf-8"
     )
+    _git_commit_all(tmp_path)
 
     adopt_layer(str(tmp_path), yes=True)
 
@@ -400,12 +486,49 @@ def test_migration_doc_fences_script_payload(tmp_path: Path) -> None:
     )
 
 
-def test_init_ci_writes_github_actions_validation_workflow(tmp_path: Path) -> None:
-    res = init_layer(str(tmp_path), yes=True, ci=True)
-    assert ".github/workflows/leji.yml" in res.written
-    assert "leji@latest validate" in (tmp_path / ".github" / "workflows" / "leji.yml").read_text(
-        encoding="utf-8"
-    )
+# --- dirty-tree guard on init / adopt ---
+
+
+def test_init_refuses_on_dirty_git_working_tree_and_writes_nothing(tmp_path: Path) -> None:
+    _git_init(tmp_path)
+    (tmp_path / "NOTES.md").write_text("wip\n", encoding="utf-8")  # untracked => dirty
+    with pytest.raises(RuntimeError, match="uncommitted changes"):
+        init_layer(str(tmp_path), yes=True)
+    assert not (tmp_path / "leji.json").exists(), "nothing written on refusal"
+
+
+def test_init_proceeds_on_clean_committed_git_tree(tmp_path: Path) -> None:
+    _git_init(tmp_path)
+    (tmp_path / "README.md").write_text("# repo\n", encoding="utf-8")
+    _git_commit_all(tmp_path)
+    res = init_layer(str(tmp_path), yes=True)
+    assert "leji.json" in res.written
+
+
+def test_init_dry_run_is_allowed_on_dirty_git_tree(tmp_path: Path) -> None:
+    _git_init(tmp_path)
+    (tmp_path / "NOTES.md").write_text("wip\n", encoding="utf-8")
+    res = init_layer(str(tmp_path), yes=True, dry_run=True)
+    assert res.dry_run is True
+    assert not (tmp_path / "leji.json").exists()
+
+
+def test_init_is_allowed_in_a_non_git_directory(tmp_path: Path) -> None:
+    res = init_layer(str(tmp_path), yes=True)  # not a git repo
+    assert "leji.json" in res.written
+
+
+def test_adopt_refuses_on_dirty_git_working_tree(tmp_path: Path) -> None:
+    _git_init(tmp_path)
+    (tmp_path / "NOTES.md").write_text("wip\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="uncommitted changes"):
+        adopt_layer(str(tmp_path), yes=True)
+
+
+def test_init_does_not_write_a_ci_workflow(tmp_path: Path) -> None:
+    res = init_layer(str(tmp_path), yes=True)
+    assert ".github/workflows/leji.yml" not in res.written, "init no longer creates CI; use leji ci"
+    assert not (tmp_path / ".github" / "workflows" / "leji.yml").exists()
 
 
 # --- render-function unit coverage (these were only exercised via CLI dispatch) ---

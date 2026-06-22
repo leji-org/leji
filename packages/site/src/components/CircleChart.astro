@@ -1,76 +1,9 @@
 ---
-// Circle-vs-tier comparison as two SVG panels; each has its own viewBox so they scale identically and stack on narrow screens.
+// The circle: people and agents read one shared context layer, propose changes,
+// and people approve. A single SVG panel, styled for the light page.
 ---
 
 <div class="circle-chart">
-   <!-- ───── Left panel: the tier ───── -->
-   <svg
-      class="cc-panel cc-tier"
-      viewBox="-23 22 506 384"
-      role="img"
-      aria-label="How most teams do it: a one-way tier. People author per-vendor instruction files that agents consume; knowledge stays in heads and threads, and staleness is invisible until output breaks."
-   >
-      <defs>
-         <marker
-            id="cc-arrow-l"
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerUnits="userSpaceOnUse"
-            markerWidth="11"
-            markerHeight="11"
-            orient="auto-start-reverse"
-         >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#FFBD6E"></path>
-         </marker>
-      </defs>
-
-      <text x="230" y="46" class="panel-title">How most teams do it: a tier</text>
-
-      <rect x="130" y="76" width="200" height="46" rx="8" class="box"></rect>
-      <text x="230" y="104" class="box-label">People author</text>
-
-      <line x1="230" y1="122" x2="230" y2="158" class="flow" marker-end="url(#cc-arrow-l)"></line>
-
-      <rect x="105" y="162" width="250" height="58" rx="8" class="box"></rect>
-      <text x="230" y="186" class="box-label">Per-vendor instruction files</text>
-      <text x="230" y="206" class="box-sub">a copy per agent host, a fork per team</text>
-
-      <line x1="230" y1="220" x2="230" y2="256" class="flow" marker-end="url(#cc-arrow-l)"></line>
-
-      <rect x="130" y="260" width="200" height="46" rx="8" class="box"></rect>
-      <text x="230" y="288" class="box-label">Agents consume</text>
-
-      <!-- dots flow one way, down the pipeline: people author -> agents consume -->
-      <g class="tier-dots">
-         <circle r="4.5" class="spoke-dot">
-            <animateMotion
-               dur="2.4s"
-               begin="-0.2s"
-               repeatCount="indefinite"
-               calcMode="linear"
-               keyPoints="0;1"
-               keyTimes="0;1"
-               path="M230,122 L230,158"></animateMotion>
-         </circle>
-         <circle r="4.5" class="spoke-dot">
-            <animateMotion
-               dur="2.8s"
-               begin="-1.5s"
-               repeatCount="indefinite"
-               calcMode="linear"
-               keyPoints="0;1"
-               keyTimes="0;1"
-               path="M230,220 L230,256"></animateMotion>
-         </circle>
-      </g>
-
-      <text x="230" y="348" class="caption">One direction, written for agents.</text>
-      <text x="230" y="368" class="caption">Knowledge stays in heads and threads;</text>
-      <text x="230" y="388" class="caption">staleness is invisible until output breaks.</text>
-   </svg>
-
-   <!-- ───── Right panel: the circle ───── -->
    <svg
       class="cc-panel cc-circle"
       viewBox="467 22 506 384"
@@ -88,7 +21,7 @@
             markerHeight="11"
             orient="auto-start-reverse"
          >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#FFBD6E"></path>
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#223F93"></path>
          </marker>
       </defs>
 
@@ -129,8 +62,6 @@
             class="spoke"
             marker-start="url(#cc-arrow-r)"
             marker-end="url(#cc-arrow-r)"></line>
-         <!-- bright particles riding each connector, bidirectional: out to the
-              participant and back to the shared context layer -->
          <circle r="4.5" class="spoke-dot">
             <animateMotion
                dur="2.9s"
@@ -192,73 +123,38 @@
 
 <style>
    .circle-chart {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: clamp(1rem, 3vw, 2.5rem);
-      align-items: center;
+      display: flex;
+      justify-content: start;
    }
    .cc-panel {
       width: 100%;
+      max-width: 26rem;
       height: auto;
       display: block;
-   }
-   /* below the breakpoint the two panels stack so each can be read at a usable
-      size instead of both shrinking inside one wide canvas */
-   @media (max-width: 650px) {
-      .circle-chart {
-         grid-template-columns: 1fr;
-         gap: 2.25rem;
-      }
-      .cc-panel {
-         max-width: 30rem;
-         margin: 0 auto;
-      }
    }
    .panel-title {
       font-family: var(--mono);
       font-size: 13.5px;
       letter-spacing: 0.16em;
       text-transform: uppercase;
-      fill: var(--gold-bright);
+      fill: var(--blue);
       text-anchor: middle;
    }
-   .box {
-      fill: rgba(253, 252, 249, 0.04);
-      stroke: rgba(255, 189, 110, 0.45);
-      stroke-width: 1.2;
-   }
-   .box-label {
-      font-family: var(--serif-text);
-      font-size: 15.5px;
-      font-weight: 600;
-      fill: var(--white);
-      text-anchor: middle;
-   }
-   .box-sub {
-      font-family: var(--serif-text);
-      font-size: 12.5px;
-      fill: var(--white-faint);
-      text-anchor: middle;
-   }
-   /* both diagrams use the same solid gold connectors; motion is carried by
-      the dots riding them (one-way down the tier, bidirectional in the circle) */
-   .flow,
    .spoke {
-      stroke: var(--gold);
+      stroke: var(--blue);
       stroke-width: 1.7;
    }
    .ring {
       fill: none;
-      stroke: rgba(255, 189, 110, 0.4);
+      stroke: rgba(34, 63, 147, 0.4);
       stroke-width: 1.3;
       stroke-dasharray: 5 6;
-      /* the circle is alive: dashes circulate */
       animation: cc-ring 4.5s linear infinite;
    }
-   /* spokes stay solid (an unbroken connection); soft particles drift along
+   /* spokes stay solid (an unbroken connection); gold particles drift along
       them, fading in and out, each at its own tempo so nothing pulses in lockstep */
    .spoke-dot {
-      fill: var(--gold-bright);
+      fill: var(--gold);
       animation: cc-dot 3s ease-in-out infinite;
    }
    .spokes circle:nth-of-type(1) {
@@ -277,26 +173,16 @@
       animation-duration: 4s;
       animation-delay: -1.7s;
    }
-   /* tier dots fade in sync with their one-way travel, so the loop reset
-      happens while faint and stays invisible (dur/delay match the motion) */
-   .tier-dots circle:nth-of-type(1) {
-      animation-duration: 2.4s;
-      animation-delay: -0.2s;
-   }
-   .tier-dots circle:nth-of-type(2) {
-      animation-duration: 2.8s;
-      animation-delay: -1.5s;
-   }
    .core {
       fill: var(--gold);
    }
    @keyframes cc-dot {
       0%,
       100% {
-         opacity: 0.12;
+         opacity: 0.25;
       }
       50% {
-         opacity: 0.8;
+         opacity: 1;
       }
    }
    @keyframes cc-ring {
@@ -320,14 +206,14 @@
       text-anchor: middle;
    }
    .node {
-      fill: rgba(22, 41, 96, 0.85);
-      stroke-width: 1.2;
+      fill: var(--blue-deep);
+      stroke-width: 1.5;
    }
    .node.human {
-      stroke: rgba(253, 252, 249, 0.65);
+      stroke: var(--blue-soft);
    }
    .node.agent {
-      stroke: rgba(255, 189, 110, 0.6);
+      stroke: var(--gold);
    }
    .node-label {
       font-family: var(--mono);
@@ -339,13 +225,13 @@
       font-family: var(--mono);
       font-size: 13px;
       font-weight: 500;
-      fill: var(--gold-bright);
+      fill: var(--blue);
       text-anchor: middle;
    }
    .caption {
       font-family: var(--serif-text);
       font-size: 13px;
-      fill: var(--white-faint);
+      fill: var(--ink-soft);
       text-anchor: middle;
    }
 </style>

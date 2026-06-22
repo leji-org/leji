@@ -1,5 +1,7 @@
 ---
 summary: What the core terms of this repository mean, in our own words.
+freshness:
+  reviewAfter: 2027-06-21
 ---
 
 # Glossary

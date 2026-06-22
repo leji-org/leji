@@ -19,7 +19,7 @@ const title = `${docTitle} · Leji`;
 const pageUrl = new URL(specPath(doc.id), Astro.site).href;
 const description =
    doc.id === 'readme'
-      ? 'The Leji specification: an open standard for the shared context layer of AI-native teams.'
+      ? 'The Leji specification: an open specification for the shared context layer of AI-native teams.'
       : `${docTitle}, part of the Leji specification for the shared context layer of AI-native teams.`;
 const articleLd = {
    '@context': 'https://schema.org',
@@ -30,7 +30,7 @@ const articleLd = {
    url: pageUrl,
    inLanguage: 'en',
    isPartOf: { '@type': 'TechArticle', name: 'The Leji Specification', url: new URL('/spec/', Astro.site).href },
-   publisher: { '@type': 'Organization', name: 'Meteor Dreams', url: 'https://leji.org' },
+   publisher: { '@type': 'Organization', name: 'Leji', url: 'https://leji.org' },
 };
 ---
 

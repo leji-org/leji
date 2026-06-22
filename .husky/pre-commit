@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+# TruffleHog secret scan on staged changes. The same scan runs in CI
+# (.github/workflows/ci.yml → secret-scan).
+#
+# Bypass for a confirmed false positive (last resort): git commit --no-verify
+
+if ! command -v trufflehog >/dev/null 2>&1; then
+   echo "⚠ trufflehog not installed — skipping local secret scan (CI still scans)."
+   echo "  Install: brew install trufflehog  (or https://github.com/trufflesecurity/trufflehog)"
+   exit 0
+fi
+
+files=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$files" ] && exit 0
+
+echo "trufflehog: scanning staged files…"
+printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 trufflehog filesystem --only-verified --fail --no-update || {
+   echo ""
+   echo "✖ trufflehog found a verified secret in your staged changes (see above)."
+   echo "  Remove it before committing. Last resort (false positive): git commit --no-verify"
+   exit 1
+}

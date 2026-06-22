@@ -3,37 +3,82 @@ import { effectiveChangelogPath, effectiveIndexPath, loadManifest } from './lib/
 import { type CliOption, SDK_VERSION, SUPPORTED_LINES, loadCliSpec } from './lib/schemas.js';
 import { checkIndex, generateIndex, writeIndex } from './commands/indexgen.js';
 import { checkChangelogAppendOnly, validateLayer } from './commands/validate.js';
-import { compactChangelog } from './commands/changelog.js';
+import { compactChangelog, seedChangelogIfMissing } from './commands/changelog.js';
 import { conformanceReport, renderExplain } from './commands/conformance.js';
-import { generateDocs, resolveDocsPort, serveDocs } from './commands/docs.js';
+import {
+   PROTECT_WARNING,
+   buildViewer,
+   generateViewer,
+   openBrowser,
+   resolveViewerPort,
+   serveViewer,
+} from './commands/viewer.js';
 import { freshnessReport } from './commands/freshness.js';
-import { adoptLayer, enteringAdopted, enteringTheLayer, initLayer } from './commands/init.js';
+import {
+   addAgent,
+   adoptLayer,
+   ensureCiWorkflow,
+   type CiProvider,
+   enterLayer,
+   enteringAdopted,
+   enteringTheLayer,
+   enteringViaBoot,
+   handoffOffer,
+   initLayer,
+} from './commands/init.js';
 import { detectLayer, renderDetect } from './commands/detect.js';
+import { detectHosts } from './lib/detect.js';
 import { renderWritePlan } from './lib/writeplan.js';
 
 export { validateLayer } from './commands/validate.js';
 export { checkIndex, generateIndex, writeIndex } from './commands/indexgen.js';
 export { checkChangelogAppendOnly } from './commands/validate.js';
-export { compactChangelog, serializeChangelog } from './commands/changelog.js';
+export { compactChangelog, seedChangelogIfMissing, serializeChangelog } from './commands/changelog.js';
 export { conformanceReport, renderExplain } from './commands/conformance.js';
-export { buildSidebar, generateDocs, resolveDocsPort, serveDocs } from './commands/docs.js';
+export {
+   buildSidebar,
+   buildViewer,
+   buildLayerMap,
+   generateViewer,
+   resolveViewerPort,
+   serveViewer,
+} from './commands/viewer.js';
 export { freshnessReport } from './commands/freshness.js';
-export { initLayer, adoptLayer } from './commands/init.js';
+export {
+   initLayer,
+   adoptLayer,
+   addAgent,
+   handoffOffer,
+   enterLayer,
+   enteringViaBoot,
+   ensureCiWorkflow,
+   type CiProvider,
+} from './commands/init.js';
 export { detectLayer, renderDetect } from './commands/detect.js';
 export { buildWritePlan, renderWritePlan } from './lib/writeplan.js';
 export { detectHosts, resolveHostId, adapterContent, HOST_SPECS } from './lib/detect.js';
-export { loadManifest } from './lib/manifest.js';
-export { SDK_VERSION, SUPPORTED_LINES } from './lib/schemas.js';
+export { loadManifest, validateManifestObject } from './lib/manifest.js';
+export { SDK_VERSION, SUPPORTED_LINES, loadCliSpec } from './lib/schemas.js';
 export type { Finding, Severity } from './lib/findings.js';
-export type { Manifest, ConformanceLevel, CategoryId } from './lib/manifest.js';
+export type { Manifest, ManifestLoad, ConformanceLevel, CategoryId } from './lib/manifest.js';
+export type { CliSpec, CliOption } from './lib/schemas.js';
 export type { ContextIndex, IndexEntry } from './commands/indexgen.js';
 export type { CompactOptions, CompactResult } from './commands/changelog.js';
 export type { ConformanceResult, ChecklistItem } from './commands/conformance.js';
 export type { FreshnessReport } from './commands/freshness.js';
-export type { InitOptions, InitResult, AdoptOptions, AdoptResult } from './commands/init.js';
+export type {
+   InitOptions,
+   InitResult,
+   AdoptOptions,
+   AdoptResult,
+   AgentResult,
+   HandoffIo,
+   StartOptions,
+   StartOutcome,
+} from './commands/init.js';
 
 /** Terminal help, generated from cli.json so it cannot drift from the docs site. */
-function buildUsage(): string {
+export function renderUsage(): string {
    const spec = loadCliSpec();
    const out: string[] = [
       `leji ${SDK_VERSION}: reference CLI for the Leji specification (spec line ${SUPPORTED_LINES.join(', ')})`,
@@ -58,7 +103,7 @@ function buildUsage(): string {
    return out.join('\n');
 }
 
-const USAGE = buildUsage();
+const USAGE = renderUsage();
 
 interface Flags {
    root: string;
@@ -66,12 +111,11 @@ interface Flags {
    check: boolean;
    strict: boolean;
    yes: boolean;
-   serve: boolean;
+   open: boolean;
    content: boolean;
    dryRun: boolean;
    wireAdapters: boolean;
    explain: boolean;
-   ci: boolean;
    help: boolean;
    version: boolean;
    port?: number;
@@ -79,9 +123,18 @@ interface Flags {
    level?: 'core' | 'indexed';
    name?: string;
    agent?: string;
-   reviewer?: string;
+   host?: string;
+   role?: string;
+   out?: string;
    keep?: number;
    before?: string;
+   provider?: string;
+}
+
+/** A following token that is itself a flag (not a bare "-") cannot be a flag's
+ * value: `--root --json` is a missing value, not root="--json". */
+function isFlagToken(v: string | undefined): boolean {
+   return v !== undefined && v !== '-' && v.startsWith('-');
 }
 
 function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: string } {
@@ -91,12 +144,11 @@ function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: str
       check: false,
       strict: false,
       yes: false,
-      serve: false,
+      open: false,
       content: false,
       dryRun: false,
       wireAdapters: false,
       explain: false,
-      ci: false,
       help: false,
       version: false,
       dir: '.',
@@ -105,49 +157,82 @@ function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: str
    for (let i = 0; i < argv.length; i++) {
       const arg = argv[i];
       switch (arg) {
-         case '--root':
-            flags.root = argv[++i] ?? '';
-            if (!flags.root) return { flags, rest, error: '--root requires a value' };
+         case '--root': {
+            const v = argv[++i];
+            if (!v || isFlagToken(v)) return { flags, rest, error: '--root requires a value' };
+            flags.root = v;
             break;
-         case '--dir':
-            flags.dir = argv[++i] ?? '';
-            if (!flags.dir) return { flags, rest, error: '--dir requires a value' };
+         }
+         case '--dir': {
+            const v = argv[++i];
+            if (!v || isFlagToken(v)) return { flags, rest, error: '--dir requires a value' };
+            flags.dir = v;
             break;
+         }
          case '--level': {
             const v = argv[++i];
+            if (!v || isFlagToken(v)) return { flags, rest, error: '--level requires a value' };
             if (v !== 'core' && v !== 'indexed') return { flags, rest, error: '--level must be core or indexed' };
             flags.level = v;
             break;
          }
-         case '--name':
-            flags.name = argv[++i];
-            if (!flags.name) return { flags, rest, error: '--name requires a value' };
+         case '--name': {
+            const v = argv[++i];
+            if (!v || isFlagToken(v)) return { flags, rest, error: '--name requires a value' };
+            flags.name = v;
             break;
-         case '--agent':
-            flags.agent = argv[++i];
-            if (!flags.agent) return { flags, rest, error: '--agent requires a value' };
+         }
+         case '--agent': {
+            const v = argv[++i];
+            if (!v || isFlagToken(v)) return { flags, rest, error: '--agent requires a value' };
+            flags.agent = v;
             break;
-         case '--reviewer':
-            flags.reviewer = argv[++i];
-            if (!flags.reviewer) return { flags, rest, error: '--reviewer requires a value' };
+         }
+         case '--host': {
+            const v = argv[++i];
+            if (!v || isFlagToken(v)) return { flags, rest, error: '--host requires a value' };
+            flags.host = v;
             break;
+         }
+         case '--role': {
+            const v = argv[++i];
+            if (!v || isFlagToken(v)) return { flags, rest, error: '--role requires a value' };
+            flags.role = v;
+            break;
+         }
+         case '--out': {
+            const v = argv[++i];
+            if (!v || isFlagToken(v)) return { flags, rest, error: '--out requires a value' };
+            flags.out = v;
+            break;
+         }
          case '--keep': {
             const raw = argv[++i];
+            if (!raw || isFlagToken(raw)) return { flags, rest, error: '--keep requires a value' };
             const v = Number(raw);
-            if (!raw || !Number.isInteger(v) || v < 1)
-               return { flags, rest, error: '--keep must be a positive integer' };
+            if (!Number.isInteger(v) || v < 1) return { flags, rest, error: '--keep must be a positive integer' };
             flags.keep = v;
             break;
          }
-         case '--before':
-            flags.before = argv[++i];
-            if (!flags.before) return { flags, rest, error: '--before requires a value' };
+         case '--before': {
+            const v = argv[++i];
+            if (!v || isFlagToken(v)) return { flags, rest, error: '--before requires a value' };
+            flags.before = v;
             break;
-         case '--serve':
-            flags.serve = true;
+         }
+         case '--provider': {
+            const v = argv[++i];
+            if (!v || isFlagToken(v)) return { flags, rest, error: '--provider requires a value' };
+            flags.provider = v;
+            break;
+         }
+         case '--open':
+            flags.open = true;
             break;
          case '--port': {
-            const v = Number(argv[++i]);
+            const raw = argv[++i];
+            if (!raw || isFlagToken(raw)) return { flags, rest, error: '--port requires a value' };
+            const v = Number(raw);
             if (!Number.isInteger(v) || v < 0 || v > 65535) return { flags, rest, error: '--port must be 0-65535' };
             flags.port = v;
             break;
@@ -170,9 +255,6 @@ function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: str
          case '--explain':
             flags.explain = true;
             break;
-         case '--ci':
-            flags.ci = true;
-            break;
          case '--strict':
             flags.strict = true;
             break;
@@ -184,7 +266,9 @@ function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: str
          case '--help':
             flags.help = true;
             break;
-         case '-V':
+         // Version: -v and --version. No -V, there is no --verbose flag to
+         // collide with, so the GNU "-v means verbose" convention does not apply.
+         case '-v':
          case '--version':
             flags.version = true;
             break;
@@ -201,7 +285,7 @@ function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: str
 // Per-command flag validation, driven by cli.json (the documented surface): each
 // command accepts the global options plus its own declared options, and any other
 // command flag is a usage error rather than being silently ignored. (Meta-flag
-// `-h`/`-V` handling, short-circuited above, is a separate concern.)
+// `-h`/`-v` handling, short-circuited above, is a separate concern.)
 const VALUE_FLAGS = new Set([
    '--root',
    '--dir',
@@ -209,9 +293,12 @@ const VALUE_FLAGS = new Set([
    '--name',
    '--port',
    '--agent',
-   '--reviewer',
+   '--host',
+   '--role',
+   '--out',
    '--keep',
    '--before',
+   '--provider',
 ]);
 
 function flagTokens(flagsStr: string): string[] {
@@ -234,9 +321,15 @@ function seenFlags(argv: string[]): string[] {
    return out;
 }
 
+// Commands that take a subcommand (a second positional word), e.g. `changelog
+// check`, `viewer serve`. The bare form (no sub) is valid only when cli.json
+// documents it (e.g. `viewer`); a bare `changelog` is not documented and falls
+// through to the dispatcher's usage error.
+const TWO_WORD_COMMANDS = new Set(['changelog', 'viewer']);
+
 function allowedFlagsFor(command: string, sub: string | undefined): Set<string> | null {
    const spec = loadCliSpec();
-   const name = command === 'changelog' ? `changelog ${sub ?? ''}`.trim() : command;
+   const name = TWO_WORD_COMMANDS.has(command) && sub ? `${command} ${sub}` : command;
    const cmd = spec.commands.find((c) => c.name === name);
    if (!cmd) return null; // unknown command: leave it to the dispatcher's default
    const allowed = new Set<string>();
@@ -308,7 +401,7 @@ export async function run(argv: string[]): Promise<number> {
    if (allowed) {
       const bad = seenFlags(argv).find((t) => !allowed.has(t));
       if (bad) {
-         const where = command === 'changelog' && sub ? `${command} ${sub}` : command;
+         const where = TWO_WORD_COMMANDS.has(command) && sub ? `${command} ${sub}` : command;
          console.error(`leji: ${bad} is not valid for "${where}"\n`);
          console.error(USAGE);
          return 2;
@@ -331,9 +424,14 @@ export async function run(argv: string[]): Promise<number> {
                });
             }
             const result = writeIndex(flags.root, manifest);
+            // Complete the indexed surface: if the layer claims indexed (or higher)
+            // and has no changelog yet, seed it (the changelog is otherwise only
+            // written by `init --level indexed`). No-op at core or when present.
+            const seededChangelog = seedChangelogIfMissing(flags.root, manifest);
             return emit('index', [...findings, ...result.findings], flags.json, {
                written: effectiveIndexPath(manifest),
                entries: result.index?.entries.length ?? 0,
+               ...(seededChangelog ? { changelog: seededChangelog } : {}),
             });
          }
          case 'changelog': {
@@ -396,26 +494,162 @@ export async function run(argv: string[]): Promise<number> {
                ...(flags.json ? { items: result.items } : {}),
             });
          }
-         case 'docs': {
+         case 'view':
+         case 'viewer': {
+            // `leji view` is an alias for `leji viewer serve` that also opens the
+            // browser. `leji viewer` generates only; `leji viewer serve` serves.
+            const isAlias = command === 'view';
+            if (command === 'viewer' && sub !== undefined && sub !== 'serve' && sub !== 'build') {
+               console.error('leji: usage: leji viewer [serve|build]\n');
+               console.error(USAGE);
+               return 2;
+            }
+            if (isAlias && sub !== undefined) {
+               console.error('leji: usage: leji view\n');
+               console.error(USAGE);
+               return 2;
+            }
+            if (command === 'viewer' && sub === 'build') {
+               const { manifest, findings } = loadManifest(flags.root);
+               if (!manifest) return emit('viewer build', findings, flags.json);
+               const r = buildViewer(flags.root, manifest, flags.out);
+               if (r.findings.some((f) => f.severity === 'error')) {
+                  return emit('viewer build', r.findings, flags.json);
+               }
+               if (flags.json) {
+                  console.log(
+                     JSON.stringify(
+                        { command: 'viewer build', ok: true, out: r.out, warning: PROTECT_WARNING },
+                        null,
+                        2,
+                     ),
+                  );
+               } else {
+                  console.log(`Exported the static viewer to ${r.out}/`);
+                  console.log(`\n${PROTECT_WARNING}`);
+               }
+               return 0;
+            }
+            const wantServe = isAlias || sub === 'serve';
+            const wantOpen = flags.open || isAlias;
             const { manifest, findings } = loadManifest(flags.root);
-            if (!manifest) return emit('docs', findings, flags.json);
-            const result = generateDocs(flags.root, manifest);
-            const code = emit('docs', [...findings, ...result.findings], flags.json, {
+            if (!manifest) return emit('viewer', findings, flags.json);
+            const result = generateViewer(flags.root, manifest);
+            const code = emit('viewer', [...findings, ...result.findings], flags.json, {
                written: result.written.join(', '),
                entries: result.entries,
             });
-            if (!flags.serve || code !== 0) {
+            if (!wantServe || code !== 0) {
                if (!flags.json && code === 0) {
-                  console.log(`serve locally: leji docs --serve   (or any static server at the repository root)`);
+                  console.log(`serve locally: leji view   (or any static server at the repository root)`);
                }
                return code;
             }
-            const server = await serveDocs(flags.root, resolveDocsPort(manifest, flags.port));
+            const server = await serveViewer(flags.root, resolveViewerPort(manifest, flags.port), manifest.rootPath);
             const address = server.address();
-            const port = typeof address === 'object' && address ? address.port : resolveDocsPort(manifest, flags.port);
-            console.log(`serving http://127.0.0.1:${port}/${manifest.rootPath}; Ctrl+C to stop`);
+            const port =
+               typeof address === 'object' && address ? address.port : resolveViewerPort(manifest, flags.port);
+            // Display localhost (nicer, still a secure context); the server stays
+            // bound to 127.0.0.1, which localhost resolves to on loopback. The viewer
+            // is served at the web root, so the URL is just `/`.
+            const url = `http://localhost:${port}/`;
+            console.log(`serving ${url}; Ctrl+C to stop`);
+            if (wantOpen) openBrowser(url);
             // Keep the process alive until the server closes (Ctrl+C).
             await new Promise<void>((resolve) => server.on('close', resolve));
+            return 0;
+         }
+         case 'ci': {
+            const provider = flags.provider ?? 'github';
+            if (provider !== 'github' && provider !== 'gitlab' && provider !== 'circleci' && provider !== 'azure') {
+               console.error(`leji: unknown provider "${provider}"; expected github, gitlab, circleci, or azure\n`);
+               return 2;
+            }
+            const { manifest, findings } = loadManifest(flags.root);
+            if (!manifest) return emit('ci', findings, flags.json);
+            const r = ensureCiWorkflow(flags.root, provider as CiProvider);
+            if (flags.json) {
+               const out: Record<string, unknown> = {
+                  command: 'ci',
+                  ok: true,
+                  provider: r.provider,
+                  workflow: r.path,
+                  action: r.action,
+                  created: r.action === 'created',
+               };
+               if (r.action === 'manual') out.snippet = r.snippet;
+               if (r.note) out.note = r.note;
+               console.log(JSON.stringify(out, null, 2));
+            } else {
+               switch (r.action) {
+                  case 'created':
+                     console.log(`Wrote ${r.path}`);
+                     break;
+                  case 'updated':
+                     console.log(`Updated ${r.path}`);
+                     break;
+                  case 'unchanged':
+                     console.log(`${r.path} already present; nothing to do.`);
+                     break;
+                  case 'manual':
+                     console.log(
+                        `${r.path} already exists; not modifying it. Add this to your CircleCI config:\n\n${r.snippet}`,
+                     );
+                     break;
+               }
+               if (r.note) console.log(r.note);
+            }
+            return 0;
+         }
+         case 'agent': {
+            if (!flags.name) {
+               console.error('leji: agent requires --name\n');
+               console.error(USAGE);
+               return 2;
+            }
+            const { manifest, findings } = loadManifest(flags.root);
+            if (!manifest) return emit('agent', findings, flags.json);
+            const r = addAgent(flags.root, manifest, { host: flags.host, name: flags.name, role: flags.role });
+            if (flags.json) {
+               console.log(
+                  JSON.stringify(
+                     {
+                        command: 'agent',
+                        ok: true,
+                        name: r.name,
+                        role: r.role,
+                        host: r.hostId ?? null,
+                        profile: r.profilePath,
+                        created: { profile: r.profileCreated, manifest: r.manifestChanged },
+                     },
+                     null,
+                     2,
+                  ),
+               );
+            } else {
+               const lines: string[] = [];
+               lines.push(r.profileCreated ? `Wrote ${r.profilePath}` : `${r.profilePath} already present`);
+               const roleHost = r.hostId ? `role ${r.role}, host ${r.hostId}` : `role ${r.role}`;
+               lines.push(
+                  r.manifestChanged
+                     ? `Bound agent "${r.name}" (${roleHost}) in leji.json`
+                     : `agent "${r.name}" already bound in leji.json; nothing to do.`,
+               );
+               console.log(lines.join('\n'));
+            }
+            return 0;
+         }
+         case 'start': {
+            const { manifest, findings } = loadManifest(flags.root);
+            if (!manifest) return emit('start', findings, flags.json);
+            const detected = detectHosts({ root: flags.root });
+            const interactive = !flags.yes && Boolean(process.stdin.isTTY);
+            const outcome = await enterLayer({ root: flags.root, manifest, detected, agent: flags.agent, interactive });
+            if (outcome === 'boot-missing') {
+               console.error(`leji: boot profile ${manifest.bootProfilePath} is missing or invalid; run leji validate`);
+               return 1;
+            }
+            if (outcome === 'fallback') console.log(enteringViaBoot(manifest));
             return 0;
          }
          case 'detect': {
@@ -444,7 +678,17 @@ export async function run(argv: string[]): Promise<number> {
             }
             console.log(`\nWrote ${result.written.length} files (context root: ${result.detectedRoot}):`);
             for (const rel of result.written) console.log(`   ${rel}`);
-            console.log(enteringAdopted(result));
+            if (
+               !(await handoffOffer(
+                  result.manifest,
+                  result.detected,
+                  !flags.yes && Boolean(process.stdin.isTTY),
+                  undefined,
+                  flags.agent,
+               ))
+            ) {
+               console.log(enteringAdopted(result));
+            }
             return 0;
          }
          case 'init': {
@@ -455,8 +699,6 @@ export async function run(argv: string[]): Promise<number> {
                level: flags.level,
                dryRun: flags.dryRun,
                agent: flags.agent,
-               reviewer: flags.reviewer,
-               ci: flags.ci,
             });
             if (result.dryRun) {
                console.log('\n' + renderWritePlan(result.plan));
@@ -465,7 +707,17 @@ export async function run(argv: string[]): Promise<number> {
             }
             console.log(`\nWrote ${result.written.length} files:`);
             for (const rel of result.written) console.log(`   ${rel}`);
-            console.log(enteringTheLayer(result.manifest));
+            if (
+               !(await handoffOffer(
+                  result.manifest,
+                  result.detected,
+                  !flags.yes && Boolean(process.stdin.isTTY),
+                  undefined,
+                  flags.agent,
+               ))
+            ) {
+               console.log(enteringTheLayer(result.manifest));
+            }
             return 0;
          }
          default:

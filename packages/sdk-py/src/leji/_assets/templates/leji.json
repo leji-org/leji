@@ -38,7 +38,7 @@
     "agentProfilesPath": "docs/agents/",
     "decisionRecordsPath": "docs/decisions/"
   },
-  "docs": {
+  "viewer": {
     "port": 5354
   },
   "agents": {

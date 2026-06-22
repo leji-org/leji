@@ -26,6 +26,25 @@ func gitInit(t *testing.T, dir string) {
 	}
 }
 
+// gitCommitAll stages and commits everything in dir so the working tree is clean
+// before init/adopt runs (the dirty-tree guard refuses an uncommitted tree).
+func gitCommitAll(t *testing.T, dir string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		return
+	}
+	add := exec.Command("git", "add", "-A")
+	add.Dir = dir
+	if err := add.Run(); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	commit := exec.Command("git", "-c", "user.name=T", "-c", "user.email=t@e.com", "commit", "-q", "-m", "seed")
+	commit.Dir = dir
+	if err := commit.Run(); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+}
+
 // adopt reuses an existing docs root and migrates vendor content (draft).
 func TestAdoptReusesDocsRootAndMigrates(t *testing.T) {
 	dir := t.TempDir()
@@ -39,6 +58,7 @@ func TestAdoptReusesDocsRootAndMigrates(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("Always run tests. Use 3-space indent.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	gitCommitAll(t, dir)
 
 	res, err := AdoptLayer(AdoptOptions{Dir: dir, Yes: true})
 	if err != nil {
@@ -95,6 +115,7 @@ func TestAdoptWireAdaptersConvertsAndValidates(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("Always run tests.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	gitCommitAll(t, dir)
 
 	res, err := AdoptLayer(AdoptOptions{Dir: dir, Yes: true, WireAdapters: true})
 	if err != nil {
@@ -167,6 +188,7 @@ func TestAdoptWireAdaptersMigratesMixedFile(t *testing.T) {
 		[]byte("Read docs/boot-profile.md first. Never deploy on Fridays.\nAlways run the full test suite before committing.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	gitCommitAll(t, dir)
 	res, err := AdoptLayer(AdoptOptions{Dir: dir, Yes: true, WireAdapters: true})
 	if err != nil {
 		t.Fatalf("adopt --wire-adapters: %v", err)
@@ -203,6 +225,7 @@ func TestAdoptWireAdaptersSkipsCanonicalRedirect(t *testing.T) {
 		[]byte(detect.AdapterContent("docs/boot-profile.md")), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	gitCommitAll(t, dir)
 	res, err := AdoptLayer(AdoptOptions{Dir: dir, Yes: true, WireAdapters: true})
 	if err != nil {
 		t.Fatalf("adopt --wire-adapters: %v", err)

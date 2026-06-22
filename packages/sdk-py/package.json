@@ -1,12 +1,12 @@
 {
    "name": "@leji-internal/sdk-py",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "private": true,
    "description": "npm workspace stub for the Python SDK; the real package metadata is pyproject.toml. Lets `npm test --workspaces` run the pytest suite. Never published to npm.",
    "scripts": {
-      "build": "./.venv/bin/python -m build --outdir dist 2>/dev/null || python3 -m build --outdir dist",
-      "lint": "(./.venv/bin/python -m ruff check . && ./.venv/bin/python -m ruff format --check . && ./.venv/bin/python -m mypy src) 2>/dev/null || (ruff check . && ruff format --check . && mypy src)",
-      "test": "npm run lint && (./.venv/bin/python -m pytest -q 2>/dev/null || python3 -m pytest -q)",
-      "coverage": "(./.venv/bin/coverage run -m pytest -q 2>/dev/null || coverage run -m pytest -q) && (./.venv/bin/coverage report 2>/dev/null || coverage report)"
+      "build": "PY=$([ -x ./.venv/bin/python ] && echo ./.venv/bin/python || echo python3); \"$PY\" -m build --outdir dist",
+      "lint": "PY=$([ -x ./.venv/bin/python ] && echo ./.venv/bin/python || echo python3); \"$PY\" -m ruff check . && \"$PY\" -m ruff format --check . && \"$PY\" -m mypy src",
+      "test": "PY=$([ -x ./.venv/bin/python ] && echo ./.venv/bin/python || echo python3); npm run lint && \"$PY\" -m pytest -q",
+      "coverage": "PY=$([ -x ./.venv/bin/python ] && echo ./.venv/bin/python || echo python3); \"$PY\" -m coverage run -m pytest -q && \"$PY\" -m coverage report"
    }
 }

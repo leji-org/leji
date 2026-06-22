@@ -187,7 +187,7 @@ func ReadJSONArtifact(root, relPath string) (any, *findings.Finding) {
 	}
 	if !fsx.ResolvesUnder(root, abs) {
 		f := findings.New("artifact-parse", findings.Error,
-			"artifact path resolves outside the layer root", relPath)
+			fmt.Sprintf("artifact %s resolves outside the layer root", relPath), relPath)
 		return nil, &f
 	}
 	text, err := fsx.ReadText(abs)

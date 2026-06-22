@@ -83,7 +83,9 @@ export function conformanceReport(root: string): ConformanceResult {
       return { claimedLevel: null, verifiedLevel: null, items, findings: sortFindings(findings) };
    }
 
-   const bootErrors = errorsBy(['missing-declared-file']).filter((f) => f.path === manifest.bootProfilePath);
+   const bootErrors = errorsBy(['missing-declared-file', 'path-escapes-root']).filter(
+      (f) => f.path === manifest.bootProfilePath,
+   );
    add(
       'boot-profile',
       'core',

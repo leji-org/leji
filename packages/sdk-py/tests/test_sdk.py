@@ -85,6 +85,17 @@ def test_init_refuses_overwrite(tmp_path: Path) -> None:
         init_layer(str(tmp_path), yes=True)
 
 
+def test_init_writes_gitignore(tmp_path: Path) -> None:
+    result = init_layer(str(tmp_path), yes=True)
+    gitignore = tmp_path / ".gitignore"
+    assert gitignore.is_file()
+    lines = gitignore.read_text().split("\n")
+    # The exact `.leji/` line is present exactly once, idempotently, and the
+    # .gitignore is not part of the written list.
+    assert lines.count(".leji/") == 1
+    assert ".gitignore" not in result.written
+
+
 def test_init_emits_no_machine_block_core(tmp_path: Path) -> None:
     result = init_layer(str(tmp_path), yes=True)
     assert "machine" not in result.manifest, "in-memory manifest carries no machine key"

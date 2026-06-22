@@ -4,31 +4,60 @@ import path from 'node:path';
 import { Code } from 'astro:components';
 import Doc from '../layouts/Doc.astro';
 import SupportedRuntimes from '../components/SupportedRuntimes.astro';
+import InstallTabs from '../components/InstallTabs.astro';
 
 // Single-sourced from the SDK's canonical CLI spec; the terminal `leji --help`
 // renders from the same file, so this page and the tool cannot disagree.
 const cli = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), '../../packages/sdk/cli.json'), 'utf-8'));
 const slug = (name: string) => name.replace(/\s+/g, '-');
+
+// Render inline `code` spans from the canonical copy: split on backticks, the
+// odd segments are code. Returns plain segments (text stays an escaped string
+// child, never set:html) so this is safe for the controlled cli.json copy.
+const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i % 2 === 1 }));
 ---
 
 <Doc
    title="CLI reference · Leji"
-   description="Every leji command: validate, index, changelog check and compact, freshness, conformance, docs, detect, adopt, and init, with flags, exit codes, and examples."
+   description="Every leji command: validate, index, changelog, freshness, conformance, viewer, viewer serve, viewer build, view, detect, adopt, init, start, ci, and agent, with flags, exit codes, and examples."
 >
    <h1>CLI reference</h1>
    <p class="sp-lede">{cli.summary}</p>
    <p>
-      The command surface is identical across all runtimes; see the <a href="/quickstart/">Quickstart</a> for install commands.
-      Every command takes <code>--root &lt;dir&gt;</code>; the reporting commands also emit machine-readable <code
+      Install it below in whichever runtime your toolchain or CI uses; the command surface is identical across all
+      three. Every command takes <code>--root &lt;dir&gt;</code>; the reporting commands also emit machine-readable <code
          >--json</code
-      >. The same spec generates both this reference and <code>leji --help</code>.
+      >. The same spec generates both this reference and <code>leji --help</code>. Working through an agent? The same
+      validation and conformance are available as <a href="/mcp/">MCP tools</a>.
    </p>
 
    <div class="runtimes-block">
       <SupportedRuntimes />
    </div>
 
+   <div class="cli-install">
+      <p class="cli-install-label">Install</p>
+      <div class="cli-install-tabs"><InstallTabs /></div>
+      <p class="cli-install-next">
+         New to Leji? The <a href="/quickstart/">Quickstart</a> walks through installing, then scaffolding or adopting your
+         first context layer.
+      </p>
+   </div>
+
    <div class="cli-code"><Code code={cli.usage} lang="bash" theme="night-owl" /></div>
+
+   <aside class="cli-onboarding">
+      <h2>Agent onboarding</h2>
+      <p>
+         Bring a repository into a context layer.
+         <a href="#adopt"><code>leji adopt</code></a> maps an existing repo and migrates <code>CLAUDE.md</code> /
+         <code>AGENTS.md</code> into the context layer (with <code>--wire-adapters</code> it converts those existing entrypoints
+         into one-line redirects); <a href="#init"><code>leji init</code></a> scaffolds a new one with an onboarding brief
+         for your agent to fill; <a href="#detect"><code>leji detect</code></a> finds installed hosts, and <a
+            href="#start"><code>leji start</code></a
+         > opens one in the layer. Preview <code>init</code> or <code>adopt</code> with <code>--dry-run</code>.
+      </p>
+   </aside>
 
    <h2>Commands</h2>
    <table class="cli-table cmd-table">
@@ -41,7 +70,7 @@ const slug = (name: string) => name.replace(/\s+/g, '-');
                         <code>{c.name}</code>
                      </a>
                   </td>
-                  <td>{c.summary}</td>
+                  <td>{segments(c.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
                </tr>
             ))
          }
@@ -89,7 +118,14 @@ const slug = (name: string) => name.replace(/\s+/g, '-');
             <h2 id={slug(c.name)}>
                <code>leji {c.name}</code>
             </h2>
-            <p>{c.description}</p>
+            <p>{segments(c.description).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</p>
+            {c.details?.length > 0 && (
+               <ul class="cmd-details">
+                  {c.details.map((d: string) => (
+                     <li>{segments(d).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</li>
+                  ))}
+               </ul>
+            )}
             <div class="cli-code">
                <Code code={c.usage} lang="bash" theme="night-owl" />
             </div>
@@ -117,6 +153,22 @@ const slug = (name: string) => name.replace(/\s+/g, '-');
 </Doc>
 
 <style>
+   .cli-onboarding {
+      margin: 1.8rem 0 0.6rem;
+      padding: 1.1rem 1.3rem;
+      border-left: 3px solid var(--gold);
+      background: rgba(255, 189, 110, 0.08);
+      border-radius: 0 8px 8px 0;
+   }
+   .cli-onboarding h2 {
+      margin: 0 0 0.4rem;
+      font-size: 1.1rem;
+   }
+   .cli-onboarding p {
+      margin: 0;
+      color: var(--ink-soft);
+   }
+
    /* command names read like the schema links: blue pill, gold link underline,
       not bold (each still jumps to its detail section) */
    .cmd-table td a code {
@@ -126,9 +178,33 @@ const slug = (name: string) => name.replace(/\s+/g, '-');
       background: rgba(34, 63, 147, 0.13);
    }
 
-   /* breathing room between the supported-runtimes line and the usage block */
    .runtimes-block {
-      margin-bottom: 1.6rem;
+      margin-bottom: 1.2rem;
+   }
+
+   /* on-page install: same single-sourced tabs as the hero/quickstart, in a
+      dark wrapper because InstallTabs is styled for a dark background */
+   .cli-install {
+      margin: 0 0 1.8rem;
+   }
+   .cli-install-label {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+      margin: 0 0 0.6rem;
+   }
+   .cli-install-tabs {
+      background: var(--blue-deep);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(22, 41, 96, 0.14);
+      overflow: hidden;
+   }
+   .cli-install-next {
+      margin: 0.9rem 0 0;
+      font-size: 0.9rem;
+      color: var(--ink-soft);
    }
 
    .cli-table {
@@ -171,6 +247,30 @@ const slug = (name: string) => name.replace(/\s+/g, '-');
       color: var(--blue-deep);
       background: none;
       padding: 0;
+   }
+   /* per-command sub-points: quiet bullets with a small gold marker, tied to the
+      same accent the onboarding aside uses; the code spans inherit prose styling */
+   .cmd-details {
+      margin: 0.9rem 0 0;
+      padding: 0;
+      list-style: none;
+   }
+   .cmd-details li {
+      position: relative;
+      padding-left: 1.1rem;
+      margin: 0.5rem 0;
+      color: var(--ink-soft);
+      line-height: 1.6;
+   }
+   .cmd-details li::before {
+      content: '';
+      position: absolute;
+      left: 0.1rem;
+      top: 0.62em;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--gold);
    }
    .ex-label {
       font-family: var(--mono);
