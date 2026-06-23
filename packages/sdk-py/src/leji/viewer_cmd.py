@@ -446,19 +446,9 @@ class _SafeViewerHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # type: ignore[override]
         pass
 
-    @staticmethod
-    def _within(root_real: str, candidate_real: str) -> bool:
-        # commonpath raises ValueError across drives or on mixed abs/rel input; treat
-        # either as outside the mount.
-        try:
-            return os.path.commonpath([root_real, candidate_real]) == root_real
-        except ValueError:
-            return False
-
     def _serve_from(self, mount_root: str, sub: str) -> None:
-        # Reject absolute, drive-qualified, or parent-traversal request paths at the
-        # source so untrusted input never reaches the filesystem join; the realpath +
-        # commonpath containment below is defense in depth.
+        # Reject absolute/drive/parent-traversal paths, then realpath + commonpath-contain
+        # before any filesystem access.
         root_real = os.path.realpath(mount_root)
         norm = os.path.normpath(sub).replace(os.sep, "/") if sub else ""
         if norm in (".", "/"):
@@ -478,18 +468,26 @@ class _SafeViewerHandler(BaseHTTPRequestHandler):
             os.path.join(root_real, "index.html") if norm == "" else os.path.join(root_real, norm)
         )
         real = os.path.realpath(target)
-        if not self._within(root_real, real):
+        try:
+            inside = os.path.commonpath([root_real, real]) == root_real
+        except ValueError:
+            inside = False
+        if not inside:
             self.send_response(403)
             self.end_headers()
             self.wfile.write(b"forbidden")
             return
         if os.path.isdir(real):
             real = os.path.realpath(os.path.join(real, "index.html"))
-            if not self._within(root_real, real):
-                self.send_response(403)
-                self.end_headers()
-                self.wfile.write(b"forbidden")
-                return
+            try:
+                inside = os.path.commonpath([root_real, real]) == root_real
+            except ValueError:
+                inside = False
+        if not inside:
+            self.send_response(403)
+            self.end_headers()
+            self.wfile.write(b"forbidden")
+            return
         try:
             with open(real, "rb") as fh:
                 body = fh.read()
