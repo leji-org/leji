@@ -456,12 +456,26 @@ class _SafeViewerHandler(BaseHTTPRequestHandler):
             return False
 
     def _serve_from(self, mount_root: str, sub: str) -> None:
-        # Serve `sub` (a clean relative path) from under `mount_root`; '' -> index.html.
-        # Resolve to a realpath and confirm containment before any filesystem access,
-        # then read only that validated path, so neither traversal nor a symlink escapes.
+        # Reject absolute, drive-qualified, or parent-traversal request paths at the
+        # source so untrusted input never reaches the filesystem join; the realpath +
+        # commonpath containment below is defense in depth.
         root_real = os.path.realpath(mount_root)
+        norm = os.path.normpath(sub).replace(os.sep, "/") if sub else ""
+        if norm in (".", "/"):
+            norm = ""
+        if norm and (
+            os.path.isabs(sub)
+            or sub.startswith(("/", "\\"))
+            or re.match(r"^[A-Za-z]:", sub) is not None
+            or norm == ".."
+            or norm.startswith("../")
+        ):
+            self.send_response(403)
+            self.end_headers()
+            self.wfile.write(b"forbidden")
+            return
         target = (
-            os.path.join(root_real, "index.html") if sub == "" else os.path.join(root_real, sub)
+            os.path.join(root_real, "index.html") if norm == "" else os.path.join(root_real, norm)
         )
         real = os.path.realpath(target)
         if not self._within(root_real, real):
