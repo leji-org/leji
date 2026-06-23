@@ -460,7 +460,9 @@ class _SafeViewerHandler(BaseHTTPRequestHandler):
         # Resolve to a realpath and confirm containment before any filesystem access,
         # then read only that validated path, so neither traversal nor a symlink escapes.
         root_real = os.path.realpath(mount_root)
-        target = os.path.join(root_real, "index.html") if sub == "" else os.path.join(root_real, sub)
+        target = (
+            os.path.join(root_real, "index.html") if sub == "" else os.path.join(root_real, sub)
+        )
         real = os.path.realpath(target)
         if not self._within(root_real, real):
             self.send_response(403)
