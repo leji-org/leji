@@ -446,6 +446,15 @@ class _SafeViewerHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # type: ignore[override]
         pass
 
+    @staticmethod
+    def _within(root_real: str, candidate_real: str) -> bool:
+        # commonpath raises ValueError across drives or on mixed abs/rel input; treat
+        # either as outside the mount.
+        try:
+            return os.path.commonpath([root_real, candidate_real]) == root_real
+        except ValueError:
+            return False
+
     def _serve_from(self, mount_root: str, sub: str) -> None:
         # Serve `sub` (a clean relative path) from under `mount_root`; '' -> index.html.
         # Resolve to a realpath and confirm containment before any filesystem access,
@@ -453,14 +462,14 @@ class _SafeViewerHandler(BaseHTTPRequestHandler):
         root_real = os.path.realpath(mount_root)
         target = os.path.join(root_real, "index.html") if sub == "" else os.path.join(root_real, sub)
         real = os.path.realpath(target)
-        if real != root_real and not real.startswith(root_real + os.sep):
+        if not self._within(root_real, real):
             self.send_response(403)
             self.end_headers()
             self.wfile.write(b"forbidden")
             return
         if os.path.isdir(real):
             real = os.path.realpath(os.path.join(real, "index.html"))
-            if real != root_real and not real.startswith(root_real + os.sep):
+            if not self._within(root_real, real):
                 self.send_response(403)
                 self.end_headers()
                 self.wfile.write(b"forbidden")
