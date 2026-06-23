@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { type Finding, finding, sortFindings } from '../lib/findings.js';
-import { exists, isFile, readText, underPath, walkMd } from '../lib/fsx.js';
+import { exists, isFile, readText, readTextWithin, resolvedWithinRoot, underPath, walkMd } from '../lib/fsx.js';
 import { parseFrontmatter } from '../lib/frontmatter.js';
 import { gitShowHead, gitToplevel } from '../lib/git.js';
 import {
@@ -73,7 +73,11 @@ function checkDeclaredFile(root: string, rel: string, what: string, findings: Fi
 function checkBootProfile(root: string, manifest: Manifest, findings: Finding[]): void {
    const rel = manifest.bootProfilePath;
    if (!checkDeclaredFile(root, rel, 'boot profile', findings)) return;
-   const text = readText(path.join(root, rel));
+   const text = readTextWithin(path.resolve(root), path.join(root, rel));
+   if (text === null) {
+      findings.push(finding('path-escapes-root', 'error', 'boot profile resolves outside the layer root', rel));
+      return;
+   }
 
    const headings = [...text.matchAll(/^#{1,6}\s+(.+)$/gm)].map((m) => m[1].toLowerCase());
    for (const section of ['identity', 'loading', 'posture']) {
@@ -164,6 +168,9 @@ function checkVendorAdapters(root: string, manifest: Manifest, findings: Finding
    for (const rel of candidates) {
       const abs = path.join(root, rel);
       if (!isFile(abs)) continue;
+      // A vendor entrypoint that is a symlink resolving outside the layer root is
+      // not read (matches adopt, which treats such files as absent).
+      if (!resolvedWithinRoot(path.resolve(root), abs)) continue;
       if (!readText(abs).includes(manifest.bootProfilePath)) {
          findings.push(
             finding(
@@ -201,7 +208,14 @@ function checkAgentsMap(root: string, manifest: Manifest, findings: Finding[]): 
       // Targets under agentProfilesPath are validated by the directory scan;
       // targets outside it still owe a valid agent-profile frontmatter.
       if (underPath(rel, profilesDir)) continue;
-      const fm = parseFrontmatter(readText(path.join(root, rel)));
+      const text = readTextWithin(path.resolve(root), path.join(root, rel));
+      if (text === null) {
+         findings.push(
+            finding('path-escapes-root', 'error', `agents.${role} profile resolves outside the layer root`, rel),
+         );
+         continue;
+      }
+      const fm = parseFrontmatter(text);
       if (fm.error) {
          findings.push(finding('profile-frontmatter', 'error', fm.error, rel));
       } else if (!fm.data) {
@@ -266,8 +280,15 @@ function checkFederationMounts(root: string, manifest: Manifest, findings: Findi
          );
          continue;
       }
+      const raw = readTextWithin(path.resolve(root), siblingManifest);
+      if (raw === null) {
+         findings.push(
+            finding('mount-not-a-layer', 'warning', 'mounted leji.json resolves outside the layer root', mount.path),
+         );
+         continue;
+      }
       try {
-         const sibling = JSON.parse(readText(siblingManifest)) as { name?: unknown };
+         const sibling = JSON.parse(raw) as { name?: unknown };
          if (typeof sibling.name === 'string' && sibling.name !== mount.name) {
             findings.push(
                finding(
@@ -473,17 +494,24 @@ const GENERIC_IDENTITY = 'Shared context layer for this repository.';
 
 /** Body text of the first heading whose title contains `heading`, up to the next heading. */
 function sectionBody(text: string, heading: string): string {
-   const re = new RegExp(`^#{1,6}\\s+.*${heading}.*$`, 'im');
-   const m = re.exec(text);
-   if (!m) return '';
-   const rest = text.slice(m.index + m[0].length);
-   const next = /^#{1,6}\s+/m.exec(rest);
-   return (next ? rest.slice(0, next.index) : rest).trim();
+   // Scan heading lines linearly and substring-test the title, not an
+   // interpolated `\s+.*…*` regex that backtracks on long whitespace.
+   const needle = heading.toLowerCase();
+   let bodyStart = -1;
+   for (const m of text.matchAll(/^#{1,6}[ \t]+(.*)$/gm)) {
+      const at = m.index ?? 0;
+      if (bodyStart === -1) {
+         if (m[1].toLowerCase().includes(needle)) bodyStart = at + m[0].length;
+      } else {
+         return text.slice(bodyStart, at).trim();
+      }
+   }
+   return bodyStart === -1 ? '' : text.slice(bodyStart).trim();
 }
 
 /**
  * Opt-in content lint (`validate --content`): warning-only signals that a layer
- * is still a scaffold rather than real context — placeholder text, a generic
+ * is still a scaffold rather than real context: placeholder text, a generic
  * boot identity, thin domain/system categories. Never errors and never affects a
  * conformance level (conformance.md defines "populated" structurally); this is
  * guidance toward a layer worth reading.
@@ -491,8 +519,11 @@ function sectionBody(text: string, heading: string): string {
 export function contentFindings(root: string, manifest: Manifest): Finding[] {
    const out: Finding[] = [];
    const bootRel = manifest.bootProfilePath;
-   if (isFile(path.join(root, bootRel))) {
-      const boot = readText(path.join(root, bootRel));
+   // Confine the read: a symlinked boot profile escaping root is skipped (the
+   // structural pass already flags it as path-escapes-root). Content lint is
+   // advisory, so an unreadable boot profile yields no content findings.
+   const boot = readTextWithin(path.resolve(root), path.join(root, bootRel));
+   if (boot !== null) {
       if (PLACEHOLDER_RE.test(boot)) {
          out.push(
             finding(

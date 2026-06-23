@@ -1,0 +1,70 @@
+#!/usr/bin/env sh
+# Pre-push guard: (1) branch-naming allowlist, then (2) TruffleHog secret scan on
+# the commits being pushed (defense in depth on top of pre-commit and CI). Reads
+# ref updates on stdin per the git pre-push contract.
+#
+# The branch-name check is fast local feedback; the server-side ruleset on origin
+# is the authoritative gate (this hook is bypassable with --no-verify).
+#
+# Bypass for a confirmed false positive / intentional override: git push --no-verify
+
+ZERO="0000000000000000000000000000000000000000"
+
+# stdin can only be read once; capture the ref list and feed both checks from it.
+_refs="$(cat)"
+
+# (1) Branch-naming allowlist: only main and {feat,chore,fix,context,release}/*
+# may be pushed. The here-doc (not a pipe) keeps the loop in this shell so the
+# violation flag survives.
+_violation=0
+while read -r _lref _lsha _rref _rsha; do
+   [ "$_lsha" = "$ZERO" ] && continue # deleting a branch is allowed
+   case "$_rref" in
+      refs/heads/*) ;;
+      *) continue ;; # tags and other refs are not name-restricted here
+   esac
+   _branch="${_rref#refs/heads/}"
+   case "$_branch" in
+      main | feat/* | chore/* | fix/* | context/* | release/*) ;;
+      *)
+         echo "✖ Refusing to push branch '$_branch'."
+         echo "  Allowed: main, or {feat,chore,fix,context,release}/<name> (e.g. release/v1.2.0)."
+         _violation=1
+         ;;
+   esac
+done <<EOF
+$_refs
+EOF
+if [ "$_violation" -ne 0 ]; then
+   echo "  Rename the branch to match, or override with: git push --no-verify"
+   exit 1
+fi
+
+# (2) TruffleHog secret scan.
+if ! command -v trufflehog >/dev/null 2>&1; then
+   echo "⚠ trufflehog not installed — skipping local pre-push secret scan (CI still scans)."
+   exit 0
+fi
+
+repo="file://$(git rev-parse --show-toplevel)"
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+   [ "$local_sha" = "$ZERO" ] && continue # deleting a ref — nothing to scan
+   if [ "$remote_sha" = "$ZERO" ]; then
+      echo "trufflehog: scanning new ref $local_ref (full history)…"
+      trufflehog git "$repo" --only-verified --fail --no-update || status=1
+   else
+      echo "trufflehog: scanning ${remote_sha}..${local_sha}…"
+      trufflehog git "$repo" --since-commit "$remote_sha" --only-verified --fail --no-update || status=1
+   fi
+done <<EOF
+$_refs
+EOF
+
+if [ "$status" -ne 0 ]; then
+   echo ""
+   echo "✖ trufflehog found a verified secret in the commits you're pushing (see above)."
+   echo "  Rewrite history to remove it before pushing. Last resort: git push --no-verify"
+   exit 1
+fi

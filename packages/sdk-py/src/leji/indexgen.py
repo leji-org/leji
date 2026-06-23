@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .findings import Finding
-from .fsx import is_contained
+from .fsx import is_contained, resolved_within_root
 from .gitutil import git_last_modified, git_toplevel
 from .layer import duplicate_id_findings, read_json_artifact, scan_categories
 from .manifest import Manifest, effective_index_path
@@ -195,13 +195,20 @@ def check_index(root: str, manifest: Manifest) -> IndexResult:
     """
     rel = effective_index_path(manifest)
     findings: list[Finding] = []
-    if not (Path(root) / rel).is_file() or not is_contained(root, Path(root) / rel):
+    if not (Path(root) / rel).is_file():
         findings.append(
             Finding(
                 "index-required",
                 "error",
                 f"index {rel} does not exist; run `leji index`",
                 rel,
+            )
+        )
+        return IndexResult(index=None, findings=findings, stale=True)
+    if not is_contained(root, Path(root) / rel):
+        findings.append(
+            Finding(
+                "artifact-parse", "error", f"artifact {rel} resolves outside the layer root", rel
             )
         )
         return IndexResult(index=None, findings=findings, stale=True)
@@ -285,21 +292,22 @@ def write_index(root: str, manifest: Manifest) -> IndexResult:
     result = generate_index(root, manifest)
     if result.index is not None:
         abs_path = Path(root) / rel
-        abs_path.parent.mkdir(parents=True, exist_ok=True)
-        # Refuse to write the index through a path that escapes the repo root
-        # (e.g. a pre-existing symlink at the index location pointing elsewhere).
-        if not is_contained(root, abs_path):
+        # Contain before creating any directory: resolved_within_root resolves the
+        # nearest existing ancestor, so a symlinked ancestor of this not-yet-existing
+        # target is caught before mkdir/write can escape the layer root.
+        if not resolved_within_root(root, abs_path):
             return IndexResult(
                 index=result.index,
                 findings=[
                     *result.findings,
                     Finding(
-                        "index-required",
+                        "artifact-parse",
                         "error",
-                        f"declared index {rel} resolves outside the repository root; refusing to write",
+                        f"index path {rel} resolves outside the layer root",
                         rel,
                     ),
                 ],
             )
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
         abs_path.write_text(serialize_index(result.index), encoding="utf-8")
     return result

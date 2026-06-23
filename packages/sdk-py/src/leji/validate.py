@@ -10,7 +10,7 @@ from typing import Optional
 
 from .findings import Finding, sort_findings
 from .frontmatter import parse_frontmatter
-from .fsx import under_path, walk_md
+from .fsx import resolved_within_root, under_path, walk_md
 from .gitutil import git_show_head, git_toplevel
 from .indexgen import check_index
 from .layer import (
@@ -73,7 +73,15 @@ def _check_boot_profile(root: str, manifest: Manifest, findings: list[Finding]) 
     rel = manifest["bootProfilePath"]
     if not _check_declared_file(root, rel, "boot profile", findings):
         return
-    text = (Path(root) / rel).read_text(encoding="utf-8")
+    boot_abs = Path(root) / rel
+    if not resolved_within_root(root, boot_abs):
+        findings.append(
+            Finding(
+                "path-escapes-root", "error", "boot profile resolves outside the layer root", rel
+            )
+        )
+        return
+    text = boot_abs.read_text(encoding="utf-8")
 
     headings = [m.group(1).lower() for m in re.finditer(r"^#{1,6}\s+(.+)$", text, re.MULTILINE)]
     for section in ["identity", "loading", "posture"]:
@@ -168,6 +176,10 @@ def _check_vendor_adapters(root: str, manifest: Manifest, findings: list[Finding
         abs_path = Path(root) / rel
         if not abs_path.is_file():
             continue
+        # A vendor entrypoint that is a symlink resolving outside the layer root is
+        # not read (matches adopt, which treats such files as absent).
+        if not resolved_within_root(root, abs_path):
+            continue
         if manifest["bootProfilePath"] not in abs_path.read_text(encoding="utf-8"):
             findings.append(
                 Finding(
@@ -205,7 +217,18 @@ def _check_agents_map(root: str, manifest: Manifest, findings: list[Finding]) ->
         # targets outside it still owe a valid agent-profile frontmatter.
         if under_path(rel, profiles_dir):
             continue
-        fm = parse_frontmatter((Path(root) / rel).read_text(encoding="utf-8"))
+        agent_abs = Path(root) / rel
+        if not resolved_within_root(root, agent_abs):
+            findings.append(
+                Finding(
+                    "path-escapes-root",
+                    "error",
+                    f"agents.{role} profile resolves outside the layer root",
+                    rel,
+                )
+            )
+            continue
+        fm = parse_frontmatter(agent_abs.read_text(encoding="utf-8"))
         if fm.error:
             findings.append(Finding("profile-frontmatter", "error", fm.error, rel))
         elif fm.data is None:
@@ -274,6 +297,16 @@ def _check_federation_mounts(root: str, manifest: Manifest, findings: list[Findi
                     "mount-not-a-layer",
                     "warning",
                     "mounted path carries no leji.json; a sibling layer brings its own manifest",
+                    mount["path"],
+                )
+            )
+            continue
+        if not resolved_within_root(root, sibling_manifest):
+            findings.append(
+                Finding(
+                    "mount-not-a-layer",
+                    "warning",
+                    "mounted leji.json resolves outside the layer root",
                     mount["path"],
                 )
             )
@@ -511,26 +544,37 @@ _GENERIC_IDENTITY = "Shared context layer for this repository."
 _BULLET_RE = re.compile(r"^\s*-\s+\S")
 
 
+# Heading lines via a linear pattern; the title is substring-tested in code,
+# not interpolated into a `\s+.*…*` regex that backtracks on long whitespace.
+_HEADING_LINE_RE = re.compile(r"^#{1,6}[ \t]+(.*)$", re.MULTILINE)
+
+
 def _section_body(text: str, heading: str) -> str:
     """Body text of the first heading whose title contains ``heading``, up to
     the next heading."""
-    m = re.search(rf"^#{{1,6}}\s+.*{heading}.*$", text, re.IGNORECASE | re.MULTILINE)
-    if not m:
-        return ""
-    rest = text[m.end() :]
-    nxt = re.search(r"^#{1,6}\s+", rest, re.MULTILINE)
-    return (rest[: nxt.start()] if nxt else rest).strip()
+    needle = heading.lower()
+    body_start = -1
+    for m in _HEADING_LINE_RE.finditer(text):
+        if body_start == -1:
+            if needle in m.group(1).lower():
+                body_start = m.end()
+        else:
+            return text[body_start : m.start()].strip()
+    return "" if body_start == -1 else text[body_start:].strip()
 
 
 def content_findings(root: str, manifest: Manifest) -> list[Finding]:
     """Opt-in content lint (``validate --content``): warning-only signals that a
-    layer is still a scaffold rather than real context — placeholder text, a
+    layer is still a scaffold rather than real context: placeholder text, a
     generic boot identity, thin domain/system categories. Never errors and never
     affects a conformance level; this is guidance toward a layer worth reading."""
     out: list[Finding] = []
     boot_rel = manifest["bootProfilePath"]
-    if (Path(root) / boot_rel).is_file():
-        boot = (Path(root) / boot_rel).read_text(encoding="utf-8")
+    boot_abs = Path(root) / boot_rel
+    # Confine the read: a symlinked boot profile escaping root is skipped (the
+    # structural pass already flags it). Content lint is advisory.
+    if boot_abs.is_file() and resolved_within_root(root, boot_abs):
+        boot = boot_abs.read_text(encoding="utf-8")
         if _PLACEHOLDER_RE.search(boot):
             out.append(
                 Finding(

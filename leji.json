@@ -2,7 +2,7 @@
   "$schema": "https://leji.org/schemas/v1.0/context-manifest.schema.json",
   "leji": "1.0",
   "name": "leji",
-  "description": "Context layer for the Leji repository: the specification, the reference SDK, and the leji.org site.",
+  "description": "Context layer for the Leji repository: the specification, the reference SDKs and tooling, and the leji.org site.",
   "rootPath": "docs/",
   "bootProfilePath": "docs/boot-profile.md",
   "categories": {
@@ -16,6 +16,11 @@
         "docs/system/"
       ]
     },
+    "practice": {
+      "paths": [
+        "docs/practice/"
+      ]
+    },
     "decisions": {
       "paths": [
         "docs/decisions/"
@@ -23,8 +28,14 @@
     }
   },
   "machine": {
+    "indexPath": "docs/context-index.json",
+    "changelogPath": "docs/context-changelog.json",
     "agentProfilesPath": "docs/agents/",
     "decisionRecordsPath": "docs/decisions/"
+  },
+  "agents": {
+    "porter": "docs/agents/porter.md",
+    "reviewer": "docs/agents/reviewer.md"
   },
   "owners": {
     "primary": {
@@ -33,7 +44,7 @@
     }
   },
   "conformance": {
-    "claimedLevel": "core",
-    "claimedAt": "2026-06-18"
+    "claimedLevel": "governed",
+    "claimedAt": "2026-06-21"
   }
 }

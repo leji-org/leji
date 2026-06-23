@@ -3,7 +3,7 @@ export type Severity = 'error' | 'warning';
 
 /** A single validation result: one rule's outcome, optionally pointing at a path. */
 export interface Finding {
-   /** Stable rule identifier, shared verbatim with the Python SDK. */
+   /** Stable rule identifier, shared verbatim with the Go and Python SDKs. */
    rule: string;
    severity: Severity;
    /** Repository-root-relative POSIX path the finding points at, when it has one. */

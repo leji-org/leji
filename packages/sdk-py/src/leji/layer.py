@@ -10,7 +10,7 @@ from typing import Any, Callable, Optional
 
 from .findings import Finding
 from .frontmatter import parse_frontmatter
-from .fsx import under_path, walk_md
+from .fsx import resolved_within_root, under_path, walk_md
 from .manifest import (
     CATEGORY_IDS,
     Manifest,
@@ -152,6 +152,13 @@ def read_json_artifact(root: str, rel_path: str) -> tuple[Optional[object], Opti
     abs_path = Path(root) / rel_path
     if not abs_path.is_file():
         return None, None
+    if not resolved_within_root(root, abs_path):
+        return None, Finding(
+            "artifact-parse",
+            "error",
+            f"artifact {rel_path} resolves outside the layer root",
+            rel_path,
+        )
     try:
         return json.loads(abs_path.read_text(encoding="utf-8")), None
     except json.JSONDecodeError as e:

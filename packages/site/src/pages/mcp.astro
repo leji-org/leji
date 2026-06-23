@@ -1,0 +1,137 @@
+---
+import Doc from '../layouts/Doc.astro';
+import CopyableCode from '../components/CopyableCode.astro';
+
+const config = `{
+  "mcpServers": {
+    "leji": { "command": "npx", "args": ["-y", "@leji-org/mcp"] }
+  }
+}`;
+
+const resources = [
+   ['leji://spec/full', 'The complete specification, one document.'],
+   ['leji://spec/{id}', 'One spec document, e.g. leji://spec/conformance.'],
+   ['leji://schema/{name}', 'One JSON Schema, e.g. leji://schema/context-manifest.'],
+   ['leji://cli/help', 'The leji CLI command and option reference.'],
+];
+
+const tools = [
+   ['search_spec', 'Spec sections matching a query.'],
+   ['fetch_spec_doc', 'One spec document (or the whole spec).'],
+   ['fetch_schema', 'One JSON Schema.'],
+   ['validate_manifest', 'Validate a leji.json supplied inline.'],
+   ['validate_layer', 'Validate the context layer at a path.'],
+   ['score_conformance', 'Claimed vs verified conformance level.'],
+   ['explain_conformance', 'What is verified, and what the next level needs.'],
+];
+---
+
+<Doc
+   title="MCP server · Leji"
+   description="Use Leji tooling from your AI agent: a local, read-only Model Context Protocol (MCP) server that serves the spec and schemas and validates and scores a context layer on your disk. Install once, no shell required."
+>
+   <h1>MCP server</h1>
+   <p class="sp-lede">
+      Leji's tooling comes in two ways. The <a href="/cli/">CLI</a> is for you and your CI; the Model Context Protocol (MCP)
+      server is for your agent.
+   </p>
+   <p>
+      <code>@leji-org/mcp</code> is a local <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener"
+         >MCP</a
+      > server that wraps the reference SDK. Your agent reads the spec and schemas and runs validation and conformance against
+      a context layer on disk, instead of reading this site and shelling out to the CLI. It runs locally over stdio, needs
+      no network or auth, and exposes only read-only tools.
+   </p>
+
+   <h2>Add it to your client</h2>
+   <p>
+      Configure it once in any MCP client (Claude Code, Claude Desktop, Cursor, Windsurf, and others). The client
+      launches
+      <code>leji-mcp</code> on demand; the <code>leji</code> tools then appear in every session, in every repo, with no further
+      setup.
+   </p>
+   <CopyableCode code={config} lang="json" label="Copy MCP config" />
+   <p>
+      Requires <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 22 or newer (<code>npx</code> ships
+      with Node). The first run fetches the package; later runs use the cache.
+   </p>
+   <p>Point each tool at the repository root that holds your <code>leji.json</code>.</p>
+
+   <h2>Tools</h2>
+   <p>All read-only. Nothing the server exposes can write or change your layer.</p>
+   <table class="mcp-table">
+      <tbody>
+         {
+            tools.map(([name, summary]) => (
+               <tr>
+                  <td>
+                     <code>{name}</code>
+                  </td>
+                  <td>{summary}</td>
+               </tr>
+            ))
+         }
+      </tbody>
+   </table>
+
+   <h2>Resources</h2>
+   <table class="mcp-table">
+      <tbody>
+         {
+            resources.map(([uri, summary]) => (
+               <tr>
+                  <td>
+                     <code>{uri}</code>
+                  </td>
+                  <td>{summary}</td>
+               </tr>
+            ))
+         }
+      </tbody>
+   </table>
+
+   <h2>Why a server, and not just the CLI?</h2>
+   <p>
+      The CLI already validates and scores a layer. The server adds no new capability; it's a different surface, the one
+      an agent reaches for on its own:
+   </p>
+   <ul>
+      <li>
+         <strong>It's self-advertised.</strong> Configured once, it shows up in your agent's tool list every session, with
+         descriptions of exactly what it does. Nobody has to tell the agent that Leji exists or where to find the CLI.
+      </li>
+      <li>
+         <strong>It works where a shell doesn't.</strong> Many agent environments can't or won't run arbitrary commands. A
+         read-only server with no network is reachable where <code>leji validate</code> is not.
+      </li>
+      <li>
+         <strong>It serves the spec and schemas directly.</strong> Your agent reads them as resources, without a web fetch,
+         and cites them as it works.
+      </li>
+   </ul>
+   <p>
+      Consuming a layer doesn't need the server: a conformant repository's <a href="/spec/boot-profile/">boot profile</a
+      > already onboards your agent. The server is for the other half, building, validating, and learning Leji.
+   </p>
+</Doc>
+
+<style>
+   .mcp-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.8rem 0 0;
+   }
+   .mcp-table td {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      color: var(--ink-soft);
+   }
+   .mcp-table td:first-child {
+      white-space: nowrap;
+   }
+   .mcp-table td code {
+      color: var(--blue-deep);
+      font-size: 0.85em;
+   }
+</style>

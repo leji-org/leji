@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"time"
 
@@ -81,6 +82,49 @@ func today() string {
 	return time.Now().UTC().Format("2006-01-02")
 }
 
+// SeedChangelogIfMissing seeds the machine changelog if the layer claims indexed
+// (or higher) and the file is missing. The changelog is an indexed-level surface,
+// so `leji init` only writes it at that level; this lets `leji index` complete the
+// indexed surface for a layer that claimed indexed after the fact (e.g. an upgrade
+// from core). Returns the seeded path, or "" when nothing was written (not
+// indexed, already present, or a symlink would escape the root). Never overwrites.
+func SeedChangelogIfMissing(root string, m *manifest.Manifest) (string, error) {
+	if !manifest.LevelAtLeast(manifest.ClaimedLevel(m), "indexed") {
+		return "", nil
+	}
+	rel := manifest.EffectiveChangelogPath(m)
+	abs := filepath.Join(root, rel)
+	if fsx.IsFile(abs) || !fsx.ResolvesUnder(root, abs) {
+		return "", nil
+	}
+	log := map[string]any{
+		"$schema":       "https://leji.org/schemas/v1.0/context-changelog.schema.json",
+		"schemaVersion": "1.0",
+		"entries": []entry{
+			{
+				"id":         "seed-changelog",
+				"date":       today(),
+				"type":       "added",
+				"summary":    "Started the machine changelog for the indexed level.",
+				"paths":      []any{rel},
+				"proposedBy": "leji index",
+				"approvedBy": m.Owners.Primary.Name,
+			},
+		},
+	}
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(abs, []byte(serializeChangelog(log)), 0o644); err != nil {
+		return "", err
+	}
+	return rel, nil
+}
+
+// beforeDateRe matches a YYYY-MM-DD `before` cutoff, mirroring the Node SDK's
+// compaction API validation.
+var beforeDateRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+
 // CompactChangelog compacts the oldest entries of the changelog. An entry folds
 // iff every active flag marks it foldable: keep ⇒ its canonical index is older
 // than the newest keep entries; before ⇒ its date is strictly before before.
@@ -91,6 +135,22 @@ func today() string {
 // keep their original array order.
 func CompactChangelog(root string, m *manifest.Manifest, opts CompactOptions) CompactResult {
 	rel := manifest.EffectiveChangelogPath(m)
+	// Validate options at the API level too (the CLI also checks --keep): SDK
+	// callers must not be able to fold with keep < 1 or a malformed `before` date.
+	if opts.HasKeep && opts.Keep < 1 {
+		return CompactResult{
+			Findings: []findings.Finding{findings.New("invalid-argument", findings.Error,
+				"keep must be a positive integer", rel)},
+			Folded: 0, Kept: 0, Path: rel,
+		}
+	}
+	if opts.HasBefore && !beforeDateRe.MatchString(opts.Before) {
+		return CompactResult{
+			Findings: []findings.Finding{findings.New("invalid-argument", findings.Error,
+				"before must be a YYYY-MM-DD date", rel)},
+			Folded: 0, Kept: 0, Path: rel,
+		}
+	}
 	data, parseFinding := layer.ReadJSONArtifact(root, rel)
 	if parseFinding != nil {
 		return CompactResult{Findings: []findings.Finding{*parseFinding}, Path: rel}

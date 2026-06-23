@@ -1,7 +1,7 @@
 package cli
 
 // The filesystem-mutation invariant: only write-intent commands (init, adopt,
-// index, docs) may touch the filesystem. Read/analysis commands, and any command
+// index, viewer) may touch the filesystem. Read/analysis commands, and any command
 // invoked with a --help/--version meta-flag, must leave the working tree
 // unchanged. Regression guard for the bug where `leji adopt --help` ran adopt and
 // scaffolded files instead of printing help.

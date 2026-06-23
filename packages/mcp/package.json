@@ -1,0 +1,58 @@
+{
+   "name": "@leji-org/mcp",
+   "version": "1.2.0",
+   "description": "Local stdio MCP server for Leji: retrieve the spec and schemas, and run validation and conformance against a context layer, natively from an AI agent.",
+   "keywords": [
+      "leji",
+      "mcp",
+      "model-context-protocol",
+      "ai-native",
+      "context-layer",
+      "shared-context",
+      "agent-context",
+      "validation",
+      "conformance"
+   ],
+   "homepage": "https://leji.org",
+   "repository": {
+      "type": "git",
+      "url": "git+https://github.com/leji-org/leji.git",
+      "directory": "packages/mcp"
+   },
+   "author": "Vuong Nguyen (https://vuongnguyen.com)",
+   "license": "Apache-2.0",
+   "publishConfig": {
+      "access": "public"
+   },
+   "type": "module",
+   "engines": {
+      "node": ">=22"
+   },
+   "bin": {
+      "leji-mcp": "dist/bin.js"
+   },
+   "main": "./dist/index.js",
+   "types": "./dist/index.d.ts",
+   "exports": {
+      ".": "./dist/index.js"
+   },
+   "files": [
+      "dist",
+      "assets"
+   ],
+   "scripts": {
+      "build": "tsc",
+      "pretest": "npm run build",
+      "test": "node --test",
+      "coverage": "npm run build && c8 --reporter=text --include='dist/**/*.js' --all node --test"
+   },
+   "dependencies": {
+      "@leji-org/leji": "^1.2.0",
+      "@modelcontextprotocol/sdk": "1.29.0"
+   },
+   "devDependencies": {
+      "@types/node": "25.9.3",
+      "c8": "11.0.0",
+      "typescript": "6.0.3"
+   }
+}

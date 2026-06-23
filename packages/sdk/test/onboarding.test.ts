@@ -4,7 +4,17 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
-import { adoptLayer, detectHosts, initLayer, validateLayer, writeIndex, loadManifest } from '../dist/index.js';
+import {
+   addAgent,
+   adoptLayer,
+   detectHosts,
+   enterLayer,
+   handoffOffer,
+   initLayer,
+   validateLayer,
+   writeIndex,
+   loadManifest,
+} from '../dist/index.js';
 
 function tmpdir(): string {
    return fs.mkdtempSync(path.join(os.tmpdir(), 'leji-onboarding-'));
@@ -127,13 +137,234 @@ test('detectHosts ranks confirmed > project-present > installed-likely (injected
    assert.equal(hosts.find((h) => h.id === 'gemini')?.strength, 'installed-likely');
 });
 
-test('init --agent wires a vendor redirect and still validates clean', async () => {
+// --- handoff offer (post-scaffold) ---
+
+function host(id: string, name: string, onPath: boolean): never {
+   return {
+      id,
+      name,
+      strength: onPath ? 'confirmed' : 'project-present',
+      onPath,
+      inRepo: !onPath,
+      userConfig: false,
+      adapter: null,
+   } as never;
+}
+const CLAUDE = host('claude-code', 'Claude Code', true);
+const CODEX = host('codex', 'Codex', true);
+const CURSOR = host('cursor', 'Cursor', true); // directory-style: no inline-prompt CLI
+const manifestAt = (rootPath: string) => ({ rootPath }) as never;
+
+/** A scripted handoff I/O: returns `answer` for every prompt, records launches.
+ * `launchResult` overrides the spawn outcome (default: clean exit, status 0). */
+function fakeIo(
+   answer: string,
+   launchResult?: { error?: Error; status?: number | null; signal?: NodeJS.Signals | null },
+) {
+   const launches: { bin: string; promptArg: string }[] = [];
+   const cwds: (string | undefined)[] = [];
+   const questions: string[] = [];
+   const io = {
+      async readLine(q: string) {
+         questions.push(q);
+         return answer;
+      },
+      launch(bin: string, promptArg: string, cwd?: string) {
+         launches.push({ bin, promptArg });
+         cwds.push(cwd);
+         return launchResult ?? { status: 0 };
+      },
+   };
+   return { io, launches, questions, cwds };
+}
+
+const BRIEF_PROMPT = 'Read ./docs/.leji/onboarding-brief.md and follow it.';
+
+test('handoffOffer never fires non-interactively, even with a launchable host on PATH', async () => {
+   const f = fakeIo('y');
+   // interactive=false short-circuits before prompting or launching.
+   assert.equal(await handoffOffer(manifestAt('docs/'), [CLAUDE], false, f.io), false);
+   assert.equal(f.questions.length, 0);
+   assert.equal(f.launches.length, 0);
+});
+
+test('handoffOffer makes no offer when only directory-style hosts are present', async () => {
+   const f = fakeIo('y');
+   assert.equal(await handoffOffer(manifestAt('docs/'), [CURSOR], true, f.io), false);
+   assert.equal(f.questions.length, 0, 'no prompt is shown');
+   assert.equal(f.launches.length, 0);
+});
+
+test('handoffOffer ignores prompt-capable hosts that are not on PATH', async () => {
+   const f = fakeIo('y');
+   assert.equal(await handoffOffer(manifestAt('docs/'), [host('codex', 'Codex', false)], true, f.io), false);
+   assert.equal(f.launches.length, 0);
+});
+
+test('handoffOffer (single host) launches on an empty answer (Y default)', async () => {
+   const f = fakeIo('');
+   assert.equal(await handoffOffer(manifestAt('docs/'), [CLAUDE], true, f.io), true);
+   assert.deepEqual(f.launches, [{ bin: 'claude', promptArg: BRIEF_PROMPT }]);
+});
+
+test('handoffOffer (single host) launches on y / yes', async () => {
+   for (const ans of ['y', 'yes', 'Y', 'YES']) {
+      const f = fakeIo(ans);
+      assert.equal(await handoffOffer(manifestAt('docs/'), [CLAUDE], true, f.io), true, ans);
+      assert.equal(f.launches.length, 1, ans);
+   }
+});
+
+test('handoffOffer (single host) declines on n, returning false without launching', async () => {
+   const f = fakeIo('n');
+   assert.equal(await handoffOffer(manifestAt('docs/'), [CLAUDE], true, f.io), false);
+   assert.equal(f.launches.length, 0);
+});
+
+test('handoffOffer (multiple hosts) selects by number', async () => {
+   const f = fakeIo('2');
+   assert.equal(await handoffOffer(manifestAt('docs/'), [CLAUDE, CODEX], true, f.io), true);
+   assert.deepEqual(f.launches, [{ bin: 'codex', promptArg: BRIEF_PROMPT }]);
+});
+
+test('handoffOffer (multiple hosts) skips on an empty answer (no accidental launch)', async () => {
+   // Launching an agent is a side effect, so the multi-host menu requires an
+   // explicit number; pressing Enter falls back to the printed instructions.
+   const f = fakeIo('');
+   assert.equal(await handoffOffer(manifestAt('docs/'), [CLAUDE, CODEX], true, f.io), false);
+   assert.equal(f.launches.length, 0);
+});
+
+test('handoffOffer (multiple hosts) skips on n', async () => {
+   const f = fakeIo('n');
+   assert.equal(await handoffOffer(manifestAt('docs/'), [CLAUDE, CODEX], true, f.io), false);
+   assert.equal(f.launches.length, 0);
+});
+
+test('handoffOffer (multiple hosts) skips on an out-of-range / junk answer, never launching agent 1', async () => {
+   // An answer the user did not actually choose must not start the first agent.
+   for (const ans of ['9', 'banana', '0', '-1']) {
+      const f = fakeIo(ans);
+      assert.equal(await handoffOffer(manifestAt('docs/'), [CLAUDE, CODEX], true, f.io), false, ans);
+      assert.equal(f.launches.length, 0, ans);
+   }
+});
+
+test('handoffOffer returns false when the agent cannot be started (spawn error)', async () => {
+   const f = fakeIo('y', { error: new Error('spawn claude ENOENT') });
+   // Chosen and attempted, but the launch failed: caller falls back to instructions.
+   assert.equal(await handoffOffer(manifestAt('docs/'), [CLAUDE], true, f.io), false);
+   assert.equal(f.launches.length, 1, 'a launch was attempted');
+});
+
+test('handoffOffer returns false when the agent exits non-zero', async () => {
+   const f = fakeIo('y', { status: 1 });
+   assert.equal(await handoffOffer(manifestAt('docs/'), [CLAUDE], true, f.io), false);
+   assert.equal(f.launches.length, 1);
+});
+
+test('handoffOffer returns false when the agent is killed by a signal', async () => {
+   const f = fakeIo('y', { status: null, signal: 'SIGINT' });
+   assert.equal(await handoffOffer(manifestAt('docs/'), [CLAUDE], true, f.io), false);
+});
+
+test('handoffOffer threads the layer root into the brief prompt', async () => {
+   const f = fakeIo('y');
+   assert.equal(await handoffOffer(manifestAt('context/'), [CLAUDE], true, f.io), true);
+   assert.deepEqual(f.launches, [
+      { bin: 'claude', promptArg: 'Read ./context/.leji/onboarding-brief.md and follow it.' },
+   ]);
+});
+
+// --- enterLayer (leji start) ---
+
+const BOOT_PROMPT = "Read ./docs/boot-profile.md, follow it, and tell me when you're ready.";
+
+/** A minimal real layer dir with a boot profile, for enterLayer's existence check. */
+function bootLayer(): { dir: string; manifest: never } {
+   const dir = tmpdir();
+   fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+   fs.writeFileSync(path.join(dir, 'docs', 'boot-profile.md'), '# boot\n');
+   return { dir, manifest: { rootPath: 'docs/', bootProfilePath: 'docs/boot-profile.md' } as never };
+}
+
+test('enterLayer launches a single detected agent directly (no prompt), from the layer root', async () => {
+   const { dir, manifest } = bootLayer();
+   const f = fakeIo('');
+   const outcome = await enterLayer({ root: dir, manifest, detected: [CLAUDE], interactive: true, io: f.io });
+   assert.equal(outcome, 'launched');
+   assert.equal(f.questions.length, 0, 'a single host launches without asking');
+   assert.deepEqual(f.launches, [{ bin: 'claude', promptArg: BOOT_PROMPT }]);
+   assert.equal(f.cwds[0], path.resolve(dir), 'the agent is launched from the layer root');
+});
+
+test('enterLayer (multiple agents) asks, then launches the chosen one', async () => {
+   const { dir, manifest } = bootLayer();
+   const f = fakeIo('2');
+   assert.equal(
+      await enterLayer({ root: dir, manifest, detected: [CLAUDE, CODEX], interactive: true, io: f.io }),
+      'launched',
+   );
+   assert.deepEqual(f.launches, [{ bin: 'codex', promptArg: BOOT_PROMPT }]);
+});
+
+test('enterLayer falls back (no launch) with no agent, non-interactive, or multi + non-interactive', async () => {
+   const { dir, manifest } = bootLayer();
+   assert.equal(
+      await enterLayer({ root: dir, manifest, detected: [CURSOR], interactive: true, io: fakeIo('y').io }),
+      'fallback',
+   );
+   assert.equal(
+      await enterLayer({ root: dir, manifest, detected: [CLAUDE], interactive: false, io: fakeIo('y').io }),
+      'fallback',
+   );
+   assert.equal(
+      await enterLayer({ root: dir, manifest, detected: [CLAUDE, CODEX], interactive: false, io: fakeIo('2').io }),
+      'fallback',
+   );
+});
+
+test('enterLayer returns boot-missing when the boot profile is absent', async () => {
+   const dir = tmpdir(); // no docs/boot-profile.md
+   const manifest = { rootPath: 'docs/', bootProfilePath: 'docs/boot-profile.md' } as never;
+   assert.equal(
+      await enterLayer({ root: dir, manifest, detected: [CLAUDE], interactive: true, io: fakeIo('y').io }),
+      'boot-missing',
+   );
+});
+
+test('enterLayer --agent forces a launchable host regardless of detection', async () => {
+   const { dir, manifest } = bootLayer();
+   const f = fakeIo('y');
+   assert.equal(
+      await enterLayer({ root: dir, manifest, detected: [], agent: 'codex', interactive: true, io: f.io }),
+      'launched',
+   );
+   assert.deepEqual(f.launches, [{ bin: 'codex', promptArg: BOOT_PROMPT }]);
+});
+
+test('enterLayer --agent rejects a non-launchable host', async () => {
+   const { dir, manifest } = bootLayer();
+   await assert.rejects(
+      () => enterLayer({ root: dir, manifest, detected: [], agent: 'gemini', interactive: true, io: fakeIo('y').io }),
+      /launchable host/,
+   );
+});
+
+test('enterLayer falls back when the launch fails', async () => {
+   const { dir, manifest } = bootLayer();
+   const f = fakeIo('', { status: 1 });
+   assert.equal(await enterLayer({ root: dir, manifest, detected: [CLAUDE], interactive: true, io: f.io }), 'fallback');
+   assert.equal(f.launches.length, 1, 'a launch was attempted');
+});
+
+test('init --agent no longer creates a vendor adapter and still validates clean', async () => {
    const dir = tmpdir();
    const res = await initLayer({ dir, yes: true, agent: 'claude-code' });
-   assert.ok(res.written.includes('CLAUDE.md'), 'adapter is created');
-   assert.match(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), /docs\/boot-profile\.md/);
+   assert.ok(!res.written.includes('CLAUDE.md'), 'init --agent must not create a vendor adapter');
+   assert.equal(fs.existsSync(path.join(dir, 'CLAUDE.md')), false);
    const { manifest } = loadManifest(dir);
-   assert.deepEqual(manifest!.vendorAdapters, ['CLAUDE.md']);
+   assert.ok(!manifest!.vendorAdapters);
    execFileSync('git', ['init', '-q'], { cwd: dir });
    const v = validateLayer(dir);
    assert.equal(v.findings.filter((f) => f.severity === 'error').length, 0);
@@ -148,9 +379,14 @@ test('init --agent never overwrites an existing entrypoint', async () => {
    assert.ok(!loadManifest(dir).manifest!.vendorAdapters);
 });
 
-test('init --agent rejects an unknown host', async () => {
+test('init --agent no longer errors on an unknown agent (adapter resolution is gone)', async () => {
    const dir = tmpdir();
-   await assert.rejects(() => initLayer({ dir, yes: true, agent: 'frobnicate' }), /unknown agent/);
+   // init --agent no longer resolves a vendor adapter, so a bogus --agent no
+   // longer errors from adapter resolution: the layer scaffolds with no vendor file.
+   const res = await initLayer({ dir, yes: true, agent: 'frobnicate' });
+   assert.ok(res.written.includes('leji.json'));
+   assert.ok(!loadManifest(dir).manifest!.vendorAdapters);
+   assert.equal(fs.existsSync(path.join(dir, 'CLAUDE.md')), false);
 });
 
 test('adopt reuses an existing docs root and migrates vendor content (draft)', async () => {
@@ -159,6 +395,7 @@ test('adopt reuses an existing docs root and migrates vendor content (draft)', a
    fs.mkdirSync(path.join(dir, 'docs'));
    fs.writeFileSync(path.join(dir, 'docs', 'README.md'), '# Docs\n');
    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'Always run tests. Use 3-space indent.\n');
+   gitCommitAll(dir);
 
    const res = await adoptLayer({ dir, yes: true });
    assert.equal(res.detectedRoot, 'docs/');
@@ -181,6 +418,7 @@ test('adopt --wire-adapters converts the entrypoint and validates clean core', a
    const dir = tmpdir();
    execFileSync('git', ['init', '-q'], { cwd: dir });
    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'Always run tests.\n');
+   gitCommitAll(dir);
 
    const res = await adoptLayer({ dir, yes: true, wireAdapters: true });
    assert.equal(res.draft, false);
@@ -205,26 +443,135 @@ test('adopt refuses when a layer already exists', async () => {
    await assert.rejects(() => adoptLayer({ dir, yes: true }), /already has a Leji layer/);
 });
 
-test('init --agent + --reviewer wires a multi-agent setup that validates clean', async () => {
+test('agent wires a named reviewer into an existing layer that validates clean', async () => {
    const dir = tmpdir();
    execFileSync('git', ['init', '-q'], { cwd: dir });
-   const res = await initLayer({ dir, yes: true, agent: 'claude-code', reviewer: 'codex' });
+   await initLayer({ dir, yes: true, agent: 'claude-code' });
+   const res = addAgent(dir, loadManifest(dir).manifest!, { host: 'codex', name: 'reviewer' });
+   assert.deepEqual(
+      { profileCreated: res.profileCreated, manifestChanged: res.manifestChanged },
+      { profileCreated: true, manifestChanged: true },
+   );
+   assert.equal(res.hostId, 'codex');
    const { manifest } = loadManifest(dir);
-   // Primary adapter + reviewer role binding + reviewer adapter.
+   // The agent's binding; no vendor adapter is created.
    assert.equal(manifest!.agents?.reviewer, 'docs/agents/reviewer.md');
-   assert.ok(manifest!.vendorAdapters?.includes('CLAUDE.md'));
-   assert.ok(manifest!.vendorAdapters?.includes('AGENTS.md'));
+   assert.ok(!manifest!.vendorAdapters);
+   assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), false);
    const reviewer = fs.readFileSync(path.join(dir, 'docs', 'agents', 'reviewer.md'), 'utf8');
+   assert.match(reviewer, /^id: reviewer$/m);
    assert.match(reviewer, /^role: reviewer$/m);
    assert.match(reviewer, /^host: codex$/m);
-   assert.ok(res.written.includes('docs/agents/reviewer.md'));
    const v = validateLayer(dir);
    assert.equal(v.findings.filter((f) => f.severity === 'error').length, 0);
 });
 
-test('init --reviewer rejects an unknown host', async () => {
+test('agent with no --host binds a host-agnostic resident agent (no vendor file)', async () => {
    const dir = tmpdir();
-   await assert.rejects(() => initLayer({ dir, yes: true, reviewer: 'frobnicate' }), /unknown agent/);
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   await initLayer({ dir, yes: true });
+   const res = addAgent(dir, loadManifest(dir).manifest!, { name: 'reviewer' });
+   assert.deepEqual(
+      { profileCreated: res.profileCreated, manifestChanged: res.manifestChanged },
+      { profileCreated: true, manifestChanged: true },
+   );
+   assert.equal(res.hostId, undefined);
+   const { manifest } = loadManifest(dir);
+   assert.equal(manifest!.agents?.reviewer, 'docs/agents/reviewer.md');
+   assert.ok(!manifest!.vendorAdapters);
+   const reviewer = fs.readFileSync(path.join(dir, 'docs', 'agents', 'reviewer.md'), 'utf8');
+   assert.doesNotMatch(reviewer, /^host:/m, 'resident agent must not pin a host');
+   assert.ok(!reviewer.includes('(host '), 'resident agent prose must not mention a host');
+   assert.match(reviewer, /^id: reviewer$/m);
+   assert.match(reviewer, /^role: reviewer$/m);
+});
+
+test('agent is idempotent: a second run with the same args changes nothing', async () => {
+   const dir = tmpdir();
+   await initLayer({ dir, yes: true });
+   const m = loadManifest(dir).manifest!;
+   addAgent(dir, m, { host: 'codex', name: 'reviewer' });
+   const after = fs.readFileSync(path.join(dir, 'leji.json'), 'utf8');
+   const res2 = addAgent(dir, m, { host: 'codex', name: 'reviewer' });
+   assert.deepEqual(
+      {
+         profileCreated: res2.profileCreated,
+         manifestChanged: res2.manifestChanged,
+      },
+      { profileCreated: false, manifestChanged: false },
+   );
+   assert.equal(fs.readFileSync(path.join(dir, 'leji.json'), 'utf8'), after);
+});
+
+test('agent appends a second binding without disturbing the first', async () => {
+   const dir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   await initLayer({ dir, yes: true });
+   addAgent(dir, loadManifest(dir).manifest!, { host: 'codex', name: 'reviewer' });
+   addAgent(dir, loadManifest(dir).manifest!, { host: 'claude-code', name: 'thought-partner', role: 'advisor' });
+   const { manifest } = loadManifest(dir);
+   assert.equal(manifest!.agents?.reviewer, 'docs/agents/reviewer.md');
+   assert.equal(manifest!.agents?.['thought-partner'], 'docs/agents/thought-partner.md');
+   const profile = fs.readFileSync(path.join(dir, 'docs', 'agents', 'thought-partner.md'), 'utf8');
+   assert.match(profile, /^role: advisor$/m);
+   const v = validateLayer(dir);
+   assert.equal(v.findings.filter((f) => f.severity === 'error').length, 0);
+});
+
+test('agent rejects an unknown host and a non-kebab name', async () => {
+   const dir = tmpdir();
+   const m = (await initLayer({ dir, yes: true })).manifest;
+   assert.throws(() => addAgent(dir, m, { host: 'frobnicate', name: 'reviewer' }), /unknown host/);
+   assert.throws(() => addAgent(dir, m, { host: 'codex', name: 'Bad Name' }), /lowercase letters/);
+});
+
+// --- dirty-tree guard on init / adopt ---
+
+function gitInit(dir: string): void {
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+}
+function gitCommitAll(dir: string): void {
+   execFileSync('git', ['add', '-A'], { cwd: dir });
+   execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.com', 'commit', '-q', '-m', 'seed'], { cwd: dir });
+}
+
+test('init refuses on a dirty git working tree and writes nothing', async () => {
+   const dir = tmpdir();
+   gitInit(dir);
+   fs.writeFileSync(path.join(dir, 'NOTES.md'), 'wip\n'); // untracked => dirty
+   await assert.rejects(() => initLayer({ dir, yes: true }), /uncommitted changes/);
+   assert.equal(fs.existsSync(path.join(dir, 'leji.json')), false, 'nothing written on refusal');
+});
+
+test('init proceeds on a clean committed git tree', async () => {
+   const dir = tmpdir();
+   gitInit(dir);
+   fs.writeFileSync(path.join(dir, 'README.md'), '# repo\n');
+   gitCommitAll(dir);
+   const res = await initLayer({ dir, yes: true });
+   assert.ok(res.written.includes('leji.json'));
+});
+
+test('init --dry-run is allowed on a dirty git tree', async () => {
+   const dir = tmpdir();
+   gitInit(dir);
+   fs.writeFileSync(path.join(dir, 'NOTES.md'), 'wip\n');
+   const res = await initLayer({ dir, yes: true, dryRun: true });
+   assert.equal(res.dryRun, true);
+   assert.equal(fs.existsSync(path.join(dir, 'leji.json')), false);
+});
+
+test('init is allowed in a non-git directory (no undo net required to bootstrap)', async () => {
+   const dir = tmpdir(); // not a git repo
+   const res = await initLayer({ dir, yes: true });
+   assert.ok(res.written.includes('leji.json'));
+});
+
+test('adopt refuses on a dirty git working tree', async () => {
+   const dir = tmpdir();
+   gitInit(dir);
+   fs.writeFileSync(path.join(dir, 'NOTES.md'), 'wip\n');
+   await assert.rejects(() => adoptLayer({ dir, yes: true }), /uncommitted changes/);
 });
 
 test('conformance --explain guides toward the next level', async () => {
@@ -237,21 +584,21 @@ test('conformance --explain guides toward the next level', async () => {
    assert.match(explain, /validate --content/);
 });
 
-test('init --agent cursor wires a directory-style adapter that validates clean', async () => {
+test('init --agent cursor no longer creates a directory-style adapter and validates clean', async () => {
    const dir = tmpdir();
    execFileSync('git', ['init', '-q'], { cwd: dir });
    const res = await initLayer({ dir, yes: true, agent: 'cursor' });
-   assert.ok(res.written.includes('.cursor/rules/leji.md'));
-   assert.match(fs.readFileSync(path.join(dir, '.cursor', 'rules', 'leji.md'), 'utf8'), /docs\/boot-profile\.md/);
-   assert.deepEqual(loadManifest(dir).manifest!.vendorAdapters, ['.cursor/rules/leji.md']);
+   assert.ok(!res.written.includes('.cursor/rules/leji.md'), 'init --agent no longer creates an adapter');
+   assert.equal(fs.existsSync(path.join(dir, '.cursor', 'rules', 'leji.md')), false);
+   assert.ok(!loadManifest(dir).manifest!.vendorAdapters);
    assert.equal(validateLayer(dir).findings.filter((f) => f.severity === 'error').length, 0);
 });
 
-test('init --ci writes a GitHub Actions validation workflow', async () => {
+test('init does not write a CI workflow (that is `leji ci`)', async () => {
    const dir = tmpdir();
-   const res = await initLayer({ dir, yes: true, ci: true });
-   assert.ok(res.written.includes('.github/workflows/leji.yml'));
-   assert.match(fs.readFileSync(path.join(dir, '.github', 'workflows', 'leji.yml'), 'utf8'), /leji@latest validate/);
+   const res = await initLayer({ dir, yes: true });
+   assert.ok(!res.written.includes('.github/workflows/leji.yml'), 'init no longer creates CI; use leji ci');
+   assert.equal(fs.existsSync(path.join(dir, '.github', 'workflows', 'leji.yml')), false);
 });
 
 test('adopt --wire-adapters migrates mixed redirect+instructions before overwriting', async () => {
@@ -263,6 +610,7 @@ test('adopt --wire-adapters migrates mixed redirect+instructions before overwrit
       path.join(dir, 'CLAUDE.md'),
       'Read docs/boot-profile.md first. Never deploy on Fridays.\nAlways run the full test suite before committing.\n',
    );
+   gitCommitAll(dir);
    const res = await adoptLayer({ dir, yes: true, wireAdapters: true });
    assert.ok(res.migrated.includes('CLAUDE.md'), 'mixed file is migrated, not silently overwritten');
    const imported = fs.readFileSync(path.join(dir, 'docs', 'governance', 'imported-claude.md'), 'utf8');
@@ -293,6 +641,7 @@ test('adopt --wire-adapters refuses to overwrite a symlinked-outside vendor file
    fs.writeFileSync(secretPath, 'OUTSIDE SECRET CONTENT\n');
    // CLAUDE.md is a symlink pointing at a file outside the repository.
    fs.symlinkSync(secretPath, path.join(dir, 'CLAUDE.md'));
+   gitCommitAll(dir);
 
    await adoptLayer({ dir, yes: true, wireAdapters: true });
 
@@ -310,6 +659,7 @@ test('adopt does not migrate a symlinked-outside vendor file', async () => {
    const secretPath = path.join(outside, 'secret.txt');
    fs.writeFileSync(secretPath, 'TOP SECRET DO NOT MIGRATE\n');
    fs.symlinkSync(secretPath, path.join(dir, 'CLAUDE.md'));
+   gitCommitAll(dir);
 
    const res = await adoptLayer({ dir, yes: true });
 
@@ -333,6 +683,7 @@ test('migrationDoc fences migrated content so raw HTML is shown verbatim', async
    const dir = tmpdir();
    execFileSync('git', ['init', '-q'], { cwd: dir });
    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'Instructions.\n<script>alert(1)</script>\n');
+   gitCommitAll(dir);
 
    await adoptLayer({ dir, yes: true });
 
@@ -350,6 +701,7 @@ test('adopt does not re-migrate a file that is already the canonical redirect', 
    execFileSync('git', ['init', '-q'], { cwd: dir });
    const { adapterContent } = await import('../dist/index.js');
    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), adapterContent('docs/boot-profile.md'));
+   gitCommitAll(dir);
    const res = await adoptLayer({ dir, yes: true, wireAdapters: true });
    assert.ok(!res.migrated.includes('CLAUDE.md'), 'an existing canonical redirect is left alone, not archived');
 });

@@ -4,14 +4,7 @@
   "title": "Leji context manifest (leji.json)",
   "description": "The machine entrypoint of a Leji context layer. Lives at the repository root as leji.json.",
   "type": "object",
-  "required": [
-    "leji",
-    "name",
-    "rootPath",
-    "bootProfilePath",
-    "categories",
-    "owners"
-  ],
+  "required": ["leji", "name", "rootPath", "bootProfilePath", "categories", "owners"],
   "additionalProperties": false,
   "properties": {
     "$schema": {
@@ -106,9 +99,7 @@
     "owners": {
       "type": "object",
       "description": "Who is accountable for the context layer's health. Owners answer for the context layer staying current and pruned; they do not author or curate it alone (governance.md).",
-      "required": [
-        "primary"
-      ],
+      "required": ["primary"],
       "additionalProperties": false,
       "properties": {
         "primary": {
@@ -128,12 +119,7 @@
       "properties": {
         "claimedLevel": {
           "description": "The conformance level claimed: core, indexed, governed, or federated.",
-          "enum": [
-            "core",
-            "indexed",
-            "governed",
-            "federated"
-          ]
+          "enum": ["core", "indexed", "governed", "federated"]
         },
         "claimedAt": {
           "description": "ISO 8601 date the claim was last asserted.",
@@ -149,11 +135,7 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": [
-              "path",
-              "name",
-              "owner"
-            ],
+            "required": ["path", "name", "owner"],
             "additionalProperties": false,
             "properties": {
               "path": {
@@ -191,16 +173,41 @@
         "$ref": "#/$defs/relPath"
       }
     },
-    "docs": {
+    "viewer": {
       "type": "object",
-      "description": "Presentation preferences read by `leji docs`. Non-normative convenience configuration; presentation itself is out of normative scope.",
+      "description": "Presentation preferences read by `leji viewer`. Non-normative convenience configuration; presentation itself is out of normative scope.",
       "additionalProperties": false,
       "properties": {
         "port": {
           "type": "integer",
           "minimum": 1,
           "maximum": 65535,
-          "description": "Preferred local-preview port for `leji docs --serve`. The --port flag overrides; the default is 5354 (LEJI on a phone keypad)."
+          "description": "Preferred local-preview port for `leji viewer serve`. The --port flag overrides; the default is 5354 (LEJI on a phone keypad)."
+        },
+        "logo": {
+          "type": "string",
+          "description": "Logo image for the viewer, as a path under the context root (e.g. \"assets/logo.svg\"). Defaults to the Leji mark."
+        },
+        "theme": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Viewer theme overrides.",
+          "properties": {
+            "primary": {
+              "type": "string",
+              "description": "Primary/accent color as a CSS color (e.g. \"#223F93\"). Drives links, the active state, and diagram accents."
+            }
+          }
+        },
+        "mermaid": {
+          "type": "boolean",
+          "description": "Render fenced ```mermaid code blocks as diagrams in the viewer. Defaults to true."
+        },
+        "categoryEmojis": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "propertyNames": { "enum": ["domain", "system", "practice", "governance", "decisions"] },
+          "description": "Override the default emoji shown beside each category group in the sidebar."
         }
       }
     }
@@ -216,9 +223,7 @@
     },
     "owner": {
       "type": "object",
-      "required": [
-        "name"
-      ],
+      "required": ["name"],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -234,9 +239,7 @@
     },
     "categoryMapping": {
       "type": "object",
-      "required": [
-        "paths"
-      ],
+      "required": ["paths"],
       "additionalProperties": false,
       "properties": {
         "paths": {

@@ -1,6 +1,6 @@
 {
   "name": "leji-monorepo",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Leji: the AI Shared Operating Language. Workspace root for the spec, schemas, site, and SDK.",
   "workspaces": [
@@ -8,19 +8,22 @@
   ],
   "scripts": {
     "validate": "npm run validate -w packages/sdk",
-    "dogfood": "node packages/sdk/dist/cli.js validate --content && node packages/sdk/dist/cli.js conformance",
+    "dogfood": "node packages/sdk/dist/cli.js validate --content && node packages/sdk/dist/cli.js index --check && node packages/sdk/dist/cli.js conformance && node packages/sdk/dist/cli.js freshness",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run assets:check && npm run lint && npm run test --workspaces --if-present",
     "coverage": "npm run coverage --workspaces --if-present",
     "smoke:prepublish": "bash scripts/smoke-prepublish.sh",
+    "version:set": "node scripts/version.ts",
+    "version:check": "node scripts/version.ts --check",
     "assets": "node scripts/sync-assets.ts",
     "assets:check": "node scripts/sync-assets.ts --check",
     "ncu": "npx npm-check-updates --format group --workspaces --root",
     "ncu:u": "npx npm-check-updates -u --workspaces --root && npm install",
-    "lint": "prettier --check \"packages/sdk/src/**/*.ts\" \"packages/sdk/test/**/*.ts\" \"packages/create-leji/index.js\" \"packages/site/src/**/*.{ts,astro}\" \"packages/site/astro.config.ts\" \"scripts/*.ts\"",
-    "lint:fix": "prettier --write \"packages/sdk/src/**/*.ts\" \"packages/sdk/test/**/*.ts\" \"packages/create-leji/index.js\" \"packages/site/src/**/*.{ts,astro}\" \"packages/site/astro.config.ts\" \"scripts/*.ts\"",
+    "lint": "prettier --check \"packages/sdk/src/**/*.ts\" \"packages/sdk/test/**/*.ts\" \"packages/mcp/src/**/*.ts\" \"packages/mcp/test/**/*.ts\" \"packages/create-leji/index.js\" \"packages/site/src/**/*.{ts,astro}\" \"packages/site/astro.config.ts\" \"scripts/*.ts\"",
+    "lint:fix": "prettier --write \"packages/sdk/src/**/*.ts\" \"packages/sdk/test/**/*.ts\" \"packages/mcp/src/**/*.ts\" \"packages/mcp/test/**/*.ts\" \"packages/create-leji/index.js\" \"packages/site/src/**/*.{ts,astro}\" \"packages/site/astro.config.ts\" \"scripts/*.ts\"",
     "lint:all": "npm run lint && npm run lint --workspaces --if-present",
-    "parity": "node scripts/parity-test.ts"
+    "parity": "node scripts/parity-test.ts",
+    "prepare": "husky"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
@@ -28,6 +31,7 @@
     "esbuild": "^0.28.1"
   },
   "devDependencies": {
+    "husky": "9.1.7",
     "prettier": "3.8.4",
     "prettier-plugin-astro": "0.14.1"
   }

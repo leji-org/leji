@@ -1,12 +1,12 @@
 # Rationale
 
-Non-normative. Why Leji is shaped the way it is.
+Non-normative: the reasoning behind the spec's shape.
 
 ## A circle, not a tier
 
-Most context work today is written *for agents*: people author instructions, agent hosts load them, and the flow runs one way down a tier. That produces real leverage and leaves the older problem untouched: human-to-human knowledge stays in heads and threads, and each agent host gets its own slowly diverging copy of the truth.
+Most context work today is written *for agents*: people author instructions, agent hosts load them, and the flow runs one way down a tier. That speeds up individual work and leaves the older problem untouched: human-to-human knowledge stays in heads and threads, and each agent host gets its own slowly diverging copy of the truth.
 
-Leji treats three flows as first-class around one context layer: **human-to-human** (onboarding, review, settling debates), **human-to-AI** (work delegated to an agent), and **human-to-AI-to-human** (agent-produced work reviewed by people). Everyone reads the same context layer; people and agents both propose changes. Equal access, not equal authority: every write enters as a proposal, and a person approves what becomes true. The same content serving all three flows is itself a forcing function: a page only agents read can rot unnoticed, but a page people rely on too gets fixed from both sides.
+Leji treats 3 flows as first-class around one context layer: **human-to-human** (onboarding, review, settling debates), **human-to-AI** (work delegated to an agent), and **human-to-AI-to-human** (agent-produced work reviewed by people). Everyone reads the same context layer; people and agents both propose changes. Equal access, not equal authority: every write enters as a proposal, and a person approves what becomes true. The same content serving all three flows is itself a forcing function: a page only agents read can rot unnoticed, but a page people rely on too gets fixed from both sides.
 
 ## Intent over instructions
 
@@ -14,7 +14,7 @@ Imperative instructions ("do this, in this format, for this vendor file") have t
 
 ## Why this is not a wiki
 
-Wikis rot because nothing forces them current. The context layer has three forcing functions a wiki lacks: agents read it on every task, so wrong context produces wrong output someone feels the same day; changes ride code review, so there's no separate process to forget; and tooling fails the build on mechanical drift (stale index, missing changelog entry, broken profile). Maintenance is one delta at a time, riding work that's happening anyway.
+Wikis rot because nothing forces them current. The context layer has 3 forcing functions a wiki lacks: agents read it on every task, so wrong context produces wrong output someone feels the same day; changes ride code review, so there's no separate process to forget; and tooling fails the build on mechanical drift (stale index, missing changelog entry, broken profile). Maintenance is one delta at a time, riding work that's happening anyway.
 
 ## Why vendor files redirect
 

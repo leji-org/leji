@@ -2,7 +2,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { type Finding, finding } from '../lib/findings.js';
-import { isFile, readText, realpathWithin } from '../lib/fsx.js';
+import { isFile, readText, realpathWithin, resolvedWithinRoot } from '../lib/fsx.js';
 import { gitLastModified, gitToplevel } from '../lib/git.js';
 import { duplicateIdFindings, readJsonArtifact, scanCategories } from '../lib/layer.js';
 import { type Manifest, effectiveIndexPath } from '../lib/manifest.js';
@@ -190,6 +190,10 @@ export function checkIndex(root: string, manifest: Manifest): IndexResult {
       findings.push(finding('index-required', 'error', `index ${rel} does not exist; run \`leji index\``, rel));
       return { index: null, findings, stale: true };
    }
+   if (!realpathWithin(path.resolve(root), path.join(root, rel))) {
+      findings.push(finding('artifact-parse', 'error', `artifact ${rel} resolves outside the layer root`, rel));
+      return { index: null, findings, stale: true };
+   }
 
    const stored = loadStoredIndex(root, manifest);
    if (!stored) {
@@ -285,8 +289,10 @@ export function writeIndex(root: string, manifest: Manifest): IndexResult {
    const result = generateIndex(root, manifest);
    if (result.index) {
       const abs = path.join(root, rel);
-      fs.mkdirSync(path.dirname(abs), { recursive: true });
-      if (!realpathWithin(path.resolve(root), abs)) {
+      // Contain before creating any directory: resolvedWithinRoot resolves the
+      // nearest existing ancestor, so a symlinked ancestor of this not-yet-existing
+      // target is caught before mkdir/write can escape the layer root.
+      if (!resolvedWithinRoot(path.resolve(root), abs)) {
          return {
             index: result.index,
             findings: [
@@ -295,6 +301,7 @@ export function writeIndex(root: string, manifest: Manifest): IndexResult {
             ],
          };
       }
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
       fs.writeFileSync(abs, serializeIndex(result.index));
    }
    return result;

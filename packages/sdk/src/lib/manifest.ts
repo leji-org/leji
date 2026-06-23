@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { type Finding, finding } from './findings.js';
-import { exists, isFile, readText } from './fsx.js';
+import { exists, isFile, readTextWithin } from './fsx.js';
 import { SUPPORTED_LINES, schemaErrors } from './schemas.js';
 
 export const CATEGORY_IDS = ['domain', 'system', 'practice', 'governance', 'decisions'] as const;
@@ -32,7 +32,13 @@ export interface Manifest {
       decisionRecordsPath?: string;
    };
    agents?: Record<string, string>;
-   docs?: { port?: number };
+   viewer?: {
+      port?: number;
+      logo?: string;
+      theme?: { primary?: string };
+      mermaid?: boolean;
+      categoryEmojis?: Partial<Record<CategoryId, string>>;
+   };
    owners: { primary: Owner; continuity?: Owner };
    conformance?: { claimedLevel?: ConformanceLevel; claimedAt?: string };
    federation?: { mounts?: { path: string; name: string; owner: Owner; role?: string; source?: string }[] };
@@ -61,15 +67,41 @@ export function loadManifest(root: string): ManifestLoad {
          ],
       };
    }
+   // Confine the read: a symlinked leji.json that resolves outside the layer
+   // root must not be read (an MCP exposes this read to an agent).
+   const raw = readTextWithin(path.resolve(root), abs);
+   if (raw === null) {
+      return {
+         manifest: null,
+         findings: [
+            finding(
+               'manifest-parse',
+               'error',
+               `${MANIFEST_FILENAME} resolves outside the layer root`,
+               MANIFEST_FILENAME,
+            ),
+         ],
+      };
+   }
    let data: unknown;
    try {
-      data = JSON.parse(readText(abs));
+      data = JSON.parse(raw);
    } catch (e) {
       return {
          manifest: null,
          findings: [finding('manifest-parse', 'error', `invalid JSON: ${(e as Error).message}`, MANIFEST_FILENAME)],
       };
    }
+   return validateManifestObject(data);
+}
+
+/**
+ * Validate an already-parsed manifest object: supported spec line, then manifest
+ * schema. Filesystem-independent, so a caller that holds the object directly (an
+ * MCP validating a manifest supplied inline, say) can validate it without
+ * writing it to disk. `loadManifest` calls this after read + parse.
+ */
+export function validateManifestObject(data: unknown): ManifestLoad {
    const findings: Finding[] = [];
    const line = (data as { leji?: unknown })?.leji;
    if (typeof line === 'string' && /^\d+\.\d+$/.test(line) && !SUPPORTED_LINES.includes(line)) {
@@ -116,4 +148,70 @@ export function effectiveAgentProfilesPath(manifest: Manifest): string {
 }
 export function effectiveDecisionRecordsPath(manifest: Manifest): string {
    return manifest.machine?.decisionRecordsPath ?? `${manifest.rootPath}decisions/`;
+}
+
+// --- In-place manifest text edits ---------------------------------------------
+//
+// `leji agent` (and any future post-init command that touches leji.json) edits
+// the raw manifest text rather than parsing and re-serializing the whole object.
+// This is deliberate: it preserves the user's field order, formatting, and any
+// keys this SDK does not model, and it is the only way the three reference SDKs
+// can produce byte-identical output (a generic parse + re-serialize diverges,
+// e.g. Go alphabetizes map keys). The edits below assume the canonical two-space
+// layout every SDK emits, and `owners` (a required key) as a stable anchor for
+// inserting a new top-level key in schema position (right after `agents` would
+// sit, before `owners`).
+
+/** Insert `line` (already indented) as the first member directly after the line
+ * that opens `marker` (e.g. `"agents": {` or `"vendorAdapters": [`). Prepending
+ * sidesteps fixing up the previous last member's trailing comma. */
+function insertAfterMarkerLine(text: string, marker: string, line: string): string {
+   const at = text.indexOf(marker);
+   if (at < 0) throw new Error(`leji.json: cannot locate ${JSON.stringify(marker)} to anchor the edit`);
+   const nl = text.indexOf('\n', at);
+   if (nl < 0) throw new Error(`leji.json: malformed ${JSON.stringify(marker)} block`);
+   return text.slice(0, nl + 1) + line + '\n' + text.slice(nl + 1);
+}
+
+/** Insert a multi-line top-level block immediately before the `owners` key, so a
+ * newly created `agents` / `vendorAdapters` key lands in schema position. */
+function insertBeforeOwners(text: string, lines: string[]): string {
+   const anchor = '\n  "owners":';
+   const at = text.indexOf(anchor);
+   if (at < 0) throw new Error('leji.json: cannot locate the "owners" key to anchor the edit');
+   return text.slice(0, at + 1) + lines.join('\n') + '\n' + text.slice(at + 1);
+}
+
+/**
+ * Bind a named agent to its profile path in the manifest's `agents` map. Creates
+ * the map (before `owners`) when absent, otherwise prepends the entry. Idempotent:
+ * an already-bound name leaves the text untouched.
+ */
+export function bindAgentInManifestText(
+   text: string,
+   name: string,
+   profileRel: string,
+): { text: string; changed: boolean } {
+   const agents = (JSON.parse(text) as { agents?: Record<string, unknown> }).agents;
+   if (agents && typeof agents === 'object' && name in agents) return { text, changed: false };
+   const entry = `"${name}": "${profileRel}"`;
+   if (!agents) {
+      return { text: insertBeforeOwners(text, ['  "agents": {', `    ${entry}`, '  },']), changed: true };
+   }
+   return { text: insertAfterMarkerLine(text, '"agents": {', `    ${entry},`), changed: true };
+}
+
+/**
+ * Declare a vendor adapter path in the manifest's `vendorAdapters` array. Creates
+ * the array (before `owners`) when absent, otherwise prepends the entry.
+ * Idempotent: an already-declared path leaves the text untouched.
+ */
+export function declareVendorAdapterInManifestText(text: string, adapter: string): { text: string; changed: boolean } {
+   const arr = (JSON.parse(text) as { vendorAdapters?: unknown[] }).vendorAdapters;
+   if (Array.isArray(arr) && arr.includes(adapter)) return { text, changed: false };
+   const entry = `"${adapter}"`;
+   if (!Array.isArray(arr)) {
+      return { text: insertBeforeOwners(text, ['  "vendorAdapters": [', `    ${entry}`, '  ],']), changed: true };
+   }
+   return { text: insertAfterMarkerLine(text, '"vendorAdapters": [', `    ${entry},`), changed: true };
 }

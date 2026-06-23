@@ -1,0 +1,325 @@
+---
+// A self-playing terminal. `lines` is {cmd} | {out, mark} | {gap}. The full
+// transcript renders in the markup (works with no JS / for screen readers); the
+// script replays it on scroll-into-view, and stays static under reduced motion.
+//
+// Optional `glimpse` slot: a static mock of the leji viewer (the human-readable
+// face). When present, after the run settles the script fades the viewer in over
+// the terminal, pauses, then diagonally clips it back so the terminal shows
+// through underneath, the layer's two audiences (agents conform, people read)
+// in one window. The glimpse is decorative (aria-hidden); the terminal stays the
+// accessible content.
+const { lines, title = 'your-repo', glimpseTitle = '', label = 'Example leji session' } = Astro.props;
+const hasGlimpse = Astro.slots.has('glimpse');
+
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const MARKS = new Set(['pass', 'fail', 'manual', 'ok', 'dim']);
+
+const bodyHtml = lines
+   .map((l) => {
+      if ('cmd' in l) {
+         return `<span class="line cmd" data-cmd="${esc(l.cmd)}"><span class="prompt">$ </span><span class="cmd-text">${esc(l.cmd)}</span>\n</span>`;
+      }
+      if ('gap' in l) return `<span class="line gap">\n</span>`;
+      const mark = l.mark && MARKS.has(l.mark) ? ` ${l.mark}` : '';
+      return `<span class="line out${mark}" data-out><span class="out-text">${esc(l.out)}</span>\n</span>`;
+   })
+   .join('');
+---
+
+<div
+   class="term"
+   data-animterm
+   data-state="term"
+   aria-label={label}
+   role="group"
+   data-has-glimpse={hasGlimpse ? '' : undefined}
+>
+   <span class="term-brand" aria-hidden="true"><slot name="brand" /></span>
+   <div class="term-bar" aria-hidden="true">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <span class="term-titles">
+         <span class="term-title t-term">{title}</span>
+         {hasGlimpse && <span class="term-title t-glimpse">{glimpseTitle}</span>}
+      </span>
+   </div>
+   <div class="term-stage">
+      <pre class="term-body" set:html={bodyHtml} />
+      {
+         hasGlimpse && (
+            <div class="term-glimpse">
+               <slot name="glimpse" />
+            </div>
+         )
+      }
+   </div>
+   <slot name="footer" />
+</div>
+
+<style>
+   .term {
+      position: relative;
+      border-radius: 12px;
+      background: var(--blue-deep);
+      box-shadow: 0 18px 50px rgba(22, 41, 96, 0.22);
+      /* no overflow:hidden: the brand mark pokes past the top-right corner */
+      border: 1px solid rgba(255, 189, 110, 0.18);
+   }
+   .term-bar {
+      border-radius: 12px 12px 0 0;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 0.9rem;
+      background: rgba(255, 255, 255, 0.04);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+   }
+   .dot {
+      width: 0.62rem;
+      height: 0.62rem;
+      border-radius: 50%;
+      display: inline-block;
+   }
+   .dot.r {
+      background: #ff5f57;
+   }
+   .dot.y {
+      background: #febc2e;
+   }
+   .dot.g {
+      background: #28c840;
+   }
+   /* two titles share one cell and crossfade as the face changes */
+   .term-titles {
+      margin-left: 0.4rem;
+      display: inline-grid;
+   }
+   .term-title {
+      grid-area: 1 / 1;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.04em;
+      color: var(--white-faint);
+      white-space: nowrap;
+   }
+   .t-glimpse {
+      opacity: 0;
+      transition: opacity 0.5s ease;
+   }
+   .t-term {
+      transition: opacity 0.5s ease;
+   }
+   .term[data-state='cover'] .t-term,
+   .term[data-state='split'] .t-term {
+      opacity: 0;
+   }
+   .term[data-state='cover'] .t-glimpse,
+   .term[data-state='split'] .t-glimpse {
+      opacity: 1;
+   }
+   /* the brand mark floats over the terminal's top-right corner, so it never
+      changes the title-bar height; its own animation loops */
+   .term-brand {
+      position: absolute;
+      top: -1.5rem;
+      right: 1.5rem;
+      z-index: 3;
+      display: inline-flex;
+      align-items: center;
+      filter: drop-shadow(0 2px 10px rgba(255, 189, 110, 0.35));
+   }
+   .term-brand :global(svg) {
+      display: block;
+   }
+   /* the stage holds the terminal transcript and (optionally) the viewer glimpse
+      as stacked layers; the <pre> defines the height, the glimpse overlays it */
+   .term-stage {
+      position: relative;
+   }
+   .term-body {
+      margin: 0;
+      padding: 1.2rem 1.4rem 1.4rem;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.7;
+      color: var(--white-soft);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      min-height: 1em;
+   }
+   /* the viewer glimpse: an opaque paper panel that fades in over the terminal,
+      then peels back along a soft diagonal so the terminal shows through the
+      lower-right, the human-readable layer sitting on top of the machine one.
+      The seam is a feathered gradient mask (not a hard clip), and --reveal is
+      registered via @property so the diagonal wipe interpolates smoothly. */
+   .term-glimpse {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transform: scale(1.018);
+      transform-origin: 28% 30%;
+      /* corner-to-corner diagonal: the cut runs from the terminal's top-right
+         corner to its bottom-left corner (percent coords stay exact at any size) */
+      clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+      transition:
+         opacity 1.7s ease,
+         transform 1.5s cubic-bezier(0.22, 0.61, 0.36, 1),
+         clip-path 1.2s cubic-bezier(0.45, 0, 0.25, 1),
+         filter 1.2s ease;
+      pointer-events: none;
+   }
+   .term[data-state='cover'] .term-glimpse,
+   .term[data-state='split'] .term-glimpse {
+      /* slightly translucent so the dark terminal tempers the bright paper and
+         the panel reads as softly layered, not a stark cut-in */
+      opacity: 0.95;
+      transform: scale(1);
+   }
+   .term[data-state='split'] .term-glimpse {
+      clip-path: polygon(0 0, 100% 0, 0 100%, 0 100%);
+      /* layered, darker drop-shadow so the human layer reads as a panel casting
+         onto the terminal beneath it; the soft edge keeps the diagonal from
+         looking like a harsh cut */
+      filter: drop-shadow(1px 7px 20px rgba(3, 7, 22, 0.72)) drop-shadow(0 2px 5px rgba(3, 7, 22, 0.55));
+   }
+   .line {
+      display: inline;
+   }
+   .prompt {
+      color: var(--gold);
+      user-select: none;
+   }
+   .cmd-text {
+      color: var(--white-strong);
+   }
+   .out.pass {
+      color: #6fc7a6;
+   }
+   .out.fail {
+      color: #ff8f8f;
+   }
+   .out.manual {
+      color: var(--gold-bright);
+      opacity: 0.85;
+   }
+   .out.ok {
+      color: #8fd4b8;
+   }
+   .out.dim {
+      color: var(--white-faint);
+   }
+
+   /* Animated mode: hide the transcript, reveal it through the script. The
+      caret rides the end of whatever is currently printing. */
+   .term[data-playing] .term-body {
+      position: relative;
+   }
+   .term[data-playing] .caret {
+      display: inline-block;
+      width: 0.55ch;
+      height: 1.05em;
+      vertical-align: -0.18em;
+      background: var(--gold-bright);
+      margin-left: 1px;
+      animation: term-blink 1s steps(1) infinite;
+   }
+   @keyframes term-blink {
+      50% {
+         opacity: 0;
+      }
+   }
+
+   /* Reduced motion: no crossfade, no diagonal; the static terminal transcript
+      stands alone (the script also bails before touching the glimpse). */
+   @media (prefers-reduced-motion: reduce) {
+      .term-glimpse {
+         display: none;
+      }
+   }
+</style>
+
+<script>
+   type Mode = 'static' | 'animate';
+
+   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+   function setup(term: HTMLElement) {
+      const body = term.querySelector<HTMLPreElement>('.term-body');
+      if (!body) return;
+      const lines = Array.from(body.querySelectorAll<HTMLElement>('.line'));
+      const hasGlimpse = term.hasAttribute('data-has-glimpse');
+
+      const mode: Mode = reduce ? 'static' : 'animate';
+      // Leave the full transcript visible when motion is reduced, or when the
+      // browser can't tell us the block scrolled into view (no replay trigger).
+      if (mode === 'static' || !('IntersectionObserver' in window)) return;
+
+      // Capture the original nodes, then clear and replay.
+      const caret = document.createElement('span');
+      caret.className = 'caret';
+      caret.setAttribute('aria-hidden', 'true');
+
+      // Hide lines with visibility (not display) so the terminal keeps its full
+      // height up front and the page doesn't shift as lines reveal.
+      for (const l of lines) l.style.visibility = 'hidden';
+      term.setAttribute('data-playing', '');
+
+      const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+      async function typeCommand(line: HTMLElement) {
+         const textEl = line.querySelector<HTMLElement>('.cmd-text');
+         const full = line.dataset.cmd ?? '';
+         line.style.visibility = 'visible';
+         if (textEl) {
+            textEl.textContent = '';
+            textEl.after(caret); // caret rides just after the typed text, before the newline
+         }
+         for (let i = 0; i < full.length; i++) {
+            if (textEl) textEl.textContent = full.slice(0, i + 1);
+            await wait(26 + Math.random() * 34);
+         }
+         await wait(260); // beat before the command "runs"
+      }
+
+      async function showOutput(line: HTMLElement) {
+         line.style.visibility = 'visible';
+         const textEl = line.querySelector<HTMLElement>('.out-text');
+         if (textEl) textEl.after(caret);
+         else line.appendChild(caret);
+         await wait(line.classList.contains('gap') ? 90 : 150);
+      }
+
+      async function play() {
+         for (const line of lines) {
+            if (line.classList.contains('cmd')) await typeCommand(line);
+            else await showOutput(line);
+         }
+         caret.remove(); // settle on the final frame, no trailing caret
+
+         // The human-readable reveal: fade the viewer in over the settled run,
+         // hold, then diagonally clip it back so both faces share the window.
+         if (!hasGlimpse) return;
+         await wait(1400);
+         term.setAttribute('data-state', 'cover');
+         await wait(1700 + 1000); // slow fade-in (~1.7s), then pause ~1s on the full viewer
+         term.setAttribute('data-state', 'split');
+      }
+
+      let started = false;
+      const io = new IntersectionObserver(
+         (entries) => {
+            for (const e of entries) {
+               if (e.isIntersecting && !started) {
+                  started = true;
+                  io.disconnect();
+                  void play();
+               }
+            }
+         },
+         { threshold: 0.4 },
+      );
+      io.observe(term);
+   }
+
+   for (const term of document.querySelectorAll<HTMLElement>('[data-animterm]')) setup(term);
+</script>

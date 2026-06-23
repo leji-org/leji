@@ -1,19 +1,18 @@
 ---
-// SDK-led quickstart: four steps, then CI wiring, direct invocation, adoption doors, and the library surface.
+// CLI-led quickstart: four steps, then CI wiring, direct invocation, adoption doors, and the library surface.
 import { Code } from 'astro:components';
 import Base from '../layouts/Base.astro';
 import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
 import SectionNav from '../components/SectionNav.astro';
 import SupportedRuntimes from '../components/SupportedRuntimes.astro';
-import { installSnippet } from '../data/runtimes';
+import InstallTabs from '../components/InstallTabs.astro';
 
-const installCode = installSnippet;
+const initCode = `leji adopt              # adopt an existing repo (leji init for a new one)
+leji adopt --dry-run    # preview every write first
+leji detect             # find installed agent hosts to launch
 
-const initCode = `leji init               # bootstrap a new context layer
-leji adopt              # or: adopt an existing repo
-
-# then hand the scaffold to your agent to populate:
+# hand the scaffold to your agent to populate it:
 claude "Read ./docs/.leji/onboarding-brief.md and follow it."`;
 
 const validateCode = `leji validate           # schemas + lint rules
@@ -22,7 +21,11 @@ leji index              # generate the index`;
 
 const conformanceCode = `leji conformance        # score the claim`;
 
-const ciCode = `leji validate           # schemas + lint rules
+const viewCode = `leji view               # open the human-readable viewer in your browser
+leji viewer build       # export a static folder to host behind internal auth`;
+
+const ciCode = `leji ci                 # add the validate workflow; --provider <github|gitlab|circleci|azure>
+leji validate           # schemas + lint rules
 leji index --check      # stale index fails
 leji changelog check    # append-only`;
 
@@ -35,7 +38,7 @@ const { findings } = validateLayer('.');`;
 
 <Base
    title="Quickstart · Leji"
-   description="Quickstart: install the leji CLI, bootstrap or map a context layer, validate it, and score it against the level it claims."
+   description="Quickstart: install the Leji CLI, bootstrap or map a context layer, validate it, and score it against the level it claims."
 >
    <SiteHeader />
    <div class="wrap">
@@ -46,9 +49,9 @@ const { findings } = validateLayer('.');`;
                <p class="eyebrow">Quickstart&ensp;·&ensp;spec 1.0</p>
                <h1>Build a context layer, prove it conforms.</h1>
                <p class="lede">
-                  The reference CLI does the mechanical work: bootstrap or map a context layer, validate every artifact
-                  against the schemas, and score it against the conformance level it claims. Schemas and templates ship
-                  inside the package; no network access is needed.
+                  The reference CLI does the mechanical work: bootstrap or adopt a context layer, launch your agent
+                  hosts into it, validate every artifact against the schemas, and score it against the conformance level
+                  it claims. Schemas and templates ship inside the package; no network access is needed.
                </p>
             </section>
 
@@ -59,12 +62,12 @@ const { findings } = validateLayer('.');`;
                   <div class="step-text">
                      <h2><span class="step-num">01</span>Install the tooling</h2>
                      <p>
-                        <code>leji</code> is one CLI with three homes: npm, PyPI, and Go. All three are tested against the
-                        same fixture suite, so commands, flags, JSON findings, and exit codes stay identical no matter which
-                        one your toolchain or CI installs.
+                        <code>leji</code> is 1 CLI with 3 homes: npm, PyPI, and Go. All three are tested against the same
+                        fixture suite, so commands, flags, JSON findings, and exit codes stay identical no matter which one
+                        your toolchain or CI installs.
                      </p>
                   </div>
-                  <div class="step-code"><Code code={installCode} lang="bash" theme="night-owl" wrap /></div>
+                  <div class="step-install"><InstallTabs /></div>
                </article>
 
                <article class="step">
@@ -74,14 +77,16 @@ const { findings } = validateLayer('.');`;
                         <code>leji init</code> scaffolds a new context layer: a <code>leji.json</code> manifest at the repository
                         root, a boot profile, seeded category documents, a first decision record, and an agent onboarding
                         brief. The scaffold starts as placeholder; hand it to your agent to fill in from the real repository,
-                        or edit the seeded documents yourself.
+                        or edit the seeded documents yourself. <code>--dry-run</code> previews every write first.
                      </p>
                      <aside class="map-note">
                         <strong>Already have a <code>docs/</code> tree?</strong>
-                        <code>leji adopt</code> reuses it: it maps your existing directories, migrates any vendor entrypoint
-                        (<code>CLAUDE.md</code>,
-                        <code>AGENTS.md</code>) into the layer without touching the originals, and, with
-                        <code>--wire-adapters</code>, converts them to one-line redirects.
+                        <code>leji adopt</code> reuses it: it maps your existing directories and migrates any vendor entrypoint
+                        (<code>CLAUDE.md</code>, <code>AGENTS.md</code>) into the context layer without touching the
+                        originals.
+                        <code>leji detect</code> finds your installed agent hosts; <code>adopt --wire-adapters</code>
+                        converts an existing entrypoint into a one-line redirect, and <code>leji start</code> opens a detected
+                        host in the layer.
                      </aside>
                   </div>
                   <div class="step-code"><Code code={initCode} lang="bash" theme="night-owl" wrap /></div>
@@ -116,14 +121,28 @@ const { findings } = validateLayer('.');`;
                   </div>
                   <div class="step-code"><Code code={conformanceCode} lang="bash" theme="night-owl" wrap /></div>
                </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">05</span>See your context layer</h2>
+                     <p>
+                        <code>leji view</code> opens the human-readable viewer in your browser: the reviewed context layer
+                        rendered for people to read, not just for agents to parse. To host it for the team,
+                        <code>leji viewer build</code> exports a self-contained static folder you can put behind internal
+                        auth.
+                     </p>
+                  </div>
+                  <div class="step-code"><Code code={viewCode} lang="bash" theme="night-owl" wrap /></div>
+               </article>
             </section>
 
             <section class="duo">
                <div class="duo-cell">
                   <h2>Keep it honest in CI</h2>
                   <p>
-                     <code>leji init --ci</code> writes a workflow that runs <code>leji validate</code> on every change. For
-                     indexed and higher layers, add the index and changelog gates so nothing silently rots:
+                     <code>leji ci</code> adds a CI job that runs <code>leji validate</code> on every change: GitHub by default,
+                     or <code>--provider gitlab</code> / <code>circleci</code> / <code>azure</code>. For indexed and
+                     higher layers, add the index and changelog gates so nothing silently rots:
                   </p>
                   <Code code={ciCode} lang="bash" theme="night-owl" wrap />
                   <p class="fine">
@@ -134,7 +153,8 @@ const { findings } = validateLayer('.');`;
                   <h2>Enter the context layer</h2>
                   <p>
                      The cleanest entry needs no vendor files at all: point the agent host at the boot profile in the
-                     invocation itself, so the context layer is the agent's first context with zero hops.
+                     invocation itself, so the context layer is the agent's first context with zero hops. Or
+                     <code>leji start</code> auto-detects an installed agent and opens it in the layer.
                   </p>
                   <Code code={invokeCode} lang="bash" theme="night-owl" wrap />
                   <p class="fine">
@@ -150,7 +170,7 @@ const { findings } = validateLayer('.');`;
                   <tbody>
                      <tr>
                         <th scope="row"><a href="/adoption/#monorepo">Monorepo</a></th>
-                        <td>One repository, one context layer. The full path is five steps.</td>
+                        <td>1 repository, 1 context layer. The full path is 5 steps.</td>
                      </tr>
                      <tr>
                         <th scope="row"><a href="/adoption/#multi-repo">Multi-repo</a></th>
@@ -180,7 +200,8 @@ const { findings } = validateLayer('.');`;
                         target="_blank"
                         rel="noopener">leji-org/leji</a
                      >
-                     under <code>packages/sdk</code>, Apache-2.0.
+                     under <code>packages/sdk</code>, Apache-2.0. For AI agents, the spec, schemas, and validation ship
+                     as an <a href="/mcp/">MCP server</a>.
                   </p>
                </div>
                <div class="peek-code"><Code code={apiCode} lang="js" theme="night-owl" wrap /></div>
@@ -304,7 +325,6 @@ const { findings } = validateLayer('.');`;
       grid-template-columns: 1fr;
       gap: 2.8rem;
    }
-   /* single column: no card box; each cell flows as a section like the steps */
    .duo-cell h2 {
       font-size: 1.35rem;
    }
@@ -333,8 +353,6 @@ const { findings } = validateLayer('.');`;
    .shapes {
       margin-top: 4rem;
    }
-   /* a definition group: term (the linked shape) then its description, no
-      dividers or boxes, just tight term/definition rhythm */
    /* a directory of doors into the adoption guides: situation (linked) on the
       left, one-line description on the right, divided rows, aligned columns */
    .shape-table {
@@ -398,7 +416,13 @@ const { findings } = validateLayer('.');`;
       margin-top: 0;
    }
 
-   /* code blocks sit on brand blue, same as everywhere else */
+   .step-install {
+      background: var(--blue-deep);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(22, 41, 96, 0.14);
+      overflow: hidden;
+   }
+
    .step-code :global(.astro-code),
    .duo-cell :global(.astro-code),
    .peek-code :global(.astro-code) {

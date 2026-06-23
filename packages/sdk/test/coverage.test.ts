@@ -6,7 +6,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { generateDocs, loadManifest, run, serveDocs } from '../dist/index.js';
+import { generateViewer, loadManifest, run, serveViewer, validateManifestObject } from '../dist/index.js';
+import type { Manifest } from '../dist/index.js';
+import { contentFindings } from '../dist/commands/validate.js';
 import { finding, sortFindings } from '../dist/lib/findings.js';
 import { realpathWithin, walkMd } from '../dist/lib/fsx.js';
 import { schemaErrors } from '../dist/lib/schemas.js';
@@ -125,9 +127,9 @@ test('run: malformed flags and missing values exit 2', async () => {
 });
 
 // --- index/run: valid optional flags (success branches), attached to a no-op command ---
-test('run: valid --name/--serve/--check/--port parse without starting a server', async () => {
-   // `version` ignores these flags, so the parse branches run but no docs server starts.
-   assert.equal(await quiet(() => run(['--name', 'acme', '--serve', '--check', '--port', '0', 'version'])), 0);
+test('run: valid --name/--open/--check/--port parse without starting a server', async () => {
+   // `version` ignores these flags, so the parse branches run but no viewer server starts.
+   assert.equal(await quiet(() => run(['--name', 'acme', '--open', '--check', '--port', '0', 'version'])), 0);
 });
 
 test('run: rejects flags not declared for the command (exit 2), accepts declared ones', async () => {
@@ -135,9 +137,9 @@ test('run: rejects flags not declared for the command (exit 2), accepts declared
    for (const argv of [
       ['validate', '--strict', '--root', exampleDir],
       ['validate', '--check', '--root', exampleDir],
-      ['validate', '--serve', '--root', exampleDir],
+      ['validate', '--open', '--root', exampleDir],
       ['conformance', '--strict', '--root', exampleDir],
-      ['index', '--serve', '--root', exampleDir],
+      ['index', '--open', '--root', exampleDir],
    ]) {
       assert.equal(await quiet(() => run(argv)), 2, argv.join(' '));
    }
@@ -186,18 +188,62 @@ test('run: read commands against the example layer', async () => {
 });
 
 // --- index/run: write commands on a throwaway copy (docs + index) ---
-test('run: docs and index write dispatch on a temp copy', async () => {
+test('run: viewer and index write dispatch on a temp copy', async () => {
    const copy = copyExample();
-   assert.equal(await quiet(() => run(['docs', '--root', copy])), 0);
+   assert.equal(await quiet(() => run(['viewer', '--root', copy])), 0);
    assert.equal(await quiet(() => run(['index', '--root', copy])), 0);
 });
 
-// --- commands/docs: serveDocs security branches (400 / 404 / directory) ---
-test('serveDocs answers 400 on bad encoding and 404 on dotfile segments', async () => {
+// --- index/run: agent command CLI path (usage error, human + json output, idempotent) ---
+test('run: agent command writes a profile, binds it, and is idempotent', async () => {
+   const copy = copyExample();
+   // missing --name -> usage error
+   assert.equal(await quiet(() => run(['agent', '--root', copy])), 2);
+   // human output: a host-agnostic resident agent (role defaults to reviewer)
+   assert.equal(await quiet(() => run(['agent', '--name', 'reviewer-a', '--root', copy])), 0);
+   // json output, pinned to a host (exercises the roleHost host branch + json payload)
+   assert.equal(
+      await quiet(() => run(['agent', '--name', 'reviewer-b', '--host', 'codex', '--json', '--root', copy])),
+      0,
+   );
+   // re-run the same agent -> "already present / already bound" branch
+   assert.equal(await quiet(() => run(['agent', '--name', 'reviewer-a', '--root', copy])), 0);
+   const m = JSON.parse(fs.readFileSync(path.join(copy, 'leji.json'), 'utf8'));
+   assert.ok(m.agents['reviewer-a'] && m.agents['reviewer-b']);
+});
+
+// --- index/run: ci command dispatch, including the CircleCI manual branch ---
+test('run: ci command covers provider dispatch, note, and the manual branch', async () => {
+   // unknown provider -> usage error
+   assert.equal(await quiet(() => run(['ci', '--provider', 'nope', '--root', copyExample()])), 2);
+   // azure created, human -> prints the activation note
+   assert.equal(await quiet(() => run(['ci', '--provider', 'azure', '--root', copyExample()])), 0);
+   // azure created, json -> note carried in the json payload
+   assert.equal(await quiet(() => run(['ci', '--provider', 'azure', '--json', '--root', copyExample()])), 0);
+   // circleci with a pre-existing config -> manual: prints a snippet, leaves the file untouched
+   const copy = copyExample();
+   fs.mkdirSync(path.join(copy, '.circleci'), { recursive: true });
+   fs.writeFileSync(path.join(copy, '.circleci', 'config.yml'), 'version: 2.1\n');
+   assert.equal(await quiet(() => run(['ci', '--provider', 'circleci', '--root', copy])), 0);
+   assert.equal(await quiet(() => run(['ci', '--provider', 'circleci', '--json', '--root', copy])), 0);
+});
+
+// --- index/run: detect --json and start's boot-missing branch ---
+test('run: detect --json and start reports a missing boot profile', async () => {
+   assert.equal(await quiet(() => run(['detect', '--json', '--root', copyExample()])), 0);
+   const copy = copyExample();
+   const { manifest } = loadManifest(copy);
+   fs.rmSync(path.join(copy, manifest!.bootProfilePath)); // remove the boot profile so start can't enter
+   // start is non-interactive here (no TTY under the test runner); a missing boot profile -> exit 1
+   assert.equal(await quiet(() => run(['start', '--root', copy])), 1);
+});
+
+// --- commands/viewer: serveViewer security branches (400 / 404 / directory) ---
+test('serveViewer answers 400 on bad encoding and 404 on dotfile segments', async () => {
    const dir = copyExample();
    const { manifest } = loadManifest(dir);
-   generateDocs(dir, manifest!);
-   const server = await serveDocs(dir, 0);
+   generateViewer(dir, manifest!);
+   const server = await serveViewer(dir, 0, manifest!.rootPath);
    const port = (server.address() as { port: number }).port;
    const status = (p: string): Promise<number> =>
       new Promise((res, rej) => {
@@ -212,12 +258,65 @@ test('serveDocs answers 400 on bad encoding and 404 on dotfile segments', async 
    try {
       assert.equal(await status('/%E0%A4%A'), 400); // malformed percent-encoding -> URIError -> 400
       assert.equal(await status('/.git/config'), 404); // VCS / dotfile segment -> 404
-      assert.equal(await status('/' + rootPath), 301); // directory w/o trailing slash -> 301 (relative-asset fix)
-      assert.equal(await status('/' + rootPath + '/'), 200); // trailing slash -> index.html body
-      // A symlink that passes the lexical check but resolves outside the root -> 403.
+      assert.equal(await status('/'), 200); // viewer chrome served at the web root
+      assert.equal(await status('/content/.leji/viewer/index.html'), 404); // .leji not reachable by direct URL
+      // A symlink under the content dir that resolves outside the root -> 403.
       fs.symlinkSync('/etc/hosts', path.join(dir, rootPath, 'evil'));
-      assert.equal(await status('/' + rootPath + '/evil'), 403);
+      assert.equal(await status('/content/evil'), 403);
    } finally {
       server.close();
    }
+});
+
+// --- lib/manifest: loadManifest confines the leji.json read to the layer root ---
+test('loadManifest rejects a leji.json that resolves outside the layer root', () => {
+   const root = tmpdir('leji-manifest-escape-');
+   fs.symlinkSync('/etc/hosts', path.join(root, 'leji.json')); // symlinked manifest escaping root
+   const { manifest, findings } = loadManifest(root);
+   assert.equal(manifest, null);
+   assert.equal(findings[0]?.rule, 'manifest-parse');
+   assert.match(findings[0]!.message, /outside the layer root/);
+});
+
+// --- lib/manifest: validateManifestObject validates an in-memory manifest ---
+test('validateManifestObject accepts a well-formed manifest object', () => {
+   const { manifest, findings } = validateManifestObject({
+      leji: '1.0',
+      name: 'inline',
+      rootPath: 'docs/',
+      bootProfilePath: 'docs/boot-profile.md',
+      categories: { domain: { paths: ['docs/domain/'] }, decisions: { paths: ['docs/decisions/'] } },
+      owners: { primary: { name: 'Inline Owner' } },
+   });
+   assert.notEqual(manifest, null);
+   assert.deepEqual(findings, []);
+});
+
+test('validateManifestObject reports manifest-schema findings for a malformed object', () => {
+   const { manifest, findings } = validateManifestObject({ leji: '1.0', name: 'inline' }); // missing required fields
+   assert.equal(manifest, null);
+   assert.ok(findings.some((f) => f.rule === 'manifest-schema'));
+});
+
+test('validateManifestObject reports an unsupported declared spec line', () => {
+   const { manifest, findings } = validateManifestObject({ leji: '9.9', name: 'inline' });
+   assert.equal(manifest, null);
+   assert.equal(findings[0]?.rule, 'manifest-line');
+});
+
+// --- validate --content confines the boot-profile read ---
+test('contentFindings skips a boot profile that resolves outside the layer root', () => {
+   const root = tmpdir('leji-content-boot-');
+   fs.symlinkSync('/etc/hosts', path.join(root, 'boot.md')); // boot symlink escaping root
+   const manifest = {
+      leji: '1.0',
+      name: 'x',
+      rootPath: '',
+      bootProfilePath: 'boot.md',
+      categories: {},
+      owners: { primary: { name: 'owner' } },
+   } as unknown as Manifest;
+   // The escaping file must not be read, so it yields no content findings (and no throw).
+   const out = contentFindings(root, manifest);
+   assert.ok(!out.some((f) => f.path === 'boot.md'));
 });

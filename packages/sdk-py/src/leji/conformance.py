@@ -101,7 +101,9 @@ def conformance_report(root: str) -> ConformanceResult:
             claimed_level=None, verified_level=None, items=items, findings=sort_findings(findings)
         )
 
-    boot_errors = errors_by(["missing-declared-file"], lambda p: p == manifest["bootProfilePath"])
+    boot_errors = errors_by(
+        ["missing-declared-file", "path-escapes-root"], lambda p: p == manifest["bootProfilePath"]
+    )
     add(
         "boot-profile",
         "core",

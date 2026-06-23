@@ -20,7 +20,7 @@
   },
   "agents": {
     "core": "docs/agents/core.md",
-    "thought-partner": "docs/agents/thought-partner.md"
+    "reviewer": "docs/agents/reviewer.md"
   },
   "owners": {
     "primary": { "name": "Sam Park", "contact": "sam@acme.example" },
@@ -42,7 +42,7 @@
     ]
   },
   "vendorAdapters": ["CLAUDE.md", "AGENTS.md"],
-  "docs": {
+  "viewer": {
     "port": 5354
   }
 }

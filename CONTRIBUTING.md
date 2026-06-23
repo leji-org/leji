@@ -1,6 +1,6 @@
 # Contributing
 
-Leji is at 1.0.0, extracted from lived practice. The 1.0 line is stable: schema changes within it are additive only, and breaking changes require a new line per spec/versioning.md.
+The Leji spec is at 1.0, extracted from lived practice; the reference SDKs and tooling are at 1.2.0. The 1.0 spec line is stable: schema changes within it are additive only, and breaking changes require a new line per spec/versioning.md.
 
 - **Spec proposals.** Open an issue first: the problem, the intent, and the lived case behind it. Leji specifies proven practice; proposals grounded in something a real team does carry more weight than ideas in the abstract.
 - **Pull requests.** Normative changes (anything under `spec/` or `schemas/`) ride PR review and require a `CHANGELOG.md` entry plus a machine-readable `CHANGELOG.json` entry. Yes, the spec dogfoods itself.

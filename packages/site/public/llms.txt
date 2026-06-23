@@ -1,6 +1,6 @@
 # Leji
 
-> Leji (/LEH-jee/, from "legible") is an open specification for the shared context layer of AI-native teams: one versioned, repo-owned layer of how a team thinks (domain language, constraints, decisions, conventions, guardrails), read by people and AI agents on every task and governed by the same review gate.
+> Leji is an open specification for the shared context layer of AI-native teams: one versioned, repo-owned layer of how a team thinks (domain language, constraints, decisions, conventions, guardrails), read by people and AI agents on every task and governed by the same review gate.
 
 Leji is the specification; the context layer is what a team builds with it. A repository declares conformance with a `leji.json` manifest at its root. Spec status: 1.0.0, released.
 
@@ -41,7 +41,8 @@ JSON Schemas served at their canonical $id URLs:
 
 ## Optional
 
-- [Quickstart](https://leji.org/quickstart/): install the reference CLI (npm and PyPI), bootstrap or map a layer, validate, score conformance
+- [Quickstart](https://leji.org/quickstart/): install the reference CLI (npm, PyPI, and Go), bootstrap or map a layer, validate, score conformance
+- [MCP server](https://leji.org/mcp/): use Leji tooling from an AI agent. A local, read-only Model Context Protocol (MCP) server (`@leji-org/mcp`) that serves the spec and schemas and validates and scores a context layer on disk. The CLI is for people and CI; the MCP server is the agent-native surface.
 - [Rationale](https://leji.org/rationale/): why the spec exists and the design bets
-- [Adoption guides](https://leji.org/adoption/): monorepo and federated adoption paths
+- [Adoption guides](https://leji.org/adoption/): monorepo and multi-repo adoption paths
 - [Source repository](https://github.com/leji-org/leji): spec prose (CC-BY-4.0), code and schemas (Apache-2.0)

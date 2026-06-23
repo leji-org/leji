@@ -1,7 +1,7 @@
 {
    "name": "@leji-org/leji",
-   "version": "1.1.0",
-   "description": "Reference SDK and CLI for Leji, the open specification for the shared context layer of AI-native teams: validate, index, changelog, freshness, conformance, and init.",
+   "version": "1.2.0",
+   "description": "Reference SDK and CLI for Leji, the open specification for the shared context layer of AI-native teams: validate, index, changelog, freshness, conformance, viewer, init, adopt, detect, start, ci, and agent.",
    "keywords": [
       "leji",
       "ai-native",
@@ -23,6 +23,9 @@
    },
    "author": "Vuong Nguyen (https://vuongnguyen.com)",
    "license": "Apache-2.0",
+   "publishConfig": {
+      "access": "public"
+   },
    "type": "module",
    "engines": {
       "node": ">=22"
@@ -39,7 +42,6 @@
       "dist",
       "schemas",
       "templates",
-      "assets-manifest.json",
       "cli.json"
    ],
    "scripts": {

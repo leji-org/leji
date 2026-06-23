@@ -1,0 +1,114 @@
+---
+// A syntax-highlighted code block with a copy-to-clipboard button, styled to
+// match the terminal/install blocks. The button reads the rendered code's
+// textContent, so the copied text is exactly the source, highlighting aside.
+import { Code } from 'astro:components';
+import copyIcon from '../assets/copy.svg?raw';
+import checkIcon from '../assets/check.svg?raw';
+
+interface Props {
+   code: string;
+   lang?: string;
+   /** Accessible label for the button (and its copied/idle states). */
+   label?: string;
+}
+const { code, lang = 'text', label = 'Copy to clipboard' } = Astro.props;
+---
+
+<div class="cc" data-copy-code data-copy-label={label}>
+   <Code code={code} lang={lang} theme="night-owl" />
+   <button type="button" class="cc-copy" aria-label={label}>
+      <span class="cc-i cc-i-copy" set:html={copyIcon} />
+      <span class="cc-i cc-i-check" set:html={checkIcon} />
+   </button>
+</div>
+
+<style>
+   .cc {
+      position: relative;
+      margin-top: 0.6rem;
+   }
+   .cc :global(.astro-code) {
+      background: var(--blue-deep) !important;
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      /* room so long lines never slide under the copy button */
+      padding-right: 3.2rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+      margin: 0;
+      overflow-x: auto;
+   }
+   .cc-copy {
+      position: absolute;
+      top: 0.6rem;
+      right: 0.6rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.4rem;
+      color: var(--white-soft);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 6px;
+      cursor: pointer;
+      transition:
+         background 0.15s ease,
+         color 0.15s ease,
+         border-color 0.15s ease;
+   }
+   .cc-copy:hover,
+   .cc-copy:focus-visible {
+      background: rgba(255, 189, 110, 0.18);
+      color: var(--gold-bright);
+      border-color: var(--gold);
+      outline: none;
+   }
+   .cc-i {
+      display: block;
+   }
+   .cc-i :global(svg) {
+      display: block;
+      width: 15px;
+      height: 15px;
+   }
+   .cc-i-check {
+      display: none;
+   }
+   .cc-copy.copied .cc-i-copy {
+      display: none;
+   }
+   .cc-copy.copied .cc-i-check {
+      display: block;
+      color: var(--gold-bright);
+   }
+   @media (prefers-reduced-motion: reduce) {
+      .cc-copy {
+         transition: none;
+      }
+   }
+</style>
+
+<script>
+   for (const root of document.querySelectorAll<HTMLElement>('[data-copy-code]')) {
+      const codeEl = root.querySelector<HTMLElement>('.astro-code');
+      const copyBtn = root.querySelector<HTMLButtonElement>('.cc-copy');
+      if (!codeEl || !copyBtn) continue;
+      const label = root.dataset.copyLabel ?? 'Copy to clipboard';
+      let timer = 0;
+      copyBtn.addEventListener('click', async () => {
+         try {
+            await navigator.clipboard.writeText(codeEl.textContent ?? '');
+            copyBtn.classList.add('copied');
+            copyBtn.setAttribute('aria-label', 'Copied');
+            window.clearTimeout(timer);
+            timer = window.setTimeout(() => {
+               copyBtn.classList.remove('copied');
+               copyBtn.setAttribute('aria-label', label);
+            }, 1400);
+         } catch {
+            // clipboard unavailable: the code stays visible to copy by hand
+         }
+      });
+   }
+</script>

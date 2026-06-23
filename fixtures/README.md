@@ -1,8 +1,9 @@
 # Conformance fixtures
 
-Shared test fixtures consumed by **both** SDK test suites (`packages/sdk` via
-`node --test`, `packages/sdk-py` via pytest). They are the contract that keeps
-the two implementations behaviorally identical: every fixture is a miniature
+Shared test fixtures consumed by all three SDK test suites (`packages/sdk` via
+`node --test`, `packages/sdk-py` via pytest, `packages/sdk-go` via `go test`).
+They are the contract that keeps the three implementations behaviorally
+identical: every fixture is a miniature
 repository plus an `expected.json` stating what `leji validate` must report.
 
 ## Matching rules

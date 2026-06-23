@@ -1,119 +1,249 @@
 {
-   "name": "leji",
-   "summary": "Reference CLI for the Leji specification: validate, index, changelog, freshness, conformance, docs, detect, adopt, and init for a shared context layer.",
-   "usage": "leji <command> [options]",
-   "globalOptions": [
-      { "flags": "--root <dir>", "summary": "Repository root to operate on (default: the current directory)." },
-      { "flags": "--json", "summary": "Machine-readable JSON output instead of human-readable text." },
-      { "flags": "-V, --version", "summary": "Print the SDK version and exit." },
-      { "flags": "-h, --help", "summary": "Show help and exit." }
-   ],
-   "exitCodes": [
-      { "code": 0, "meaning": "Clean. No errors; warnings are allowed." },
-      { "code": 1, "meaning": "Findings. At least one error was reported." },
-      { "code": 2, "meaning": "Usage error, or an internal failure (e.g. init refusing to overwrite)." }
-   ],
-   "commands": [
-      {
-         "name": "validate",
-         "summary": "Validate the context layer: manifest, artifacts, frontmatter, and lint rules.",
-         "usage": "leji validate [--content] [--root <dir>] [--json]",
-         "description": "Loads leji.json and checks it against the schemas and the lint rules: declared files exist, categories are populated, vendor entrypoints redirect to the boot profile, frontmatter is valid, and (per the claimed conformance level) the index is current and the changelog is append-only. The single command CI runs to keep a context layer honest. With --content it also runs a warning-only content lint (placeholder text, generic boot identity, thin categories) that never errors and never affects a conformance level.",
-         "options": [{ "flags": "--content", "summary": "Also run the warning-only content lint (placeholders, generic identity, thin categories)." }],
-         "examples": ["leji validate", "leji validate --content", "leji validate --root . --json"]
-      },
-      {
-         "name": "index",
-         "summary": "Generate the context index at the declared path, or verify it is current.",
-         "usage": "leji index [--check] [--root <dir>] [--json]",
-         "description": "Scans the mapped category paths and writes the context index to machine.indexPath. Ids are stable: a renamed or moved document keeps its id. With --check it writes nothing and instead fails when the stored index no longer matches the tree (a stale index is a hard failure).",
-         "options": [{ "flags": "--check", "summary": "Verify the stored index is current with the tree; write nothing." }],
-         "examples": ["leji index", "leji index --check"]
-      },
-      {
-         "name": "changelog check",
-         "summary": "Verify the machine changelog: schema and append-only discipline.",
-         "usage": "leji changelog check [--strict] [--root <dir>] [--json]",
-         "description": "Validates the declared changelog against its schema and enforces append-only discipline against the git baseline: surviving entries are immutable, and entries may be removed only from the oldest end and only alongside a compaction entry. Without a git baseline the discipline is unverifiable and reported as a warning.",
-         "options": [{ "flags": "--strict", "summary": "Treat an unverifiable append-only check (no git baseline) as an error." }],
-         "examples": ["leji changelog check", "leji changelog check --strict"]
-      },
-      {
-         "name": "changelog compact",
-         "summary": "Fold the oldest changelog entries into a single compaction entry.",
-         "usage": "leji changelog compact [--keep <n>] [--before <YYYY-MM-DD>] [--root <dir>] [--json]",
-         "description": "Compacts the oldest end of the machine changelog: entries selected by --keep (every entry except the newest n) and/or --before (entries dated before the given day) are dropped and replaced by one compaction entry that records how many were folded and the id range removed. At least one of --keep or --before is required. The folded set is always a contiguous run from the oldest end, so the result still satisfies the append-only discipline that `leji changelog check` enforces.",
-         "options": [
-            { "flags": "--keep <n>", "summary": "Keep the newest n entries; fold everything older. Must be a positive integer." },
-            { "flags": "--before <date>", "summary": "Fold entries dated strictly before this YYYY-MM-DD day." }
-         ],
-         "examples": ["leji changelog compact --keep 50", "leji changelog compact --before 2026-01-01", "leji changelog compact --keep 50 --before 2026-01-01"]
-      },
-      {
-         "name": "freshness",
-         "summary": "Report review horizons across category documents and agent profiles.",
-         "usage": "leji freshness [--strict] [--root <dir>] [--json]",
-         "description": "Lists documents whose freshness.reviewAfter horizon has passed (expired) or falls within the next 30 days (upcoming). Report-only by default; expired horizons are warnings.",
-         "options": [{ "flags": "--strict", "summary": "Treat expired horizons as errors instead of warnings." }],
-         "examples": ["leji freshness", "leji freshness --strict --json"]
-      },
-      {
-         "name": "conformance",
-         "summary": "Score the context layer against its claimed conformance level.",
-         "usage": "leji conformance [--explain] [--root <dir>] [--json]",
-         "description": "Runs the core, indexed, governed, and federated checklists. Machine-checkable items pass or fail; process items (review gate, CI, external consumers) are reported as manual. A claim above the verified level is an error. With --explain it also prints what it would take to reach the next level.",
-         "options": [{ "flags": "--explain", "summary": "Print actionable guidance for reaching the next conformance level." }],
-         "examples": ["leji conformance", "leji conformance --explain", "leji conformance --json"]
-      },
-      {
-         "name": "docs",
-         "summary": "Generate the static docs viewer, and optionally serve it locally.",
-         "usage": "leji docs [--serve] [--port <n>] [--root <dir>] [--json]",
-         "description": "Projects the context index into a browsable Docsify viewer: writes index.html (with a frontmatter-stripping hook) and a deterministic _sidebar.md into the context root. Presentation is non-normative; this is the reference projection. With --serve it then serves the repository on 127.0.0.1 (a local preview, never hosting).",
-         "options": [
-            { "flags": "--serve", "summary": "Serve the repository on 127.0.0.1 after generating." },
-            { "flags": "--port <n>", "summary": "Port for --serve. Overrides the manifest docs.port; default 5354 (LEJI on a phone keypad); 0 picks a free port." }
-         ],
-         "examples": ["leji docs", "leji docs --serve", "leji docs --serve --port 0"]
-      },
-      {
-         "name": "detect",
-         "summary": "Detect the coding-agent hosts available on this machine.",
-         "usage": "leji detect [--root <dir>] [--json]",
-         "description": "Best-effort, read-only detection of installed agent hosts (Claude Code, Codex, Copilot, Gemini, Cursor, Windsurf), ranked by signal strength: a runnable binary, a config file in the repository, or a user-level config directory. Writes nothing; use it to decide which host to wire with `leji init --agent <name>`.",
-         "options": [],
-         "examples": ["leji detect", "leji detect --json"]
-      },
-      {
-         "name": "adopt",
-         "summary": "Adopt Leji into an existing repository.",
-         "usage": "leji adopt [--dir <path>] [--yes] [--agent <name>] [--wire-adapters] [--dry-run]",
-         "description": "Brings Leji into a repository that already has docs and agent config. Reuses an existing docs/ root, migrates the content of any vendor entrypoints (CLAUDE.md, AGENTS.md, …) into the layer without modifying the originals, and seeds the standard scaffold. With --wire-adapters it converts those entrypoints to one-line redirects (a consented overwrite, after their content is migrated); otherwise it produces an adoption draft that is not yet core-conformant. Refuses when a leji.json already exists.",
-         "options": [
-            { "flags": "--dir <path>", "summary": "Target directory (default: the current directory)." },
-            { "flags": "--yes, -y", "summary": "Accept all defaults; run non-interactively." },
-            { "flags": "--agent <name>", "summary": "Also wire a vendor adapter for a host that has no entrypoint yet." },
-            { "flags": "--wire-adapters", "summary": "Convert present vendor entrypoints to redirects (consented; content migrated first)." },
-            { "flags": "--dry-run", "summary": "Print the write plan and exit without changing anything." }
-         ],
-         "examples": ["leji adopt", "leji adopt --dry-run", "leji adopt --wire-adapters"]
-      },
-      {
-         "name": "init",
-         "summary": "Bootstrap a new context layer from the templates.",
-         "usage": "leji init [--dir <path>] [--yes] [--level <core|indexed>] [--name <name>] [--agent <name>] [--reviewer <name>] [--ci] [--dry-run]",
-         "description": "Interactively scaffolds a context layer: leji.json, a boot profile, seeded category documents, a first decision record, an agent onboarding brief, and (at the indexed level) a generated index and machine changelog. Refuses to overwrite an existing leji.json and never overwrites individual files. With --dry-run it prints the write plan (what it would create, and any existing files it will leave untouched) without writing anything. The same entrypoint backs `npm create leji`.",
-         "options": [
-            { "flags": "--dir <path>", "summary": "Target directory (default: the current directory)." },
-            { "flags": "--yes, -y", "summary": "Accept all defaults; run non-interactively." },
-            { "flags": "--level <level>", "summary": "Conformance level to claim: core or indexed (default: core)." },
-            { "flags": "--name <name>", "summary": "Context layer name (default: derived from the directory)." },
-            { "flags": "--agent <name>", "summary": "Wire a vendor adapter redirect for a host (claude-code, codex, copilot, gemini, cursor, windsurf), or 'auto'/'none'." },
-            { "flags": "--reviewer <name>", "summary": "Designate a second host as the reviewer role (multi-agent workflow)." },
-            { "flags": "--ci", "summary": "Also write a GitHub Actions workflow that runs `leji validate` in CI." },
-            { "flags": "--dry-run", "summary": "Print the write plan and exit without creating any files." }
-         ],
-         "examples": ["leji init", "leji init --dry-run", "leji init --agent claude-code --reviewer codex", "leji init --ci --yes"]
-      }
-   ]
+  "name": "leji",
+  "summary": "Reference CLI for the Leji specification: validate, index, changelog, freshness, conformance, viewer/view, detect, adopt, init, start, ci, and agent for a shared context layer.",
+  "usage": "leji <command> [options]",
+  "globalOptions": [
+    { "flags": "--root <dir>", "summary": "Repository root to operate on (default: the current directory)." },
+    { "flags": "--json", "summary": "Machine-readable JSON output instead of human-readable text." },
+    { "flags": "-v, --version", "summary": "Print the Leji version and exit." },
+    { "flags": "-h, --help", "summary": "Show help and exit." }
+  ],
+  "exitCodes": [
+    { "code": 0, "meaning": "Clean. No errors; warnings are allowed." },
+    { "code": 1, "meaning": "Findings. At least one error was reported." },
+    { "code": 2, "meaning": "Usage error, or an internal failure (e.g. init refusing to overwrite)." }
+  ],
+  "commands": [
+    {
+      "name": "validate",
+      "summary": "Validate the context layer: manifest, artifacts, frontmatter, and lint rules.",
+      "usage": "leji validate [--content] [--root <dir>] [--json]",
+      "description": "Loads leji.json and checks it against the schemas and the lint rules: declared files exist, categories are populated, vendor entrypoints redirect to the boot profile, frontmatter is valid, and (per the claimed conformance level) the index is current and the changelog is append-only. The single command CI runs to keep a context layer honest. With --content it also runs a warning-only content lint (placeholder text, generic boot identity, thin categories) that never errors and never affects a conformance level.",
+      "options": [
+        {
+          "flags": "--content",
+          "summary": "Also run the warning-only content lint (placeholders, generic identity, thin categories)."
+        }
+      ],
+      "examples": ["leji validate", "leji validate --content", "leji validate --root . --json"]
+    },
+    {
+      "name": "index",
+      "summary": "Generate the context index at the declared path, or verify it is current.",
+      "usage": "leji index [--check] [--root <dir>] [--json]",
+      "description": "Scans the mapped category paths and writes the context index to machine.indexPath. Ids are stable: a renamed or moved document keeps its id. With --check it writes nothing and instead fails when the stored index no longer matches the tree (a stale index is a hard failure).",
+      "options": [
+        { "flags": "--check", "summary": "Verify the stored index is current with the tree; write nothing." }
+      ],
+      "examples": ["leji index", "leji index --check"]
+    },
+    {
+      "name": "changelog check",
+      "summary": "Verify the machine changelog: schema and append-only discipline.",
+      "usage": "leji changelog check [--strict] [--root <dir>] [--json]",
+      "description": "Validates the declared changelog against its schema and enforces append-only discipline against the git baseline: surviving entries are immutable, and entries may be removed only from the oldest end and only alongside a compaction entry. Without a git baseline the discipline is unverifiable and reported as a warning.",
+      "options": [
+        { "flags": "--strict", "summary": "Treat an unverifiable append-only check (no git baseline) as an error." }
+      ],
+      "examples": ["leji changelog check", "leji changelog check --strict"]
+    },
+    {
+      "name": "changelog compact",
+      "summary": "Fold the oldest changelog entries into a single compaction entry.",
+      "usage": "leji changelog compact [--keep <n>] [--before <YYYY-MM-DD>] [--root <dir>] [--json]",
+      "description": "Compacts the oldest end of the machine changelog, folding entries into a single compaction entry that records how many were folded and the id range removed.",
+      "details": [
+        "Selection: `--keep <n>` folds every entry except the newest n; `--before <date>` folds entries dated before the given day. With both, an entry folds only if it satisfies both (the intersection).",
+        "At least one of `--keep` or `--before` is required.",
+        "The folded set is always a contiguous run from the oldest end, so the result still satisfies the append-only discipline that `leji changelog check` enforces."
+      ],
+      "options": [
+        {
+          "flags": "--keep <n>",
+          "summary": "Keep the newest n entries; fold everything older. Must be a positive integer."
+        },
+        { "flags": "--before <date>", "summary": "Fold entries dated strictly before this YYYY-MM-DD day." }
+      ],
+      "examples": [
+        "leji changelog compact --keep 50",
+        "leji changelog compact --before 2026-01-01",
+        "leji changelog compact --keep 50 --before 2026-01-01"
+      ]
+    },
+    {
+      "name": "freshness",
+      "summary": "Report review horizons across category documents and agent profiles.",
+      "usage": "leji freshness [--strict] [--root <dir>] [--json]",
+      "description": "Lists documents whose freshness.reviewAfter horizon has passed (expired) or falls within the next 30 days (upcoming). Report-only by default; expired horizons are warnings.",
+      "options": [{ "flags": "--strict", "summary": "Treat expired horizons as errors instead of warnings." }],
+      "examples": ["leji freshness", "leji freshness --strict --json"]
+    },
+    {
+      "name": "conformance",
+      "summary": "Score the context layer against its claimed conformance level.",
+      "usage": "leji conformance [--explain] [--root <dir>] [--json]",
+      "description": "Runs the core, indexed, governed, and federated checklists. Machine-checkable items pass or fail; process items (review gate, CI, external consumers) are reported as manual. A claim above the verified level is an error. With --explain it also prints what it would take to reach the next level.",
+      "options": [
+        { "flags": "--explain", "summary": "Print actionable guidance for reaching the next conformance level." }
+      ],
+      "examples": ["leji conformance", "leji conformance --explain", "leji conformance --json"]
+    },
+    {
+      "name": "viewer",
+      "summary": "Generate the static viewer for the context layer.",
+      "usage": "leji viewer [--root <dir>] [--json]",
+      "description": "Projects the context index into a browsable Docsify viewer: writes a frontmatter-stripping index.html, a deterministic _sidebar.md, and the vendored viewer assets into the layer's contained viewer directory. Presentation is non-normative; this is the reference projection. Generates only; use `leji viewer serve` (or `leji view`) to preview it locally, and `leji viewer build` to export a self-contained copy.",
+      "options": [],
+      "examples": ["leji viewer", "leji viewer --json"]
+    },
+    {
+      "name": "viewer serve",
+      "summary": "Generate the viewer and serve it locally.",
+      "usage": "leji viewer serve [--port <n>] [--open] [--root <dir>] [--json]",
+      "description": "Generates the viewer, then serves it on localhost (a local preview, never hosting) at the web root. With --open it also opens your default browser at the viewer.",
+      "options": [
+        { "flags": "--open", "summary": "Open the viewer in your default browser after serving." },
+        {
+          "flags": "--port <n>",
+          "summary": "Port to serve on. Overrides the manifest viewer.port; default 5354 (LEJI on a phone keypad); 0 picks a free port."
+        }
+      ],
+      "examples": ["leji viewer serve", "leji viewer serve --open", "leji viewer serve --port 0"]
+    },
+    {
+      "name": "viewer build",
+      "summary": "Export a self-contained static viewer folder for internal hosting.",
+      "usage": "leji viewer build [--out <dir>] [--root <dir>] [--json]",
+      "description": "Regenerates the viewer and materializes it into a standalone static folder (default: .leji/viewer-dist/, kept out of git) that any host serves as-is. A custom --out must resolve inside the repository. The exported index.html warns that a context layer is sensitive and should be hosted behind internal authentication, not a public bucket.",
+      "options": [
+        { "flags": "--out <dir>", "summary": "Output directory for the export (default: .leji/viewer-dist inside the context root; must resolve inside the repository)." }
+      ],
+      "examples": ["leji viewer build", "leji viewer build --out dist/site"]
+    },
+    {
+      "name": "view",
+      "summary": "Alias for `leji viewer serve` (and opens the browser).",
+      "usage": "leji view [--port <n>] [--open] [--root <dir>]",
+      "description": "One-word shortcut to browse the context layer: generates the viewer, serves it on localhost, and opens your default browser. Equivalent to `leji viewer serve --open`.",
+      "options": [
+        {
+          "flags": "--port <n>",
+          "summary": "Port to serve on. Overrides the manifest viewer.port; default 5354; 0 picks a free port."
+        }
+      ],
+      "examples": ["leji view", "leji view --port 0"]
+    },
+    {
+      "name": "start",
+      "summary": "Open a coding agent in this layer, booted from the boot profile.",
+      "usage": "leji start [--agent <name>] [--root <dir>]",
+      "description": "Detects an installed agent (or use --agent), launches it from the layer root, and points it at the boot profile so it loads the team's context first. The agent-facing counterpart to `leji view`. Several detected agents prompt for which; with none detected or in a non-interactive shell, it prints the command to run.",
+      "options": [
+        {
+          "flags": "--agent <name>",
+          "summary": "Launch a specific host (claude-code or codex) instead of auto-detecting."
+        }
+      ],
+      "examples": ["leji start", "leji start --agent codex"]
+    },
+    {
+      "name": "detect",
+      "summary": "Detect the coding-agent hosts available on this machine.",
+      "usage": "leji detect [--root <dir>] [--json]",
+      "description": "Best-effort, read-only detection of installed agent hosts (Claude Code, Codex, Copilot, Gemini, Cursor, Windsurf), ranked by signal strength: a runnable binary, a config file in the repository, or a user-level config directory. Writes nothing; use it to decide which host to wire with `leji init --agent <name>`.",
+      "options": [],
+      "examples": ["leji detect", "leji detect --json"]
+    },
+    {
+      "name": "adopt",
+      "summary": "Adopt Leji into an existing repository.",
+      "usage": "leji adopt [--dir <path>] [--yes] [--agent <name>] [--wire-adapters] [--dry-run]",
+      "description": "Brings Leji into a repository that already has docs and agent config.",
+      "details": [
+        "Reuses an existing `docs/` root, migrates any vendor entrypoints (`CLAUDE.md`, `AGENTS.md`, and so on) into the layer without modifying the originals, and seeds the scaffold.",
+        "`--wire-adapters` converts those entrypoints to one-line redirects, after migrating their content.",
+        "Refuses when a `leji.json` exists or the git tree has uncommitted changes; `--dry-run` is never blocked."
+      ],
+      "options": [
+        { "flags": "--dir <path>", "summary": "Target directory (default: the current directory)." },
+        { "flags": "--yes, -y", "summary": "Accept all defaults; run non-interactively." },
+        { "flags": "--agent <name>", "summary": "Host to open in the layer after the command (claude-code or codex); interactive launch only, no files written." },
+        {
+          "flags": "--wire-adapters",
+          "summary": "Convert present vendor entrypoints to redirects (consented; content migrated first)."
+        },
+        { "flags": "--dry-run", "summary": "Print the write plan and exit without changing anything." }
+      ],
+      "examples": ["leji adopt", "leji adopt --dry-run", "leji adopt --wire-adapters"]
+    },
+    {
+      "name": "init",
+      "summary": "Bootstrap a new context layer from the templates.",
+      "usage": "leji init [--dir <path>] [--yes] [--level <core|indexed>] [--name <name>] [--agent <name>] [--dry-run]",
+      "description": "Scaffolds a new context layer from the templates.",
+      "details": [
+        "Writes `leji.json`, a boot profile, seeded category documents, a first decision record, an agent onboarding brief, and, at the indexed level, a generated index and machine changelog.",
+        "Refuses to overwrite an existing `leji.json`, and refuses when the git tree has uncommitted changes; never overwrites individual files.",
+        "`--dry-run` prints the write plan without writing.",
+        "Also backs `npm create leji`."
+      ],
+      "options": [
+        { "flags": "--dir <path>", "summary": "Target directory (default: the current directory)." },
+        { "flags": "--yes, -y", "summary": "Accept all defaults; run non-interactively." },
+        { "flags": "--level <level>", "summary": "Conformance level to claim: core or indexed (default: core)." },
+        { "flags": "--name <name>", "summary": "Context layer name (default: derived from the directory)." },
+        {
+          "flags": "--agent <name>",
+          "summary": "Host to open in the layer after the command (claude-code or codex); interactive launch only, no files written."
+        },
+        { "flags": "--dry-run", "summary": "Print the write plan and exit without creating any files." }
+      ],
+      "examples": ["leji init", "leji init --dry-run", "leji init --agent claude-code"]
+    },
+    {
+      "name": "ci",
+      "summary": "Add a CI workflow that runs leji validate on every change.",
+      "usage": "leji ci [--provider <github|gitlab|circleci|azure>] [--root <dir>] [--json]",
+      "description": "Adds a CI job that runs `leji validate` on every change, so your context layer stays honest in CI. Idempotent: a Leji workflow already in place is left untouched.",
+      "details": [
+        "GitHub (the default): writes its own workflow at `.github/workflows/leji.yml`.",
+        "GitLab: merges a managed block into `.gitlab-ci.yml`, creating the file if it's absent.",
+        "CircleCI: writes `.circleci/config.yml` if absent; when a config already exists, prints a snippet to add by hand instead of editing it.",
+        "Azure DevOps: writes `.azure-pipelines/leji.yml`. ADO does not auto-discover it, so activation is manual: create a pipeline that points at the file (e.g. `az pipelines create --yml-path .azure-pipelines/leji.yml`), then add a build-validation branch policy on `main` for pull-request checks. This activation note prints once, on first creation."
+      ],
+      "options": [
+        { "flags": "--provider <name>", "summary": "CI provider to target: github (default), gitlab, circleci, or azure." }
+      ],
+      "examples": ["leji ci", "leji ci --provider gitlab", "leji ci --provider azure"]
+    },
+    {
+      "name": "agent",
+      "summary": "Bind an additional named agent into an existing layer.",
+      "usage": "leji agent --name <name> [--host <host>] [--role <role>] [--root <dir>] [--json]",
+      "description": "Adds a second (or third) agent to a layer that already has a `leji.json`.",
+      "details": [
+        "Writes a starter agent profile under the agent-profiles path and binds it in the manifest's agents map via an in-place edit that preserves the rest of the file.",
+        "Never writes a vendor file (`CLAUDE.md`, `AGENTS.md`, and so on); Leji needs none. Those are migrated from an existing entrypoint by `adopt --wire-adapters`, never created here.",
+        "`--host` is optional: a host pins the profile to a specific external CLI; with none, it's a host-agnostic resident agent any host can run.",
+        "The role defaults to reviewer; pass `--role` for a different one.",
+        "Idempotent: an existing profile or binding is left untouched. Requires an existing layer."
+      ],
+      "options": [
+        {
+          "flags": "--name <name>",
+          "summary": "Name for the agent; also its profile id and agents-map key (kebab-case)."
+        },
+        {
+          "flags": "--host <host>",
+          "summary": "Optional. Pin the profile to a host (claude-code, codex, copilot, gemini, cursor, windsurf; aliases ok); omit for a host-agnostic resident agent."
+        },
+        { "flags": "--role <role>", "summary": "Role the agent fills (default: reviewer)." }
+      ],
+      "examples": [
+        "leji agent --name porter --role porter",
+        "leji agent --host codex --name reviewer",
+        "leji agent --host claude-code --name thought-partner --role advisor"
+      ]
+    }
+  ]
 }

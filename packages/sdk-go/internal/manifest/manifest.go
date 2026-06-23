@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
@@ -61,8 +62,16 @@ type Conformance struct {
 	ClaimedAt    string `json:"claimedAt,omitempty"`
 }
 
-type Docs struct {
-	Port *int `json:"port,omitempty"`
+type Theme struct {
+	Primary string `json:"primary,omitempty"`
+}
+
+type Viewer struct {
+	Port           *int              `json:"port,omitempty"`
+	Logo           string            `json:"logo,omitempty"`
+	Theme          *Theme            `json:"theme,omitempty"`
+	Mermaid        *bool             `json:"mermaid,omitempty"`
+	CategoryEmojis map[string]string `json:"categoryEmojis,omitempty"`
 }
 
 // Manifest is the typed view of leji.json. Categories preserve insertion order
@@ -77,7 +86,7 @@ type Manifest struct {
 	Categories      map[string]CategoryMapping `json:"categories"`
 	Machine         *Machine                   `json:"machine,omitempty"`
 	Agents          map[string]string          `json:"agents,omitempty"`
-	DocsBlock       *Docs                      `json:"docs,omitempty"`
+	Viewer          *Viewer                    `json:"viewer,omitempty"`
 	Owners          Owners                     `json:"owners"`
 	Conformance     *Conformance               `json:"conformance,omitempty"`
 	Federation      *Federation                `json:"federation,omitempty"`
@@ -122,6 +131,14 @@ func LoadManifest(root string) Load {
 			findings.New("manifest-missing", findings.Error, "no "+Filename+" at the repository root", Filename),
 		}}
 	}
+	// Confine the read: a symlinked leji.json that resolves outside the layer root
+	// must not be read (an MCP exposes this read to an agent). Mirrors Node's
+	// readTextWithin.
+	if !fsx.ResolvesUnder(root, abs) {
+		return Load{Manifest: nil, Findings: []findings.Finding{
+			findings.New("manifest-parse", findings.Error, Filename+" resolves outside the layer root", Filename),
+		}}
+	}
 	text, err := fsx.ReadText(abs)
 	if err != nil {
 		return Load{Manifest: nil, Findings: []findings.Finding{
@@ -162,14 +179,7 @@ func LoadManifest(root string) Load {
 }
 
 func joinLines() string {
-	out := ""
-	for i, l := range schemas.SupportedLines {
-		if i > 0 {
-			out += ", "
-		}
-		out += l
-	}
-	return out
+	return strings.Join(schemas.SupportedLines, ", ")
 }
 
 // ClaimedLevel returns the effective conformance claim; absent is core.
@@ -239,4 +249,93 @@ func (m *Manifest) MappedCategories() []string {
 		}
 	}
 	return out
+}
+
+// --- In-place manifest text edits ---------------------------------------------
+//
+// `leji agent` (and any future post-init command that touches leji.json) edits
+// the raw manifest text rather than parsing and re-serializing the whole object.
+// This is deliberate: it preserves the user's field order, formatting, and any
+// keys this SDK does not model, and it is the only way the three reference SDKs
+// can produce byte-identical output (a generic parse + re-serialize diverges,
+// e.g. Go alphabetizes map keys). The edits below assume the canonical two-space
+// layout every SDK emits, and `owners` (a required key) as a stable anchor for
+// inserting a new top-level key in schema position (right after `agents` would
+// sit, before `owners`).
+
+// insertAfterMarkerLine inserts line (already indented) as the first member
+// directly after the line that opens marker (e.g. `"agents": {` or
+// `"vendorAdapters": [`). Prepending sidesteps fixing up the previous last
+// member's trailing comma.
+func insertAfterMarkerLine(text, marker, line string) (string, error) {
+	at := strings.Index(text, marker)
+	if at < 0 {
+		return "", fmt.Errorf("leji.json: cannot locate %q to anchor the edit", marker)
+	}
+	nl := strings.Index(text[at:], "\n")
+	if nl < 0 {
+		return "", fmt.Errorf("leji.json: malformed %q block", marker)
+	}
+	nl += at
+	return text[:nl+1] + line + "\n" + text[nl+1:], nil
+}
+
+// insertBeforeOwners inserts a multi-line top-level block immediately before the
+// `owners` key, so a newly created `agents` / `vendorAdapters` key lands in
+// schema position.
+func insertBeforeOwners(text string, lines []string) (string, error) {
+	anchor := "\n  \"owners\":"
+	at := strings.Index(text, anchor)
+	if at < 0 {
+		return "", fmt.Errorf("leji.json: cannot locate the \"owners\" key to anchor the edit")
+	}
+	return text[:at+1] + strings.Join(lines, "\n") + "\n" + text[at+1:], nil
+}
+
+// BindAgentInManifestText binds a named agent to its profile path in the
+// manifest's `agents` map. Creates the map (before `owners`) when absent,
+// otherwise prepends the entry. Idempotent: an already-bound name leaves the
+// text untouched.
+func BindAgentInManifestText(text, name, profileRel string) (string, bool, error) {
+	var parsed struct {
+		Agents map[string]json.RawMessage `json:"agents"`
+	}
+	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+		return "", false, err
+	}
+	if parsed.Agents != nil {
+		if _, ok := parsed.Agents[name]; ok {
+			return text, false, nil
+		}
+	}
+	entry := "\"" + name + "\": \"" + profileRel + "\""
+	if parsed.Agents == nil {
+		out, err := insertBeforeOwners(text, []string{"  \"agents\": {", "    " + entry, "  },"})
+		return out, true, err
+	}
+	out, err := insertAfterMarkerLine(text, "\"agents\": {", "    "+entry+",")
+	return out, true, err
+}
+
+// DeclareVendorAdapterInManifestText declares a vendor adapter path in the
+// manifest's `vendorAdapters` array. Creates the array (before `owners`) when
+// absent, otherwise prepends the entry. Idempotent: an already-declared path
+// leaves the text untouched.
+func DeclareVendorAdapterInManifestText(text, adapter string) (string, bool, error) {
+	var parsed struct {
+		VendorAdapters []string `json:"vendorAdapters"`
+	}
+	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+		return "", false, err
+	}
+	if slices.Contains(parsed.VendorAdapters, adapter) {
+		return text, false, nil
+	}
+	entry := "\"" + adapter + "\""
+	if parsed.VendorAdapters == nil {
+		out, err := insertBeforeOwners(text, []string{"  \"vendorAdapters\": [", "    " + entry, "  ],"})
+		return out, true, err
+	}
+	out, err := insertAfterMarkerLine(text, "\"vendorAdapters\": [", "    "+entry+",")
+	return out, true, err
 }

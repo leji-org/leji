@@ -61,6 +61,23 @@ func LastModified(root, relPath string) (string, bool) {
 	return date, true
 }
 
+// WorkingTreeClean reports the working-tree state for the init/adopt dirty-guard.
+// isRepo is false when root is not inside a git repository (no commit-backed undo
+// exists, so the guard does not apply) or git failed; when isRepo is true, clean
+// reports whether the tree has no uncommitted changes (staged, unstaged, or
+// untracked). Mirrors the Node SDK's workingTreeClean (null/true/false).
+func WorkingTreeClean(root string) (clean bool, isRepo bool) {
+	top, ok := Toplevel(root)
+	if !ok {
+		return false, false
+	}
+	status, ok := run(top, "status", "--porcelain", "--untracked-files=all")
+	if !ok {
+		return false, false
+	}
+	return strings.TrimSpace(status) == "", true
+}
+
 // ShowHead returns the content of the file at HEAD, or ("", false) for a new
 // file, no git, or no HEAD yet.
 func ShowHead(root, relPath string) (string, bool) {

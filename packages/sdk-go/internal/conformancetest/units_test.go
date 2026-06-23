@@ -2,20 +2,21 @@ package conformancetest
 
 // Go equivalents of units.test.ts / sdk.test.ts / run.test.ts: the parts the
 // shared fixtures do not exercise (index gen/check, freshness, conformance
-// scoring, changelog append-only against git, docs, init).
+// scoring, changelog append-only against git, viewer, init).
 
 import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/conformance"
-	"github.com/leji-org/leji/packages/sdk-go/internal/commands/docs"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/freshness"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
 	initcmd "github.com/leji-org/leji/packages/sdk-go/internal/commands/init"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/validate"
+	"github.com/leji-org/leji/packages/sdk-go/internal/commands/viewer"
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 )
@@ -201,21 +202,32 @@ func TestGovernedVerifiesWithProfiles(t *testing.T) {
 	}
 }
 
-func TestDocsGeneratesSidebar(t *testing.T) {
+func TestViewerGeneratesSidebar(t *testing.T) {
 	dir := copyTree(t, exampleDir(t))
 	m := loadM(t, dir)
-	result, err := docs.GenerateDocs(dir, m)
+	result, err := viewer.GenerateViewer(dir, m)
 	if err != nil {
-		t.Fatalf("GenerateDocs: %v", err)
+		t.Fatalf("GenerateViewer: %v", err)
 	}
 	wantWritten := []string{
-		"docs/index.html",
-		"docs/_sidebar.md",
-		"docs/docs-viewer-assets/docsify-sidebar-collapse.min.css",
-		"docs/docs-viewer-assets/docsify-sidebar-collapse.min.js",
-		"docs/docs-viewer-assets/docsify.min.js",
-		"docs/docs-viewer-assets/search.min.js",
-		"docs/docs-viewer-assets/vue.css",
+		"docs/.leji/viewer/index.html",
+		"docs/.leji/viewer/_sidebar.md",
+		"docs/.leji/viewer/assets/docsify-copy-code.min.js",
+		"docs/.leji/viewer/assets/docsify-mermaid.js",
+		"docs/.leji/viewer/assets/docsify-sidebar-collapse.min.css",
+		"docs/.leji/viewer/assets/docsify-sidebar-collapse.min.js",
+		"docs/.leji/viewer/assets/docsify.min.js",
+		"docs/.leji/viewer/assets/leji-logo.svg",
+		"docs/.leji/viewer/assets/mermaid.min.js",
+		"docs/.leji/viewer/assets/prism-bash.min.js",
+		"docs/.leji/viewer/assets/prism-json.min.js",
+		"docs/.leji/viewer/assets/prism-markdown.min.js",
+		"docs/.leji/viewer/assets/prism-typescript.min.js",
+		"docs/.leji/viewer/assets/search.min.js",
+		"docs/.leji/viewer/assets/viewer-boot.js",
+		"docs/.leji/viewer/assets/vue.css",
+		"docs/.leji/viewer/assets/zoom-image.min.js",
+		"docs/overview.md",
 	}
 	if len(result.Written) != len(wantWritten) {
 		t.Fatalf("unexpected written: %v", result.Written)
@@ -225,13 +237,97 @@ func TestDocsGeneratesSidebar(t *testing.T) {
 			t.Fatalf("unexpected written: %v", result.Written)
 		}
 	}
-	sidebar, _ := os.ReadFile(filepath.Join(dir, "docs", "_sidebar.md"))
-	want := "- [Boot profile](boot-profile.md)\n\n---\n\n" +
-		"- Domain\n  - [Glossary](domain/glossary.md)\n" +
-		"- System\n  - [System Invariants](system/invariants.md)\n" +
-		"- Decisions\n  - [Adopt the Leji context layer](decisions/0001-adopt-leji.md)\n"
+	// Mermaid is on by default: the two scripts + their assets are present.
+	page0, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "index.html"))
+	for _, want := range []string{"assets/mermaid.min.js", "assets/docsify-mermaid.js"} {
+		if !strings.Contains(string(page0), want) {
+			t.Fatalf("expected mermaid wired into index.html by default: %q", want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "docs", ".leji", "viewer", "assets", "mermaid.min.js")); err != nil {
+		t.Fatalf("expected mermaid asset copied by default: %v", err)
+	}
+	bootJS, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "assets", "viewer-boot.js"))
+	if !strings.Contains(string(bootJS), "basePath: '/content/'") {
+		t.Fatalf("expected content mount in the boot script, got: %q", bootJS)
+	}
+	// Default theming: the Leji mark (in the name HTML, served relative to the page
+	// so basePath does not break it) and the brand blue, plus the layer name/title.
+	page, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "index.html"))
+	for _, want := range []string{
+		"/assets/leji-logo.svg",
+		"\"themeColor\":\"#223F93\"",
+		"acme-billing-context",
+		"<title>acme-billing-context</title>",
+	} {
+		if !strings.Contains(string(page), want) {
+			t.Fatalf("expected index.html to contain %q", want)
+		}
+	}
+	sidebar, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "_sidebar.md"))
+	want := "- [🤖 Boot profile](boot-profile.md)\n\n---\n\n" +
+		"- 📖 Domain\n  - [Glossary](domain/glossary.md)\n" +
+		"- ⚙️ System\n  - [System Invariants](system/invariants.md)\n" +
+		"- 🧭 Decisions\n  - [Adopt the Leji context layer](decisions/0001-adopt-leji.md)\n"
 	if string(sidebar) != want {
 		t.Fatalf("sidebar mismatch:\n got=%q\nwant=%q", sidebar, want)
+	}
+}
+
+func TestViewerThemeOverrides(t *testing.T) {
+	dir := copyTree(t, exampleDir(t))
+	m := loadM(t, dir)
+	m.Viewer = &manifest.Viewer{
+		Logo:           "assets/brand.svg",
+		Theme:          &manifest.Theme{Primary: "#FF6600"},
+		CategoryEmojis: map[string]string{"domain": "💰"},
+	}
+	if _, err := viewer.GenerateViewer(dir, m); err != nil {
+		t.Fatalf("GenerateViewer: %v", err)
+	}
+	page, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "index.html"))
+	// A relative logo path is served from the content mount; the configured primary wins.
+	for _, want := range []string{"/content/assets/brand.svg", "\"themeColor\":\"#FF6600\""} {
+		if !strings.Contains(string(page), want) {
+			t.Fatalf("expected index.html to contain %q", want)
+		}
+	}
+	sidebar, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "_sidebar.md"))
+	if !strings.Contains(string(sidebar), "- 💰 Domain") {
+		t.Fatalf("expected overridden domain emoji, got: %q", sidebar)
+	}
+	if !strings.Contains(string(sidebar), "- ⚙️ System") {
+		t.Fatalf("expected default system emoji, got: %q", sidebar)
+	}
+}
+
+func TestViewerMermaidDisabled(t *testing.T) {
+	dir := copyTree(t, exampleDir(t))
+	m := loadM(t, dir)
+	disabled := false
+	m.Viewer = &manifest.Viewer{Mermaid: &disabled}
+	result, err := viewer.GenerateViewer(dir, m)
+	if err != nil {
+		t.Fatalf("GenerateViewer: %v", err)
+	}
+	page, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "index.html"))
+	if strings.Contains(string(page), "mermaid.min.js") {
+		t.Fatal("expected no mermaid script when disabled")
+	}
+	if strings.Contains(string(page), "docsify-mermaid.js") {
+		t.Fatal("expected no mermaid plugin when disabled")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "docs", ".leji", "viewer", "assets", "mermaid.min.js")); err == nil {
+		t.Fatal("expected mermaid asset not copied when disabled")
+	}
+	for _, w := range result.Written {
+		if strings.Contains(w, "mermaid") {
+			t.Fatalf("expected no mermaid entry in written, got %q", w)
+		}
+	}
+	// The non-mermaid polish plugins still ship.
+	if !strings.Contains(string(page), "docsify-copy-code.min.js") {
+		t.Fatal("expected copy-code still wired when mermaid is off")
 	}
 }
 

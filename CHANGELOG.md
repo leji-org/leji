@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0 · 2026-06-19
+
+Schema and naming hardening before public launch and adoption, plus new surfaces. The
+spec stays on the v1.0 line; all reference packages move to 1.2.0 together.
+
+- **MCP server** (`@leji-org/mcp`): serves the spec and schemas and runs `validate` /
+  `conformance` as read-only tools, so a coding agent reaches Leji natively.
+- **New commands**: `leji agent`, `leji start`, and `leji ci` (GitHub, GitLab, CircleCI, or Azure DevOps via `--provider`).
+- **Reworked viewer**: `leji viewer` (+ `viewer serve` / `viewer build`, `view`): a
+  contained, themeable viewer. Replaces the old `leji docs`.
+- **Pre-adoption hardening**: finalized the manifest schema and viewer naming, and closed
+  security gaps in the viewer export, while the spec has no public adopters yet.
+
 ## 1.1.0 · 2026-06-18
 
 Agent onboarding. New commands and flags let an AI agent bring a repository into a
@@ -31,7 +44,7 @@ specification, the schemas, and the reference tooling.
   (`leji.json`), context index, context changelog, agent-profile frontmatter,
   and decision-record frontmatter, published at
   `https://leji.org/schemas/v1.0/`.
-- **Reference SDKs 1.0.0**: `leji` on npm (TypeScript), `leji` on PyPI
+- **Reference SDKs 1.0.0**: `@leji-org/leji` on npm (TypeScript), `leji` on PyPI
   (Python), and the Go module `github.com/leji-org/leji/packages/sdk-go`,
   behaviorally identical: `validate`, `index` / `index --check`,
   `changelog check`, `freshness`, `conformance`, interactive `init`, and a

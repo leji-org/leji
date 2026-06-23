@@ -23,7 +23,7 @@ import (
 var SupportedLines = []string{"1.0"}
 
 // SDKVersion is overridable via ldflags; defaults to match Node/Python.
-var SDKVersion = "1.1.0"
+var SDKVersion = "1.2.0"
 
 type CliOption struct {
 	Flags   string `json:"flags"`
@@ -35,6 +35,7 @@ type CliCommand struct {
 	Summary     string      `json:"summary"`
 	Usage       string      `json:"usage"`
 	Description string      `json:"description"`
+	Details     []string    `json:"details,omitempty"`
 	Options     []CliOption `json:"options"`
 	Examples    []string    `json:"examples"`
 }

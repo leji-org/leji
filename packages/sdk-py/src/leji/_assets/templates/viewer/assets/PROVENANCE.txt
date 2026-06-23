@@ -1,0 +1,36 @@
+Vendored, CDN-free assets for the `leji viewer` viewer. Do not edit by hand.
+
+docsify.min.js, vue.css
+   From docsify@4.13.1 (npm). Update: npm pack docsify@<version>, copy
+   lib/docsify.min.js and themes/vue.css here, bump the version in
+   templates/viewer/index.html's comment, run npm run assets.
+   NOTE: vue.css carries an appended "Leji brand theme" block at the end
+   (palette + sidebar + search + footer; typography stays theme-default).
+   Re-apply it after replacing the file.
+
+search.min.js
+   Docsify full-text search plugin. Powers the sidebar search box.
+
+docsify-sidebar-collapse.min.js, docsify-sidebar-collapse.min.css
+   docsify-sidebar-collapse plugin. Collapsible sidebar groups with a ▶/▼
+   triangle and auto-expansion of the active document's trail.
+
+docsify-copy-code.min.js
+   docsify-copy-code plugin. Adds a copy button to fenced code blocks.
+
+zoom-image.min.js
+   docsify image-zoom plugin. Click to enlarge images in the viewer.
+
+prism-bash.min.js, prism-json.min.js, prism-typescript.min.js, prism-markdown.min.js
+   Prism language components that extend the Prism core bundled in docsify,
+   adding syntax highlighting for shell, JSON, TypeScript, and Markdown.
+
+mermaid.min.js, docsify-mermaid.js
+   Mermaid + the docsify-mermaid plugin. Renders fenced ```mermaid code blocks
+   as diagrams. Wired only when manifest viewer.mermaid is not false; the SDK omits
+   the two <script> tags and skips copying these two files when disabled.
+
+leji-logo.svg
+   The default viewer logo (the Leji mark). Overridden per-layer by viewer.logo.
+
+This note is documentation only; the SDKs never copy it into a user's output.

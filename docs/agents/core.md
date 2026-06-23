@@ -5,7 +5,7 @@ role: core
 purpose: Shared operating posture every role profile inherits.
 requiredRead:
   - docs/boot-profile.md
-  - docs/decisions/
+  - docs/system/invariants.md
 mustAskWhen:
   - the change is destructive or hard to reverse
   - the task touches data covered by a data-handling rule

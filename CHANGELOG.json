@@ -39,6 +39,26 @@
       ],
       "proposedBy": "Vuong Nguyen",
       "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "release-1-2-0",
+      "date": "2026-06-19",
+      "type": "added",
+      "summary": "Schema and naming hardening before public launch and adoption, plus new surfaces (spec stays on the v1.0 line; all reference packages to 1.2.0): @leji-org/mcp serves spec/schemas and read-only validate/conformance tools; new leji agent, start, and ci commands (ci targets GitHub, GitLab, CircleCI, or Azure DevOps via --provider); leji viewer / viewer serve / viewer build / view replace leji docs; manifest viewer naming and viewer-export security are finalized while the spec has no public adopters yet.",
+      "paths": [
+        "schemas/",
+        "templates/",
+        "packages/sdk/",
+        "packages/sdk-py/",
+        "packages/sdk-go/",
+        "packages/mcp/",
+        "packages/create-leji/",
+        "packages/site/",
+        "scripts/",
+        ".github/"
+      ],
+      "proposedBy": "Vuong Nguyen",
+      "approvedBy": "Vuong Nguyen"
     }
   ]
 }

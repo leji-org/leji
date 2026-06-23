@@ -98,7 +98,7 @@ func Report(root string) Result {
 	}
 
 	var bootErrors []findings.Finding
-	for _, f := range errorsBy("missing-declared-file") {
+	for _, f := range errorsBy("missing-declared-file", "path-escapes-root") {
 		if f.Path == m.BootProfilePath {
 			bootErrors = append(bootErrors, f)
 		}

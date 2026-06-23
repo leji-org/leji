@@ -7,7 +7,7 @@ import LejiLogo from './LejiLogo.astro';
    <div class="wrap">
       <div class="footer-entry">
          <a class="footer-brand" href="/" aria-label="Leji home"><LejiLogo height={30} /></a>
-         <span class="footer-phon">/LEH-jee/&ensp;·&ensp;is <em>legible</em></span>
+         <span class="footer-phon">/Leh jee/&ensp;·&ensp;Open specification & tooling</span>
       </div>
       <p class="footer-meaning">The open specification for the shared context layer of AI-native teams.</p>
       <div class="footer-meta">
@@ -40,7 +40,6 @@ import LejiLogo from './LejiLogo.astro';
       padding: 2.4rem 0 2rem;
    }
    .site-footer::before {
-      /* the monument's fluting, carried down into the plinth */
       content: '';
       position: absolute;
       inset: 0;
@@ -82,7 +81,21 @@ import LejiLogo from './LejiLogo.astro';
       letter-spacing: 0.005em;
       color: var(--paper);
       margin: 0.9rem 0 0;
-      max-width: 38ch;
+      max-width: 40ch;
+   }
+   .footer-meaning a {
+      color: inherit;
+      text-decoration: underline;
+      text-decoration-color: rgba(255, 189, 110, 0.4);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+      transition:
+         color 0.15s ease,
+         text-decoration-color 0.15s ease;
+   }
+   .footer-meaning a:hover {
+      color: var(--gold-bright);
+      text-decoration-color: var(--gold-bright);
    }
 
    .footer-meta {

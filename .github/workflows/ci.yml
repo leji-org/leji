@@ -1,10 +1,7 @@
 name: CI
 
-# Cross-SDK parity and asset-drift gate. Every push to main and every PR runs
-# the asset-sync check plus the three SDK suites and the site build, so a schema
-# or template change cannot land without all three reference SDKs staying in
-# sync and green. Actions are pinned to major tags for readability; pin to full
-# commit SHAs before the public launch for supply-chain hardening.
+# Cross-SDK parity and asset-drift gate on every push to main and PR.
+# Actions pinned to full commit SHAs for supply-chain hardening.
 
 on:
   push:
@@ -19,19 +16,40 @@ jobs:
     name: Asset sync (no drift across SDKs)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
       - run: npm ci
       - run: npm run assets:check
 
+  secret-scan:
+    name: Secret scan (TruffleHog)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0 # full history so the scanner sees every commit
+      # TruffleHog installed as a pinned, checksum-verified release binary
+      # (not a third-party Action), run over full history.
+      - name: TruffleHog (verified secrets, full history)
+        env:
+          TRUFFLEHOG_VERSION: "3.95.6"
+        run: |
+          asset="trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz"
+          base="https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}"
+          curl -sSfL "${base}/${asset}" -o "$asset"
+          curl -sSfL "${base}/trufflehog_${TRUFFLEHOG_VERSION}_checksums.txt" -o checksums.txt
+          grep "  ${asset}$" checksums.txt | sha256sum -c -
+          tar -xzf "$asset" trufflehog
+          ./trufflehog git "file://$PWD" --only-verified --fail --no-update
+
   lint:
     name: Prettier
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
       - run: npm ci
@@ -41,24 +59,39 @@ jobs:
     name: Node SDK (build + test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           submodules: recursive
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
       - run: npm ci
       - run: npm run build -w packages/sdk
       - run: npm test -w packages/sdk
 
+  mcp:
+    name: MCP server (build + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run build -w packages/sdk
+      - run: npm run build -w packages/mcp
+      - run: npm test -w packages/mcp
+
   python-sdk:
     name: Python SDK (lint + type + test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           submodules: recursive
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - name: Install
@@ -78,10 +111,10 @@ jobs:
     name: Go SDK (fmt + vet + test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           submodules: recursive
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: "1.23"
       - name: gofmt
@@ -93,10 +126,9 @@ jobs:
       - name: go test
         working-directory: packages/sdk-go
         run: go test ./...
-      # Validate the release config so a broken .goreleaser.yaml is caught on PR,
-      # not at the irreversible release tag.
+      # Catch a broken .goreleaser.yaml on PR, not at the release tag.
       - name: goreleaser check
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
         with:
           version: "~> v2"
           workdir: packages/sdk-go
@@ -106,31 +138,30 @@ jobs:
     name: Cross-SDK parity (golden CLI output)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           submodules: recursive
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: "1.23"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - run: npm ci
-      # Runs the Node, Go, and Python CLIs on identical inputs and asserts
-      # byte-identical stdout and written file trees across all three.
+      # Node, Go, Python CLIs on identical inputs; asserts byte-identical output.
       - run: npm run parity
 
   site:
     name: Site (build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           submodules: recursive
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
       - run: npm ci
@@ -140,13 +171,11 @@ jobs:
     name: Dogfood (repo conforms to its own spec)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
       - run: npm ci
       - run: npm run build -w packages/sdk
-      # The repo runs its own reference CLI against its own context layer: the
-      # manifest validates, no placeholder content remains, and the claimed
-      # conformance level still holds.
+      # Run the reference CLI against this repo's own context layer.
       - run: npm run dogfood

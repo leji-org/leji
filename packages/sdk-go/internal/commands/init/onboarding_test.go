@@ -168,29 +168,26 @@ func TestPopulatedLayerPassesContentLint(t *testing.T) {
 	}
 }
 
-// init --agent wires a vendor redirect and the layer still validates clean.
+// init --agent no longer creates a vendor adapter; it scaffolds the layer (which
+// still validates clean) and never declares vendorAdapters.
 func TestInitAgentWiresRedirect(t *testing.T) {
 	dir := t.TempDir()
 	res, err := InitLayer(Options{Dir: dir, Yes: true, Agent: "claude-code"})
 	if err != nil {
 		t.Fatalf("init --agent: %v", err)
 	}
-	if !contains(res.Written, "CLAUDE.md") {
-		t.Fatalf("adapter should be created, written: %v", res.Written)
+	if contains(res.Written, "CLAUDE.md") {
+		t.Fatalf("init --agent must not create a vendor adapter, written: %v", res.Written)
 	}
-	body, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(body), "docs/boot-profile.md") {
-		t.Fatalf("adapter redirect missing boot profile path: %q", body)
+	if _, statErr := os.Stat(filepath.Join(dir, "CLAUDE.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("CLAUDE.md should not exist, stat err: %v", statErr)
 	}
 	load := manifest.LoadManifest(dir)
 	if load.Manifest == nil {
 		t.Fatal("manifest did not load")
 	}
-	if len(load.Manifest.VendorAdapters) != 1 || load.Manifest.VendorAdapters[0] != "CLAUDE.md" {
-		t.Fatalf("vendorAdapters = %v, want [CLAUDE.md]", load.Manifest.VendorAdapters)
+	if len(load.Manifest.VendorAdapters) != 0 {
+		t.Fatalf("vendorAdapters should be empty, got %v", load.Manifest.VendorAdapters)
 	}
 	if _, err := exec.LookPath("git"); err == nil {
 		cmd := exec.Command("git", "init", "-q")
@@ -240,22 +237,28 @@ func TestInitAgentNeverOverwrites(t *testing.T) {
 	}
 }
 
-// init --agent rejects an unknown host.
+// init --agent no longer resolves a vendor adapter, so a bogus --agent no longer
+// errors from adapter resolution: the layer scaffolds with no vendor file.
 func TestInitAgentRejectsUnknownHost(t *testing.T) {
 	dir := t.TempDir()
-	_, err := InitLayer(Options{Dir: dir, Yes: true, Agent: "frobnicate"})
-	if err == nil {
-		t.Fatal("expected an error for an unknown agent")
+	res, err := InitLayer(Options{Dir: dir, Yes: true, Agent: "frobnicate"})
+	if err != nil {
+		t.Fatalf("init --agent should not error on a bogus agent, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "unknown agent") {
-		t.Fatalf("expected 'unknown agent' error, got: %v", err)
+	if !contains(res.Written, "leji.json") {
+		t.Fatalf("leji.json should still be written: %v", res.Written)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, "leji.json")); statErr == nil {
-		t.Fatal("a rejected agent should not have written leji.json")
+	load := manifest.LoadManifest(dir)
+	if load.Manifest == nil {
+		t.Fatal("manifest did not load")
+	}
+	if len(load.Manifest.VendorAdapters) != 0 {
+		t.Fatalf("vendorAdapters should be empty, got %v", load.Manifest.VendorAdapters)
 	}
 }
 
-// init --agent cursor wires a directory-style adapter that validates clean.
+// init --agent cursor no longer creates a directory-style adapter; the layer
+// still scaffolds and validates clean with no vendor file.
 func TestInitAgentCursorWiresDirectoryAdapter(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := exec.LookPath("git"); err == nil {
@@ -269,22 +272,18 @@ func TestInitAgentCursorWiresDirectoryAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("init --agent cursor: %v", err)
 	}
-	if !contains(res.Written, ".cursor/rules/leji.md") {
-		t.Fatalf("cursor adapter should be created, written: %v", res.Written)
+	if contains(res.Written, ".cursor/rules/leji.md") {
+		t.Fatalf("cursor adapter must not be created, written: %v", res.Written)
 	}
-	body, err := os.ReadFile(filepath.Join(dir, ".cursor", "rules", "leji.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(body), "docs/boot-profile.md") {
-		t.Fatalf("adapter redirect missing boot profile path: %q", body)
+	if _, statErr := os.Stat(filepath.Join(dir, ".cursor", "rules", "leji.md")); !os.IsNotExist(statErr) {
+		t.Fatalf(".cursor/rules/leji.md should not exist, stat err: %v", statErr)
 	}
 	load := manifest.LoadManifest(dir)
 	if load.Manifest == nil {
 		t.Fatal("manifest did not load")
 	}
-	if len(load.Manifest.VendorAdapters) != 1 || load.Manifest.VendorAdapters[0] != ".cursor/rules/leji.md" {
-		t.Fatalf("vendorAdapters = %v, want [.cursor/rules/leji.md]", load.Manifest.VendorAdapters)
+	if len(load.Manifest.VendorAdapters) != 0 {
+		t.Fatalf("vendorAdapters should be empty, got %v", load.Manifest.VendorAdapters)
 	}
 	v := validate.ValidateLayer(dir, false)
 	errCount := 0
@@ -298,22 +297,18 @@ func TestInitAgentCursorWiresDirectoryAdapter(t *testing.T) {
 	}
 }
 
-// init --ci writes a GitHub Actions validation workflow.
-func TestInitCiWritesWorkflow(t *testing.T) {
+// init does not write a CI workflow (that is `leji ci`).
+func TestInitDoesNotWriteCiWorkflow(t *testing.T) {
 	dir := t.TempDir()
-	res, err := InitLayer(Options{Dir: dir, Yes: true, Ci: true})
+	res, err := InitLayer(Options{Dir: dir, Yes: true})
 	if err != nil {
-		t.Fatalf("init --ci: %v", err)
+		t.Fatalf("init: %v", err)
 	}
-	if !contains(res.Written, ".github/workflows/leji.yml") {
-		t.Fatalf("workflow should be created, written: %v", res.Written)
+	if contains(res.Written, ".github/workflows/leji.yml") {
+		t.Fatalf("init no longer creates CI; use leji ci. written: %v", res.Written)
 	}
-	body, err := os.ReadFile(filepath.Join(dir, ".github", "workflows", "leji.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(body), "leji@latest validate") {
-		t.Fatalf("workflow missing validate run: %q", body)
+	if _, err := os.Stat(filepath.Join(dir, ".github", "workflows", "leji.yml")); !os.IsNotExist(err) {
+		t.Fatalf("workflow should not exist, stat err: %v", err)
 	}
 }
 
@@ -327,9 +322,9 @@ func mustWrite(t *testing.T, abs, content string) {
 	}
 }
 
-// init --agent + --reviewer wires a multi-agent setup that validates clean:
-// the primary adapter, the reviewer role binding, and the reviewer's adapter.
-func TestInitAgentAndReviewerWiresMultiAgent(t *testing.T) {
+// agent wires a named reviewer into an existing layer that validates clean: the
+// new agent's profile and its binding. It no longer creates any vendor adapter.
+func TestAgentWiresNamedReviewer(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := exec.LookPath("git"); err == nil {
 		cmd := exec.Command("git", "init", "-q")
@@ -338,37 +333,37 @@ func TestInitAgentAndReviewerWiresMultiAgent(t *testing.T) {
 			t.Fatalf("git init: %v", err)
 		}
 	}
-	res, err := InitLayer(Options{Dir: dir, Yes: true, Agent: "claude-code", Reviewer: "codex"})
-	if err != nil {
-		t.Fatalf("init --agent --reviewer: %v", err)
+	if _, err := InitLayer(Options{Dir: dir, Yes: true, Agent: "claude-code"}); err != nil {
+		t.Fatalf("init --agent: %v", err)
 	}
 	load := manifest.LoadManifest(dir)
-	if load.Manifest == nil {
-		t.Fatal("manifest did not load")
+	res, err := AddAgent(dir, load.Manifest, AgentOptions{Host: "codex", Name: "reviewer"})
+	if err != nil {
+		t.Fatalf("AddAgent: %v", err)
 	}
-	// Primary adapter + reviewer role binding + reviewer adapter.
+	if !res.ProfileCreated || !res.ManifestChanged {
+		t.Fatalf("expected profile + manifest created, got %+v", res)
+	}
+	if res.HostID != "codex" {
+		t.Fatalf("expected host codex, got %q", res.HostID)
+	}
+	load = manifest.LoadManifest(dir)
 	if load.Manifest.Agents["reviewer"] != "docs/agents/reviewer.md" {
 		t.Fatalf("agents.reviewer = %q, want docs/agents/reviewer.md", load.Manifest.Agents["reviewer"])
 	}
-	if !contains(load.Manifest.VendorAdapters, "CLAUDE.md") {
-		t.Fatalf("vendorAdapters missing CLAUDE.md: %v", load.Manifest.VendorAdapters)
+	if len(load.Manifest.VendorAdapters) != 0 {
+		t.Fatalf("agent must not create vendor adapters, got %v", load.Manifest.VendorAdapters)
 	}
-	if !contains(load.Manifest.VendorAdapters, "AGENTS.md") {
-		t.Fatalf("vendorAdapters missing AGENTS.md: %v", load.Manifest.VendorAdapters)
+	if _, statErr := os.Stat(filepath.Join(dir, "AGENTS.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("AGENTS.md should not exist, stat err: %v", statErr)
 	}
 	body, err := os.ReadFile(filepath.Join(dir, "docs", "agents", "reviewer.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	reviewer := string(body)
-	if !strings.Contains(reviewer, "\nrole: reviewer\n") {
-		t.Fatalf("reviewer profile missing role: reviewer:\n%s", reviewer)
-	}
-	if !strings.Contains(reviewer, "\nhost: codex\n") {
-		t.Fatalf("reviewer profile missing host: codex:\n%s", reviewer)
-	}
-	if !contains(res.Written, "docs/agents/reviewer.md") {
-		t.Fatalf("reviewer profile not in written: %v", res.Written)
+	if !strings.Contains(reviewer, "\nid: reviewer\n") || !strings.Contains(reviewer, "\nrole: reviewer\n") || !strings.Contains(reviewer, "\nhost: codex\n") {
+		t.Fatalf("reviewer profile missing id/role/host:\n%s", reviewer)
 	}
 	v := validate.ValidateLayer(dir, false)
 	errCount := 0
@@ -382,17 +377,303 @@ func TestInitAgentAndReviewerWiresMultiAgent(t *testing.T) {
 	}
 }
 
-// init --reviewer rejects an unknown host.
-func TestInitReviewerRejectsUnknownHost(t *testing.T) {
+// agent with no --host binds a host-agnostic resident agent: a profile with no
+// host: frontmatter line, bound in the agents map, and no vendor file created.
+func TestAgentBindsResidentWithoutHost(t *testing.T) {
 	dir := t.TempDir()
-	_, err := InitLayer(Options{Dir: dir, Yes: true, Reviewer: "frobnicate"})
+	if _, err := exec.LookPath("git"); err == nil {
+		cmd := exec.Command("git", "init", "-q")
+		cmd.Dir = dir
+		_ = cmd.Run()
+	}
+	if _, err := InitLayer(Options{Dir: dir, Yes: true}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	m := manifest.LoadManifest(dir).Manifest
+	res, err := AddAgent(dir, m, AgentOptions{Name: "reviewer"})
+	if err != nil {
+		t.Fatalf("AddAgent: %v", err)
+	}
+	if !res.ProfileCreated || !res.ManifestChanged {
+		t.Fatalf("expected profile + manifest created, got %+v", res)
+	}
+	if res.HostID != "" {
+		t.Fatalf("resident agent should have no host, got %q", res.HostID)
+	}
+	load := manifest.LoadManifest(dir)
+	if load.Manifest.Agents["reviewer"] != "docs/agents/reviewer.md" {
+		t.Fatalf("agents.reviewer = %q, want docs/agents/reviewer.md", load.Manifest.Agents["reviewer"])
+	}
+	if len(load.Manifest.VendorAdapters) != 0 {
+		t.Fatalf("resident agent must not create vendor adapters, got %v", load.Manifest.VendorAdapters)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "docs", "agents", "reviewer.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := string(body)
+	if strings.Contains(reviewer, "\nhost:") {
+		t.Fatalf("resident profile must not pin a host:\n%s", reviewer)
+	}
+	if strings.Contains(reviewer, "(host ") {
+		t.Fatalf("resident profile prose must not mention a host:\n%s", reviewer)
+	}
+	if !strings.Contains(reviewer, "\nid: reviewer\n") || !strings.Contains(reviewer, "\nrole: reviewer\n") {
+		t.Fatalf("resident profile missing id/role:\n%s", reviewer)
+	}
+}
+
+// agent is idempotent: a second run with the same args changes nothing.
+func TestAgentIsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitLayer(Options{Dir: dir, Yes: true}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	m := manifest.LoadManifest(dir).Manifest
+	if _, err := AddAgent(dir, m, AgentOptions{Host: "codex", Name: "reviewer"}); err != nil {
+		t.Fatalf("AddAgent: %v", err)
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "leji.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res2, err := AddAgent(dir, m, AgentOptions{Host: "codex", Name: "reviewer"})
+	if err != nil {
+		t.Fatalf("AddAgent second: %v", err)
+	}
+	if res2.ProfileCreated || res2.ManifestChanged {
+		t.Fatalf("expected nothing created on second run, got %+v", res2)
+	}
+	again, err := os.ReadFile(filepath.Join(dir, "leji.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(again) {
+		t.Fatalf("leji.json changed on idempotent run:\n%s\n---\n%s", after, again)
+	}
+}
+
+// agent appends a second binding without disturbing the first.
+func TestAgentAppendsSecondBinding(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := exec.LookPath("git"); err == nil {
+		cmd := exec.Command("git", "init", "-q")
+		cmd.Dir = dir
+		_ = cmd.Run()
+	}
+	if _, err := InitLayer(Options{Dir: dir, Yes: true}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if _, err := AddAgent(dir, manifest.LoadManifest(dir).Manifest, AgentOptions{Host: "codex", Name: "reviewer"}); err != nil {
+		t.Fatalf("AddAgent reviewer: %v", err)
+	}
+	if _, err := AddAgent(dir, manifest.LoadManifest(dir).Manifest, AgentOptions{Host: "claude-code", Name: "thought-partner", Role: "advisor"}); err != nil {
+		t.Fatalf("AddAgent thought-partner: %v", err)
+	}
+	load := manifest.LoadManifest(dir)
+	if load.Manifest.Agents["reviewer"] != "docs/agents/reviewer.md" {
+		t.Fatalf("agents.reviewer = %q", load.Manifest.Agents["reviewer"])
+	}
+	if load.Manifest.Agents["thought-partner"] != "docs/agents/thought-partner.md" {
+		t.Fatalf("agents.thought-partner = %q", load.Manifest.Agents["thought-partner"])
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "docs", "agents", "thought-partner.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "\nrole: advisor\n") {
+		t.Fatalf("thought-partner profile missing role: advisor:\n%s", body)
+	}
+	v := validate.ValidateLayer(dir, false)
+	for _, f := range v.Findings {
+		if f.Severity == findings.Error {
+			t.Fatalf("expected no errors: %+v", v.Findings)
+		}
+	}
+}
+
+// agent rejects an unknown host and a non-kebab name.
+func TestAgentRejectsUnknownHostAndBadName(t *testing.T) {
+	dir := t.TempDir()
+	res, err := InitLayer(Options{Dir: dir, Yes: true})
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if _, err := AddAgent(dir, res.Manifest, AgentOptions{Host: "frobnicate", Name: "reviewer"}); err == nil || !strings.Contains(err.Error(), "unknown host") {
+		t.Fatalf("expected 'unknown host' error, got: %v", err)
+	}
+	if _, err := AddAgent(dir, res.Manifest, AgentOptions{Host: "codex", Name: "Bad Name"}); err == nil || !strings.Contains(err.Error(), "lowercase letters") {
+		t.Fatalf("expected 'lowercase letters' error, got: %v", err)
+	}
+}
+
+const manifestNoAgents = `{
+  "leji": "1.0",
+  "categories": {},
+  "owners": {
+    "primary": { "name": "x" }
+  }
+}
+`
+
+// BindAgentInManifestText creates the agents map in schema position.
+func TestBindAgentCreatesMap(t *testing.T) {
+	out, changed, err := manifest.BindAgentInManifestText(manifestNoAgents, "reviewer", "docs/agents/reviewer.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	want := `{
+  "leji": "1.0",
+  "categories": {},
+  "agents": {
+    "reviewer": "docs/agents/reviewer.md"
+  },
+  "owners": {
+    "primary": { "name": "x" }
+  }
+}
+`
+	if out != want {
+		t.Fatalf("mismatch:\n%s", out)
+	}
+}
+
+// BindAgentInManifestText prepends a second agent and is idempotent.
+func TestBindAgentPrependsAndIdempotent(t *testing.T) {
+	one, _, _ := manifest.BindAgentInManifestText(manifestNoAgents, "reviewer", "docs/agents/reviewer.md")
+	two, changed, _ := manifest.BindAgentInManifestText(one, "thought-partner", "docs/agents/thought-partner.md")
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	if !strings.Contains(two, `"agents": {`+"\n"+`    "thought-partner": "docs/agents/thought-partner.md",`+"\n"+`    "reviewer": "docs/agents/reviewer.md"`+"\n"+`  },`) {
+		t.Fatalf("second agent not prepended:\n%s", two)
+	}
+	again, changedAgain, _ := manifest.BindAgentInManifestText(two, "reviewer", "docs/agents/reviewer.md")
+	if changedAgain {
+		t.Fatal("expected changed=false on already-bound name")
+	}
+	if again != two {
+		t.Fatal("idempotent bind altered text")
+	}
+}
+
+// DeclareVendorAdapterInManifestText creates the array, prepends, and dedupes.
+func TestDeclareVendorAdapter(t *testing.T) {
+	created, changed, _ := manifest.DeclareVendorAdapterInManifestText(manifestNoAgents, "AGENTS.md")
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	want := `{
+  "leji": "1.0",
+  "categories": {},
+  "vendorAdapters": [
+    "AGENTS.md"
+  ],
+  "owners": {
+    "primary": { "name": "x" }
+  }
+}
+`
+	if created != want {
+		t.Fatalf("mismatch:\n%s", created)
+	}
+	second, _, _ := manifest.DeclareVendorAdapterInManifestText(created, "CLAUDE.md")
+	if !strings.Contains(second, `"vendorAdapters": [`+"\n"+`    "CLAUDE.md",`+"\n"+`    "AGENTS.md"`+"\n"+`  ],`) {
+		t.Fatalf("second adapter not prepended:\n%s", second)
+	}
+	dupe, changedDupe, _ := manifest.DeclareVendorAdapterInManifestText(second, "AGENTS.md")
+	if changedDupe {
+		t.Fatal("expected changed=false on duplicate adapter")
+	}
+	if dupe != second {
+		t.Fatal("dedupe altered text")
+	}
+}
+
+// --- dirty-tree guard on init / adopt ---
+
+// init refuses on a dirty git working tree and writes nothing.
+func TestInitRefusesOnDirtyTree(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "NOTES.md"), []byte("wip\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := InitLayer(Options{Dir: dir, Yes: true})
 	if err == nil {
-		t.Fatal("expected an error for an unknown reviewer host")
+		t.Fatal("expected a refusal on a dirty tree")
 	}
-	if !strings.Contains(err.Error(), "unknown agent") {
-		t.Fatalf("expected 'unknown agent' error, got: %v", err)
+	if !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Fatalf("expected 'uncommitted changes', got: %v", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, "leji.json")); statErr == nil {
-		t.Fatal("a rejected reviewer should not have written leji.json")
+	if _, serr := os.Stat(filepath.Join(dir, "leji.json")); serr == nil {
+		t.Fatal("nothing should be written on refusal")
+	}
+}
+
+// init proceeds on a clean committed git tree.
+func TestInitProceedsOnCleanTree(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# repo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommitAll(t, dir)
+	res, err := InitLayer(Options{Dir: dir, Yes: true})
+	if err != nil {
+		t.Fatalf("init on a clean tree: %v", err)
+	}
+	if !contains(res.Written, "leji.json") {
+		t.Fatalf("leji.json not written: %v", res.Written)
+	}
+}
+
+// init --dry-run is allowed on a dirty git tree.
+func TestInitDryRunAllowedOnDirtyTree(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "NOTES.md"), []byte("wip\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := InitLayer(Options{Dir: dir, Yes: true, DryRun: true})
+	if err != nil {
+		t.Fatalf("dry-run init on a dirty tree: %v", err)
+	}
+	if !res.DryRun {
+		t.Fatal("result.DryRun should be true")
+	}
+	if _, serr := os.Stat(filepath.Join(dir, "leji.json")); serr == nil {
+		t.Fatal("dry-run creates no manifest")
+	}
+}
+
+// init is allowed in a non-git directory (no undo net required to bootstrap).
+func TestInitAllowedInNonGitDir(t *testing.T) {
+	dir := t.TempDir() // not a git repo
+	res, err := InitLayer(Options{Dir: dir, Yes: true})
+	if err != nil {
+		t.Fatalf("init in a non-git dir: %v", err)
+	}
+	if !contains(res.Written, "leji.json") {
+		t.Fatalf("leji.json not written: %v", res.Written)
+	}
+}
+
+// adopt refuses on a dirty git working tree.
+func TestAdoptRefusesOnDirtyTree(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "NOTES.md"), []byte("wip\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := AdoptLayer(AdoptOptions{Dir: dir, Yes: true})
+	if err == nil {
+		t.Fatal("expected a refusal on a dirty tree")
+	}
+	if !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Fatalf("expected 'uncommitted changes', got: %v", err)
 	}
 }

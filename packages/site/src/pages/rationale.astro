@@ -1,11 +1,40 @@
 ---
-import { getCollection, render } from 'astro:content';
+import { getCollection } from 'astro:content';
+import { createMarkdownProcessor } from '@astrojs/markdown-remark';
 import Doc from '../layouts/Doc.astro';
+import CircleChart from '../components/CircleChart.astro';
+import { rehypeMdLinks } from '../rehype-md-links';
+import { rehypeTableScroll } from '../rehype-table-scroll';
+import { rehypeHeadingAnchors } from '../rehype-heading-anchors';
 
+// Single-sourced from rationale/README.md. To place the circle figure right
+// above the "A circle, not a tier" section without turning the shared README
+// into MDX, split the raw markdown at that heading and render the two halves
+// with the same markdown pipeline the rest of the site uses.
 const [doc] = await getCollection('rationale');
-const { Content } = await render(doc);
+const marker = '## A circle, not a tier';
+const idx = doc.body.indexOf(marker);
+const before = idx >= 0 ? doc.body.slice(0, idx) : doc.body;
+const after = idx >= 0 ? doc.body.slice(idx) : '';
+
+const processor = await createMarkdownProcessor({
+   rehypePlugins: [rehypeMdLinks, rehypeTableScroll, rehypeHeadingAnchors],
+   shikiConfig: { theme: 'night-owl' },
+});
+const beforeHtml = (await processor.render(before)).code;
+const afterHtml = after ? (await processor.render(after)).code : '';
 ---
 
 <Doc title="Rationale · Leji">
-   <Content />
+   <Fragment set:html={beforeHtml} />
+   <figure class="rationale-figure" aria-label="Leji: a circle">
+      <CircleChart />
+   </figure>
+   <Fragment set:html={afterHtml} />
 </Doc>
+
+<style>
+   .rationale-figure {
+      margin: 1.5rem 0 2.4rem;
+   }
+</style>

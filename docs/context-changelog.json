@@ -1,0 +1,77 @@
+{
+  "$schema": "https://leji.org/schemas/v1.0/context-changelog.schema.json",
+  "schemaVersion": "1.0",
+  "entries": [
+    {
+      "id": "adopt-leji",
+      "date": "2026-06-18",
+      "type": "added",
+      "summary": "Adopted Leji at core: boot profile, glossary, system invariants, and the first decision record.",
+      "paths": [
+        "leji.json",
+        "docs/boot-profile.md",
+        "docs/domain/glossary.md",
+        "docs/system/invariants.md",
+        "docs/decisions/0001-adopt-leji.md"
+      ],
+      "categories": [
+        "domain",
+        "system",
+        "decisions"
+      ],
+      "decisionRefs": [
+        "adopt-leji"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "practice-and-agents",
+      "date": "2026-06-20",
+      "type": "added",
+      "summary": "Added the practice category (the TypeScript-to-Go/Python porting discipline) and the core and porter agent profiles; bound porter in the manifest agents map.",
+      "paths": [
+        "leji.json",
+        "docs/practice/porting-ts-to-go-py.md",
+        "docs/agents/core.md",
+        "docs/agents/porter.md"
+      ],
+      "categories": [
+        "practice"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "raise-to-governed",
+      "date": "2026-06-21",
+      "type": "governance",
+      "summary": "Generated the machine surface (index + changelog), declared freshness horizons, fixed boot-profile and core-profile drift, added a reviewer agent that defines the single-owner review gate (independent agent review, then owner approval on a pull request), and raised the conformance claim from core to governed behind a CI surface gate plus the pull-request approval record.",
+      "paths": [
+        "leji.json",
+        "docs/context-index.json",
+        "docs/context-changelog.json",
+        "docs/boot-profile.md",
+        "docs/system/invariants.md",
+        "docs/domain/glossary.md",
+        "docs/practice/porting-ts-to-go-py.md",
+        "docs/agents/core.md",
+        "docs/agents/porter.md",
+        "docs/agents/reviewer.md",
+        "docs/decisions/0001-adopt-leji.md",
+        "docs/decisions/0002-raise-to-governed.md"
+      ],
+      "categories": [
+        "domain",
+        "system",
+        "practice",
+        "decisions"
+      ],
+      "decisionRefs": [
+        "raise-to-governed"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    }
+  ]
+}

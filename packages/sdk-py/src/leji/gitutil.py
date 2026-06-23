@@ -14,9 +14,10 @@ def _git(root: str, args: list[str]) -> Optional[str]:
             capture_output=True,
             text=True,
             check=True,
+            timeout=10,  # bound each invocation; mirrors the Node/Go 10s cap
         )
         return result.stdout
-    except (subprocess.CalledProcessError, OSError):
+    except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
         return None
 
 
@@ -33,6 +34,21 @@ def git_last_modified(root: str, rel_path: str) -> Optional[str]:
     out = _git(root, ["log", "-1", "--format=%cs", "--", rel_path])
     date = out.strip() if out else ""
     return date or None
+
+
+def working_tree_clean(root: str) -> Optional[bool]:
+    """Working-tree state for the init/adopt dirty-guard. Returns None when ``root``
+    is not inside a git repository (no commit-backed undo exists, so the guard does
+    not apply); True when the tree is clean; False when there are uncommitted
+    changes (staged, unstaged, or untracked). The guard refuses to mutate a dirty
+    tree so its writes stay cleanly reversible with ``git restore``/``git clean``."""
+    top = git_toplevel(root)
+    if not top:
+        return None
+    status = _git(top, ["status", "--porcelain", "--untracked-files=all"])
+    if status is None:
+        return None
+    return status.strip() == ""
 
 
 def git_show_head(root: str, rel_path: str) -> Optional[str]:

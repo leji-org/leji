@@ -1,0 +1,215 @@
+---
+// Tabbed install: one tab per runtime (icon + name); the selected tab's install
+// command shows below with a copy button. Single source of truth: runtimes.ts.
+import { runtimes } from '../data/runtimes';
+import copyIcon from '../assets/copy.svg?raw';
+import checkIcon from '../assets/check.svg?raw';
+const first = runtimes[0];
+---
+
+<div class="it" data-install-tabs>
+   <div class="it-tabs" role="tablist" aria-label="Install Leji">
+      {
+         runtimes.map((r, i) => (
+            <button
+               type="button"
+               role="tab"
+               id={`it-tab-${r.name}`}
+               class:list={['it-tab', { active: i === 0 }]}
+               aria-selected={i === 0 ? 'true' : 'false'}
+               aria-controls="it-panel"
+               tabindex={i === 0 ? 0 : -1}
+               data-command={r.command}
+            >
+               <span class="it-ic" set:html={r.icon} />
+               <span>{r.name}</span>
+            </button>
+         ))
+      }
+   </div>
+   <div class="it-panel" id="it-panel" role="tabpanel" aria-labelledby={`it-tab-${first.name}`}>
+      <code class="it-cmd"
+         ><span class="it-prompt" aria-hidden="true">$ </span><span class="it-cmd-text">{first.command}</span></code
+      >
+      <button type="button" class="it-copy" aria-label="Copy install command">
+         <span class="it-i it-i-copy" set:html={copyIcon} />
+         <span class="it-i it-i-check" set:html={checkIcon} />
+      </button>
+   </div>
+</div>
+
+<style>
+   .it {
+      padding: 0.4rem 1.4rem 1.2rem;
+      max-width: 100%;
+   }
+   .it-tabs {
+      display: flex;
+      gap: 0.25rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+   }
+   .it-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.5rem 0.9rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--white-faint);
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      cursor: pointer;
+      transition:
+         color 0.15s ease,
+         border-color 0.15s ease;
+   }
+   .it-tab:hover {
+      color: var(--white-soft);
+   }
+   .it-tab.active {
+      color: var(--gold-bright);
+      border-bottom-color: var(--gold);
+   }
+   .it-tab:focus-visible {
+      outline: 2px solid var(--gold);
+      outline-offset: 2px;
+      border-radius: 4px;
+   }
+   .it-ic {
+      display: inline-flex;
+   }
+   .it-ic :global(svg) {
+      height: 1.05em;
+      width: auto;
+      display: block;
+   }
+
+   .it-panel {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.8rem;
+      padding: 0.75rem 0 0;
+      /* transparent: it lives inside the terminal, no separate box */
+      background: transparent;
+   }
+   .it-cmd {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      line-height: 1.6;
+      color: var(--white-strong);
+      /* wrap the long Go command instead of a horizontal scrollbar */
+      white-space: normal;
+      overflow-wrap: anywhere;
+      min-width: 0;
+   }
+   .it-prompt {
+      color: var(--gold);
+   }
+   .it-copy {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.4rem;
+      color: var(--white-soft);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 6px;
+      cursor: pointer;
+      transition:
+         background 0.15s ease,
+         color 0.15s ease,
+         border-color 0.15s ease;
+   }
+   .it-copy:hover,
+   .it-copy:focus-visible {
+      background: rgba(255, 189, 110, 0.18);
+      color: var(--gold-bright);
+      border-color: var(--gold);
+      outline: none;
+   }
+   .it-i {
+      display: block;
+   }
+   .it-i :global(svg) {
+      display: block;
+      width: 15px;
+      height: 15px;
+   }
+   .it-i-check {
+      display: none;
+   }
+   .it-copy.copied .it-i-copy {
+      display: none;
+   }
+   .it-copy.copied .it-i-check {
+      display: block;
+      color: var(--gold-bright);
+   }
+
+   @media (prefers-reduced-motion: reduce) {
+      .it-tab,
+      .it-copy {
+         transition: none;
+      }
+   }
+</style>
+
+<script>
+   for (const root of document.querySelectorAll<HTMLElement>('[data-install-tabs]')) {
+      const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('.it-tab'));
+      const panel = root.querySelector<HTMLElement>('.it-panel');
+      const cmdText = root.querySelector<HTMLElement>('.it-cmd-text');
+      const copyBtn = root.querySelector<HTMLButtonElement>('.it-copy');
+      const tablist = root.querySelector<HTMLElement>('[role="tablist"]');
+      if (!panel || !cmdText || !copyBtn || !tablist) continue;
+
+      const select = (tab: HTMLButtonElement) => {
+         for (const t of tabs) {
+            const on = t === tab;
+            t.classList.toggle('active', on);
+            t.setAttribute('aria-selected', on ? 'true' : 'false');
+            t.tabIndex = on ? 0 : -1;
+         }
+         cmdText.textContent = tab.dataset.command ?? '';
+         panel.setAttribute('aria-labelledby', tab.id);
+         copyBtn.classList.remove('copied'); // reset feedback when switching
+      };
+
+      for (const tab of tabs) tab.addEventListener('click', () => select(tab));
+
+      // arrow-key navigation across the tablist
+      tablist.addEventListener('keydown', (e) => {
+         const i = tabs.indexOf(document.activeElement as HTMLButtonElement);
+         if (i < 0) return;
+         let next = -1;
+         if (e.key === 'ArrowRight') next = (i + 1) % tabs.length;
+         else if (e.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length;
+         else if (e.key === 'Home') next = 0;
+         else if (e.key === 'End') next = tabs.length - 1;
+         else return;
+         e.preventDefault();
+         tabs[next].focus();
+         select(tabs[next]);
+      });
+
+      let timer = 0;
+      copyBtn.addEventListener('click', async () => {
+         try {
+            await navigator.clipboard.writeText(cmdText.textContent ?? '');
+            copyBtn.classList.add('copied');
+            copyBtn.setAttribute('aria-label', 'Copied');
+            window.clearTimeout(timer);
+            timer = window.setTimeout(() => {
+               copyBtn.classList.remove('copied');
+               copyBtn.setAttribute('aria-label', 'Copy install command');
+            }, 1400);
+         } catch {
+            // clipboard unavailable: the command stays visible to copy manually
+         }
+      });
+   }
+</script>

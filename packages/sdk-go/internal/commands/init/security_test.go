@@ -51,6 +51,7 @@ func TestAdoptWireAdaptersRefusesSymlinkedOutsideVendor(t *testing.T) {
 	if err := os.Symlink(secretPath, filepath.Join(dir, "CLAUDE.md")); err != nil {
 		t.Fatal(err)
 	}
+	gitCommitAll(t, dir)
 
 	if _, err := AdoptLayer(AdoptOptions{Dir: dir, Yes: true, WireAdapters: true}); err != nil {
 		t.Fatalf("adopt should succeed treating the escaping symlink as absent: %v", err)
@@ -83,6 +84,7 @@ func TestAdoptDoesNotMigrateSymlinkedOutsideVendor(t *testing.T) {
 	if err := os.Symlink(secretPath, filepath.Join(dir, "CLAUDE.md")); err != nil {
 		t.Fatal(err)
 	}
+	gitCommitAll(t, dir)
 
 	res, err := AdoptLayer(AdoptOptions{Dir: dir, Yes: true})
 	if err != nil {
@@ -115,6 +117,7 @@ func TestMigrationDocFencesRawHTML(t *testing.T) {
 		[]byte("Instructions.\n<script>alert(1)</script>\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	gitCommitAll(t, dir)
 
 	if _, err := AdoptLayer(AdoptOptions{Dir: dir, Yes: true}); err != nil {
 		t.Fatalf("adopt: %v", err)

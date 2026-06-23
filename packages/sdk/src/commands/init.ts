@@ -1,12 +1,21 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
-import { execFileSync } from 'node:child_process';
-import { type CategoryId, type Manifest, effectiveChangelogPath, effectiveIndexPath } from '../lib/manifest.js';
+import { execFileSync, spawnSync } from 'node:child_process';
+import {
+   type CategoryId,
+   type Manifest,
+   bindAgentInManifestText,
+   declareVendorAdapterInManifestText,
+   effectiveAgentProfilesPath,
+   effectiveChangelogPath,
+   effectiveIndexPath,
+} from '../lib/manifest.js';
 import { templatesDir } from '../lib/schemas.js';
 import { isDir, isFile, readText, resolvedWithinRoot } from '../lib/fsx.js';
 import { type PlanEntry, type PlannedWrite, buildWritePlan } from '../lib/writeplan.js';
-import { HOST_SPECS, adapterContent, detectHosts, resolveHostId } from '../lib/detect.js';
+import { type DetectedHost, HOST_SPECS, adapterContent, detectHosts, resolveHostId } from '../lib/detect.js';
+import { workingTreeClean } from '../lib/git.js';
 import { KNOWN_VENDOR_FILES } from './validate.js';
 import { writeIndex } from './indexgen.js';
 
@@ -20,10 +29,6 @@ export interface InitOptions {
    dryRun?: boolean;
    /** Wire a vendor adapter: a host id/alias, `auto` (top detected), or `none`. */
    agent?: string;
-   /** Designate a second host as the `reviewer` role (multi-agent workflow). */
-   reviewer?: string;
-   /** Write a GitHub Actions workflow that runs `leji validate` in CI. */
-   ci?: boolean;
 }
 
 export interface InitAnswers {
@@ -43,6 +48,8 @@ export interface InitResult {
    /** The classified write plan (always populated; the only output under dryRun). */
    plan: PlanEntry[];
    dryRun: boolean;
+   /** Coding-agent hosts detected for this repo, ranked; informs the handoff offer. */
+   detected: DetectedHost[];
 }
 
 function gitConfig(key: string): string | null {
@@ -63,7 +70,7 @@ function defaultAnswers(dir: string, options: InitOptions): InitAnswers {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       // The line above collapses each run of non-alphanumerics to a single '-',
-      // so dashes are never consecutive — trimming one per end is sufficient and
+      // so dashes are never consecutive; trimming one per end is sufficient and
       // avoids the polynomial-backtracking `-+$` (js/polynomial-redos).
       .replace(/^-|-$/g, '');
    return {
@@ -210,6 +217,47 @@ function writeFileOnce(rootAbs: string, rel: string, content: string, written: s
    fs.mkdirSync(path.dirname(abs), { recursive: true });
    fs.writeFileSync(abs, content);
    written.push(rel);
+}
+
+/**
+ * Ensure the repository-root .gitignore ignores `.leji/` (the generated viewer and
+ * the transient onboarding brief, neither of which belongs in version control).
+ * Idempotent: creates the file if absent, appends the line (adding a leading
+ * newline when the file lacks a trailing one) only when the exact line is not
+ * already present. Matches the line exactly, so it never treats a comment or
+ * `docs/.leji/` as equivalent.
+ */
+function ensureLejiGitignored(rootAbs: string): void {
+   const abs = path.join(rootAbs, '.gitignore');
+   const entry = '.leji/';
+   const text = isFile(abs) ? readText(abs) : '';
+   if (text.split('\n').includes(entry)) return;
+   if (text === '') {
+      fs.writeFileSync(abs, entry + '\n');
+   } else {
+      fs.writeFileSync(abs, text + (text.endsWith('\n') ? '' : '\n') + entry + '\n');
+   }
+}
+
+/**
+ * Create leji.json with O_EXCL (`wx`) so the entry point's existence check and the
+ * write are atomic: a concurrent run, or a symlink planted between check and write,
+ * cannot be overwritten or followed. EEXIST is surfaced as the same "already exists"
+ * error each entry point uses for its initial guard.
+ */
+function writeManifestExclusive(abs: string, content: string, mode: 'init' | 'adopt'): void {
+   try {
+      fs.writeFileSync(abs, content, { flag: 'wx' });
+   } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EEXIST') {
+         throw new Error(
+            mode === 'adopt'
+               ? 'leji.json already exists here; this repository already has a Leji layer'
+               : 'leji.json already exists here; init refuses to overwrite an existing layer',
+         );
+      }
+      throw e;
+   }
 }
 
 const CATEGORY_STUBS: Record<string, { file: string; title: string; summary: string; body: string }> = {
@@ -375,13 +423,178 @@ function buildBrief(answers: InitAnswers): string {
 }
 
 /** Path of the transient onboarding brief, under a dot-directory so it is
- * excluded from the index, the docs viewer, and the changelog. */
+ * excluded from the index, the viewer, and the changelog. */
 export function briefPath(rootPath: string): string {
    return `${rootPath}.leji/onboarding-brief.md`;
 }
 
-/** The governed on-ramp: a CI job that runs `leji validate` on every change. */
-function buildCiWorkflow(): string {
+/** The CI workflow path, relative to the repository root. */
+export const CI_WORKFLOW_PATH = '.github/workflows/leji.yml';
+export const GITLAB_CI_PATH = '.gitlab-ci.yml';
+export const CIRCLECI_CONFIG_PATH = '.circleci/config.yml';
+export const AZURE_PIPELINE_PATH = '.azure-pipelines/leji.yml';
+
+const GITLAB_MARKER_START = '# >>> leji ci (managed) >>>';
+const GITLAB_MARKER_END = '# <<< leji ci (managed) <<<';
+
+// Azure Pipelines does not auto-discover a YAML file (unlike the other three), so
+// the file is written but the pipeline still has to be created in Azure DevOps.
+const AZURE_ACTIVATION_NOTE =
+   'Azure Pipelines does not auto-run this file. Create a pipeline that points at it (e.g. `az pipelines create --yml-path .azure-pipelines/leji.yml`), and on Azure Repos add a build-validation branch policy on main for pull-request checks.';
+
+export type CiProvider = 'github' | 'gitlab' | 'circleci' | 'azure';
+export type CiAction = 'created' | 'updated' | 'unchanged' | 'manual';
+export interface CiResult {
+   provider: CiProvider;
+   path: string;
+   action: CiAction;
+   snippet?: string;
+   note?: string;
+}
+
+/**
+ * Add a CI workflow that runs `leji validate` on every change (the `leji ci`
+ * command), so CI can be added to a layer created without it. GitHub gets its own
+ * workflow file; GitLab is create-or-merge into the shared `.gitlab-ci.yml` via a
+ * marker-delimited managed block; CircleCI is created if absent, else left untouched
+ * (a snippet to add by hand is returned); Azure DevOps gets its own
+ * `.azure-pipelines/leji.yml` plus an activation note, since ADO does not auto-discover
+ * the file. All operations are deterministic text, so the three reference SDKs stay
+ * byte-identical. Refuses a symlink that escapes root.
+ */
+export function ensureCiWorkflow(root: string, provider: CiProvider): CiResult {
+   const rootAbs = path.resolve(root);
+   switch (provider) {
+      case 'github': {
+         const abs = path.join(rootAbs, CI_WORKFLOW_PATH);
+         guardWithinRoot(rootAbs, abs, CI_WORKFLOW_PATH);
+         if (fs.existsSync(abs)) return { provider, path: CI_WORKFLOW_PATH, action: 'unchanged' };
+         writeFileAtomic(rootAbs, abs, CI_WORKFLOW_PATH, buildGithubWorkflow());
+         return { provider, path: CI_WORKFLOW_PATH, action: 'created' };
+      }
+      case 'gitlab': {
+         const abs = path.join(rootAbs, GITLAB_CI_PATH);
+         guardWithinRoot(rootAbs, abs, GITLAB_CI_PATH);
+         const block = buildGitlabBlock();
+         if (!fs.existsSync(abs)) {
+            writeFileAtomic(rootAbs, abs, GITLAB_CI_PATH, block);
+            return { provider, path: GITLAB_CI_PATH, action: 'created' };
+         }
+         const text = fs.readFileSync(abs, 'utf8');
+         const merged = mergeGitlabBlock(text, block);
+         if (merged === text) return { provider, path: GITLAB_CI_PATH, action: 'unchanged' };
+         writeFileAtomic(rootAbs, abs, GITLAB_CI_PATH, merged);
+         return { provider, path: GITLAB_CI_PATH, action: 'updated' };
+      }
+      case 'circleci': {
+         const abs = path.join(rootAbs, CIRCLECI_CONFIG_PATH);
+         guardWithinRoot(rootAbs, abs, CIRCLECI_CONFIG_PATH);
+         if (fs.existsSync(abs)) {
+            return { provider, path: CIRCLECI_CONFIG_PATH, action: 'manual', snippet: buildCircleCiSnippet() };
+         }
+         writeFileAtomic(rootAbs, abs, CIRCLECI_CONFIG_PATH, buildCircleCiConfig());
+         return { provider, path: CIRCLECI_CONFIG_PATH, action: 'created' };
+      }
+      case 'azure': {
+         const abs = path.join(rootAbs, AZURE_PIPELINE_PATH);
+         guardWithinRoot(rootAbs, abs, AZURE_PIPELINE_PATH);
+         // The activation note is intentionally created-only: a re-run on an existing
+         // pipeline file stays quiet (no note) rather than repeating the setup guidance.
+         if (fs.existsSync(abs)) return { provider, path: AZURE_PIPELINE_PATH, action: 'unchanged' };
+         writeFileAtomic(rootAbs, abs, AZURE_PIPELINE_PATH, buildAzurePipeline());
+         return { provider, path: AZURE_PIPELINE_PATH, action: 'created', note: AZURE_ACTIVATION_NOTE };
+      }
+      default:
+         // Unreachable from the CLI (it validates first); guards direct helper callers
+         // so an unknown provider errors consistently across the three SDKs.
+         throw new Error(`unknown provider "${provider}"`);
+   }
+}
+
+function guardWithinRoot(rootAbs: string, abs: string, rel: string): void {
+   if (!resolvedWithinRoot(rootAbs, abs)) {
+      throw new Error(`refusing to write through a symlink that escapes the target: "${rel}"`);
+   }
+}
+
+/** Write `contents` to `abs` atomically: a sibling temp file, then rename over the
+ * target, so an interrupted or failed write can never leave a partial file. On any
+ * failure the temp file is removed (no repo-visible artifact) and a deterministic,
+ * OS-text-free error is raised so the three SDKs report I/O failures byte-identically. */
+function writeFileAtomic(rootAbs: string, abs: string, rel: string, contents: string): void {
+   const tmp = `${abs}.leji-tmp`;
+   // The sibling temp path must not escape the root either (a planted `<target>.leji-tmp`
+   // symlink would otherwise be written through before the rename).
+   guardWithinRoot(rootAbs, tmp, rel);
+   try {
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(tmp, contents);
+      maybeInjectWriteFailure();
+      fs.renameSync(tmp, abs);
+   } catch (e) {
+      try {
+         fs.rmSync(tmp, { force: true });
+      } catch {
+         /* best-effort cleanup; surface the normalized write error below */
+      }
+      throw new Error(writeFailureMessage(rel, e));
+   }
+}
+
+/** Test-only fault injection: when LEJI_TEST_FAIL_RENAME is set, simulate a write that
+ * fails after the temp file exists but before the rename commits, so the cleanup and
+ * normalized-error path can be exercised identically across the three SDKs. */
+function maybeInjectWriteFailure(): void {
+   if (process.env.LEJI_TEST_FAIL_RENAME) throw new Error('injected write failure');
+}
+
+/** A deterministic, OS-text-free message for a failed CI-file write. Keeps stdout/
+ * stderr byte-identical across the Node, Go, and Python SDKs (parity-testable). */
+function writeFailureMessage(rel: string, e: unknown): string {
+   const code = (e as NodeJS.ErrnoException).code;
+   if (code === 'EACCES' || code === 'EPERM') return `cannot write "${rel}": permission denied`;
+   return `cannot write "${rel}"`;
+}
+
+/**
+ * Insert/replace the managed block in an existing `.gitlab-ci.yml`, byte-exactly.
+ * Replaces the first managed block and drops any later duplicate managed blocks,
+ * so the file is left with exactly one.
+ */
+function mergeGitlabBlock(text: string, block: string): string {
+   const span = managedBlockSpan(text);
+   if (span) {
+      return text.slice(0, span.start) + block + stripManagedBlocks(text.slice(span.end));
+   }
+   if (text === '') return block;
+   return text + (text.endsWith('\n') ? '\n' : '\n\n') + block;
+}
+
+/** The `[start, end)` span of the first managed block in `text`, or null if none. */
+function managedBlockSpan(text: string): { start: number; end: number } | null {
+   const start = text.indexOf(GITLAB_MARKER_START);
+   if (start === -1) return null;
+   const endMarker = text.indexOf(GITLAB_MARKER_END, start);
+   if (endMarker === -1) return null;
+   const nl = text.indexOf('\n', endMarker);
+   const end = nl === -1 ? text.length : nl + 1;
+   return { start, end };
+}
+
+/** Remove every managed block from `text` (drops duplicates left after the first). */
+function stripManagedBlocks(text: string): string {
+   let out = '';
+   let rest = text;
+   for (;;) {
+      const span = managedBlockSpan(rest);
+      if (!span) return out + rest;
+      out += rest.slice(0, span.start);
+      rest = rest.slice(span.end);
+   }
+}
+
+/** GitHub Actions workflow: a standalone file under .github/workflows/. */
+function buildGithubWorkflow(): string {
    return `name: leji
 on: [push, pull_request]
 jobs:
@@ -396,40 +609,95 @@ jobs:
 `;
 }
 
-/**
- * Resolve the file-style vendor adapter to create, honoring `--agent` (a host
- * id/alias, `auto` for the top detected host, or `none`/unset for nothing).
- * Never targets an existing entrypoint — those are migrated with consent during
- * adoption, never overwritten here — so it returns null when the file is present.
- */
-function resolveAdapter(root: string, agent: string | undefined): string | null {
-   if (!agent || agent === 'none') return null;
-   let spec;
-   if (agent === 'auto') {
-      const top = detectHosts({ root }).find((h) => h.adapter);
-      if (!top) return null;
-      spec = HOST_SPECS.find((s) => s.id === top.id);
-   } else {
-      const id = resolveHostId(agent);
-      spec = id ? HOST_SPECS.find((s) => s.id === id) : undefined;
-      if (!spec) throw new Error(`unknown agent "${agent}"; known: ${HOST_SPECS.map((s) => s.id).join(', ')}`);
-      if (!spec.adapter) throw new Error(`${spec.name} uses a directory-style adapter; wiring it is not yet supported`);
-   }
-   if (!spec?.adapter) return null;
-   if (isFile(path.join(root, spec.adapter))) return null;
-   return spec.adapter;
+/** GitLab CI: a marker-delimited job merged into the shared .gitlab-ci.yml. */
+function buildGitlabBlock(): string {
+   return `${GITLAB_MARKER_START}
+leji-validate:
+  image: node:22
+  script:
+    - npx -y @leji-org/leji@latest validate
+${GITLAB_MARKER_END}
+`;
 }
 
-/** An agent profile for a named role bound to a specific host (multi-agent). */
-function buildRoleProfile(role: string, hostId: string, rootPath: string): string {
-   const title = role.charAt(0).toUpperCase() + role.slice(1);
-   return `---
-id: ${role}
-name: ${title}
+/** CircleCI config written when .circleci/config.yml is absent. */
+function buildCircleCiConfig(): string {
+   return `version: 2.1
+jobs:
+  leji-validate:
+    docker:
+      - image: node:22
+    steps:
+      - checkout
+      - run: npx -y @leji-org/leji@latest validate
+workflows:
+  leji:
+    jobs:
+      - leji-validate
+`;
+}
+
+/** The jobs + workflows fragment to add by hand to an existing CircleCI config. */
+function buildCircleCiSnippet(): string {
+   return `jobs:
+  leji-validate:
+    docker:
+      - image: node:22
+    steps:
+      - checkout
+      - run: npx -y @leji-org/leji@latest validate
+workflows:
+  leji:
+    jobs:
+      - leji-validate
+`;
+}
+
+/** Azure Pipelines: a dedicated .azure-pipelines/leji.yml the user wires to a pipeline. */
+function buildAzurePipeline(): string {
+   return `trigger:
+  - main
+pool:
+  vmImage: ubuntu-latest
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '22.x'
+  - script: npx -y @leji-org/leji@latest validate
+    displayName: leji validate
+`;
+}
+
+// A name (also the agent-profile `id` and the agents-map key) and a role must be
+// kebab identifiers: matches the agent-profile schema's id pattern, is safe as a
+// path segment, and is safe to interpolate into YAML frontmatter and JSON.
+const AGENT_TOKEN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+function assertAgentToken(label: string, value: string): void {
+   if (!AGENT_TOKEN.test(value)) {
+      throw new Error(
+         `${label} must be lowercase letters, digits, and single dashes (e.g. "thought-partner"); got "${value}"`,
+      );
+   }
+}
+
+/**
+ * A starter agent profile for a named agent bound to a host. The body is keyed
+ * off the role: `reviewer` (the default) keeps the review-focused posture; any
+ * other role gets a neutral template the author fills in. The frontmatter
+ * satisfies the agent-profile schema (id/name/role/requiredRead/mustAskWhen).
+ */
+function buildAgentProfile(name: string, role: string, hostId: string | undefined, rootPath: string): string {
+   const hostLine = hostId ? `host: ${hostId}\n` : '';
+   const hostNote = hostId ? ` (host \`${hostId}\`)` : '';
+   const head = `---
+id: ${name}
+name: ${name}
 role: ${role}
-host: ${hostId}
-inherits: core
-purpose: Independent review of proposed context-layer changes before a person approves.
+${hostLine}inherits: core
+`;
+   if (role === 'reviewer') {
+      return `${head}purpose: Independent review of proposed context-layer changes before a person approves.
 requiredRead:
   - ${rootPath}boot-profile.md
   - ${rootPath}agents/core.md
@@ -438,9 +706,9 @@ mustAskWhen:
   - a change to settled behavior lacks a decision record
 ---
 
-# ${title}
+# ${name}
 
-A second agent (host \`${hostId}\`) that reviews context-layer proposals against the spec and this
+A second agent${hostNote} that reviews context-layer proposals against the spec and this
 layer's own rules before a person approves. Inherits the core posture; it never loosens it.
 
 ## Review focus
@@ -449,53 +717,126 @@ layer's own rules before a person approves. Inherits the core posture; it never 
 - Placeholders are gone and claims are grounded in the repository.
 - A change to settled behavior carries a decision record.
 `;
+   }
+   return `${head}requiredRead:
+  - ${rootPath}boot-profile.md
+  - ${rootPath}agents/core.md
+mustAskWhen:
+  - a change would weaken an invariant or guardrail
+  - a change to settled behavior lacks a decision record
+---
+
+# ${name}
+
+The \`${role}\` agent${hostNote} bound to this context layer. Inherits the core posture
+from the boot profile and core profile; it never loosens it.
+
+## Responsibilities
+
+- TODO: describe what this agent is responsible for.
+- TODO: list what it may do unprompted and what needs a human gate.
+`;
+}
+
+/** What `addAgent` did, for the command to report. Each artifact is independently
+ * idempotent: a `*Created`/`manifestChanged` of false means it was already there.
+ * `hostId` is undefined for a host-agnostic resident agent (no `--host`). */
+export interface AgentResult {
+   name: string;
+   role: string;
+   hostId?: string;
+   profilePath: string;
+   profileCreated: boolean;
+   manifestChanged: boolean;
 }
 
 /**
- * Designate a secondary host as the `reviewer` role: write its agent profile,
- * bind it in `manifest.agents`, and wire its vendor adapter when absent. Mutates
- * the manifest (agents + vendorAdapters) and returns the files to write.
+ * Wire a named agent into an existing layer (the `leji agent` command): write a
+ * starter profile under the agent-profiles path, wire the host's vendor adapter
+ * if absent, and bind the agent (and adapter) in leji.json via an in-place text
+ * edit that preserves the rest of the file. Never overwrites an existing profile
+ * or adapter, and re-running with the same arguments is a no-op.
  */
-function wireReviewer(root: string, reviewer: string, manifest: Manifest, r: string): PlannedWrite[] {
-   const id = resolveHostId(reviewer);
-   const spec = id ? HOST_SPECS.find((s) => s.id === id) : undefined;
-   if (!spec) throw new Error(`unknown agent "${reviewer}"; known: ${HOST_SPECS.map((s) => s.id).join(', ')}`);
-   const out: PlannedWrite[] = [];
-   const profileRel = `${r}agents/reviewer.md`;
-   out.push({ rel: profileRel, content: buildRoleProfile('reviewer', spec.id, r) });
-   manifest.agents = { ...(manifest.agents ?? {}), reviewer: profileRel };
-   if (spec.adapter && !isFile(path.join(root, spec.adapter))) {
-      const adapters = manifest.vendorAdapters ?? [];
-      if (!adapters.includes(spec.adapter)) adapters.push(spec.adapter);
-      manifest.vendorAdapters = adapters;
-      out.push({ rel: spec.adapter, content: adapterContent(manifest.bootProfilePath) });
+export function addAgent(
+   root: string,
+   manifest: Manifest,
+   opts: { host?: string; name: string; role?: string },
+): AgentResult {
+   const rootAbs = path.resolve(root);
+   const name = opts.name;
+   const role = opts.role ?? 'reviewer';
+   assertAgentToken('agent name', name);
+   assertAgentToken('agent role', role);
+   // --host is optional: a host pins the profile to a specific external CLI; with
+   // none, this is a host-agnostic resident agent any host can run. Either way we
+   // never write a vendor file; those are migrated from an existing entrypoint,
+   // never created.
+   let hostId: string | undefined;
+   if (opts.host) {
+      const id = resolveHostId(opts.host);
+      const spec = id ? HOST_SPECS.find((s) => s.id === id) : undefined;
+      if (!spec) throw new Error(`unknown host "${opts.host}"; known: ${HOST_SPECS.map((s) => s.id).join(', ')}`);
+      hostId = spec.id;
    }
-   return out;
+
+   const base = effectiveAgentProfilesPath(manifest);
+   const profileRel = (base.endsWith('/') ? base : `${base}/`) + `${name}.md`;
+   const profileAbs = path.join(rootAbs, profileRel);
+   let profileCreated = false;
+   if (!isFile(profileAbs)) {
+      if (!resolvedWithinRoot(rootAbs, profileAbs)) {
+         throw new Error(`refusing to write through a symlink that escapes the target: "${profileRel}"`);
+      }
+      fs.mkdirSync(path.dirname(profileAbs), { recursive: true });
+      fs.writeFileSync(profileAbs, buildAgentProfile(name, role, hostId, manifest.rootPath));
+      profileCreated = true;
+   }
+
+   const manifestAbs = path.join(rootAbs, 'leji.json');
+   const original = readText(manifestAbs);
+   const text = bindAgentInManifestText(original, name, profileRel).text;
+   const manifestChanged = text !== original;
+   if (manifestChanged) fs.writeFileSync(manifestAbs, text);
+
+   return { name, role, hostId, profilePath: profileRel, profileCreated, manifestChanged };
+}
+
+/**
+ * Refuse to mutate a dirty working tree. init/adopt write (and adopt moves) many
+ * files; the "git restore cleanly undoes Leji's writes" safety net only holds if
+ * the tree was clean to begin with, so a dirty tree is refused outright rather
+ * than entangling Leji's writes with the user's uncommitted work. A non-git
+ * directory has no such net and is allowed: that is how a fresh layer is
+ * bootstrapped before `git init`. Callers skip this under --dry-run.
+ */
+function assertCleanWorkingTree(root: string): void {
+   if (workingTreeClean(root) === false) {
+      throw new Error(
+         'the working tree has uncommitted changes; commit or stash them first so this stays cleanly reversible (preview with --dry-run)',
+      );
+   }
 }
 
 /**
  * Bootstrap a context layer from the vendored templates. Interactive unless
- * --yes. Refuses to run when leji.json already exists; never overwrites
- * existing files (seeds land only where nothing is in the way). With
- * `dryRun`, computes the write plan and touches nothing.
+ * --yes. Refuses to run when leji.json already exists or the working tree is
+ * dirty; never overwrites existing files (seeds land only where nothing is in
+ * the way). With `dryRun`, computes the write plan and touches nothing.
  */
 export async function initLayer(options: InitOptions): Promise<InitResult> {
    const root = path.resolve(options.dir);
    if (fs.existsSync(path.join(root, 'leji.json'))) {
       throw new Error('leji.json already exists here; init refuses to overwrite an existing layer');
    }
+   if (!options.dryRun) assertCleanWorkingTree(root);
+   const detected = detectHosts({ root });
    const answers = await prompt(options);
    // Guard rootPath (and so every derived write path) before any write: reject
    // absolute paths, .. segments, ./ prefixes, and backslashes.
    assertRelativePath(answers.rootPath);
 
    const manifest = buildManifest(answers);
-   const adapter = resolveAdapter(root, options.agent);
-   if (adapter) manifest.vendorAdapters = [adapter];
    const r = answers.rootPath;
-   // Multi-agent: a reviewer role bound to a second host (mutates the manifest
-   // before leji.json is serialized below).
-   const reviewerWrites = options.reviewer ? wireReviewer(root, options.reviewer, manifest, r) : [];
 
    // Assemble the files init owns, in write order. leji.json comes first so the
    // overwrite guard is effective on a retry after an interrupted run.
@@ -509,9 +850,6 @@ export async function initLayer(options: InitOptions): Promise<InitResult> {
    writes.push({ rel: `${r}decisions/0001-adopt-leji.md`, content: buildFirstDecision(answers) });
    writes.push({ rel: `${r}agents/core.md`, content: buildCoreProfile(answers) });
    writes.push({ rel: briefPath(r), content: buildBrief(answers) });
-   if (adapter) writes.push({ rel: adapter, content: adapterContent(manifest.bootProfilePath) });
-   writes.push(...reviewerWrites);
-   if (options.ci) writes.push({ rel: '.github/workflows/leji.yml', content: buildCiWorkflow() });
    if (answers.level === 'indexed') {
       // The changelog records the paths seeded; compute from the planned set
       // (everything except the changelog and the generated index).
@@ -526,17 +864,18 @@ export async function initLayer(options: InitOptions): Promise<InitResult> {
    const plan = buildWritePlan(root, planWrites, wontModify);
 
    if (options.dryRun) {
-      return { written: [], manifest, plan, dryRun: true };
+      return { written: [], manifest, plan, dryRun: true, detected };
    }
 
    const written: string[] = [];
    fs.mkdirSync(root, { recursive: true });
-   // leji.json is written directly (the guard above already proved it absent);
-   // every other file goes through writeFileOnce so nothing is overwritten.
+   // leji.json is created exclusively ('wx'): O_EXCL closes the check-then-write
+   // race and refuses to follow a symlink at the final component, so a concurrent
+   // init or a planted symlink cannot be overwritten or escaped.
    if (!resolvedWithinRoot(root, path.join(root, 'leji.json'))) {
       throw new Error('refusing to write through a symlink that escapes the target: "leji.json"');
    }
-   fs.writeFileSync(path.join(root, 'leji.json'), writes[0].content);
+   writeManifestExclusive(path.join(root, 'leji.json'), writes[0].content, 'init');
    written.push('leji.json');
    for (const w of writes.slice(1)) {
       writeFileOnce(root, w.rel, w.content, written);
@@ -545,8 +884,9 @@ export async function initLayer(options: InitOptions): Promise<InitResult> {
       writeIndex(root, manifest);
       written.push(effectiveIndexPath(manifest));
    }
+   ensureLejiGitignored(root);
 
-   return { written: written.sort(), manifest, plan, dryRun: false };
+   return { written: written.sort(), manifest, plan, dryRun: false, detected };
 }
 
 // --- adoption (existing repositories) ---
@@ -584,7 +924,9 @@ function longestBacktickRun(content: string): number {
 function migrationDoc(sourceRel: string, content: string): string {
    const summary = `Agent instructions migrated verbatim from ${sourceRel}; refine into the right categories.`;
    // Wrap the migrated content in a fenced code block so raw HTML/Markdown is
-   // shown verbatim, never rendered (no stored XSS in the Docsify local preview).
+   // shown verbatim, never rendered: the fenced migration cannot inject script into
+   // the Docsify preview. (That preview is a local, trusted-content viewer, not a
+   // sandbox; other layer documents are still rendered as authored.)
    // The fence is one backtick longer than the longest run in the content.
    const fence = '`'.repeat(Math.max(3, longestBacktickRun(content) + 1));
    return (
@@ -622,18 +964,17 @@ The context layer is the single source of truth. Until the vendor entrypoints re
 }
 
 /**
- * Bring Leji into an existing repository: reuse an existing docs root, migrate
- * the content of any vendor entrypoints into the layer (originals untouched),
- * and seed the standard scaffold. Refuses when a layer already exists. With
- * `wireAdapters`, converts the present entrypoints to redirects (a consented
- * overwrite, after their content has been migrated); otherwise the result is an
- * adoption draft that is not yet core-conformant.
+ * Adopt an existing docs tree into Leji: migrate vendor entrypoints into the layer
+ * (originals untouched), optionally converting them to redirects with `wireAdapters`.
+ * Refuses when a layer already exists.
  */
 export async function adoptLayer(options: AdoptOptions): Promise<AdoptResult> {
    const root = path.resolve(options.dir);
    if (fs.existsSync(path.join(root, 'leji.json'))) {
       throw new Error('leji.json already exists here; this repository already has a Leji layer');
    }
+   if (!options.dryRun) assertCleanWorkingTree(root);
+   const detected = detectHosts({ root });
    const detectedRoot = DOCS_CANDIDATES.find((d) => isDir(path.join(root, d))) ?? 'docs/';
    assertRelativePath(detectedRoot);
 
@@ -672,16 +1013,13 @@ export async function adoptLayer(options: AdoptOptions): Promise<AdoptResult> {
    };
 
    const manifest = buildManifest(answers);
-   const newAdapter = resolveAdapter(root, options.agent);
    const r = answers.rootPath;
 
-   // Convert only files that aren't already the canonical redirect; each has been
-   // captured in toMigrate above, so the overwrite never loses content.
+   // Convert only EXISTING vendor entrypoints (never create new ones) that aren't
+   // already the canonical redirect; each has been captured in toMigrate above, so
+   // the overwrite never loses content.
    const toConvert = options.wireAdapters ? vendorPresent.filter(notCanonical) : [];
-   const adapters: string[] = [];
-   if (newAdapter) adapters.push(newAdapter);
-   for (const rel of toConvert) if (!adapters.includes(rel)) adapters.push(rel);
-   if (adapters.length > 0) manifest.vendorAdapters = adapters;
+   if (toConvert.length > 0) manifest.vendorAdapters = toConvert;
 
    const writes: PlannedWrite[] = [{ rel: 'leji.json', content: JSON.stringify(manifest, null, 2) + '\n' }];
    writes.push({ rel: manifest.bootProfilePath, content: buildBootProfile(answers) });
@@ -720,7 +1058,6 @@ export async function adoptLayer(options: AdoptOptions): Promise<AdoptResult> {
       });
    }
 
-   if (newAdapter) writes.push({ rel: newAdapter, content: adapterContent(manifest.bootProfilePath) });
    for (const rel of toConvert) writes.push({ rel, content: adapterContent(manifest.bootProfilePath) });
 
    const wontModify = vendorPresent.filter((rel) => !toConvert.includes(rel));
@@ -728,7 +1065,7 @@ export async function adoptLayer(options: AdoptOptions): Promise<AdoptResult> {
    const draft = wontModify.some((rel) => !readText(path.join(root, rel)).includes(bootRel));
 
    if (options.dryRun) {
-      return { written: [], manifest, plan, dryRun: true, detectedRoot, migrated, draft };
+      return { written: [], manifest, plan, dryRun: true, detected, detectedRoot, migrated, draft };
    }
 
    const written: string[] = [];
@@ -736,7 +1073,7 @@ export async function adoptLayer(options: AdoptOptions): Promise<AdoptResult> {
    if (!resolvedWithinRoot(root, path.join(root, 'leji.json'))) {
       throw new Error('refusing to write through a symlink that escapes the target: "leji.json"');
    }
-   fs.writeFileSync(path.join(root, 'leji.json'), writes[0].content);
+   writeManifestExclusive(path.join(root, 'leji.json'), writes[0].content, 'adopt');
    written.push('leji.json');
    const convert = new Set(toConvert);
    for (const w of writes.slice(1)) {
@@ -751,8 +1088,9 @@ export async function adoptLayer(options: AdoptOptions): Promise<AdoptResult> {
          writeFileOnce(root, w.rel, w.content, written);
       }
    }
+   ensureLejiGitignored(root);
 
-   return { written: written.sort(), manifest, plan, dryRun: false, detectedRoot, migrated, draft };
+   return { written: written.sort(), manifest, plan, dryRun: false, detected, detectedRoot, migrated, draft };
 }
 
 /** Post-adopt guidance, printed by the CLI. */
@@ -774,6 +1112,222 @@ export function enteringAdopted(result: AdoptResult): string {
       );
    }
    return lines.join('\n');
+}
+
+/**
+ * CLI hosts that accept an inline prompt argument, so Leji can launch the handoff
+ * for the user (`claude "..."`, `codex "..."`). Directory-style IDE hosts (Cursor,
+ * Windsurf) and prompt syntaxes we have not verified (Gemini) are deliberately
+ * left out; when only those are present, the offer is skipped and the printed
+ * instructions stand. Mirrors the two commands documented in `enteringTheLayer`.
+ */
+const PROMPT_HOST_IDS = ['claude-code', 'codex'];
+
+interface PromptHost {
+   id: string;
+   bin: string;
+   name: string;
+}
+
+/** Detected hosts (on PATH) that can be launched with an inline prompt, ranked. */
+function promptCapableHosts(detected: DetectedHost[]): PromptHost[] {
+   const out: PromptHost[] = [];
+   for (const h of detected) {
+      if (!h.onPath || !PROMPT_HOST_IDS.includes(h.id)) continue;
+      const spec = HOST_SPECS.find((s) => s.id === h.id);
+      if (spec) out.push({ id: h.id, bin: spec.bins[0], name: spec.name });
+   }
+   return out;
+}
+
+/**
+ * Injectable I/O for the handoff offer, so the interactive flow (prompting and
+ * launching a child process) is deterministically testable. Production wiring is
+ * `defaultHandoffIo`; tests pass a fake that scripts the answer and records the
+ * launch instead of spawning.
+ */
+export interface HandoffIo {
+   /** Prompt and read one trimmed line; '' means accept the default (or EOF). */
+   readLine(question: string, fallback: string): Promise<string>;
+   /**
+    * Launch the chosen agent with the brief prompt; mirrors spawnSync's result.
+    * `error` means it never started; a non-zero `status` or a `signal` means it
+    * started but did not finish cleanly. Either way the caller falls back to the
+    * printed instructions.
+    */
+   launch(
+      bin: string,
+      promptArg: string,
+      cwd?: string,
+   ): { error?: Error; status?: number | null; signal?: NodeJS.Signals | null };
+}
+
+/** Real handoff I/O: a one-shot stdin line reader and a stdio-inherit spawn. */
+function defaultHandoffIo(): HandoffIo {
+   return {
+      async readLine(question, fallback) {
+         const reader = new LineReader();
+         try {
+            process.stdout.write(`${question} [${fallback}]: `);
+            const a = await reader.next();
+            return a === EOF ? '' : a.trim();
+         } finally {
+            // Close before any launch so nothing else is holding stdin when the
+            // child inherits the terminal.
+            reader.close();
+         }
+      },
+      launch(bin, promptArg, cwd) {
+         // cwd anchors the agent at the layer root so a relative prompt path like
+         // `./docs/boot-profile.md` resolves (matters for `leji start --root <dir>`).
+         return spawnSync(bin, [promptArg], { stdio: 'inherit', cwd });
+      },
+   };
+}
+
+/** Ask which of several detected hosts to launch (numbered), or none. */
+async function pickFromMultiple(hosts: PromptHost[], io: HandoffIo): Promise<PromptHost | null> {
+   console.log('\nDetected coding agents on your PATH:');
+   hosts.forEach((h, i) => console.log(`   ${i + 1}) ${h.name}`));
+   const a = (await io.readLine('Which agent? (number, or Enter to skip)', 'skip')).toLowerCase();
+   // An explicit, in-range number is required; empty / n / junk / out-of-range skip,
+   // so we never launch an agent the user did not pick.
+   if (a === '' || a === 'n' || a === 'no') return null;
+   const idx = Number(a) - 1;
+   return Number.isInteger(idx) && idx >= 0 && idx < hosts.length ? hosts[idx] : null;
+}
+
+/**
+ * Launch a chosen host with `promptArg` from `cwd`. Returns true only on a clean
+ * exit; a spawn failure or a non-zero/signalled exit returns false so the caller
+ * can fall back to printed instructions.
+ */
+function launchHost(host: PromptHost, promptArg: string, io: HandoffIo, cwd?: string): boolean {
+   console.log(`\nStarting ${host.name}: ${host.bin} "${promptArg}"\n`);
+   const res = io.launch(host.bin, promptArg, cwd);
+   if (res.error) {
+      console.error(`\nleji: could not start ${host.bin} (${res.error.message}).`);
+      return false;
+   }
+   return res.signal == null && (res.status == null || res.status === 0);
+}
+
+/** Ask which detected host to hand off to (or none): a single host confirms [Y/n]. */
+async function chooseHost(hosts: PromptHost[], promptArg: string, io: HandoffIo): Promise<PromptHost | null> {
+   if (hosts.length === 1) {
+      const h = hosts[0];
+      const a = (
+         await io.readLine(`Hand the scaffold to ${h.name} now (${h.bin} "${promptArg}")?`, 'Y/n')
+      ).toLowerCase();
+      return a === '' || a === 'y' || a === 'yes' ? h : null;
+   }
+   return pickFromMultiple(hosts, io);
+}
+
+/**
+ * After a scaffold is written, offer to hand it to a detected agent and launch
+ * that agent directly. Interactive only: fires when `interactive` is set (a TTY
+ * and not --yes) and at least one prompt-capable host is on PATH. Returns true
+ * when an agent was launched (the caller prints nothing further), false to fall
+ * back to the printed instructions (no agent detected, declined, or launch
+ * failed). Never fires non-interactively, so scripted/CI output and cross-SDK
+ * parity are unchanged.
+ */
+export async function handoffOffer(
+   manifest: Manifest,
+   detected: DetectedHost[],
+   interactive: boolean,
+   io: HandoffIo = defaultHandoffIo(),
+   agent?: string,
+): Promise<boolean> {
+   if (!interactive) return false;
+   const hosts = promptCapableHosts(detected);
+   const promptArg = `Read ./${briefPath(manifest.rootPath)} and follow it.`;
+   // --agent forces a specific launchable host (skipping the prompt); otherwise the
+   // detected hosts drive the offer. The interactive gate above keeps this off the
+   // scripted/CI path, so cross-SDK parity is unchanged.
+   let chosen: PromptHost | null;
+   if (agent) {
+      const id = resolveHostId(agent);
+      const spec = id && PROMPT_HOST_IDS.includes(id) ? HOST_SPECS.find((s) => s.id === id) : undefined;
+      if (!spec) throw new Error(`--agent must be a launchable host (${PROMPT_HOST_IDS.join(', ')}); got "${agent}"`);
+      chosen = { id: spec.id, bin: spec.bins[0], name: spec.name };
+   } else {
+      if (hosts.length === 0) return false;
+      chosen = await chooseHost(hosts, promptArg, io);
+   }
+   if (!chosen) return false;
+   return launchHost(chosen, promptArg, io);
+}
+
+/** The boot prompt `leji start` hands the agent: point it at the boot profile. */
+function bootPrompt(bootRel: string): string {
+   return `Read ./${bootRel}, follow it, and tell me when you're ready.`;
+}
+
+/** Outcome of `enterLayer`: an agent launched cleanly, fell back to printed
+ * commands (nothing to launch), or the boot profile is missing/invalid. */
+export type StartOutcome = 'launched' | 'fallback' | 'boot-missing';
+
+/** Options for `enterLayer` (the `leji start` command). */
+export interface StartOptions {
+   root: string;
+   manifest: Manifest;
+   detected: DetectedHost[];
+   /** --agent: force a specific launchable host (claude-code/codex). */
+   agent?: string;
+   /** A real TTY and not --yes; required to launch an interactive agent. */
+   interactive: boolean;
+   io?: HandoffIo;
+}
+
+/**
+ * `leji start`: boot a coding agent into an existing layer, pointed at the boot
+ * profile. One detected host launches directly; several prompt; `--agent` forces a
+ * specific launchable host. Launches from the layer root so the relative boot path
+ * resolves. Returns 'launched' on a clean run, 'fallback' when there is nothing to
+ * launch (no host, non-interactive, or the launch failed), or 'boot-missing' when
+ * the boot profile path is unsafe or absent. Throws on an unknown/non-launchable
+ * --agent (a usage error).
+ */
+export async function enterLayer(opts: StartOptions): Promise<StartOutcome> {
+   const root = path.resolve(opts.root);
+   const bootRel = opts.manifest.bootProfilePath;
+   if (!RELATIVE_PATH_RE.test(bootRel) || !isFile(path.join(root, bootRel))) return 'boot-missing';
+   const io = opts.io ?? defaultHandoffIo();
+   const promptArg = bootPrompt(bootRel);
+
+   let host: PromptHost | null = null;
+   if (opts.agent) {
+      const id = resolveHostId(opts.agent);
+      const spec = id && PROMPT_HOST_IDS.includes(id) ? HOST_SPECS.find((s) => s.id === id) : undefined;
+      if (!spec) {
+         throw new Error(`--agent must be a launchable host (${PROMPT_HOST_IDS.join(', ')}); got "${opts.agent}"`);
+      }
+      host = { id: spec.id, bin: spec.bins[0], name: spec.name };
+   } else {
+      const hosts = promptCapableHosts(opts.detected);
+      if (hosts.length === 1) host = hosts[0];
+      else if (hosts.length > 1 && opts.interactive) host = await pickFromMultiple(hosts, io);
+   }
+
+   if (!host || !opts.interactive) return 'fallback';
+   return launchHost(host, promptArg, io, root) ? 'launched' : 'fallback';
+}
+
+/** Printed when `leji start` launches nothing (no agent, non-interactive, or a
+ * failed launch): the copy-paste commands to enter the layer via the boot profile. */
+export function enteringViaBoot(manifest: Manifest): string {
+   const promptArg = bootPrompt(manifest.bootProfilePath);
+   return [
+      '',
+      'No coding agent was launched. To enter this context layer, run one of:',
+      '',
+      `   claude "${promptArg}"`,
+      `   codex "${promptArg}"`,
+      '',
+      'Each points the agent at the boot profile, which loads the team context before any work.',
+   ].join('\n');
 }
 
 /** Post-init guidance, printed by the CLI. */

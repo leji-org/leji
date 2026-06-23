@@ -162,7 +162,6 @@ const fields = Object.entries(schema.properties ?? {})
       }
    }
 
-   /* type annotation: plain muted mono, no chip */
    .ftype {
       font-family: var(--mono);
       font-size: 0.72rem;
@@ -170,7 +169,6 @@ const fields = Object.entries(schema.properties ?? {})
       white-space: nowrap;
    }
 
-   /* required: the one accent, a small gold capsule */
    .req {
       font-family: var(--mono);
       font-size: 0.6rem;
@@ -230,7 +228,6 @@ const fields = Object.entries(schema.properties ?? {})
       font-weight: 600;
       color: var(--blue);
    }
-   /* leaf fields read a touch quieter than the objects that contain them */
    .object-body.nested > .subfield > .subfield-head > .fname {
       font-size: 0.88rem;
       font-weight: 550;

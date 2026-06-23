@@ -1,0 +1,197 @@
+---
+// A low-fidelity "shape of it" mock of the leji viewer: the human-readable face
+// of a context layer. Not a faithful Docsify reproduction: just the silhouette
+// (left nav, search, a content column with an H1 + layer-map chart) that reads
+// instantly as "a doc viewer." Decorative; aria-hidden. Paired with the
+// conformance terminal to show the layer's two audiences in one window.
+import icon from '../assets/leji-icon.svg?raw';
+---
+
+<div class="glimpse" aria-hidden="true">
+   <aside class="g-side">
+      <div class="g-search">Search the context layer…</div>
+      <div class="g-brand"><span class="g-mark" set:html={icon} /><span class="g-name">AI-native Team</span></div>
+      <div class="g-boot"><span class="g-emo">🤖</span> Boot profile</div>
+      <hr class="g-hr" />
+      <ul class="g-nav">
+         <li><span class="g-tri">▶</span><span class="g-emo">📖</span> Domain</li>
+         <li><span class="g-tri">▶</span><span class="g-emo">⚙️</span> System</li>
+         <li><span class="g-tri">▶</span><span class="g-emo">🛠️</span> Practice</li>
+         <li><span class="g-tri">▶</span><span class="g-emo">🧭</span> Decisions</li>
+      </ul>
+   </aside>
+
+   <section class="g-main">
+      <p class="g-eyebrow">Human-readable · for people</p>
+      <h3 class="g-h1">AI-native Team</h3>
+      <p class="g-lede">The shared, validated context people and coding agents read before working here.</p>
+
+      <svg class="g-map" viewBox="0 0 280 104" role="presentation" preserveAspectRatio="xMidYMid meet">
+         <g class="g-edge" fill="none">
+            <path d="M140 26 C140 50 35 50 35 74"></path>
+            <path d="M140 26 C140 50 105 50 105 74"></path>
+            <path d="M140 26 C140 50 175 50 175 74"></path>
+            <path d="M140 26 C140 50 245 50 245 74"></path>
+         </g>
+         <g class="g-node g-node-boot">
+            <rect x="85" y="2" width="110" height="24" rx="4"></rect>
+            <text x="140" y="18">🤖 Boot profile</text>
+         </g>
+         <g class="g-node">
+            <rect x="4" y="74" width="62" height="24" rx="4"></rect>
+            <text x="35" y="90">📖 Domain</text>
+         </g>
+         <g class="g-node">
+            <rect x="74" y="74" width="62" height="24" rx="4"></rect>
+            <text x="105" y="90">⚙️ System</text>
+         </g>
+         <g class="g-node">
+            <rect x="144" y="74" width="62" height="24" rx="4"></rect>
+            <text x="175" y="90">🛠️ Practice</text>
+         </g>
+         <g class="g-node">
+            <rect x="214" y="74" width="62" height="24" rx="4"></rect>
+            <text x="245" y="90">🧭 Decisions</text>
+         </g>
+      </svg>
+   </section>
+</div>
+
+<style>
+   .glimpse {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: minmax(7.5rem, 38%) 1fr;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--serif-text);
+      overflow: hidden;
+      text-align: left;
+   }
+
+   /* ── left nav ─────────────────────────────────────── */
+   .g-side {
+      position: relative;
+      border-right: 1px solid var(--line);
+      padding: 0.55rem 0.6rem 1.4rem;
+      min-width: 0;
+   }
+   .g-search {
+      font-size: 0.56rem;
+      color: var(--ink-soft);
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 0.32rem 0.45rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+   }
+   .g-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      margin: 0.6rem 0 0.5rem;
+   }
+   .g-mark :global(svg) {
+      display: block;
+      width: 1.05rem;
+      height: auto;
+   }
+   .g-name {
+      font-family: var(--serif-display);
+      font-weight: 600;
+      font-size: 0.92rem;
+      color: var(--blue);
+      letter-spacing: 0.01em;
+   }
+   .g-boot {
+      font-size: 0.62rem;
+      color: var(--ink-soft);
+      padding: 0.12rem 0;
+   }
+   .g-hr {
+      border: 0;
+      border-top: 1px solid var(--line);
+      margin: 0.45rem 0;
+   }
+   .g-nav {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+   }
+   .g-nav li {
+      display: flex;
+      align-items: center;
+      gap: 0.28rem;
+      font-size: 0.62rem;
+      font-weight: 700;
+      color: var(--ink);
+      padding: 0.18rem 0;
+      white-space: nowrap;
+   }
+   .g-tri {
+      font-size: 0.42rem;
+      color: #bbb3a4;
+      font-weight: 400;
+   }
+   .g-emo {
+      font-size: 0.66rem;
+   }
+   /* ── content column ───────────────────────────────── */
+   .g-main {
+      padding: 0.7rem 0.9rem;
+      min-width: 0;
+   }
+   .g-eyebrow {
+      margin: 0 0 0.3rem;
+      font-family: var(--mono);
+      font-size: 0.5rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--blue);
+   }
+   .g-h1 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 1.25rem;
+      line-height: 1;
+      color: var(--blue-deep);
+      margin: 0 0 0.35rem;
+   }
+   .g-lede {
+      font-size: 0.6rem;
+      line-height: 1.35;
+      color: var(--ink-soft);
+      margin: 0 0 0.6rem;
+      max-width: 22rem;
+   }
+   .g-map {
+      width: 100%;
+      max-width: 18rem;
+      height: auto;
+      display: block;
+   }
+   /* layer map, re-toned to the brand palette (no generic mermaid purple): a
+      gold-tinted Boot root, blue-tinted category nodes, muted blue connectors */
+   .g-edge path {
+      stroke: #aebada;
+      stroke-width: 1.2;
+   }
+   .g-node rect {
+      fill: #e9eefb;
+      stroke: #c1ccee;
+      stroke-width: 1;
+   }
+   .g-node-boot rect {
+      fill: #fcebd2;
+      stroke: #ecc78c;
+   }
+   .g-node text {
+      fill: var(--blue-deep);
+      font-family: var(--serif-text);
+      font-size: 8.5px;
+      text-anchor: middle;
+   }
+</style>

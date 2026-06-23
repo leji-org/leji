@@ -58,7 +58,12 @@ func checkBootProfile(root string, m *manifest.Manifest, fs *[]findings.Finding)
 	if !checkDeclaredFile(root, rel, "boot profile", fs) {
 		return
 	}
-	text, _ := fsx.ReadText(filepath.Join(root, rel))
+	bootAbs := filepath.Join(root, rel)
+	if !fsx.ResolvesUnder(root, bootAbs) {
+		*fs = append(*fs, findings.New("path-escapes-root", findings.Error, "boot profile resolves outside the layer root", rel))
+		return
+	}
+	text, _ := fsx.ReadText(bootAbs)
 	var headings []string
 	for _, mm := range headingsRe.FindAllStringSubmatch(text, -1) {
 		headings = append(headings, strings.ToLower(mm[1]))
@@ -155,6 +160,11 @@ func checkVendorAdapters(root string, m *manifest.Manifest, fs *[]findings.Findi
 		if !fsx.IsFile(abs) {
 			continue
 		}
+		// A vendor entrypoint that is a symlink resolving outside the layer root is
+		// not read (matches adopt, which treats such files as absent).
+		if !fsx.ResolvesUnder(root, abs) {
+			continue
+		}
 		text, _ := fsx.ReadText(abs)
 		if !strings.Contains(text, m.BootProfilePath) {
 			*fs = append(*fs, findings.New("vendor-adapter-redirect", findings.Error,
@@ -185,7 +195,13 @@ func checkAgentsMap(root string, m *manifest.Manifest, fs *[]findings.Finding) {
 		if fsx.UnderPath(rel, profilesDir) {
 			continue
 		}
-		text, _ := fsx.ReadText(filepath.Join(root, rel))
+		agentAbs := filepath.Join(root, rel)
+		if !fsx.ResolvesUnder(root, agentAbs) {
+			*fs = append(*fs, findings.New("path-escapes-root", findings.Error,
+				fmt.Sprintf("agents.%s profile resolves outside the layer root", role), rel))
+			continue
+		}
+		text, _ := fsx.ReadText(agentAbs)
 		fm := frontmatter.Parse(text)
 		switch {
 		case fm.Error != "":
@@ -236,6 +252,11 @@ func checkFederationMounts(root string, m *manifest.Manifest, fs *[]findings.Fin
 		if !fsx.IsFile(siblingManifest) {
 			*fs = append(*fs, findings.New("mount-not-a-layer", findings.Warning,
 				"mounted path carries no leji.json; a sibling layer brings its own manifest", mount.Path))
+			continue
+		}
+		if !fsx.ResolvesUnder(root, siblingManifest) {
+			*fs = append(*fs, findings.New("mount-not-a-layer", findings.Warning,
+				"mounted leji.json resolves outside the layer root", mount.Path))
 			continue
 		}
 		text, _ := fsx.ReadText(siblingManifest)
@@ -544,14 +565,17 @@ func sectionBody(text, heading string) string {
 var concreteBulletRe = regexp.MustCompile(`^\s*-\s+\S`)
 
 // ContentFindings is the opt-in content lint (`validate --content`): warning-only
-// signals that a layer is still a scaffold rather than real context — placeholder
+// signals that a layer is still a scaffold rather than real context: placeholder
 // text, a generic boot identity, thin domain/system categories. Never errors and
 // never affects a conformance level; this is guidance toward a layer worth reading.
 func ContentFindings(root string, m *manifest.Manifest) []findings.Finding {
 	var out []findings.Finding
 	bootRel := m.BootProfilePath
-	if fsx.IsFile(filepath.Join(root, bootRel)) {
-		boot, _ := fsx.ReadText(filepath.Join(root, bootRel))
+	// Confine the read: a symlinked boot profile escaping root is skipped (the
+	// structural pass already flags it). Content lint is advisory.
+	bootAbs := filepath.Join(root, bootRel)
+	if fsx.IsFile(bootAbs) && fsx.ResolvesUnder(root, bootAbs) {
+		boot, _ := fsx.ReadText(bootAbs)
 		if placeholderRe.MatchString(boot) {
 			out = append(out, findings.New("content-placeholder", findings.Warning,
 				"boot profile still contains placeholder text (TODO: or <…>)", bootRel))
