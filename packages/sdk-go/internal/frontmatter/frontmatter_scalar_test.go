@@ -3,7 +3,6 @@ package frontmatter
 import "testing"
 
 func TestScalarTypeResolution(t *testing.T) {
-	// One mapping exercising the YAML 1.2 core scalar rules end to end.
 	text := "---\n" +
 		"str: hello\n" +
 		"quoted: \"123\"\n" +

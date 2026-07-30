@@ -1,5 +1,4 @@
 ---
-// Site footer: deep-blue band with a gold capital line, the dictionary entry in serif, and a meta row.
 import LejiLogo from './LejiLogo.astro';
 ---
 
@@ -7,21 +6,24 @@ import LejiLogo from './LejiLogo.astro';
    <div class="wrap">
       <div class="footer-entry">
          <a class="footer-brand" href="/" aria-label="Leji home"><LejiLogo height={30} /></a>
-         <span class="footer-phon">/Leh jee/&ensp;·&ensp;Open specification & tooling</span>
+         <span class="footer-phon">/LEH-jee/&ensp;·&ensp;Open specification & tooling</span>
       </div>
       <p class="footer-meaning">The open specification for the shared context layer of AI-native teams.</p>
       <div class="footer-meta">
          <span
             >Created by <a href="https://vuongnguyen.com" target="_blank" rel="noopener">Vuong Nguyen</a> · <span
-               class="meta-verbose"
-               >Stewarded by
-            </span><a href="https://meteordreams.com" target="_blank" rel="noopener">Meteor Dreams</a> · <a
+               class="meta-verbose">Stewarded by{' '}</span
+            ><a href="https://meteordreams.com" target="_blank" rel="noopener">Meteor Dreams</a> · <a
                href="mailto:hello@leji.org">hello@leji.org</a
             ></span
          >
          <span
             >Apache-2.0<span class="meta-verbose"> (code, schemas)</span> · CC-BY-4.0<span class="meta-verbose">
-               (spec prose)</span
+               {' '}(spec prose)</span
+            > · <a href="/trust/">Trust</a> · <a
+               href="https://github.com/leji-org/leji/blob/main/SECURITY.md"
+               target="_blank"
+               rel="noopener">Security</a
             ></span
          >
       </div>
@@ -68,11 +70,6 @@ import LejiLogo from './LejiLogo.astro';
       text-transform: uppercase;
       color: var(--gold-bright);
    }
-   .footer-phon em {
-      font-style: normal;
-      border-bottom: 1px solid var(--line-dark);
-   }
-
    .footer-meaning {
       font-family: var(--serif-display);
       font-size: clamp(1.15rem, 2.2vw, 1.5rem);
@@ -124,8 +121,7 @@ import LejiLogo from './LejiLogo.astro';
       color: var(--gold-bright);
       border-color: var(--gold-bright);
    }
-   /* condense the meta rows on small screens: drop "Stewarded by" and the
-      license parentheticals, keeping the names and identifiers */
+   /* small screens: drop "Stewarded by" and the license parentheticals */
    @media (max-width: 600px) {
       .meta-verbose {
          display: none;

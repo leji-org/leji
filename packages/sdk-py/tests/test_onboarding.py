@@ -1,8 +1,10 @@
 """Onboarding overhaul tests, mirroring packages/sdk/test/onboarding.test.ts."""
 
+import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -24,7 +26,7 @@ from leji import (
     write_index,
 )
 from leji.conformance import ChecklistItem
-from leji.init_cmd import add_agent
+from leji.init_cmd import add_agent, ensure_local_hook, entering_adopted
 
 
 def _git_init(dir_: Path) -> None:
@@ -206,15 +208,84 @@ def test_init_agent_never_overwrites_existing_entrypoint(tmp_path: Path) -> None
     assert "vendorAdapters" not in manifest
 
 
-def test_init_agent_rejects_unknown_host(tmp_path: Path) -> None:
-    # init --agent no longer resolves a vendor adapter, so a bogus --agent no
-    # longer errors from adapter resolution: the layer scaffolds with no vendor file.
-    res = init_layer(str(tmp_path), yes=True, agent="frobnicate")
-    assert "leji.json" in res.written
+def test_init_agent_rejects_unlaunchable_host(tmp_path: Path) -> None:
+    # --agent names the handoff host, so an unknown value is a usage error naming
+    # the accepted set, the way --mode and --level reject theirs. It is checked
+    # before any filesystem work, so the directory is left untouched.
+    with pytest.raises(RuntimeError) as excinfo:
+        init_layer(str(tmp_path), yes=True, agent="frobnicate")
+    assert str(excinfo.value) == (
+        '--agent must be a launchable host (claude-code, codex); got "frobnicate"'
+    )
+    assert not (tmp_path / "leji.json").exists()
+
+
+def test_init_writes_portable_agents_pointer_by_default_and_validates_clean(
+    tmp_path: Path,
+) -> None:
+    res = init_layer(str(tmp_path), yes=True)
+    assert "AGENTS.md" in res.written
+    assert (tmp_path / "AGENTS.md").read_text(encoding="utf-8") == (
+        "Read ./docs/boot-profile.md first. "
+        "It is the canonical context entrypoint for this repository.\n"
+    )
+    # The pointer is the well-known portable adapter; no manifest declaration needed.
     manifest = load_manifest(str(tmp_path)).manifest
     assert manifest is not None
     assert "vendorAdapters" not in manifest
-    assert not (tmp_path / "CLAUDE.md").exists()
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    v = validate_layer(str(tmp_path))
+    assert [f for f in v.findings if f.severity == "error"] == []
+
+
+def test_init_no_agents_skips_portable_agents_pointer(tmp_path: Path) -> None:
+    res = init_layer(str(tmp_path), yes=True, no_agents=True)
+    assert "AGENTS.md" not in res.written
+    assert not (tmp_path / "AGENTS.md").exists()
+
+
+def test_init_never_touches_existing_agents_md(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text("my own instructions\n", encoding="utf-8")
+    res = init_layer(str(tmp_path), yes=True)
+    assert "AGENTS.md" not in res.written
+    assert (tmp_path / "AGENTS.md").read_text(encoding="utf-8") == "my own instructions\n"
+    entry = next((e for e in res.plan if e.rel == "AGENTS.md"), None)
+    assert entry is not None and entry.status == "wont-modify"
+
+
+def test_adopt_writes_portable_agents_pointer_only_when_absent(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "README.md").write_text("# Docs\n", encoding="utf-8")
+    _git_commit_all(tmp_path)
+    res = adopt_layer(str(tmp_path), yes=True)
+    assert "AGENTS.md" in res.written
+    assert (tmp_path / "AGENTS.md").read_text(encoding="utf-8") == (
+        "Read ./docs/boot-profile.md first. "
+        "It is the canonical context entrypoint for this repository.\n"
+    )
+
+
+def test_adopt_no_agents_skips_pointer_existing_agents_md_keeps_migrate_flow(
+    tmp_path: Path,
+) -> None:
+    skip_dir = tmp_path / "skip"
+    skip_dir.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=skip_dir, check=True)
+    skipped = adopt_layer(str(skip_dir), yes=True, no_agents=True)
+    assert "AGENTS.md" not in skipped.written
+    assert not (skip_dir / "AGENTS.md").exists()
+
+    dir_ = tmp_path / "present"
+    dir_.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=dir_, check=True)
+    (dir_ / "AGENTS.md").write_text("Team instructions here.\n", encoding="utf-8")
+    _git_commit_all(dir_)
+    res = adopt_layer(str(dir_), yes=True)
+    # Present file: content migrated, original untouched, no pointer overwrite.
+    assert "AGENTS.md" not in res.written
+    assert res.migrated == ["AGENTS.md"]
+    assert (dir_ / "AGENTS.md").read_text(encoding="utf-8") == "Team instructions here.\n"
 
 
 def test_adopt_reuses_docs_root_and_migrates_vendor_content_draft(tmp_path: Path) -> None:
@@ -317,10 +388,14 @@ def test_agent_wires_named_reviewer_into_existing_layer(tmp_path: Path) -> None:
     assert res.host_id == "codex"
     manifest = load_manifest(str(tmp_path)).manifest
     assert manifest is not None
-    # The agent's binding; no vendor adapter is created.
+    # The agent's binding; add_agent creates no vendor adapter. The AGENTS.md on
+    # disk is init's portable pointer (default-on), not add_agent's work.
     assert manifest["agents"]["reviewer"] == "docs/agents/reviewer.md"
     assert "vendorAdapters" not in manifest
-    assert not (tmp_path / "AGENTS.md").exists()
+    assert (tmp_path / "AGENTS.md").read_text(encoding="utf-8") == (
+        "Read ./docs/boot-profile.md first. "
+        "It is the canonical context entrypoint for this repository.\n"
+    )
     reviewer = (tmp_path / "docs" / "agents" / "reviewer.md").read_text(encoding="utf-8")
     assert "\nid: reviewer\n" in reviewer
     assert "\nrole: reviewer\n" in reviewer
@@ -396,13 +471,15 @@ def test_conformance_explain_guides_toward_the_next_level(tmp_path: Path) -> Non
     assert "validate --content" in explain
 
 
-def test_init_agent_cursor_wires_directory_style_adapter_validates_clean(
+def test_init_agent_creates_no_vendor_adapter_and_validates_clean(
     tmp_path: Path,
 ) -> None:
+    # --agent selects the handoff host and nothing else: no vendor entrypoint file,
+    # no `vendorAdapters` manifest key. Only the portable AGENTS.md pointer is written.
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    res = init_layer(str(tmp_path), yes=True, agent="cursor")
-    assert ".cursor/rules/leji.md" not in res.written, "init --agent no longer creates an adapter"
-    assert not (tmp_path / ".cursor" / "rules" / "leji.md").exists()
+    res = init_layer(str(tmp_path), yes=True, agent="claude-code")
+    assert "CLAUDE.md" not in res.written, "init --agent creates no vendor adapter"
+    assert not (tmp_path / "CLAUDE.md").exists()
     manifest = load_manifest(str(tmp_path)).manifest
     assert manifest is not None
     assert "vendorAdapters" not in manifest
@@ -615,7 +692,7 @@ def test_content_lint_thin_category_boundary(tmp_path: Path) -> None:
         "# Glossary\n\n- Real term one.\n- Real term two.\n", encoding="utf-8"
     )
     assert any(
-        f.rule == "content-thin" and f.path == "docs/domain/"
+        f.rule == "content-thin" and f.path == "docs/context/domain.md"
         for f in validate_layer(str(two), content=True).findings
     ), "two concrete bullets is still thin"
 
@@ -625,7 +702,7 @@ def test_content_lint_thin_category_boundary(tmp_path: Path) -> None:
         "# Glossary\n\n- One.\n- Two.\n- Three.\n", encoding="utf-8"
     )
     assert not any(
-        f.rule == "content-thin" and f.path == "docs/domain/"
+        f.rule == "content-thin" and f.path == "docs/context/domain.md"
         for f in validate_layer(str(three), content=True).findings
     ), "three concrete bullets clears the thin threshold"
 
@@ -670,4 +747,388 @@ def test_validate_content_flags_unconfirmed_inferences_and_proposed_decisions(
     assert not any(
         f.rule == "content-placeholder" and f.path == "docs/system/invariants.md"
         for f in result.findings
+    )
+
+
+# --- working mode (solo / team) ---
+
+
+def _file_tree(dir_: Path) -> dict[str, str]:
+    """Every file under dir (repo-relative POSIX), sorted, with contents."""
+    out: dict[str, str] = {}
+    for p in sorted(dir_.rglob("*")):
+        if ".git" in p.parts or not p.is_file():
+            continue
+        out[str(p.relative_to(dir_)).replace(os.sep, "/")] = p.read_text(encoding="utf-8")
+    return out
+
+
+def test_init_mode_solo_scaffolds_identity_and_writing_style_starters(tmp_path: Path) -> None:
+    result = init_layer(str(tmp_path), yes=True, mode="solo")
+
+    assert result.mode == "solo"
+    assert "docs/domain/identity.md" in result.written
+    assert "docs/practice/writing-style.md" in result.written
+    assert "## Source basis" in (tmp_path / "docs" / "domain" / "identity.md").read_text(
+        encoding="utf-8"
+    )
+    assert "## Source basis" in (tmp_path / "docs" / "practice" / "writing-style.md").read_text(
+        encoding="utf-8"
+    )
+
+    manifest = load_manifest(str(tmp_path)).manifest
+    assert manifest is not None
+    # Solo forces domain + practice; canonical category order in the manifest.
+    assert list(manifest["categories"]) == ["domain", "system", "practice", "decisions"]
+
+
+def test_solo_boot_profile_routes_identity_and_writing_work_by_task(tmp_path: Path) -> None:
+    init_layer(str(tmp_path), yes=True, mode="solo")
+    boot = (tmp_path / "docs" / "boot-profile.md").read_text(encoding="utf-8")
+
+    unconditional = boot[: boot.index("Load by task type")]
+    routed = boot[boot.index("Load by task type") :]
+    assert "`docs/domain/identity.md`" in routed, "identity routed by task"
+    assert "`docs/practice/writing-style.md`" in routed, "writing style routed by task"
+    assert "identity.md" not in unconditional, "identity never in the unconditional set"
+    assert "writing-style.md" not in unconditional, "writing style never in the unconditional set"
+
+
+def test_solo_brief_is_mode_stamped_and_carries_interview_and_artifact_rules(
+    tmp_path: Path,
+) -> None:
+    init_layer(str(tmp_path), yes=True, mode="solo")
+    brief = (tmp_path / "docs" / ".leji" / "onboarding-brief.md").read_text(encoding="utf-8")
+
+    assert "**Working mode:** solo" in brief
+    assert "docs/.leji/onboarding-inputs/" in brief, "drop-folder path rewritten for the root"
+    assert "untrusted data" in brief, "artifact consent rules present"
+    assert "<mode>" not in brief, "no unreplaced mode marker"
+    assert "<root>/" not in brief, "no unreplaced root marker"
+
+
+def test_omitted_mode_and_explicit_mode_team_are_byte_identical(tmp_path: Path) -> None:
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    init_layer(str(a), yes=True, name="acme-context")
+    result = init_layer(str(b), yes=True, name="acme-context", mode="team")
+
+    assert result.mode == "team"
+    tree_a = _file_tree(a)
+    tree_b = _file_tree(b)
+    assert list(tree_a.keys()) == list(tree_b.keys())
+
+    # The scaffold now writes a context index at every level, and its `generatedAt`
+    # is wall-clock: two runs a millisecond apart differ there and nowhere else.
+    # Null it the way the cross-SDK parity harness does, so this stays a byte
+    # comparison of everything the two modes actually control.
+    def _stable(rel: str, content: str) -> str:
+        if rel.endswith("context-index.json"):
+            return re.sub(r'("generatedAt": ")[^"]*"', r"\1<GENERATED_AT>\"", content)
+        return content
+
+    for rel, content in tree_a.items():
+        assert _stable(rel, content) == _stable(rel, tree_b.get(rel) or ""), (
+            f"{rel} differs between omitted and explicit team"
+        )
+    assert not (a / "docs" / "domain" / "identity.md").exists(), (
+        "team scaffolds no identity starter"
+    )
+    brief = (a / "docs" / ".leji" / "onboarding-brief.md").read_text(encoding="utf-8")
+    assert "**Working mode:** team" in brief, "team brief carries a concrete stamp"
+
+
+def test_invalid_mode_fails_before_any_filesystem_mutation(tmp_path: Path) -> None:
+    # Direct SDK callers can pass arbitrary strings; validation happens pre-write.
+    with pytest.raises(RuntimeError, match="--mode must be solo or team"):
+        init_layer(str(tmp_path), yes=True, mode="squad")
+    assert list(tmp_path.iterdir()) == [], "nothing written"
+
+
+def test_init_mode_solo_dry_run_writes_nothing_and_plans_both_starters(tmp_path: Path) -> None:
+    result = init_layer(str(tmp_path), yes=True, mode="solo", dry_run=True)
+
+    assert result.dry_run is True
+    assert result.mode == "solo"
+    assert result.written == []
+    assert list(tmp_path.iterdir()) == [], "dry-run touches nothing"
+    creates = [e.rel for e in result.plan if e.status == "create"]
+    assert "docs/domain/identity.md" in creates
+    assert "docs/practice/writing-style.md" in creates
+
+
+def test_indexed_solo_init_seeds_changelog_with_starters_and_no_dot_paths(tmp_path: Path) -> None:
+    init_layer(str(tmp_path), yes=True, mode="solo", level="indexed")
+    changelog = json.loads(
+        (tmp_path / "docs" / "context-changelog.json").read_text(encoding="utf-8")
+    )
+    paths = changelog["entries"][0]["paths"]
+
+    assert "docs/domain/identity.md" in paths
+    assert "docs/practice/writing-style.md" in paths
+    assert not any(seg.startswith(".") for p in paths for seg in p.split("/")), (
+        "the transient brief and other dot-paths never seed the machine changelog"
+    )
+
+
+def test_adopt_mode_solo_scaffolds_the_starters_and_maps_practice(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    result = adopt_layer(str(tmp_path), yes=True, mode="solo")
+
+    assert result.mode == "solo"
+    assert "docs/domain/identity.md" in result.written
+    assert "docs/practice/writing-style.md" in result.written
+    manifest = load_manifest(str(tmp_path)).manifest
+    assert manifest is not None
+    assert list(manifest["categories"]) == ["domain", "system", "practice", "decisions"]
+
+
+def test_adopt_mode_solo_never_overwrites_existing_identity_or_writing_style(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "docs" / "domain").mkdir(parents=True)
+    (tmp_path / "docs" / "domain" / "identity.md").write_text("# Mine already\n", encoding="utf-8")
+    result = adopt_layer(str(tmp_path), yes=True, mode="solo")
+
+    assert (tmp_path / "docs" / "domain" / "identity.md").read_text(
+        encoding="utf-8"
+    ) == "# Mine already\n"
+    assert "docs/domain/identity.md" not in result.written, "existing file is skipped, not written"
+    planned = next((e for e in result.plan if e.rel == "docs/domain/identity.md"), None)
+    assert planned is not None and planned.status == "skip-exists"
+
+
+def test_adopt_mode_solo_dry_run_writes_nothing_and_plans_the_starters(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    result = adopt_layer(str(tmp_path), yes=True, mode="solo", dry_run=True)
+
+    assert result.dry_run is True
+    assert result.written == []
+    assert not (tmp_path / "leji.json").exists()
+    creates = [e.rel for e in result.plan if e.status == "create"]
+    assert "docs/domain/identity.md" in creates
+    assert "docs/practice/writing-style.md" in creates
+
+
+def test_init_refuses_while_leji_files_are_tracked_leaving_tree_untouched(tmp_path: Path) -> None:
+    _git_init(tmp_path)
+    (tmp_path / "docs" / ".leji").mkdir(parents=True)
+    (tmp_path / "docs" / ".leji" / "stale.md").write_text("tracked artifact\n", encoding="utf-8")
+    _git_commit_all(tmp_path)
+
+    with pytest.raises(RuntimeError, match="tracked by git"):
+        init_layer(str(tmp_path), yes=True, mode="solo")
+    assert not (tmp_path / "leji.json").exists(), "no scaffold written"
+    assert not (tmp_path / ".gitignore").exists(), "not even the ignore file is written"
+
+
+# Mirrors onboarding.test.ts "approval guard: installs idempotently and
+# preserves existing settings".
+def test_approval_guard_installs_idempotently_preserving_settings(tmp_path: Path) -> None:
+    from leji.init_cmd import ensure_approval_guard
+
+    (tmp_path / ".claude").mkdir()
+    settings_path = tmp_path / ".claude" / "settings.json"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "existing": True,
+                "hooks": {
+                    "PreToolUse": [
+                        {"matcher": "Bash", "hooks": [{"type": "command", "command": "echo hi"}]}
+                    ]
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    assert ensure_approval_guard(str(tmp_path), "docs/") == "installed"
+    assert ensure_approval_guard(str(tmp_path), "docs/") == "unchanged"
+    raw = settings_path.read_text(encoding="utf-8")
+    # Byte parity with Node's JSON.parse -> mutate -> JSON.stringify(_, null, 2).
+    assert raw == (
+        "{\n"
+        '  "existing": true,\n'
+        '  "hooks": {\n'
+        '    "PreToolUse": [\n'
+        "      {\n"
+        '        "matcher": "Bash",\n'
+        '        "hooks": [\n'
+        "          {\n"
+        '            "type": "command",\n'
+        '            "command": "echo hi"\n'
+        "          }\n"
+        "        ]\n"
+        "      },\n"
+        "      {\n"
+        '        "matcher": "AskUserQuestion",\n'
+        '        "hooks": [\n'
+        "          {\n"
+        '            "type": "command",\n'
+        '            "command": "node \\"$CLAUDE_PROJECT_DIR/docs/.leji/hooks/approval-guard.mjs\\""\n'
+        "          }\n"
+        "        ]\n"
+        "      }\n"
+        "    ]\n"
+        "  }\n"
+        "}\n"
+    )
+    settings = json.loads(raw)
+    assert settings["existing"] is True, "unrelated settings preserved"
+    matchers = [e["matcher"] for e in settings["hooks"]["PreToolUse"]]
+    assert matchers == ["Bash", "AskUserQuestion"]
+    assert (tmp_path / "docs" / ".leji" / "hooks" / "approval-guard.mjs").is_file()
+
+
+# Mirrors onboarding.test.ts "approval guard: blocks until written and printed,
+# inert after onboarding".
+def test_approval_guard_blocks_until_written_and_printed_inert_after_onboarding(
+    tmp_path: Path,
+) -> None:
+    import shutil
+
+    from leji.init_cmd import ensure_approval_guard
+
+    if shutil.which("node") is None:
+        pytest.skip("node not on PATH")
+    ensure_approval_guard(str(tmp_path), "docs/")
+    leji_dir = tmp_path / "docs" / ".leji"
+    script = leji_dir / "hooks" / "approval-guard.mjs"
+    (leji_dir / "onboarding-brief.md").write_text("brief", encoding="utf-8")
+
+    def run_guard(transcript: str) -> int:
+        proc = subprocess.run(
+            ["node", str(script)],
+            input=json.dumps({"transcript_path": transcript}),
+            text=True,
+            capture_output=True,
+            env={**os.environ, "CLAUDE_PROJECT_DIR": str(tmp_path)},
+        )
+        return proc.returncode
+
+    assert run_guard("/nonexistent") == 2, "no proposal: blocked"
+    (leji_dir / "proposal.md").write_text("# Proposal for approval\n\nbody\n", encoding="utf-8")
+    t1 = tmp_path / "t1.jsonl"
+    t1.write_text(
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "about to ask"}]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert run_guard(str(t1)) == 2, "written but not printed: blocked"
+    t2 = tmp_path / "t2.jsonl"
+    t2.write_text(
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "# Proposal for approval\nbody"}]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert run_guard(str(t2)) == 0, "written and printed: allowed"
+    (leji_dir / "onboarding-brief.md").unlink()
+    assert run_guard("/nonexistent") == 0, "brief gone: guard inert"
+
+
+def test_adopt_then_printed_wire_adapters_reaches_clean_layer(tmp_path: Path) -> None:
+    _git_init(tmp_path)
+    (tmp_path / "CLAUDE.md").write_text(
+        "# Claude instructions\n\nNever deploy on Fridays.\n", encoding="utf-8"
+    )
+    _git_commit_all(tmp_path)
+
+    adopted = adopt_layer(str(tmp_path), yes=True)
+    assert adopted.draft, "a non-redirecting vendor file leaves an adoption draft"
+    assert "leji adopt --wire-adapters" in entering_adopted(adopted)
+
+    # The command it printed has to run against the layer it just created.
+    wired = adopt_layer(str(tmp_path), yes=True, wire_adapters=True)
+    assert wired.wired_only is True
+    assert wired.wired == ["CLAUDE.md"]
+    # The content was archived on the first pass, so wiring re-archives nothing.
+    assert wired.migrated == []
+    assert not (tmp_path / "docs" / "governance" / "imported-claude-2.md").exists()
+    assert (tmp_path / "CLAUDE.md").read_text(encoding="utf-8") == (
+        "Read ./docs/boot-profile.md first. "
+        "It is the canonical context entrypoint for this repository.\n"
+    )
+    assert [f for f in validate_layer(str(tmp_path)).findings if f.severity == "error"] == []
+
+    # Idempotent: everything already redirects, so there is nothing left to wire.
+    again = adopt_layer(str(tmp_path), yes=True, wire_adapters=True)
+    assert again.wired == []
+    assert again.written == []
+    assert "already redirects to the boot profile" in entering_adopted(again)
+
+
+def test_wire_adapters_archives_vendor_file_edited_since_adoption(tmp_path: Path) -> None:
+    _git_init(tmp_path)
+    (tmp_path / "CLAUDE.md").write_text("original instructions\n", encoding="utf-8")
+    _git_commit_all(tmp_path)
+    adopt_layer(str(tmp_path), yes=True)
+    (tmp_path / "CLAUDE.md").write_text(
+        "hand-written rules added after adoption\n", encoding="utf-8"
+    )
+
+    wired = adopt_layer(str(tmp_path), yes=True, wire_adapters=True)
+    assert wired.migrated == ["CLAUDE.md"], "the newer content is archived, never dropped"
+    newer = (tmp_path / "docs" / "governance" / "imported-claude-2.md").read_text(encoding="utf-8")
+    assert "hand-written rules added after adoption" in newer
+    older = (tmp_path / "docs" / "governance" / "imported-claude.md").read_text(encoding="utf-8")
+    assert "original" in older
+    assert [f for f in validate_layer(str(tmp_path)).findings if f.severity == "error"] == []
+
+
+def test_adopt_refuses_existing_layer_without_wire_adapters(tmp_path: Path) -> None:
+    _git_init(tmp_path)
+    (tmp_path / "README.md").write_text("# repo\n", encoding="utf-8")
+    _git_commit_all(tmp_path)
+    adopt_layer(str(tmp_path), yes=True)
+    with pytest.raises(RuntimeError, match="already has a Leji layer"):
+        adopt_layer(str(tmp_path), yes=True)
+
+
+def test_hook_stale_index_message_is_literal_not_executed(tmp_path: Path) -> None:
+    # Mirrors packages/sdk/test/onboarding.test.ts ("ci --hooks: the stale-index
+    # message is literal text, not a command the hook runs").
+    _git_init(tmp_path)
+    init_layer(str(tmp_path), yes=True)
+    _git_commit_all(tmp_path)
+    ensure_local_hook(str(tmp_path))
+    # A repo-local `leji` the hook prefers, so the run is hermetic.
+    bin_dir = tmp_path / "node_modules" / ".bin"
+    bin_dir.mkdir(parents=True)
+    shim = bin_dir / "leji"
+    shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" -m leji.cli "$@"\n', encoding="utf-8")
+    shim.chmod(0o755)
+    # Stale the stored index, the exact condition the message describes.
+    index_abs = tmp_path / "docs" / "context-index.json"
+    before = index_abs.read_text(encoding="utf-8")
+    (tmp_path / "docs" / "domain" / "extra.md").write_text(
+        "---\nsummary: An extra domain doc.\n---\n\n# Extra\n", encoding="utf-8"
+    )
+
+    run = subprocess.run(
+        ["sh", str(Path(".git") / "hooks" / "pre-commit")],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert run.returncode == 1, "the hook rejects the commit"
+    # The backticks reach the message as literal characters; a double-quoted echo
+    # would have run `leji index` and spliced its stdout in here instead.
+    assert "leji: stored index is stale; run `leji index` and stage the result." in run.stderr, (
+        f"message was not literal: {run.stderr}"
+    )
+    assert index_abs.read_text(encoding="utf-8") == before, (
+        "the hook regenerated a governed artifact"
     )

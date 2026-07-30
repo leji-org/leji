@@ -9,9 +9,6 @@ import (
 	"testing"
 )
 
-// TestServePathContainment exercises the virtual-mount handler's guards: viewer
-// chrome served at the web root, content under /content/, while traversal,
-// dotfile/.git, and symlink escapes are refused.
 func TestServePathContainment(t *testing.T) {
 	root := t.TempDir()
 	contentAbs := resolveRoot(root)
@@ -33,7 +30,6 @@ func TestServePathContainment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A target outside the root and a symlink under the content dir pointing to it.
 	outside := t.TempDir()
 	secretPath := filepath.Join(outside, "outside.txt")
 	if err := os.WriteFile(secretPath, []byte("escaped"), 0o644); err != nil {
@@ -41,7 +37,7 @@ func TestServePathContainment(t *testing.T) {
 	}
 	linkSupported := os.Symlink(secretPath, filepath.Join(contentAbs, "escape.txt")) == nil
 
-	handler := newHandler(contentAbs, viewerAbs)
+	handler := newHandler(contentAbs, "", contentAbs, viewerAbs, nil)
 
 	type tc struct {
 		name string
@@ -66,7 +62,9 @@ func TestServePathContainment(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "http://example.com"+c.path, nil)
+			// A loopback Host: the handler answers only the names the local
+			// preview is addressed by (see TestServeRejectsForeignHost).
+			req := httptest.NewRequest(http.MethodGet, "http://localhost"+c.path, nil)
 			// Preserve the raw (uncleaned) path so traversal reaches the handler.
 			req.URL.Path = c.path
 			req.URL.RawPath = c.path

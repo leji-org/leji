@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/leji-org/leji/security/advisories/new
+    about: Report privately via GitHub security advisories, never a public issue.
+  - name: Question / discussion
+    url: https://github.com/leji-org/leji/discussions
+    about: Adoption questions, spec interpretation, and open-ended design discussion.

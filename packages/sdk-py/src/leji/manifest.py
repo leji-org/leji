@@ -6,10 +6,10 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from .findings import Finding
-from .fsx import resolved_within_root
+from .fsx import join_under_root, resolved_within_root
 from .schemas import SUPPORTED_LINES, schema_errors
 
 CATEGORY_IDS = ["domain", "system", "practice", "governance", "decisions"]
@@ -67,7 +67,58 @@ def load_manifest(root: str) -> ManifestLoad:
             findings=[Finding("manifest-parse", "error", f"invalid JSON: {e}", MANIFEST_FILENAME)],
         )
 
+    return validate_manifest_object(data)
+
+
+_SURROGATE_RE = re.compile("[\ud800-\udfff]")
+
+
+def is_scalar_string(s: str) -> bool:
+    """A well-formed Unicode scalar sequence: no unpaired surrogate. A JSON parser
+    accepts an escaped lone surrogate, but strict UTF-8 encoding of one raises in
+    some runtimes and silently substitutes U+FFFD in others, so the same document
+    would crash one implementation and produce output in another."""
+    return _SURROGATE_RE.search(s) is None
+
+
+def all_strings_scalar(v: object) -> bool:
+    """Every string in a parsed JSON value, object keys included, is a well-formed
+    Unicode scalar sequence."""
+    if isinstance(v, str):
+        return is_scalar_string(v)
+    if isinstance(v, list):
+        return all(all_strings_scalar(item) for item in v)
+    if isinstance(v, dict):
+        return all(
+            isinstance(k, str) and is_scalar_string(k) and all_strings_scalar(val)
+            for k, val in v.items()
+        )
+    return True
+
+
+def validate_manifest_object(data: object) -> ManifestLoad:
+    """Validate an already-parsed manifest object: supported spec line, then
+    manifest schema. Filesystem-independent, so a caller that holds the object
+    directly can validate it without writing it to disk. ``load_manifest`` calls
+    this after read + parse."""
     findings: list[Finding] = []
+    # Before anything reads a value: a manifest string that is not a well-formed
+    # Unicode scalar sequence is refused whole, never carried into a hash, a sort,
+    # or output. The message quotes nothing back — echoing the offending text is
+    # exactly the outcome the check exists to prevent.
+    if not all_strings_scalar(data):
+        return ManifestLoad(
+            manifest=None,
+            findings=[
+                Finding(
+                    "manifest-not-scalar",
+                    "error",
+                    f"{MANIFEST_FILENAME} carries a string that is not a well-formed Unicode "
+                    "scalar sequence (an unpaired surrogate)",
+                    MANIFEST_FILENAME,
+                )
+            ],
+        )
     line = data.get("leji") if isinstance(data, dict) else None
     if isinstance(line, str) and re.fullmatch(r"\d+\.\d+", line) and line not in SUPPORTED_LINES:
         findings.append(
@@ -85,8 +136,31 @@ def load_manifest(root: str) -> ManifestLoad:
     for err in schema_violations:
         findings.append(Finding("manifest-schema", "error", err, MANIFEST_FILENAME))
     if schema_violations:
+        # The 1.2 category shape fails as a pile of raw schema text ("must NOT have
+        # additional properties"), which never names the thing to change. One sentence
+        # turns that into an actionable read.
+        if _declares_category_paths(data):
+            findings.append(
+                Finding(
+                    "manifest-schema",
+                    "error",
+                    'a category declares "paths", the 1.2 form: 1.3 categories declare '
+                    '"indexes" instead (see "Migrating a 1.2 manifest" in the changelog)',
+                    MANIFEST_FILENAME,
+                )
+            )
         return ManifestLoad(manifest=None, findings=findings)
-    return ManifestLoad(manifest=data, findings=findings)
+    return ManifestLoad(manifest=cast("Manifest", data), findings=findings)
+
+
+def _declares_category_paths(data: object) -> bool:
+    """True when any category maps to an object carrying the removed 1.2 ``paths`` key."""
+    if not isinstance(data, dict):
+        return False
+    cats = data.get("categories")
+    if not isinstance(cats, dict):
+        return False
+    return any(isinstance(v, dict) and "paths" in v for v in cats.values())
 
 
 def claimed_level(manifest: Manifest) -> str:
@@ -103,27 +177,27 @@ def level_at_least(level: str, threshold: str) -> bool:
 # resolves an undeclared path to its default rather than failing: leji.json
 # lives at the repository root; everything else defaults under rootPath/.
 def effective_index_path(manifest: Manifest) -> str:
-    return (manifest.get("machine") or {}).get(
-        "indexPath"
-    ) or f"{manifest['rootPath']}context-index.json"
+    return (manifest.get("machine") or {}).get("indexPath") or join_under_root(
+        manifest["rootPath"], "context-index.json"
+    )
 
 
 def effective_changelog_path(manifest: Manifest) -> str:
-    return (manifest.get("machine") or {}).get("changelogPath") or (
-        f"{manifest['rootPath']}context-changelog.json"
+    return (manifest.get("machine") or {}).get("changelogPath") or join_under_root(
+        manifest["rootPath"], "context-changelog.json"
     )
 
 
 def effective_agent_profiles_path(manifest: Manifest) -> str:
-    return (manifest.get("machine") or {}).get(
-        "agentProfilesPath"
-    ) or f"{manifest['rootPath']}agents/"
+    return (manifest.get("machine") or {}).get("agentProfilesPath") or join_under_root(
+        manifest["rootPath"], "agents/"
+    )
 
 
 def effective_decision_records_path(manifest: Manifest) -> str:
-    return (manifest.get("machine") or {}).get(
-        "decisionRecordsPath"
-    ) or f"{manifest['rootPath']}decisions/"
+    return (manifest.get("machine") or {}).get("decisionRecordsPath") or join_under_root(
+        manifest["rootPath"], "decisions/"
+    )
 
 
 # --- In-place manifest text edits --------------------------------------------
@@ -154,8 +228,7 @@ def _insert_after_marker_line(text: str, marker: str, line: str) -> str:
 
 def _insert_before_owners(text: str, lines: list[str]) -> str:
     """Insert a multi-line top-level block immediately before the ``owners`` key,
-    so a newly created ``agents`` / ``vendorAdapters`` key lands in schema
-    position."""
+    so a newly created ``agents`` key lands in schema position."""
     anchor = '\n  "owners":'
     at = text.find(anchor)
     if at < 0:
@@ -174,16 +247,3 @@ def bind_agent_in_manifest_text(text: str, name: str, profile_rel: str) -> tuple
     if not agents:
         return _insert_before_owners(text, ['  "agents": {', f"    {entry}", "  },"]), True
     return _insert_after_marker_line(text, '"agents": {', f"    {entry},"), True
-
-
-def declare_vendor_adapter_in_manifest_text(text: str, adapter: str) -> tuple[str, bool]:
-    """Declare a vendor adapter path in the manifest's ``vendorAdapters`` array.
-    Creates the array (before ``owners``) when absent, otherwise prepends the
-    entry. Idempotent: an already-declared path leaves the text untouched."""
-    arr = json.loads(text).get("vendorAdapters")
-    if isinstance(arr, list) and adapter in arr:
-        return text, False
-    entry = f'"{adapter}"'
-    if not isinstance(arr, list):
-        return _insert_before_owners(text, ['  "vendorAdapters": [', f"    {entry}", "  ],"]), True
-    return _insert_after_marker_line(text, '"vendorAdapters": [', f"    {entry},"), True

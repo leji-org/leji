@@ -1,0 +1,27 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "actor-command-missing",
+        "severity": "error",
+        "path": "leji.json"
+      },
+      {
+        "rule": "actor-command-unclaimed",
+        "severity": "error",
+        "path": "leji.json"
+      },
+      {
+        "rule": "actor-command-missing",
+        "severity": "error",
+        "path": "leji.json"
+      },
+      {
+        "rule": "actor-command-unclaimed",
+        "severity": "error",
+        "path": "leji.json"
+      }
+    ]
+  }
+}

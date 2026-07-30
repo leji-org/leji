@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+   <head>
+      <meta charset="UTF-8" />
+      <title>fixture</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify@4/themes/vue.css" />
+   </head>
+   <body>
+      <div id="app">Loading the context layer…</div>
+      <script>
+         window.$docsify = {
+            name: 'fixture',
+            homepage: 'boot-profile.md',
+            loadSidebar: true,
+            subMaxLevel: 2,
+            auto2top: true,
+            plugins: [
+               function stripFrontmatter(hook) {
+                  // Layer documents carry YAML frontmatter for tooling; readers shouldn't see it.
+                  hook.beforeEach(function (content) {
+                     return content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
+                  });
+               },
+            ],
+         };
+      </script>
+      <script src="https://cdn.jsdelivr.net/npm/docsify@4"></script>
+   </body>
+</html>

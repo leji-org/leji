@@ -8,6 +8,7 @@ from pathlib import Path
 import datetime as dt
 
 from leji import (
+    RouteInput,
     check_changelog_append_only,
     check_index,
     compact_changelog,
@@ -15,19 +16,20 @@ from leji import (
     freshness_report,
     generate_viewer,
     load_manifest,
+    route,
+    status_report,
     validate_layer,
     write_index,
 )
 from leji.fsx import under_path, walk_md
-from leji.manifest import (
-    bind_agent_in_manifest_text,
-    declare_vendor_adapter_in_manifest_text,
-)
+from leji.manifest import bind_agent_in_manifest_text
 from leji.layer import (
     excluded_from_categories,
     scan_agent_profiles,
     scan_categories,
 )
+from leji.route import RoutedRecord
+from leji.status import ShadowedSelector
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO_ROOT / "examples" / "monorepo"
@@ -36,7 +38,25 @@ FIXTURES = REPO_ROOT / "fixtures"
 
 def _copy(src: Path, tmp_path: Path) -> Path:
     dest = tmp_path / "layer"
-    shutil.copytree(src, dest)
+    # Copy only git-tracked files so a polluted working tree (a local `leji
+    # viewer`/`init` run leaving generated .leji/ output or a seeded root
+    # overview.md) cannot leak into fixtures. Mirrors a clean checkout.
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=src, capture_output=True, text=True, check=True
+    ).stdout.split("\0")
+    for rel in filter(None, tracked):
+        target = dest / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src / rel, target)
+    # Conformance evaluates the directory it is given, so a layer outside a git
+    # repository fails core's git requirement. Any test asserting a verified level
+    # has to run somewhere git can answer.
+    for args in (
+        ["init", "-q"],
+        ["config", "user.email", "test@example.com"],
+        ["config", "user.name", "Test"],
+    ):
+        subprocess.run(["git", *args], cwd=str(dest), check=True)
     return dest
 
 
@@ -107,7 +127,7 @@ def test_no_machine_block_agents_and_decisions_resolve_to_defaults(tmp_path: Pat
     # docs/agents/ is excluded from category content even when undeclared.
     excluded = excluded_from_categories(manifest)
     assert excluded("docs/agents/core.md") is True
-    docs = scan_categories(str(layer), manifest)
+    docs = scan_categories(str(layer), manifest).docs
     assert not any(d.rel_path == "docs/agents/core.md" for d in docs)
 
 
@@ -153,7 +173,7 @@ def test_duplicate_profile_ids_and_unknown_inherits(tmp_path: Path) -> None:
     )
     result = validate_layer(str(layer))
     assert any(f.rule == "id-duplicate" for f in result.findings)
-    assert any(f.rule == "inherits-unknown" and f.severity == "warning" for f in result.findings)
+    assert any(f.rule == "inherits-unknown" and f.severity == "error" for f in result.findings)
 
 
 def test_invalid_frontmatter_id_is_id_pattern(tmp_path: Path) -> None:
@@ -175,12 +195,16 @@ def test_slug_collisions_de_collide_with_parent(tmp_path: Path) -> None:
     assert "payments-glossary" in ids
 
 
-def test_category_path_may_declare_single_file(tmp_path: Path) -> None:
+def test_category_index_entry_may_be_single_file(tmp_path: Path) -> None:
     layer = _copy(FIXTURES / "valid-minimal-core", tmp_path)
     manifest_path = layer / "leji.json"
     manifest = json.loads(manifest_path.read_text())
-    manifest["categories"]["system"] = {"paths": ["docs/system-notes.md"]}
+    manifest["categories"]["system"] = {"indexes": ["docs/context/system.md"]}
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    (layer / "docs" / "context").mkdir(parents=True, exist_ok=True)
+    (layer / "docs" / "context" / "system.md").write_text(
+        "# System\n\n```leji-index\n- path: docs/system-notes.md\n```\n"
+    )
     (layer / "docs" / "system-notes.md").write_text("# System Notes\n")
     result = validate_layer(str(layer))
     assert [f for f in result.findings if f.severity == "error"] == []
@@ -229,7 +253,10 @@ def test_audit_decisions_in_second_mapped_path_found(tmp_path: Path) -> None:
     layer = _copy(FIXTURES / "valid-minimal-core", tmp_path)
     manifest_path = layer / "leji.json"
     manifest = json.loads(manifest_path.read_text())
-    manifest["categories"]["decisions"]["paths"] = ["docs/adr/", "docs/decisions/"]
+    # List a second decisions location in the decisions index file.
+    (layer / "docs" / "context" / "decisions.md").write_text(
+        "# Decisions\n\n```leji-index\n- path: docs/adr/\n- path: docs/decisions/\n```\n"
+    )
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     (layer / "docs" / "adr").mkdir()
     (layer / "docs" / "adr" / "note.md").write_text("# Note\n\nNot a decision record.\n")
@@ -303,12 +330,15 @@ def test_quality_generated_index_content_exact(tmp_path: Path) -> None:
             "path": "docs/decisions/0001-adopt-leji.md",
             "title": "Adopt the Leji context layer",
             "category": "decisions",
+            "kind": "record",
+            "date": "2026-06-10",
         },
         {
             "id": "glossary",
             "path": "docs/domain/glossary.md",
             "title": "Glossary",
             "category": "domain",
+            "kind": "intent",
             "summary": "What invoice, credit note, and settlement mean at Acme.",
         },
         {
@@ -316,6 +346,7 @@ def test_quality_generated_index_content_exact(tmp_path: Path) -> None:
             "path": "docs/system/invariants.md",
             "title": "System Invariants",
             "category": "system",
+            "kind": "intent",
             "summary": "Money handling, ledger append-only rule, service boundaries.",
             "freshness": {"reviewAfter": "2026-12-10"},
         },
@@ -353,6 +384,10 @@ def test_quality_duplicate_frontmatter_ids_across_index_docs(tmp_path: Path) -> 
 
 def test_quality_governed_layer_verifies_governed(tmp_path: Path) -> None:
     layer = _copy(EXAMPLE, tmp_path)
+    # A committed baseline: append-only discipline compares against HEAD, so an
+    # uncommitted tree correctly reports unverified rather than passing.
+    for args in (["add", "-A"], ["commit", "-qm", "baseline"]):
+        subprocess.run(["git", *args], cwd=str(layer), check=True)
     manifest_path = layer / "leji.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["conformance"]["claimedLevel"] = "governed"
@@ -365,20 +400,34 @@ def test_quality_governed_layer_verifies_governed(tmp_path: Path) -> None:
     assert "review-gate" in manual and "ci-validates" in manual
 
 
-def test_quality_federated_missing_mount_fails(tmp_path: Path) -> None:
+def test_quality_pinned_unhydrated_mount_passes_sibling_mounts(tmp_path: Path) -> None:
     layer = _copy(EXAMPLE, tmp_path)
     manifest_path = layer / "leji.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["conformance"]["claimedLevel"] = "federated"
     manifest["federation"] = {
-        "mounts": [{"path": "context/product", "name": "product", "owner": {"name": "Jo"}}]
+        "mounts": [
+            {
+                "name": "product",
+                "source": "https://github.com/acme/product-context",
+                "pin": "a" * 40,
+                "owner": {"name": "Jo"},
+                "categories": ["domain"],
+                "topics": ["billing"],
+            }
+        ]
     }
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     write_index(str(layer), manifest)
     result = conformance_report(str(layer))
-    item = next(i for i in result.items if i.id == "sibling-mounts")
-    assert item.status == "fail"
-    assert any(f.rule == "conformance-claim" for f in result.findings)
+    # Declaration completeness passes; the mount being unhydrated here is honest
+    # degraded availability (a validate warning), never a failed federated claim.
+    assert next(i for i in result.items if i.id == "sibling-mounts").status == "pass"
+    assert next(i for i in result.items if i.id == "mount-routing").status == "pass"
+    validation = validate_layer(str(layer))
+    assert any(
+        f.rule == "mount-unavailable" and f.severity == "warning" for f in validation.findings
+    )
 
 
 def test_quality_duplicate_yaml_keys_invalid(tmp_path: Path) -> None:
@@ -504,17 +553,31 @@ def test_viewer_generates_viewer_and_sidebar(tmp_path: Path) -> None:
         "docs/.leji/viewer/assets/docsify-sidebar-collapse.min.css",
         "docs/.leji/viewer/assets/docsify-sidebar-collapse.min.js",
         "docs/.leji/viewer/assets/docsify.min.js",
+        "docs/.leji/viewer/assets/fonts-licenses.txt",
         "docs/.leji/viewer/assets/leji-logo.svg",
         "docs/.leji/viewer/assets/mermaid.min.js",
         "docs/.leji/viewer/assets/prism-bash.min.js",
         "docs/.leji/viewer/assets/prism-json.min.js",
         "docs/.leji/viewer/assets/prism-markdown.min.js",
         "docs/.leji/viewer/assets/prism-typescript.min.js",
+        "docs/.leji/viewer/assets/roboto-mono-400-latin-ext.woff2",
+        "docs/.leji/viewer/assets/roboto-mono-400-latin.woff2",
+        "docs/.leji/viewer/assets/roboto-mono-400-vietnamese.woff2",
         "docs/.leji/viewer/assets/search.min.js",
+        "docs/.leji/viewer/assets/source-sans-pro-300-latin-ext.woff2",
+        "docs/.leji/viewer/assets/source-sans-pro-300-latin.woff2",
+        "docs/.leji/viewer/assets/source-sans-pro-300-vietnamese.woff2",
+        "docs/.leji/viewer/assets/source-sans-pro-400-latin-ext.woff2",
+        "docs/.leji/viewer/assets/source-sans-pro-400-latin.woff2",
+        "docs/.leji/viewer/assets/source-sans-pro-400-vietnamese.woff2",
+        "docs/.leji/viewer/assets/source-sans-pro-600-latin-ext.woff2",
+        "docs/.leji/viewer/assets/source-sans-pro-600-latin.woff2",
+        "docs/.leji/viewer/assets/source-sans-pro-600-vietnamese.woff2",
         "docs/.leji/viewer/assets/viewer-boot.js",
         "docs/.leji/viewer/assets/vue.css",
         "docs/.leji/viewer/assets/zoom-image.min.js",
         "docs/overview.md",
+        "docs/.leji/viewer/_manifest.md",
     ]
     viewer = layer / "docs" / ".leji" / "viewer"
     html = (viewer / "index.html").read_text()
@@ -548,14 +611,18 @@ def test_viewer_generates_viewer_and_sidebar(tmp_path: Path) -> None:
     assert sidebar == "\n".join(
         [
             "- [🤖 Boot profile](boot-profile.md)",
+            "- [📄 Manifest](_manifest.md)",
             "",
             "---",
             "",
-            "- 📖 Domain",
+            "- **🤖 Agents**",
+            "  - [Agent Core](agents/core.md)",
+            "  - [Thought Partner (Codex)](agents/thought-partner.md)",
+            "- **📖 Domain**",
             "  - [Glossary](domain/glossary.md)",
-            "- ⚙️ System",
-            "  - [System Invariants](system/invariants.md)",
-            "- 🧭 Decisions",
+            "- **⚙️ System**",
+            "  - [Invariants](system/invariants.md)",
+            "- **🧭 Decisions**",
             "  - [Adopt the Leji context layer](decisions/0001-adopt-leji.md)",
             "",
         ]
@@ -564,23 +631,102 @@ def test_viewer_generates_viewer_and_sidebar(tmp_path: Path) -> None:
     assert (viewer / "_sidebar.md").read_text() == sidebar
 
 
-def test_viewer_theme_overrides(tmp_path: Path) -> None:
+def test_viewer_brand_config(tmp_path: Path) -> None:
+    # Brand config (logo, primary color, title, favicon, pins) flows into the viewer.
     layer = _copy(EXAMPLE, tmp_path)
     manifest = load_manifest(str(layer)).manifest
     manifest["viewer"] = {
         "logo": "assets/brand.svg",
         "theme": {"primary": "#FF6600"},
-        "categoryEmojis": {"domain": "💰"},
+        "title": "Acme Billing",
+        "favicon": "assets/icon.svg",
+        "pins": ["docs/domain/glossary.md", "docs/nope.md"],
     }
-    generate_viewer(str(layer), manifest)
+    result = generate_viewer(str(layer), manifest)
     viewer = layer / "docs" / ".leji" / "viewer"
     html = (viewer / "index.html").read_text()
-    # A relative logo path is served from the content mount; configured primary wins.
+    # A relative logo path is served from the content mount; absolute/url is used as-is.
     assert "/content/assets/brand.svg" in html
     assert '"themeColor":"#FF6600"' in html
+    # viewer.title drives the page title; the favicon resolves under /content/.
+    assert "<title>Acme Billing</title>" in html
+    assert 'href="/content/assets/icon.svg"' in html
     sidebar = (viewer / "_sidebar.md").read_text()
-    assert "- 💰 Domain" in sidebar
-    assert "- ⚙️ System" in sidebar
+    top = sidebar.split("---")[0]
+    # The pinned page renders in the top zone.
+    assert "- [Glossary](domain/glossary.md)" in top
+    # A missing pin is surfaced, not silently dropped.
+    assert any(f.rule == "viewer-pin-missing" and f.path == "docs/nope.md" for f in result.findings)
+
+
+def test_viewer_path_forms_and_missing_homepage_warns(tmp_path: Path) -> None:
+    # Homepage, favicon, and pins accept repo-relative and root-relative forms.
+    layer = _copy(EXAMPLE, tmp_path)
+    (layer / "docs" / "HOME.md").write_text("# Home\n")
+    manifest = load_manifest(str(layer)).manifest
+    manifest["viewer"] = {
+        "mermaid": False,
+        "homepage": "docs/HOME.md",  # repo-relative: normalized to HOME.md
+        "favicon": "docs/HOME.md",  # repo-relative: content URL must not double the root
+        "pins": ["domain/glossary.md"],  # rootPath-relative pin (canonical form is repo-relative)
+    }
+    result = generate_viewer(str(layer), manifest)
+    assert not any(f.rule == "viewer-path-missing" for f in result.findings)
+    html = (layer / "docs" / ".leji" / "viewer" / "index.html").read_text()
+    assert '"homepage":"HOME.md"' in html
+    assert "/content/HOME.md" in html
+    sidebar = (layer / "docs" / ".leji" / "viewer" / "_sidebar.md").read_text()
+    assert "](domain/glossary.md)" in sidebar.split("---")[0]
+    # An unresolvable homepage is kept as authored and warned about, never silent.
+    manifest["viewer"] = {"mermaid": False, "homepage": "docs/NOPE.md"}
+    bad = generate_viewer(str(layer), manifest)
+    assert any(f.rule == "viewer-path-missing" for f in bad.findings)
+
+
+def test_viewer_boot_pin_replaces_default_line(tmp_path: Path) -> None:
+    # Pinning the boot profile replaces its default sidebar line with the pin's
+    # own label and position (the team's to curate).
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    manifest["viewer"] = {
+        "mermaid": False,
+        "pins": [{"path": "docs/boot-profile.md", "label": "🚀 Start here"}],
+    }
+    generate_viewer(str(layer), manifest)
+    sidebar = (layer / "docs" / ".leji" / "viewer" / "_sidebar.md").read_text()
+    assert "🤖 Boot profile" not in sidebar
+    assert "- [🚀 Start here](boot-profile.md)" in sidebar
+
+
+def test_viewer_build_sidebar_skips_out_of_root_boot_and_renders_plain_entries(
+    tmp_path: Path,
+) -> None:
+    from leji.viewer_cmd import SidebarEntry, SidebarGroup, build_sidebar
+
+    base = json.loads((EXAMPLE / "leji.json").read_text())
+    # Boot profile outside rootPath: _relative_to_root returns None, so no boot line.
+    manifest = {**base, "bootProfilePath": "README.md", "rootPath": "docs/"}
+    sidebar = build_sidebar(
+        manifest,
+        [
+            SidebarGroup(
+                label="💰 Finance",
+                entries=[
+                    SidebarEntry(rel="domain/glossary.md", title="Glossary"),
+                    SidebarEntry(rel="records/status.md", title="Status"),
+                ],
+            ),
+            SidebarGroup(label="Empty group", entries=[]),
+        ],
+    )
+    assert "Boot profile" not in sidebar
+    # The group label is the index-file H1, verbatim, bold; entries render as
+    # plain links.
+    assert "- **💰 Finance**" in sidebar
+    assert "  - [Glossary](domain/glossary.md)" in sidebar
+    # No record badges in the sidebar: kind and date are page-chip metadata now.
+    assert "lj-rec" not in sidebar
+    assert "Empty group" not in sidebar
 
 
 def test_viewer_seeds_overview_with_layer_map(tmp_path: Path) -> None:
@@ -592,9 +738,11 @@ def test_viewer_seeds_overview_with_layer_map(tmp_path: Path) -> None:
     text = overview.read_text()
     assert "# acme-billing-context" in text
     assert "<!-- leji:generated-map:start -->" in text
-    assert "```mermaid\nflowchart TD" in text
+    assert "```mermaid\nflowchart LR" in text
     assert "boot --> cat_domain" in text
-    assert "cat_domain --> n_glossary" in text
+    # Categories carry counts, never per-doc nodes (unreadable at scale).
+    assert 'cat_domain["📖 Domain · 1 doc"]' in text
+    assert "n_glossary" not in text
 
 
 def test_viewer_overview_seeded_once(tmp_path: Path) -> None:
@@ -612,7 +760,7 @@ def test_viewer_overview_seeded_once(tmp_path: Path) -> None:
     after = overview.read_text()
     assert "# My own title" in after
     assert "More prose." in after
-    assert "```mermaid\nflowchart TD" in after
+    assert "```mermaid\nflowchart LR" in after
     assert "\nstale\n" not in after
     assert not any(f.rule == "overview-markers-missing" for f in result.findings)
 
@@ -693,6 +841,215 @@ def test_viewer_serve_localhost(tmp_path: Path) -> None:
         assert status("/content/.leji/viewer/index.html") == 404
         # Path traversal is refused.
         assert status("/..%2f..%2fetc%2fpasswd") != 200
+    finally:
+        server.shutdown()
+
+
+def test_viewer_build_refuses_out_inside_the_context_root(tmp_path: Path) -> None:
+    """The reported reproduction: exporting into a governed directory used to rm -rf
+    it and then recurse into its own output until the paths grew too long."""
+    import pytest
+
+    from leji import build_viewer
+
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    glossary = layer / "docs" / "domain" / "glossary.md"
+    before = glossary.read_text()
+    for bad in ("docs/domain", "docs", "."):
+        with pytest.raises(RuntimeError, match="refusing to build the viewer"):
+            build_viewer(str(layer), manifest, bad)
+    assert glossary.read_text() == before, "governed content survives the refusal"
+
+
+def test_viewer_build_clears_only_its_own_export(tmp_path: Path) -> None:
+    """A previous export is recognized by its own marker comment and rebuilt clean;
+    any other occupied directory is somebody's content and is refused."""
+    import pytest
+
+    from leji import build_viewer
+
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    build_viewer(str(layer), manifest, "out")
+    stale = layer / "out" / "stale.txt"
+    stale.write_text("from the previous export")
+    build_viewer(str(layer), manifest, "out")
+    assert not stale.exists(), "a previous export is rebuilt clean"
+
+    occupied = layer / "notes"
+    occupied.mkdir()
+    keep = occupied / "keep.md"
+    keep.write_text("# keep")
+    with pytest.raises(RuntimeError, match="neither empty nor a previous viewer export"):
+        build_viewer(str(layer), manifest, "notes")
+    assert keep.exists(), "the occupied target is untouched"
+
+    (layer / "empty").mkdir()
+    build_viewer(str(layer), manifest, "empty")  # an empty directory is a fine target
+
+
+def test_viewer_build_excludes_active_content_types(tmp_path: Path) -> None:
+    """A static host would serve exported HTML/SVG as same-origin documents, so the
+    export leaves them out. The viewer's own vendored chrome is unaffected."""
+    from leji import build_viewer
+
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    (layer / "docs" / "evil.html").write_text("<script>alert(1)</script>")
+    (layer / "docs" / "evil.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+    build_viewer(str(layer), manifest, "out")
+    out = layer / "out"
+    assert not (out / "content" / "evil.html").exists()
+    # SVG stays a first-class asset: viewer.logo/viewer.favicon may point at one
+    # under the context root, and an SVG in an <img> never executes script.
+    assert (out / "content" / "evil.svg").is_file()
+    assert (out / "assets" / "docsify.min.js").is_file()
+    # Only the prepended warning comment, not the page below it (whose favicon link
+    # legitimately names the vendored leji-logo.svg).
+    warning = (out / "index.html").read_text().split("-->")[0]
+    assert "Active file types" in warning
+    assert ".svg" not in warning, "the warning must not claim SVG is excluded"
+
+
+def test_viewer_hostile_manifest_cannot_break_out_of_its_substitution_site(
+    tmp_path: Path,
+) -> None:
+    """Both values name other placeholders: with sequential substitution passes they
+    were expanded a second time, injecting a literal </script> into the JSON island
+    and breaking out of the favicon's href attribute."""
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    manifest["viewer"] = {"title": "{{MERMAID_SCRIPTS}}", "favicon": "{{DOCSIFY_CONFIG}}"}
+    generate_viewer(str(layer), manifest)
+    html = (layer / "docs" / ".leji" / "viewer" / "index.html").read_text()
+    assert "<title>{{MERMAID_SCRIPTS}}</title>" in html
+    assert 'href="/content/{{DOCSIFY_CONFIG}}"' in html
+    assert html.count("<script") == 14, "nothing injected into the page"
+
+
+def test_viewer_rejects_an_unusable_theme_color(tmp_path: Path) -> None:
+    """The accent reaches a stylesheet as a custom-property value, so a value with
+    punctuation in it is refused with a warning rather than interpolated."""
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    manifest["viewer"] = {"theme": {"primary": "red; } body { display: none } /*"}}
+    result = generate_viewer(str(layer), manifest)
+    html = (layer / "docs" / ".leji" / "viewer" / "index.html").read_text()
+    assert '"themeColor":"#223F93"' in html
+    assert any(
+        f.rule == "viewer-theme-invalid" and f.severity == "warning" for f in result.findings
+    )
+    manifest["viewer"] = {"theme": {"primary": "#ff0000"}}
+    generate_viewer(str(layer), manifest)
+    assert (
+        '"themeColor":"#ff0000"' in (layer / "docs" / ".leji" / "viewer" / "index.html").read_text()
+    )
+
+
+def test_viewer_escapes_html_in_sidebar_labels(tmp_path: Path) -> None:
+    """A manifest label reaches the generated sidebar verbatim, so its angle
+    brackets are escaped rather than landing as live HTML."""
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    manifest["viewer"] = {"agentsLabel": "<img src=x onerror=alert(1)>"}
+    generate_viewer(str(layer), manifest)
+    sidebar = (layer / "docs" / ".leji" / "viewer" / "_sidebar.md").read_text()
+    assert "\\<img src=x onerror=alert(1)\\>" in sidebar
+
+
+def test_viewer_serve_policy_headers_and_inert_content_types(tmp_path: Path) -> None:
+    """Same-origin execution of governed content was the reported blocker: every
+    response carries the policy headers, and the layer's own files never come back
+    with an active content type."""
+    import http.client
+    import threading
+
+    from leji import serve_viewer
+
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    (layer / "docs" / "evil.html").write_text("<script>alert(1)</script>")
+    (layer / "docs" / "evil.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+    generate_viewer(str(layer), manifest)
+    server = serve_viewer(str(layer), 0, manifest["rootPath"])
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def get(path: str, method: str = "GET"):
+        conn = http.client.HTTPConnection("127.0.0.1", port)
+        conn.request(method, path)
+        resp = conn.getresponse()
+        body = resp.read()
+        conn.close()
+        return resp, body
+
+    try:
+        resp, _ = get("/content/evil.html")
+        assert resp.getheader("content-type") == "text/plain; charset=utf-8"
+        # SVG keeps its real type so a configured logo/favicon still renders. Its
+        # inertness is the policy's job, not the content type's: the sandbox puts a
+        # navigated or framed SVG in an opaque origin with scripting off.
+        svg, _ = get("/content/evil.svg")
+        assert svg.status == 200
+        assert svg.getheader("content-type") == "image/svg+xml"
+        assert "sandbox" in svg.getheader("content-security-policy")
+        assert svg.getheader("x-content-type-options") == "nosniff"
+        for path in (
+            "/",
+            "/assets/docsify.min.js",
+            "/content/domain/glossary.md",
+            "/content/nope.md",
+        ):
+            resp, _ = get(path)
+            assert resp.getheader("x-content-type-options") == "nosniff", path
+            assert resp.getheader("content-security-policy"), path
+        shell, _ = get("/")
+        assert "script-src 'self'" in shell.getheader("content-security-policy")
+        assert "frame-src 'none'" in shell.getheader("content-security-policy")
+        doc, _ = get("/content/domain/glossary.md")
+        assert "sandbox" in doc.getheader("content-security-policy")
+        # A NUL in the path is a clean 404, matching Node and Go, not a 500.
+        assert get("/content/%00")[0].status == 404
+        # HEAD answers like GET with the body suppressed, rather than 501.
+        head, head_body = get("/", method="HEAD")
+        assert head.status == 200
+        assert head_body == b""
+    finally:
+        server.shutdown()
+
+
+def test_viewer_serve_rejects_a_foreign_host(tmp_path: Path) -> None:
+    """Loopback binding alone does not stop DNS rebinding: only the names the viewer
+    is actually addressed by are answered."""
+    import socket
+    import threading
+
+    from leji import serve_viewer
+
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    generate_viewer(str(layer), manifest)
+    server = serve_viewer(str(layer), 0, manifest["rootPath"])
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def status(host: str) -> int:
+        with socket.create_connection(("127.0.0.1", port)) as sock:
+            sock.sendall(f"GET / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode())
+            head = b""
+            while b"\r\n" not in head:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                head += chunk
+        return int(head.split(b" ")[1])
+
+    try:
+        for host in ("localhost", "localhost:5354", "127.0.0.1", "[::1]:5354"):
+            assert status(host) == 200, host
+        for host in ("evil.example", "rebound.example:5354"):
+            assert status(host) == 403, host
     finally:
         server.shutdown()
 
@@ -894,25 +1251,98 @@ def test_bind_agent_prepends_second_and_is_idempotent() -> None:
     assert again == two
 
 
-def test_declare_vendor_adapter_creates_prepends_dedupes() -> None:
-    created, changed = declare_vendor_adapter_in_manifest_text(_MANIFEST_NO_AGENTS, "AGENTS.md")
-    assert changed is True
-    assert (
-        created
-        == """{
-  "leji": "1.0",
-  "categories": {},
-  "vendorAdapters": [
-    "AGENTS.md"
-  ],
-  "owners": {
-    "primary": { "name": "x" }
-  }
-}
-"""
+# --- intent/records ---
+
+
+def test_records_valid_records_fixture_resolves_kinds() -> None:
+    # Kinds resolve by block and file-selector override (read-only scan, so the
+    # shared fixture is used in place).
+    layer = FIXTURES / "valid-records"
+    manifest = load_manifest(str(layer)).manifest
+    assert manifest is not None
+    scan = scan_categories(str(layer), manifest)
+    kinds = {d.rel_path: d.kind for d in scan.docs}
+    assert kinds["docs/domain/overview.md"] == "intent"
+    assert kinds["docs/records/2026-07-03-status.md"] == "record"
+    assert kinds["docs/records/ledger.md"] == "record"
+    # The file selector beats the record directory selector.
+    assert kinds["docs/records/escalation-policy.md"] == "intent"
+    # Decision-category documents are inherently records.
+    assert kinds["docs/decisions/0001-adopt-leji.md"] == "record"
+
+
+def test_records_frontmatter_kind_overrides_block_kind_invalid_is_error(tmp_path: Path) -> None:
+    layer = tmp_path / "layer"
+    shutil.copytree(FIXTURES / "valid-records", layer)
+    (layer / "docs" / "records" / "pinned.md").write_text(
+        "---\nkind: intent\n---\n\n# Pinned\n\nA record-directory file declaring itself intent.\n",
+        encoding="utf-8",
     )
-    second, _ = declare_vendor_adapter_in_manifest_text(created, "CLAUDE.md")
-    assert ('"vendorAdapters": [\n    "CLAUDE.md",\n    "AGENTS.md"\n  ],') in second
-    dupe, changed_dupe = declare_vendor_adapter_in_manifest_text(second, "AGENTS.md")
-    assert changed_dupe is False
-    assert dupe == second
+    (layer / "docs" / "domain" / "bad.md").write_text(
+        "---\nkind: sometimes\n---\n\n# Bad\n\nInvalid kind value.\n", encoding="utf-8"
+    )
+    manifest = load_manifest(str(layer)).manifest
+    assert manifest is not None
+    scan = scan_categories(str(layer), manifest)
+    kinds = {d.rel_path: d.kind for d in scan.docs}
+    assert kinds["docs/records/pinned.md"] == "intent"
+    assert any(f.rule == "kind-invalid" and f.path == "docs/domain/bad.md" for f in scan.findings)
+
+
+def test_records_route_separates_intent_documents_from_record_candidates() -> None:
+    layer = FIXTURES / "valid-records"
+    manifest = load_manifest(str(layer)).manifest
+    assert manifest is not None
+    result = route(
+        str(layer), manifest, RouteInput(paths=["docs/records/ledger.md"], categories=["domain"])
+    )
+    doc_paths = [d.path for d in result.documents]
+    assert "docs/domain/overview.md" in doc_paths
+    # The intent-overridden file routes as required context.
+    assert "docs/records/escalation-policy.md" in doc_paths
+    # Records never route as documents.
+    assert not any(p.startswith("docs/records/2") for p in doc_paths)
+    by_path = {r.path: r for r in result.records}
+    assert by_path["docs/records/2026-07-03-status.md"] == RoutedRecord(
+        path="docs/records/2026-07-03-status.md",
+        category="domain",
+        date="2026-07-03",
+        required=False,
+    )
+    assert by_path["docs/records/ledger.md"] == RoutedRecord(
+        path="docs/records/ledger.md", category="domain", date=None, required=True
+    )
+    # Decision records route via `decisions`, never as generic records.
+    assert "docs/decisions/0001-adopt-leji.md" not in by_path
+
+
+def test_records_freshness_skips_records_index_carries_kind_and_dates(tmp_path: Path) -> None:
+    # Copy before write_index so the shared fixture stays pristine.
+    layer = tmp_path / "layer"
+    shutil.copytree(FIXTURES / "valid-records", layer)
+    manifest = load_manifest(str(layer)).manifest
+    assert manifest is not None
+    report = freshness_report(str(layer), manifest)
+    assert report.declared == 0, "no intent doc in the fixture declares a horizon"
+    result = write_index(str(layer), manifest)
+    assert result.index is not None
+    entries = {e["path"]: e for e in result.index["entries"]}
+    assert entries["docs/records/2026-07-03-status.md"]["kind"] == "record"
+    assert entries["docs/records/2026-07-03-status.md"]["date"] == "2026-07-03"
+    assert entries["docs/records/ledger.md"]["kind"] == "record"
+    assert "date" not in entries["docs/records/ledger.md"]
+    assert entries["docs/records/escalation-policy.md"]["kind"] == "intent"
+
+
+def test_records_fully_displaced_broad_selector_is_shadowed_in_status(tmp_path: Path) -> None:
+    layer = tmp_path / "layer"
+    shutil.copytree(FIXTURES / "valid-records", layer)
+    # Shrink the record directory to only the file the intent selector steals.
+    (layer / "docs" / "records" / "2026-07-03-status.md").unlink()
+    (layer / "docs" / "records" / "ledger.md").unlink()
+    manifest = load_manifest(str(layer)).manifest
+    assert manifest is not None
+    report = status_report(str(layer), manifest)
+    assert report.shadowed == [
+        ShadowedSelector(index_file="docs/context/domain.md", path="docs/records/")
+    ]

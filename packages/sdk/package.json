@@ -1,63 +1,70 @@
 {
-   "name": "@leji-org/leji",
-   "version": "1.2.0",
-   "description": "Reference SDK and CLI for Leji, the open specification for the shared context layer of AI-native teams: validate, index, changelog, freshness, conformance, viewer, init, adopt, detect, start, ci, and agent.",
-   "keywords": [
-      "leji",
-      "ai-native",
-      "ai-native-teams",
-      "context-layer",
-      "shared-context",
-      "agent-context",
-      "ai-agents",
-      "governance",
-      "specification",
-      "validation",
-      "cli"
-   ],
-   "homepage": "https://leji.org",
-   "repository": {
-      "type": "git",
-      "url": "git+https://github.com/leji-org/leji.git",
-      "directory": "packages/sdk"
-   },
-   "author": "Vuong Nguyen (https://vuongnguyen.com)",
-   "license": "Apache-2.0",
-   "publishConfig": {
-      "access": "public"
-   },
-   "type": "module",
-   "engines": {
-      "node": ">=22"
-   },
-   "bin": {
-      "leji": "dist/cli.js"
-   },
-   "main": "./dist/index.js",
-   "types": "./dist/index.d.ts",
-   "exports": {
-      ".": "./dist/index.js"
-   },
-   "files": [
-      "dist",
-      "schemas",
-      "templates",
-      "cli.json"
-   ],
-   "scripts": {
-      "build": "tsc",
-      "pretest": "npm run build",
-      "test": "node --test",
-      "coverage": "npm run build && c8 --reporter=text --include='dist/**/*.js' --all node --test",
-      "validate": "node ./dist/cli.js validate"
-   },
-   "dependencies": {
-      "ajv": "8.20.0",
-      "yaml": "2.9.0"
-   },
-   "devDependencies": {
-      "@types/node": "25.9.3",
-      "c8": "11.0.0",
-      "typescript": "6.0.3"
-   }
+  "name": "@leji-org/leji",
+  "version": "1.3.0",
+  "description": "Reference SDK and CLI for Leji, the open specification for the shared context layer of AI-native teams: validate, index, changelog, freshness, conformance, status, route, federation mounts, viewer, view, init, adopt, detect, start, ci, and agent.",
+  "keywords": [
+    "leji",
+    "ai-native",
+    "ai-native-teams",
+    "context-layer",
+    "shared-context",
+    "agent-context",
+    "ai-agents",
+    "governance",
+    "specification",
+    "validation",
+    "cli"
+  ],
+  "homepage": "https://leji.org",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leji-org/leji.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": "https://github.com/leji-org/leji/issues",
+  "author": "Vuong Nguyen (https://vuongnguyen.com)",
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "leji": "dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "templates",
+    "cli.json",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.ts test/proc/*.test.ts",
+    "test:unit": "node --test test/*.test.ts",
+    "test:proc": "node --test test/proc/*.test.ts",
+    "coverage": "npm run build && c8 --reporter=text --include='dist/**/*.js' --all node --test test/*.test.ts test/proc/*.test.ts",
+    "validate": "node ./dist/cli.js validate"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.0.1",
+    "c8": "11.0.0",
+    "typescript": "6.0.3"
+  }
 }

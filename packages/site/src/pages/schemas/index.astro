@@ -19,12 +19,15 @@ const schemas = fs
    });
 ---
 
-<Doc title="Schemas · Leji">
+<Doc
+   title="Schemas · Leji"
+   description="The JSON Schemas of the Leji v1.0 line: context manifest, context index, context changelog, agent profile, and decision record."
+>
    <h1>Schemas</h1>
    <p>
       JSON Schemas (draft 2020-12) for the machine-readable surface. Normative; the raw files are served at their
-      canonical <code>$id</code> URLs for tooling. See
-      <a href="/spec/machine-readable-surface/">the machine-readable surface</a> and
+      canonical <code>$id</code> URLs for tooling. See{' '}
+      <a href="/spec/machine-readable-surface/">the machine-readable surface</a> and{' '}
       <a href="/spec/versioning/">versioning</a> for the stability rules.
    </p>
    <table>
@@ -54,9 +57,7 @@ const schemas = fs
 </Doc>
 
 <style>
-   /* the Raw (.json) column is a short link; keep it on one line too.
-      The schema-name column is handled by the global first-column rule.
-      Only the middle "Validates" column wraps. */
+   /* keep the Raw (.json) column on one line; only the middle "Validates" wraps */
    td:last-child,
    th:last-child {
       white-space: nowrap;

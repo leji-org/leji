@@ -6,8 +6,7 @@ import (
 	"testing"
 )
 
-// detectHosts ranks confirmed > project-present > installed-likely, using
-// injected probes so the result is deterministic.
+// Ranks confirmed > project-present > installed-likely via injected probes for determinism.
 func TestDetectHostsRanking(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("codex config\n"), 0o644); err != nil {
@@ -51,17 +50,15 @@ func TestDetectHostsRanking(t *testing.T) {
 	}
 }
 
-// On POSIX a "confirmed" host requires a runnable binary: a file on PATH counts
-// only if it has an executable bit. A non-executable file of the right name is
-// not a confirmed host. Mirrors the Node test of the same name.
+// On POSIX, "confirmed" requires the executable bit: a same-named plain file is not confirmed.
 func TestDetectHostsRequiresExecutableBitOnPOSIX(t *testing.T) {
 	root := t.TempDir()
 	binDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(binDir, "claude"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err) // executable
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(binDir, "codex"), []byte("plain text\n"), 0o644); err != nil {
-		t.Fatal(err) // NOT executable
+		t.Fatal(err)
 	}
 	home := t.TempDir()
 	hosts := DetectHosts(Options{

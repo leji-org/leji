@@ -148,6 +148,37 @@ test('run: rejects flags not declared for the command (exit 2), accepts declared
    assert.notEqual(await quiet(() => run(['changelog', 'check', '--strict', '--root', exampleDir])), 2);
 });
 
+// --- index/run: `--` is declared on `start` only ---
+test('run: `--` is a usage error on every command but start', async () => {
+   // It was accepted everywhere and silently swallowed what followed, so
+   // `leji validate -- --bogus` exited 0: a typo'd flag passed as a clean validate.
+   for (const argv of [
+      ['validate', '--', '--bogus', '--root', exampleDir],
+      ['index', '--', '--bogus', '--root', exampleDir],
+      ['conformance', '--', '--bogus', '--root', exampleDir],
+      ['view', '--', '--bogus', '--root', exampleDir],
+   ]) {
+      assert.equal(await quiet(() => run(argv)), 2, argv.join(' '));
+   }
+   // start declares it (`-- <host flags…>`), so the pass-through still parses.
+   assert.notEqual(await quiet(() => run(['start', '--root', tmpdir('leji-nolayer-'), '--', '--chrome'])), 2);
+});
+
+// --- index/run: numeric flags take a plain decimal integer in range ---
+test('run: --port and --keep reject every non-integer spelling and out-of-range value', async () => {
+   // `Number()` also accepts 0x10, 1e3, and ' 8 ', which Go's strconv.Atoi and the
+   // Python parse reject; the three disagreed on which of these served a port.
+   for (const raw of ['abc', '1.5', '0x10', '1e3', ' 8 ', '1_0', '65536', '70000', '999999999999999999999']) {
+      assert.equal(await quiet(() => run(['view', '--port', raw])), 2, `--port ${raw}`);
+   }
+   for (const raw of ['abc', '0', '1.5', '0x10', '1e3', ' 8 ', '1_0', '2147483648', '999999999999999999999']) {
+      assert.equal(await quiet(() => run(['changelog', 'compact', '--keep', raw])), 2, `--keep ${raw}`);
+   }
+   // The spellings all three accept: bare digits, a leading +, a leading zero.
+   assert.equal(await quiet(() => run(['--port', '0', '--keep', '08', 'version'])), 0);
+   assert.equal(await quiet(() => run(['--port', '+7', '--keep', '2147483647', 'version'])), 0);
+});
+
 // --- lib/fsx: walkMd excludes markdown reached through a root-escaping symlink ---
 test('walkMd skips markdown behind symlinks that escape the root', () => {
    const outside = tmpdir('leji-out-');
@@ -285,7 +316,10 @@ test('validateManifestObject accepts a well-formed manifest object', () => {
       name: 'inline',
       rootPath: 'docs/',
       bootProfilePath: 'docs/boot-profile.md',
-      categories: { domain: { paths: ['docs/domain/'] }, decisions: { paths: ['docs/decisions/'] } },
+      categories: {
+         domain: { indexes: ['docs/context/domain.md'] },
+         decisions: { indexes: ['docs/context/decisions.md'] },
+      },
       owners: { primary: { name: 'Inline Owner' } },
    });
    assert.notEqual(manifest, null);

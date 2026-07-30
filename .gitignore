@@ -5,6 +5,7 @@ node_modules/
 var/
 dist/
 *.tsbuildinfo
+.cache/
 
 # Astro / Vite caches
 .astro/

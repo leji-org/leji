@@ -1,0 +1,8 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      { "rule": "freshness-on-record", "severity": "error", "path": "docs/records/status.md" }
+    ]
+  }
+}

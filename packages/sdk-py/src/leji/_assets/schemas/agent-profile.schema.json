@@ -7,10 +7,21 @@
   "required": [
     "id",
     "name",
-    "role",
-    "requiredRead",
-    "mustAskWhen"
+    "role"
   ],
+  "if": {
+    "not": {
+      "required": [
+        "inherits"
+      ]
+    }
+  },
+  "then": {
+    "required": [
+      "requiredRead",
+      "mustAskWhen"
+    ]
+  },
   "additionalProperties": false,
   "properties": {
     "id": {
@@ -38,7 +49,8 @@
     },
     "inherits": {
       "type": "string",
-      "description": "id of the profile this one extends, typically the core profile."
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "id of the single core profile whose posture arrays and body this profile extends, resolved per the specification. Resolution is single-level: the target must exist, be unique, and declare role core. A profile that declares inherits may omit requiredRead and mustAskWhen where the base supplies them."
     },
     "requiredRead": {
       "type": "array",
@@ -96,7 +108,7 @@
         "reviewAfter": {
           "description": "ISO 8601 date after which the profile should be reviewed for staleness.",
           "type": "string",
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
         }
       }
     },
@@ -113,7 +125,8 @@
       "properties": {
         "command": {
           "type": "string",
-          "description": "Command template to engage this agent from a shell, with <prompt> as the placeholder."
+          "pattern": "<prompt>",
+          "description": "Command template to engage this agent from a shell. Must carry the <prompt> placeholder, standing as its own unquoted shell word; the pattern verifies the substitution site exists, placement is the spec's rule."
         },
         "constraints": {
           "type": "array",

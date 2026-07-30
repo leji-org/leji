@@ -44,7 +44,17 @@ from .init_cmd import (
     init_layer,
 )
 from .manifest import Manifest, claimed_level, load_manifest
+from .route import (
+    LIVE_STATUSES,
+    RouteInput,
+    RouteResult,
+    RoutedDecision,
+    RoutedDocument,
+    RoutedMount,
+    route,
+)
 from .schemas import SDK_VERSION, SUPPORTED_LINES
+from .status import DanglingEntry, StatusReport, status_report
 from .validate import check_changelog_append_only, content_findings, validate_layer
 from .writeplan import PlanEntry, PlannedWrite, build_write_plan, render_write_plan
 
@@ -56,17 +66,25 @@ __all__ = [
     "BuildResult",
     "CompactResult",
     "ConformanceResult",
+    "DanglingEntry",
     "DetectResult",
     "DetectedHost",
+    "StatusReport",
     "ViewerResult",
     "Finding",
     "FreshnessReport",
     "HOST_SPECS",
     "HostSpec",
     "InitResult",
+    "LIVE_STATUSES",
     "Manifest",
     "PlanEntry",
     "PlannedWrite",
+    "RouteInput",
+    "RouteResult",
+    "RoutedDecision",
+    "RoutedDocument",
+    "RoutedMount",
     "SDK_VERSION",
     "SUPPORTED_LINES",
     "Severity",
@@ -94,6 +112,7 @@ __all__ = [
     "render_detect",
     "render_explain",
     "resolve_host_id",
+    "route",
     "generate_index",
     "init_layer",
     "load_manifest",
@@ -103,6 +122,7 @@ __all__ = [
     "serialize_changelog",
     "serve_viewer",
     "sort_findings",
+    "status_report",
     "summarize",
     "validate_layer",
     "write_index",

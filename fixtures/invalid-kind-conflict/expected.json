@@ -1,0 +1,8 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      { "rule": "category-conflict", "severity": "error", "path": "docs/domain/shared.md" }
+    ]
+  }
+}

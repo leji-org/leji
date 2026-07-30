@@ -1,0 +1,79 @@
+---
+import Doc from '../layouts/Doc.astro';
+---
+
+<Doc
+   title="Trust · Leji"
+   description="Who maintains Leji, what the 1.0 spec line promises, what happens if the steward disappears, and how to report a vulnerability."
+>
+   <h1>Trust</h1>
+   <p>
+      Leji is built to need as little trust as possible. The specification, schemas, tooling, and fixtures are public,
+      permissively licensed, and run on your own machine. One steward maintains them today, and every promise is
+      recorded in a public repository artifact, not just asserted.
+   </p>
+
+   <h2>Who maintains this</h2>
+   <p>
+      Leji was created by <a href="https://vuongnguyen.com" target="_blank" rel="noopener">Vuong Nguyen</a> and is stewarded
+      by <a href="https://meteordreams.com" target="_blank" rel="noopener">Meteor Dreams, LLC</a>.{' '}
+      <a href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md" target="_blank" rel="noopener">GOVERNANCE.md</a
+      >{' '}
+      records how decisions are made, how maintainership transfers, and the intent to move to neutral, multi-party governance
+      as adoption grows.
+   </p>
+
+   <h2>The versioning promise</h2>
+   <p>
+      The specification and schemas are on the 1.0 line, <strong
+         >frozen at GA with the 1.3.0 reference-tooling release</strong
+      >{' '}
+      (recorded in the repository's own decision log). Within the line, schema changes are additive only; any incompatible
+      change ships as a new line, never in place. The reference tooling versions separately and declares which spec lines
+      it supports. The full rules are one page:{' '}
+      <a href="/spec/versioning/">versioning</a>.
+   </p>
+
+   <h2>If the steward disappears</h2>
+   <p>
+      Everything required to continue without the steward is already public and licensed for it: the specification
+      (CC-BY-4.0), the schemas and all reference tooling (Apache-2.0), and the shared fixture suite the 3 SDKs are
+      tested against. Validation, scaffolding and conformance work offline, schemas and templates ship inside each
+      package, and nothing reports back. A fork or an independent implementation needs no permission and loses no
+      capability.
+   </p>
+
+   <h2>Independent implementations</h2>
+   <p>
+      The reference SDKs are 3 independent codebases (TypeScript, Python, Go) held behaviorally identical by one shared
+      fixture suite, which is the same suite an outside implementation can test against. Conformance is self-attested
+      against the published checklist; there is no certification program and no commercial gate:{' '}
+      <a href="/spec/conformance/">every level is reachable with the open spec and reference tooling alone</a>.
+   </p>
+
+   <h2>Security</h2>
+   <p>
+      The reference tooling runs on your machine: no telemetry, no account, and no Leji service to depend on.
+      Validation, scaffolding, and conformance work fully offline, and schemas and templates ship inside each package.
+      Leji's own validation and scaffolding logic makes no network requests. The federation commands you invoke
+      deliberately (<code>leji mounts hydrate --fetch</code> and
+      <code>leji conformance --federation=verify</code>) contact the repository you named and nothing else, and
+      <code>leji start</code> and the optional onboarding handoff launch the coding agent you already have, whose own network
+      behavior is its own. This website is separate from the tooling and worth naming here: leji.org loads{' '}
+      <a href="https://usefathom.com" target="_blank" rel="noopener">Fathom</a> for aggregate traffic analytics. Report a
+      vulnerability through{' '}
+      <a href="https://github.com/leji-org/leji/security/advisories/new" target="_blank" rel="noopener"
+         >GitHub private vulnerability reporting</a
+      >{' '}
+      or <a href="mailto:security@leji.org">security@leji.org</a>; the process is in{' '}
+      <a href="https://github.com/leji-org/leji/blob/main/SECURITY.md" target="_blank" rel="noopener">SECURITY.md</a>.
+   </p>
+
+   <h2>The change record</h2>
+   <p>
+      This repository runs the same context layer controls the spec asks of adopters: a reviewed changelog, a generated
+      index, and decision records, including the preview-to-GA transition itself. Releases are recorded in{' '}
+      <a href="https://github.com/leji-org/leji/blob/main/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG.md</a>,
+      with a machine mirror.
+   </p>
+</Doc>

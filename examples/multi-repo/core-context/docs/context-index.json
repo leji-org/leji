@@ -1,10 +1,10 @@
 {
   "$schema": "https://leji.org/schemas/v1.0/context-index.schema.json",
   "schemaVersion": "1.0",
-  "generatedAt": "2026-06-15T11:41:33.913Z",
+  "generatedAt": "2026-07-22T13:56:35.466Z",
   "generator": {
     "name": "leji",
-    "version": "1.0.0"
+    "version": "1.3.0"
   },
   "rootPath": "docs/",
   "entries": [
@@ -13,7 +13,9 @@
       "path": "docs/decisions/0001-adopt-leji.md",
       "title": "Adopt the Leji context layer for the organization",
       "category": "decisions",
-      "lastModified": "2026-06-15",
+      "kind": "record",
+      "date": "2026-06-10",
+      "lastModified": "2026-06-17",
       "contentHash": "sha256:f5cc49edf929c3df"
     },
     {
@@ -21,8 +23,9 @@
       "path": "docs/domain/glossary.md",
       "title": "Glossary",
       "category": "domain",
+      "kind": "intent",
       "summary": "Organization-wide domain language shared across Acme product teams.",
-      "lastModified": "2026-06-15",
+      "lastModified": "2026-06-17",
       "contentHash": "sha256:6292905171f49b1a"
     },
     {
@@ -30,8 +33,9 @@
       "path": "docs/governance/review.md",
       "title": "Review",
       "category": "governance",
+      "kind": "intent",
       "summary": "How changes to the Acme core context layer are proposed and approved.",
-      "lastModified": "2026-06-15",
+      "lastModified": "2026-06-17",
       "contentHash": "sha256:1b8c114437b95c16"
     },
     {
@@ -39,12 +43,37 @@
       "path": "docs/system/invariants.md",
       "title": "System Invariants",
       "category": "system",
+      "kind": "intent",
       "summary": "Cross-team invariants every Acme repository upholds.",
-      "lastModified": "2026-06-15",
+      "lastModified": "2026-06-17",
       "contentHash": "sha256:6d4d6eeb9e3b61dd",
       "freshness": {
         "reviewAfter": "2026-12-10"
       }
+    }
+  ],
+  "mounts": [
+    {
+      "name": "acme-product-context",
+      "source": "https://github.com/acme/product-context",
+      "pin": "7d3f2a19c4e8b6a0d5f1c2e9b8a7f6d5c4b3a2e1",
+      "trackingRef": "refs/heads/main",
+      "owner": {
+        "name": "Product team"
+      },
+      "role": "product-side context, owned and kept current by the product team",
+      "categories": [
+        "domain",
+        "decisions"
+      ],
+      "topics": [
+        "product surface",
+        "customer-facing semantics",
+        "billing"
+      ],
+      "requiredWhen": [
+        "a task touches customer-facing product behavior, product terminology, or product-owned decisions"
+      ]
     }
   ]
 }

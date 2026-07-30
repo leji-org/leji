@@ -5,8 +5,8 @@
       {
         "rule": "paths-outside-root",
         "severity": "warning",
-        "path": "arch/",
-        "message": "system path falls outside rootPath docs/"
+        "path": "arch/system.md",
+        "message": "system index file falls outside rootPath docs/"
       }
     ]
   }

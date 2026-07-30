@@ -36,7 +36,11 @@ def freshness_report(root: str, manifest: Manifest, strict: bool = False) -> Fre
     horizon = (dt.datetime.now(dt.timezone.utc).date() + dt.timedelta(days=30)).isoformat()
 
     items: list[dict] = []
-    for doc in scan_categories(root, manifest):
+    for doc in scan_categories(root, manifest).docs:
+        # Freshness is an intent mechanism: records are dated evidence and carry
+        # no review horizon (a horizon on a record is a validation error).
+        if doc.kind == "record":
+            continue
         review_after = _review_after_of(doc.frontmatter)
         if review_after:
             items.append({"path": doc.rel_path, "reviewAfter": review_after})

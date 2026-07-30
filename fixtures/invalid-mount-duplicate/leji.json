@@ -5,13 +5,13 @@
   "bootProfilePath": "docs/boot-profile.md",
   "categories": {
     "domain": {
-      "paths": [
-        "docs/domain/"
+      "indexes": [
+        "docs/context/domain.md"
       ]
     },
     "decisions": {
-      "paths": [
-        "docs/decisions/"
+      "indexes": [
+        "docs/context/decisions.md"
       ]
     }
   },
@@ -23,16 +23,17 @@
   "federation": {
     "mounts": [
       {
-        "path": "context/product/",
         "name": "other-context",
+        "source": "https://github.com/acme/product-context",
+        "pin": "4e974570000000000000000000000000000000aa",
         "owner": {
           "name": "Product Owner"
-        },
-        "source": "https://github.com/acme/product-context"
+        }
       },
       {
-        "path": "context/product2/",
         "name": "other-context",
+        "source": "https://github.com/acme/product-context-2",
+        "pin": "4e974570000000000000000000000000000000aa",
         "owner": {
           "name": "Product Owner"
         }

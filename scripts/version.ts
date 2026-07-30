@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Keeps every reference package version (9 locations) and the internal
-// @leji-org/leji dependency ranges on one release number.
+// Keeps all 9 package-version locations and the internal @leji-org/leji dep
+// ranges on one release number.
 //
 //   node scripts/version.ts <newversion>   # set every location
 //   node scripts/version.ts --check        # assert all agree; print the version
@@ -10,8 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// A clean release version: x.y.z, optionally a prerelease suffix (-rc.1, -beta).
-// Deliberately strict: no build metadata, no leading "v".
+// Deliberately strict: x.y.z with optional prerelease (-rc.1), no build metadata, no "v".
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 type Kind = 'json' | 'pyproject' | 'go';
@@ -21,9 +20,8 @@ interface Target {
    kind: Kind;
 }
 
-// The 9 version locations. JSON manifests carry a top-level "version" field;
-// pyproject.toml carries it under [project]; schemas.go carries the SDKVersion
-// constant.
+// The 9 version locations: JSON manifests at top-level "version", pyproject.toml
+// under [project], schemas.go in the SDKVersion constant.
 const TARGETS: Target[] = [
    { rel: 'package.json', kind: 'json' },
    { rel: 'packages/sdk/package.json', kind: 'json' },
@@ -47,17 +45,12 @@ const INTERNAL_DEPS: DepTarget[] = [
    { rel: 'packages/create-leji/package.json', dep: '@leji-org/leji' },
 ];
 
-// Matcher + rewriter for each file kind. The matcher captures the current
-// version from the one canonical spot; the rewriter sets a new one in place.
 const PATTERNS: Record<Kind, RegExp> = {
-   // Top-level "version": "...". Anchored to the start of a line so a nested
-   // "version" inside, say, a dependency object is not matched (manifests here
-   // keep the field at top level, two/three-space indented).
+   // Anchored to line start so a nested "version" (e.g. in a dependency object) is
+   // not matched; manifests here keep the field at top level.
    json: /^(\s*"version"\s*:\s*")([^"]+)(")/m,
-   // version = "..." inside the [project] table. We additionally require it to
-   // appear after the [project] header (checked in read()).
+   // [project] containment is enforced separately in read().
    pyproject: /^(version\s*=\s*")([^"]+)(")/m,
-   // SDKVersion = "..." Go constant/var.
    go: /^(\s*(?:var|const)?\s*SDKVersion\s*=\s*")([^"]+)(")/m,
 };
 
@@ -65,12 +58,10 @@ function abs(rel: string): string {
    return path.join(repoRoot, rel);
 }
 
-// Read the current version from a single target, or throw with a clear reason.
 function readVersion(t: Target): string {
    const text = fs.readFileSync(abs(t.rel), 'utf8');
    if (t.kind === 'pyproject') {
-      // Restrict the search to the [project] table so a version in another
-      // table (e.g. a tool section) can never be picked up.
+      // Restrict to the [project] table so a version in another table is not picked up.
       const start = text.indexOf('[project]');
       if (start === -1) throw new Error(`${t.rel}: no [project] table`);
       const rest = text.slice(start);
@@ -85,7 +76,7 @@ function readVersion(t: Target): string {
    return m[2];
 }
 
-// Rewrite a single target's version in place. Returns true if the file changed.
+// Returns true if the file changed.
 function writeVersion(t: Target, next: string): boolean {
    const text = fs.readFileSync(abs(t.rel), 'utf8');
    let updated: string;
@@ -112,16 +103,14 @@ function writeVersion(t: Target, next: string): boolean {
    return true;
 }
 
-// Match a single dependency entry: `"<dep>": "<range>"`. The dep name is escaped
-// so regex metacharacters in a scoped name can't leak into the pattern; group 2
-// captures the range (e.g. ^1.2.0). Non-global, so it touches the first (only)
-// occurrence in dependencies.
+// Match `"<dep>": "<range>"`. The dep name is escaped so metacharacters in a
+// scoped name can't leak into the pattern; group 2 captures the range. Non-global,
+// so it touches the first occurrence.
 function depPattern(dep: string): RegExp {
    const escaped = dep.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
    return new RegExp(`("${escaped}"\\s*:\\s*")([^"]+)(")`);
 }
 
-// Read the current @leji-org/leji range from a dependency target, or throw.
 function readDepRange(d: DepTarget): string {
    const text = fs.readFileSync(abs(d.rel), 'utf8');
    const m = depPattern(d.dep).exec(text);

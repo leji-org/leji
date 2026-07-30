@@ -1,38 +1,40 @@
 {
-   "name": "create-leji",
-   "version": "1.2.0",
-   "description": "Bootstrap a Leji context layer for AI-native teams: `npm create leji` runs `leji init`.",
-   "keywords": [
-      "leji",
-      "create-leji",
-      "ai-native",
-      "context-layer",
-      "shared-context",
-      "agent-context",
-      "bootstrap",
-      "scaffold",
-      "init",
-      "cli"
-   ],
-   "homepage": "https://leji.org",
-   "repository": {
-      "type": "git",
-      "url": "git+https://github.com/leji-org/leji.git",
-      "directory": "packages/create-leji"
-   },
-   "author": "Vuong Nguyen (https://vuongnguyen.com)",
-   "license": "Apache-2.0",
-   "type": "module",
-   "engines": {
-      "node": ">=22"
-   },
-   "bin": {
-      "create-leji": "./index.js"
-   },
-   "files": [
-      "index.js"
-   ],
-   "dependencies": {
-      "@leji-org/leji": "^1.2.0"
-   }
+  "name": "create-leji",
+  "version": "1.3.0",
+  "description": "Bootstrap a Leji context layer: `npm create leji` runs `leji init` for Leji, the open specification for the shared context layer of AI-native teams.",
+  "keywords": [
+    "leji",
+    "create-leji",
+    "ai-native",
+    "context-layer",
+    "shared-context",
+    "agent-context",
+    "bootstrap",
+    "scaffold",
+    "init",
+    "cli"
+  ],
+  "homepage": "https://leji.org",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leji-org/leji.git",
+    "directory": "packages/create-leji"
+  },
+  "bugs": "https://github.com/leji-org/leji/issues",
+  "author": "Vuong Nguyen (https://vuongnguyen.com)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "create-leji": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@leji-org/leji": "^1.3.0"
+  }
 }

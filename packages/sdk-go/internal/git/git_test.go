@@ -7,8 +7,7 @@ import (
 	"testing"
 )
 
-// newRepo initializes a git repo in a temp dir with a single committed file,
-// or skips the test when git is unavailable.
+// newRepo inits a temp git repo with one committed file, or skips if git is absent.
 func newRepo(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -61,7 +60,6 @@ func TestToplevelOutsideRepo(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git binary not available")
 	}
-	// A bare temp dir that is not a git repo.
 	dir := t.TempDir()
 	if _, ok := Toplevel(dir); ok {
 		t.Fatalf("expected no toplevel outside a git repo")
@@ -81,7 +79,6 @@ func TestLastModifiedTrackedClean(t *testing.T) {
 
 func TestLastModifiedDirtyFile(t *testing.T) {
 	dir := newRepo(t)
-	// Modify the tracked file in the working tree: status is no longer clean.
 	if err := os.WriteFile(filepath.Join(dir, "tracked.md"), []byte("# changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

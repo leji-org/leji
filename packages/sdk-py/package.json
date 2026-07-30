@@ -1,12 +1,13 @@
 {
    "name": "@leji-internal/sdk-py",
-   "version": "1.2.0",
+   "version": "1.3.0",
    "private": true,
    "description": "npm workspace stub for the Python SDK; the real package metadata is pyproject.toml. Lets `npm test --workspaces` run the pytest suite. Never published to npm.",
    "scripts": {
-      "build": "PY=$([ -x ./.venv/bin/python ] && echo ./.venv/bin/python || echo python3); \"$PY\" -m build --outdir dist",
-      "lint": "PY=$([ -x ./.venv/bin/python ] && echo ./.venv/bin/python || echo python3); \"$PY\" -m ruff check . && \"$PY\" -m ruff format --check . && \"$PY\" -m mypy src",
-      "test": "PY=$([ -x ./.venv/bin/python ] && echo ./.venv/bin/python || echo python3); npm run lint && \"$PY\" -m pytest -q",
-      "coverage": "PY=$([ -x ./.venv/bin/python ] && echo ./.venv/bin/python || echo python3); \"$PY\" -m coverage run -m pytest -q && \"$PY\" -m coverage report"
+      "setup:py": "sh setup.sh",
+      "build": "PY=./.venv/bin/python; [ -x \"$PY\" ] || { echo 'sdk-py: .venv missing — run: npm run setup:py' >&2; exit 1; }; \"$PY\" -m build --outdir dist",
+      "lint": "PY=./.venv/bin/python; [ -x \"$PY\" ] || { echo 'sdk-py: .venv missing — run: npm run setup:py' >&2; exit 1; }; \"$PY\" -m ruff check . && \"$PY\" -m ruff format --check . && \"$PY\" -m mypy src",
+      "test": "PY=./.venv/bin/python; [ -x \"$PY\" ] || { echo 'sdk-py: .venv missing — run: npm run setup:py' >&2; exit 1; }; \"$PY\" -m pytest -q",
+      "coverage": "PY=./.venv/bin/python; [ -x \"$PY\" ] || { echo 'sdk-py: .venv missing — run: npm run setup:py' >&2; exit 1; }; \"$PY\" -m coverage run -m pytest -q && \"$PY\" -m coverage report"
    }
 }

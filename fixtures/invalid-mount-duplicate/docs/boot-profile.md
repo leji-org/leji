@@ -8,6 +8,15 @@ A fixture context layer.
 
 Read `docs/domain/` before any task.
 
+## Federated siblings
+
+```leji-mounts
+- mount: other-context
+  owner: Product Owner
+  carries: product-side context
+  read-when: a task touches the product surface
+```
+
 ## Posture
 
 - Stop and ask before destructive changes.

@@ -18,7 +18,6 @@ func repoRoot(t *testing.T) string {
 	return filepath.Join(wd, "..", "..", "..", "..", "..")
 }
 
-// copyExample copies the indexed example layer into a temp dir.
 func copyExample(t *testing.T) string {
 	t.Helper()
 	src := filepath.Join(repoRoot(t), "examples", "monorepo")
@@ -64,8 +63,7 @@ func TestGenerateIndexStableIDs(t *testing.T) {
 			t.Fatalf("id not lowercase-hyphen: %q", e.ID)
 		}
 	}
-	// Regenerating yields the same entries (ids/paths/hashes). The top-level
-	// generatedAt timestamp is intentionally not stable, so compare entries only.
+	// generatedAt is intentionally not stable, so compare entries only.
 	second := GenerateIndex(dir, m)
 	if len(second.Index.Entries) != len(res.Index.Entries) {
 		t.Fatal("entry count changed across regenerations")

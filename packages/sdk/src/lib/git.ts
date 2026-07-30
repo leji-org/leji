@@ -9,10 +9,25 @@ function git(root: string, args: string[]): string | null {
          encoding: 'utf8',
          stdio: ['ignore', 'pipe', 'ignore'],
          timeout: 10_000,
+         env: {
+            ...process.env,
+            // `git status` refreshes and can rewrite `.git/index`, and a promisor
+            // clone can reach the network from a command documented as offline and
+            // non-mutating. The mounts resolver already sets both; these are the same
+            // guarantees for every other read-only git call.
+            GIT_OPTIONAL_LOCKS: '0',
+            GIT_NO_LAZY_FETCH: '1',
+         },
       });
    } catch {
       return null;
    }
+}
+
+/** The origin remote URL, or null when not in git or no origin is configured. */
+export function gitOriginUrl(root: string): string | null {
+   const out = git(root, ['remote', 'get-url', 'origin']);
+   return out ? out.trim() : null;
 }
 
 /** Absolute path of the git worktree containing root, or null when not in git. */
@@ -22,9 +37,8 @@ export function gitToplevel(root: string): string | null {
 }
 
 /**
- * Last commit date (YYYY-MM-DD) of a file, or null when untracked, modified
- * in the working tree, or outside a git repository. Callers fall back to a
- * current date so that regeneration and the eventual commit stay consistent.
+ * Last commit date (YYYY-MM-DD) of a file, or null when untracked, modified in
+ * the working tree, or outside git. Callers fall back to the current date.
  */
 export function gitLastModified(root: string, relPath: string): string | null {
    const status = git(root, ['status', '--porcelain', '--', relPath]);
@@ -38,27 +52,41 @@ export function gitLastModified(root: string, relPath: string): string | null {
 export function gitShowHead(root: string, relPath: string): string | null {
    const top = gitToplevel(root);
    if (!top) return null;
-   // realpath both sides: on macOS /tmp is a symlink and git reports the
-   // resolved toplevel, which would break the relative-path computation.
+   // realpath both sides: on macOS /tmp is a symlink and git reports the resolved
+   // toplevel, which would break the relative-path computation.
    let resolvedTop: string;
    let resolvedFile: string;
    try {
       resolvedTop = fs.realpathSync(top);
       resolvedFile = fs.realpathSync(path.join(root, relPath));
    } catch {
-      // The declared file was deleted (or top vanished): no HEAD baseline.
-      return null;
+      return null; // declared file deleted (or top vanished): no HEAD baseline
    }
    const fromTop = toPosix(path.relative(resolvedTop, resolvedFile));
    return git(root, ['show', `HEAD:${fromTop}`]);
 }
 
 /**
- * Working-tree state for the init/adopt dirty-guard. Returns null when `root` is
- * not inside a git repository (no commit-backed undo exists, so the guard does
- * not apply); true when the tree is clean; false when there are uncommitted
- * changes (staged, unstaged, or untracked). The guard refuses to mutate a dirty
- * tree so its writes stay cleanly reversible with `git restore`/`git clean`.
+ * Tracked files under a repository-relative path, or null when `root` is not in
+ * git. Backs the onboarding-workspace preflight: `.leji/` must hold no tracked
+ * files before private artifacts may land there.
+ */
+export function trackedUnder(root: string, rel: string): string[] | null {
+   const top = gitToplevel(root);
+   if (!top) return null;
+   const out = git(root, ['ls-files', '--', rel]);
+   if (out === null) return null;
+   return out
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+}
+
+/**
+ * Working-tree state for the init/adopt dirty-guard. null when `root` is not in
+ * git (no commit-backed undo, so the guard does not apply); true when clean;
+ * false on any uncommitted change (staged, unstaged, or untracked). The guard
+ * refuses to mutate a dirty tree so writes stay reversible via git restore/clean.
  */
 export function workingTreeClean(root: string): boolean | null {
    const top = gitToplevel(root);

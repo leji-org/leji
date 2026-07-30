@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "index-entry-missing",
+        "severity": "error",
+        "path": "docs/context/domain.md"
+      }
+    ]
+  }
+}

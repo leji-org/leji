@@ -15,10 +15,20 @@ def _git(root: str, args: list[str]) -> Optional[str]:
             text=True,
             check=True,
             timeout=10,  # bound each invocation; mirrors the Node/Go 10s cap
+            # `git status` refreshes and can rewrite `.git/index`, and a promisor clone
+            # can reach the network from a command documented as offline and
+            # non-mutating. The mounts resolver already sets both.
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_LAZY_FETCH": "1"},
         )
         return result.stdout
     except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
         return None
+
+
+def git_origin_url(root: str) -> Optional[str]:
+    """The origin remote URL, or None when not in git or no origin is configured."""
+    out = _git(root, ["remote", "get-url", "origin"])
+    return out.strip() if out else None
 
 
 def git_toplevel(root: str) -> Optional[str]:
@@ -34,6 +44,19 @@ def git_last_modified(root: str, rel_path: str) -> Optional[str]:
     out = _git(root, ["log", "-1", "--format=%cs", "--", rel_path])
     date = out.strip() if out else ""
     return date or None
+
+
+def tracked_under(root: str, rel: str) -> Optional[list[str]]:
+    """Tracked files under a repository-relative path, or None when ``root`` is not
+    in git. Backs the onboarding-workspace preflight: ``.leji/`` must hold no tracked
+    files before private artifacts may land there."""
+    top = git_toplevel(root)
+    if not top:
+        return None
+    out = _git(root, ["ls-files", "--", rel])
+    if out is None:
+        return None
+    return [s.strip() for s in out.split("\n") if s.strip()]
 
 
 def working_tree_clean(root: str) -> Optional[bool]:

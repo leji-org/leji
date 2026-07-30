@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -42,7 +43,6 @@ def test_version_prints_sdk_version() -> None:
 
 
 def test_version_flag_aliases(capsys) -> None:
-    # --version and lowercase -v print the version and exit 0.
     expected_code, expected_out, _ = run_cli(capsys, ["--version"])
     code, out, _ = run_cli(capsys, ["-v"])
     assert code == expected_code == 0
@@ -84,9 +84,7 @@ def test_index_does_not_seed_changelog_on_core_layer(capsys, tmp_path) -> None:
 
 def test_index_refuses_symlinked_ancestor_escape(capsys, tmp_path) -> None:
     # writeIndex must refuse to write through a symlinked ancestor that escapes
-    # the layer root (the H1 fix). Point machine.indexPath under docs/evil, a
-    # symlink to an outside dir, and assert the escape is reported, exit 1, and
-    # nothing lands outside the root.
+    # the layer root (the H1 fix).
     outside = tmp_path / "outside"
     outside.mkdir()
     layer = tmp_path / "layer"
@@ -202,6 +200,78 @@ def test_rejects_undeclared_flags() -> None:
         ["index", "--open"],
     ):
         assert main([*argv, "--root", str(EXAMPLE)]) == 2
+
+
+def test_separator_only_valid_on_start(capsys, tmp_path) -> None:
+    # `--` is declared on `start` only. It used to be accepted everywhere and
+    # silently swallowed what followed, so `leji validate -- --bogus` exited 0: a
+    # typo'd flag passed as a clean validate.
+    for argv in (
+        ["validate", "--", "--bogus"],
+        ["index", "--", "--bogus"],
+        ["conformance", "--", "--bogus"],
+        ["view", "--", "--bogus"],
+    ):
+        code, _, err = run_cli(capsys, [*argv, "--root", str(EXAMPLE)])
+        assert code == 2, argv
+        assert "-- is not valid for" in err, argv
+    # start declares it (`-- <host flags…>`), so the pass-through still parses.
+    assert run_cli(capsys, ["start", "--root", str(tmp_path), "--", "--chrome"])[0] != 2
+
+
+def test_globals_are_accepted_before_the_command(capsys) -> None:
+    # Node and Go scan a flat argv and take a global anywhere; argparse binds an
+    # option to the parser that declares it, so these were `unrecognized arguments`
+    # exit 2 here while the other two exited 0.
+    for argv in (
+        ["--json", "validate"],
+        ["--content", "validate"],
+        ["--json", "index", "--check"],
+        ["--strict", "status"],
+        ["--json", "changelog", "check"],
+        ["--json", "mounts", "status"],
+    ):
+        code, _, err = run_cli(capsys, [*argv, "--root", str(EXAMPLE)])
+        assert code in (0, 1), (argv, err)
+
+
+def test_numeric_flags_take_decimal_integers_in_range(capsys) -> None:
+    # A numeric flag takes a plain decimal integer in range. int() also accepts
+    # " 8 ", "1_0", and non-ASCII digits, and Node's Number() accepts 0x10 and 1e3;
+    # every spelling below is a usage error in all three, with leji's own message.
+    for raw in ("abc", "1.5", "0x10", "1e3", " 8 ", "1_0", "65536", "70000", "9" * 21):
+        code, _, err = run_cli(capsys, ["view", "--port", raw])
+        assert code == 2, raw
+        assert "--port must be 0-65535" in err, raw
+    for raw in ("abc", "0", "1.5", "0x10", "1e3", " 8 ", "1_0", "2147483648", "9" * 21):
+        code, _, err = run_cli(capsys, ["changelog", "compact", "--keep", raw])
+        assert code == 2, raw
+        assert "--keep must be a positive integer" in err, raw
+    # Checked in the argv scan, ahead of the per-command flag check, so a command
+    # that does not even declare --port reports the range error the other two do.
+    code, _, err = run_cli(capsys, ["viewer", "build", "--port", "abc"])
+    assert code == 2
+    assert "--port must be 0-65535" in err
+    # The spellings all three accept: bare digits, a leading +, a leading zero.
+    assert run_cli(capsys, ["--port", "0", "--keep", "08", "version"])[0] == 0
+    assert run_cli(capsys, ["--port", "+7", "--keep", "2147483647", "version"])[0] == 0
+
+
+def test_enum_flags_are_checked_in_the_argv_scan(capsys) -> None:
+    # Same ordering as the numeric flags: --mode and --level are checked where Node
+    # and Go check them, ahead of the per-command flag check, so a command that does
+    # not even declare the flag still reports the enum error the other two report.
+    for argv, message in (
+        (["viewer", "build", "--mode", "bogus"], "--mode must be solo or team"),
+        (["validate", "--mode", "bogus"], "--mode must be solo or team"),
+        (["viewer", "build", "--level", "bogus"], "--level must be core or indexed"),
+        (["index", "--level", "bogus"], "--level must be core or indexed"),
+        (["init", "--mode", "bogus"], "--mode must be solo or team"),
+        (["init", "--level", "bogus"], "--level must be core or indexed"),
+    ):
+        code, _, err = run_cli(capsys, argv)
+        assert code == 2, argv
+        assert message in err, argv
 
 
 def test_init_and_adopt_accept_global_json_flag(tmp_path, capsys) -> None:
@@ -335,6 +405,8 @@ def test_clijson_documents_exactly_the_accepted_commands(capsys, tmp_path) -> No
             argv += ["--keep", "1"]  # compact requires --keep or --before
         elif name == "agent":
             argv += ["--host", "codex", "--name", "reviewer"]  # agent requires both
+        elif name == "mounts locate":
+            argv.insert(2, "acme-product-context")  # locate takes a positional mount name
         code = main(argv)
         capsys.readouterr()
         assert code != 2, f'"{name}" should not be a usage error'
@@ -350,7 +422,12 @@ def test_clijson_documents_exactly_the_accepted_commands(capsys, tmp_path) -> No
         "freshness",
         "index",
         "init",
+        "mounts hydrate",
+        "mounts locate",
+        "mounts status",
+        "route",
         "start",
+        "status",
         "validate",
         "view",
         "viewer",
@@ -369,6 +446,7 @@ _READ_COMMANDS = [
     ["validate"],
     ["conformance"],
     ["freshness"],
+    ["route"],
     ["detect"],
     ["index", "--check"],
     ["changelog", "check"],
@@ -431,7 +509,8 @@ def test_viewer_prints_serve_hint(tmp_path, capsys) -> None:
     shutil.copytree(EXAMPLE, layer)
     code, out, _ = run_cli(capsys, ["viewer", "--root", str(layer)])
     assert code == 0, out
-    assert "serve locally: leji view" in out
+    assert "serve: leji view" in out
+    assert "viewer ready (3 entries) → docs/.leji/viewer/" in out
 
 
 def test_viewer_rejects_open(tmp_path, capsys) -> None:
@@ -486,6 +565,37 @@ def test_view_bad_subcommand_is_usage_error(tmp_path, capsys) -> None:
     code, out, err = run_cli(capsys, ["view", "serve", "--root", str(layer)])
     assert code == 2
     assert "usage: leji view" in (out + err)
+
+
+def test_init_adopt_mode_invalid_and_missing_values_fail_solo_plans_starters(
+    tmp_path, capsys
+) -> None:
+    # Mirrors 'init/adopt --mode: invalid and missing values fail with usage exit 2;
+    # solo plans the starters' in packages/sdk/test/proc/run.test.ts.
+    code, _, err = run_cli(capsys, ["init", "--dir", str(tmp_path), "--yes", "--mode", "squad"])
+    assert code == 2
+    assert "--mode must be solo or team" in err
+    code, _, err = run_cli(capsys, ["init", "--dir", str(tmp_path), "--yes", "--mode"])
+    assert code == 2
+    assert "--mode requires a value" in err
+    assert list(tmp_path.iterdir()) == [], "usage errors write nothing"
+
+    code, out, _ = run_cli(
+        capsys, ["init", "--dir", str(tmp_path), "--yes", "--mode", "solo", "--dry-run"]
+    )
+    assert code == 0
+    assert re.search(r"create\s+docs/domain/identity\.md", out)
+    assert re.search(r"create\s+docs/practice/writing-style\.md", out)
+    assert list(tmp_path.iterdir()) == [], "dry-run writes nothing"
+
+
+def test_init_level_invalid_value_fails_with_usage_exit_2(tmp_path, capsys) -> None:
+    # The pre-dispatch range check (not argparse `choices=`) keeps the error text
+    # byte-identical with Node and Go: leji's own message + USAGE, exit 2.
+    code, _, err = run_cli(capsys, ["init", "--dir", str(tmp_path), "--yes", "--level", "gold"])
+    assert code == 2
+    assert "--level must be core or indexed" in err
+    assert list(tmp_path.iterdir()) == [], "usage errors write nothing"
 
 
 def test_start_no_manifest_exits_1(capsys, tmp_path) -> None:

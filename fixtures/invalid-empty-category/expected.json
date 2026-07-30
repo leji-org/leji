@@ -3,9 +3,14 @@
     "exit": 1,
     "findings": [
       {
+        "rule": "index-entry-empty",
+        "severity": "warning",
+        "path": "docs/context/practice.md"
+      },
+      {
         "rule": "category-empty",
         "severity": "error",
-        "path": "docs/practice/"
+        "path": "docs/context/practice.md"
       }
     ]
   }

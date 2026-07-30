@@ -1,7 +1,5 @@
 // Package changelog implements `leji changelog compact`: folding the oldest
-// changelog entries into a single compaction entry. It mirrors the Node SDK's
-// commands/changelog.ts, including canonical (date, id) ordering, the fold
-// predicates, the compaction entry shape, and deterministic serialization.
+// entries into a single compaction entry.
 package changelog
 
 import (
@@ -20,7 +18,7 @@ import (
 )
 
 // CompactOptions controls which entries fold. Keep/Before are active only when
-// their Has* flag is set, mirroring the optional fields in the Node options.
+// their Has* flag is set.
 type CompactOptions struct {
 	Keep    int
 	HasKeep bool
@@ -29,15 +27,11 @@ type CompactOptions struct {
 	HasBefore bool
 }
 
-// CompactResult reports the outcome of a compaction.
 type CompactResult struct {
 	Findings []findings.Finding
-	// Folded is the number of entries folded into the compaction entry (0 = no-op).
-	Folded int
-	// Kept is the number of surviving non-compaction entries plus the new one.
-	Kept int
-	// Path is the effective changelog path operated on.
-	Path string
+	Folded   int // entries folded (0 = no-op)
+	Kept     int // surviving entries plus the new compaction entry
+	Path     string
 }
 
 type entry = map[string]any
@@ -58,7 +52,7 @@ func entryID(e entry) string {
 
 // compareByDateID is the canonical changelog order (machine-readable-surface.md
 // req 3): ascending by date, then id as the tiebreak. date is UTC, so a lexical
-// compare is chronological; id is unique, so the pair is a total order.
+// compare is chronological.
 func compareByDateID(a, b entry) int {
 	ad, bd := entryDate(a), entryDate(b)
 	if ad != bd {
@@ -77,17 +71,14 @@ func compareByDateID(a, b entry) int {
 	return 0
 }
 
-// today returns today's date as YYYY-MM-DD (UTC).
 func today() string {
 	return time.Now().UTC().Format("2006-01-02")
 }
 
-// SeedChangelogIfMissing seeds the machine changelog if the layer claims indexed
-// (or higher) and the file is missing. The changelog is an indexed-level surface,
-// so `leji init` only writes it at that level; this lets `leji index` complete the
-// indexed surface for a layer that claimed indexed after the fact (e.g. an upgrade
-// from core). Returns the seeded path, or "" when nothing was written (not
-// indexed, already present, or a symlink would escape the root). Never overwrites.
+// SeedChangelogIfMissing seeds the machine changelog when the layer claims
+// indexed (or higher) and the file is missing; this lets `leji index` complete
+// the indexed surface for a layer upgraded from core. Returns the seeded path,
+// or "" when nothing was written. Never overwrites.
 func SeedChangelogIfMissing(root string, m *manifest.Manifest) (string, error) {
 	if !manifest.LevelAtLeast(manifest.ClaimedLevel(m), "indexed") {
 		return "", nil
@@ -121,22 +112,19 @@ func SeedChangelogIfMissing(root string, m *manifest.Manifest) (string, error) {
 	return rel, nil
 }
 
-// beforeDateRe matches a YYYY-MM-DD `before` cutoff, mirroring the Node SDK's
-// compaction API validation.
 var beforeDateRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
 // CompactChangelog compacts the oldest entries of the changelog. An entry folds
 // iff every active flag marks it foldable: keep ⇒ its canonical index is older
 // than the newest keep entries; before ⇒ its date is strictly before before.
-// Inactive flags are neutral. Because both predicates select a prefix of the
-// canonical (date, id) order, the folded set is always a contiguous run from the
-// oldest end. The folded entries are dropped and a single compaction entry is
-// appended, recording the count and the id range it removed. Surviving entries
-// keep their original array order.
+// Both predicates select a prefix of the canonical (date, id) order, so the
+// folded set is always a contiguous run from the oldest end. Folded entries are
+// dropped and a single compaction entry recording the removed count and id range
+// is appended. Survivors keep their original array order.
 func CompactChangelog(root string, m *manifest.Manifest, opts CompactOptions) CompactResult {
 	rel := manifest.EffectiveChangelogPath(m)
-	// Validate options at the API level too (the CLI also checks --keep): SDK
-	// callers must not be able to fold with keep < 1 or a malformed `before` date.
+	// Validate at the API level too: SDK callers must not fold with keep < 1 or a
+	// malformed `before` date.
 	if opts.HasKeep && opts.Keep < 1 {
 		return CompactResult{
 			Findings: []findings.Finding{findings.New("invalid-argument", findings.Error,
@@ -180,19 +168,14 @@ func CompactChangelog(root string, m *manifest.Manifest, opts CompactOptions) Co
 		}
 	}
 
-	// Canonical order decides which entries are "oldest"; the index of each entry
-	// in that order drives the keep predicate. The entry maps are reference types
-	// shared between original and canonical, so identity is tracked by the map's
-	// underlying pointer (mirroring the Set<ChangelogEntry> in the Node SDK).
+	// Canonical order decides which entries are "oldest"; entry identity is tracked
+	// by the map's underlying pointer (see entryPtr) since maps aren't comparable.
 	canonical := make([]entry, len(original))
 	copy(canonical, original)
 	sort.SliceStable(canonical, func(i, j int) bool {
 		return compareByDateID(canonical[i], canonical[j]) < 0
 	})
 
-	// An entry folds iff both active predicates accept it; canonical position
-	// (0 = oldest) drives the keep predicate. Both predicates select a prefix of
-	// the canonical order, so the folded set is a contiguous run from the oldest.
 	foldedSet := map[uintptr]bool{}
 	var folded []entry
 	for pos, e := range canonical {
@@ -208,7 +191,6 @@ func CompactChangelog(root string, m *manifest.Manifest, opts CompactOptions) Co
 		return CompactResult{Findings: nil, Folded: 0, Kept: len(original), Path: rel}
 	}
 
-	// Survivors keep their original array order.
 	var survivors []entry
 	for _, e := range original {
 		if !foldedSet[entryPtr(e)] {
@@ -311,10 +293,8 @@ func CompactChangelog(root string, m *manifest.Manifest, opts CompactOptions) Co
 	return CompactResult{Findings: nil, Folded: len(folded), Kept: len(nextEntries), Path: rel}
 }
 
-// entryPtr returns a stable identity for an entry map. Go maps are reference
-// types but not comparable; reflect exposes the underlying pointer, which is
-// stable for the lifetime of the map, so it serves as a set key the way object
-// identity does for the Node SDK's Set<ChangelogEntry>.
+// entryPtr returns a stable identity for an entry map (maps aren't comparable):
+// the underlying pointer, stable for the map's lifetime, used as a set key.
 func entryPtr(e entry) uintptr {
 	return reflect.ValueOf(e).Pointer()
 }

@@ -1,0 +1,36 @@
+{
+  "leji": "1.0",
+  "name": "fixture",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {
+    "domain": {
+      "indexes": [
+        "docs/context/domain.md"
+      ]
+    },
+    "decisions": {
+      "indexes": [
+        "docs/context/decisions.md"
+      ]
+    }
+  },
+  "owners": {
+    "primary": {
+      "name": "Fixture Owner"
+    }
+  },
+  "federation": {
+    "mounts": [
+      {
+        "path": "context/product/",
+        "name": "product-context",
+        "source": "https://github.com/acme/product-context",
+        "pin": "4e974570000000000000000000000000000000aa",
+        "owner": {
+          "name": "Product Owner"
+        }
+      }
+    ]
+  }
+}

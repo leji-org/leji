@@ -1,0 +1,8 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      { "rule": "categories-intent-minimum", "severity": "error", "path": "leji.json" }
+    ]
+  }
+}

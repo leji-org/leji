@@ -4,7 +4,14 @@
   "title": "Leji context manifest (leji.json)",
   "description": "The machine entrypoint of a Leji context layer. Lives at the repository root as leji.json.",
   "type": "object",
-  "required": ["leji", "name", "rootPath", "bootProfilePath", "categories", "owners"],
+  "required": [
+    "leji",
+    "name",
+    "rootPath",
+    "bootProfilePath",
+    "categories",
+    "owners"
+  ],
   "additionalProperties": false,
   "properties": {
     "$schema": {
@@ -37,7 +44,7 @@
     },
     "categories": {
       "type": "object",
-      "description": "Logical category to path mapping. Keys are the five category identifiers.",
+      "description": "Logical category to index-file mapping. Keys are the five category identifiers; each maps to one or more curated index files that list the category's content.",
       "additionalProperties": false,
       "minProperties": 1,
       "properties": {
@@ -96,10 +103,22 @@
         }
       }
     },
+    "actors": {
+      "type": "object",
+      "description": "Optional registry of actors that can fill roles. Keys are stable actor identifiers. An actor declares the roles it is eligible for and a command template per role. Use it when a role has more than one eligible actor, or when one actor needs a different invocation depending on which role it is filling; either alone is reason enough. A role whose single actor needs only one command is served by the agent profile's own host and invocation.",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z0-9]+(-[a-z0-9]+)*$": {
+          "$ref": "#/$defs/actor"
+        }
+      }
+    },
     "owners": {
       "type": "object",
       "description": "Who is accountable for the context layer's health. Owners answer for the context layer staying current and pruned; they do not author or curate it alone (governance.md).",
-      "required": ["primary"],
+      "required": [
+        "primary"
+      ],
       "additionalProperties": false,
       "properties": {
         "primary": {
@@ -119,7 +138,12 @@
       "properties": {
         "claimedLevel": {
           "description": "The conformance level claimed: core, indexed, governed, or federated.",
-          "enum": ["core", "indexed", "governed", "federated"]
+          "enum": [
+            "core",
+            "indexed",
+            "governed",
+            "federated"
+          ]
         },
         "claimedAt": {
           "description": "ISO 8601 date the claim was last asserted.",
@@ -135,17 +159,33 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["path", "name", "owner"],
+            "required": [
+              "name",
+              "source",
+              "pin",
+              "owner"
+            ],
             "additionalProperties": false,
             "properties": {
-              "path": {
-                "$ref": "#/$defs/relPath",
-                "description": "Where the sibling layer is mounted in this repository, e.g. \"context/product/\". The sibling's own leji.json lives at this path's root."
-              },
               "name": {
                 "type": "string",
                 "minLength": 1,
                 "description": "The sibling layer's name; must match the `name` in the sibling's own manifest."
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Normalized repository locator of the sibling layer: an https://, ssh://, or SCP-style remote URL. The resolution root and the pin's namespace. Local filesystem paths are valid only in machine-local hints, never here."
+              },
+              "pin": {
+                "type": "string",
+                "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+                "description": "Full immutable commit id (SHA-1 or SHA-256) of the sibling revision this host reads. Manifest-held desired state: pin updates are deliberate, reviewed curation."
+              },
+              "trackingRef": {
+                "type": "string",
+                "pattern": "^refs/(heads|tags)/.+$",
+                "description": "Optional fully qualified witness ref on the source (refs/heads/* or refs/tags/*) that stale-pin reporting and federated reachability compare against. Absent, the source's advertised default branch is used and recorded in command output."
               },
               "owner": {
                 "$ref": "#/$defs/owner",
@@ -153,15 +193,41 @@
               },
               "role": {
                 "type": "string",
-                "description": "What this sibling layer carries, e.g. \"product-side context\"."
+                "description": "What this sibling layer carries, in prose, e.g. \"product-side context\". For humans; routing uses the structured fields below."
               },
-              "source": {
-                "type": "string",
-                "description": "Upstream repository URL of the sibling layer. Optional; enables stale-pin reporting when git submodule metadata alone isn't available."
+              "categories": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "domain",
+                    "system",
+                    "practice",
+                    "governance",
+                    "decisions"
+                  ]
+                },
+                "minItems": 1,
+                "description": "The content-category scopes this sibling can answer for. Routing metadata only; the sibling's content stays in the sibling. Required for federated conformance."
+              },
+              "topics": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Short host-visible topic labels used to route a task to this sibling, e.g. \"billing\", \"checkout\". Routing metadata only."
+              },
+              "requiredWhen": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Task conditions under which a reader must resolve this mount, or stop and report incomplete context if it cannot (fail closed). Host-visible; must not disclose anything the host's audience may not see."
               }
             }
           },
-          "description": "Each mount is a docs-only sibling layer at a pinned version, keeping its own repository, ownership, and review gate."
+          "description": "Each mount is a sibling context layer read at a pinned version through a resolver-hydrated layer projection, keeping its own repository, ownership, and review gate. Materialized content lives in the gitignored resolver cache, never committed here."
         }
       },
       "description": "Sibling layers mounted into this repository (spec: distribution.md pattern 3). The circle composes ownership; it doesn't centralize it."
@@ -188,6 +254,57 @@
           "type": "string",
           "description": "Logo image for the viewer, as a path under the context root (e.g. \"assets/logo.svg\"). Defaults to the Leji mark."
         },
+        "title": {
+          "type": "string",
+          "description": "Display title for the viewer (sidebar header and page title). Defaults to the context layer name."
+        },
+        "agentsLabel": {
+          "type": "string",
+          "description": "Sidebar label for the agent-profiles group (emoji welcome). Defaults to \"🤖 Agents\". The group lists the layer's agent profiles and is ordered by viewer.groupOrder like any other group."
+        },
+        "favicon": {
+          "type": "string",
+          "description": "Favicon for the viewer, as a path under the context root (e.g. \"assets/icon.svg\"). Defaults to the Leji mark."
+        },
+        "homepage": {
+          "type": "string",
+          "description": "The viewer's landing page, as a path relative to the context root (e.g. \"README.md\"). Defaults to the seeded overview.md."
+        },
+        "pins": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Repository-root-relative markdown path to pin."
+                  },
+                  "label": {
+                    "type": "string",
+                    "description": "Curated sidebar label for the pin (emoji welcome). Derived from the file when omitted."
+                  }
+                }
+              }
+            ]
+          },
+          "description": "Pages pinned at the top of the sidebar: repository-root-relative markdown paths, or {path, label} for a curated label. Pinning the boot profile replaces its default line."
+        },
+        "groupOrder": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Curated sidebar group sequence, by exact group label (the index file's H1). Listed groups come first in this order; unlisted groups follow in derived order."
+        },
         "theme": {
           "type": "object",
           "additionalProperties": false,
@@ -203,11 +320,25 @@
           "type": "boolean",
           "description": "Render fenced ```mermaid code blocks as diagrams in the viewer. Defaults to true."
         },
+        "poweredBy": {
+          "type": "boolean",
+          "description": "Show the small \"Powered by Leji\" mark in the viewer's corner. Defaults to true; set false to remove it."
+        },
         "categoryEmojis": {
           "type": "object",
-          "additionalProperties": { "type": "string" },
-          "propertyNames": { "enum": ["domain", "system", "practice", "governance", "decisions"] },
-          "description": "Override the default emoji shown beside each category group in the sidebar."
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "enum": [
+              "domain",
+              "system",
+              "practice",
+              "governance",
+              "decisions"
+            ]
+          },
+          "description": "Override the default emoji shown beside each category in the generated layer map. (Sidebar groups are labeled by each index file's own H1.)"
         }
       }
     }
@@ -219,11 +350,13 @@
     },
     "isoDate": {
       "type": "string",
-      "pattern": "^\\d{4}-\\d{2}-\\d{2}([T ].*)?$"
+      "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])([T ].*)?$"
     },
     "owner": {
       "type": "object",
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -239,18 +372,62 @@
     },
     "categoryMapping": {
       "type": "object",
-      "required": ["paths"],
+      "required": [
+        "indexes"
+      ],
       "additionalProperties": false,
       "properties": {
-        "paths": {
-          "description": "One or more repository-root-relative paths where this category's content lives.",
+        "indexes": {
+          "description": "One or more repository-root-relative index files for this category. Each index file is curated markdown carrying a fenced `leji-index` block whose `- path: <dir-or-file>` lines select the content that belongs to this category. Content stays where it lives; the index file declares inclusion.",
           "type": "array",
           "minItems": 1,
           "items": {
-            "$ref": "#/$defs/relPath"
+            "type": "string",
+            "pattern": "^(?!/)(?!\\./)(?!.*(^|/)\\.\\.(/|$))(?!.*\\\\).+\\.md$"
           }
         }
       }
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "roles",
+        "commands"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/roleId"
+          },
+          "description": "Role identifiers this actor is eligible to fill. Every entry must have a matching key in commands."
+        },
+        "commands": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/roleId"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/actorCommand"
+          },
+          "description": "Command templates keyed by role identifier. The key set must equal roles. Keying by role is the point: one actor can need different invocations for different roles."
+        }
+      }
+    },
+    "actorCommand": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "<prompt>",
+      "description": "Command template used to engage this actor in the keyed role. Must carry the <prompt> placeholder, standing as its own unquoted shell word; the pattern verifies the substitution site exists, placement is the spec's rule."
+    },
+    "roleId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "A role identifier, lowercase and hyphen-separated, as used by the agents map."
     }
   }
 }

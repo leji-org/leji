@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Optional
 
-# The disposition of a single path in a planned operation.
 PlanStatus = Literal["create", "skip-exists", "wont-modify", "overwrite"]
 
 
@@ -38,11 +37,10 @@ def build_write_plan(
     wont_modify: Optional[list[str]] = None,
     overwrite: Optional[list[str]] = None,
 ) -> list[PlanEntry]:
-    """Classify each intended write against the filesystem (``create`` when
-    absent, ``skip-exists`` when a path is already there and Leji refuses to
-    overwrite), record foreign files Leji explicitly will not touch
-    (``wont-modify``), and mark the few paths the user has explicitly consented
-    to overwrite (``overwrite``, e.g. converting a vendor entrypoint to a
+    """Classify each intended write against the filesystem: ``create`` when absent,
+    ``skip-exists`` when present (Leji refuses to overwrite), ``wont-modify`` for
+    foreign files Leji will not touch, and ``overwrite`` for paths the user has
+    explicitly consented to overwrite (e.g. converting a vendor entrypoint to a
     redirect after migrating its content)."""
     allow_overwrite = set(overwrite or [])
     entries: list[PlanEntry] = []

@@ -13,7 +13,7 @@ const current = Astro.url.pathname;
    <div class="wrap">
       <div class="doc-shell">
          <SectionNav current={current} />
-         <main class="prose">
+         <main id="content" class="prose">
             <slot />
          </main>
       </div>

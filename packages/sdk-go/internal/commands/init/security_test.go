@@ -9,12 +9,11 @@ import (
 	"testing"
 )
 
-// init refuses to write through a symlinked context root that escapes the dir;
-// nothing leaks into the outside directory.
+// init refuses a context root symlinked outside the dir; nothing leaks out.
 func TestInitRefusesSymlinkedRootEscape(t *testing.T) {
 	dir := t.TempDir()
 	outside := t.TempDir()
-	// The context root `docs/` is a symlink to a real directory outside `dir`.
+	// docs/ symlinks to a real directory outside dir.
 	if err := os.Symlink(outside, filepath.Join(dir, "docs")); err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +26,7 @@ func TestInitRefusesSymlinkedRootEscape(t *testing.T) {
 		t.Fatalf("error should mention escapes the target, got: %v", err)
 	}
 
-	// Nothing leaked into the outside directory through the escaping symlink.
+	// Nothing leaked outside through the escaping symlink.
 	entries, rerr := os.ReadDir(outside)
 	if rerr != nil {
 		t.Fatal(rerr)
@@ -37,8 +36,8 @@ func TestInitRefusesSymlinkedRootEscape(t *testing.T) {
 	}
 }
 
-// adopt --wire-adapters refuses to overwrite a symlinked-outside vendor file:
-// the outside content is unchanged and the symlink is not replaced.
+// adopt --wire-adapters won't overwrite a symlinked-outside vendor file: outside
+// content unchanged, symlink not replaced.
 func TestAdoptWireAdaptersRefusesSymlinkedOutsideVendor(t *testing.T) {
 	dir := t.TempDir()
 	outside := t.TempDir()
@@ -57,7 +56,7 @@ func TestAdoptWireAdaptersRefusesSymlinkedOutsideVendor(t *testing.T) {
 		t.Fatalf("adopt should succeed treating the escaping symlink as absent: %v", err)
 	}
 
-	// The outside file is untouched and CLAUDE.md still points out (not overwritten).
+	// Outside file untouched; CLAUDE.md still points out (not overwritten).
 	got, _ := os.ReadFile(secretPath)
 	if string(got) != "OUTSIDE SECRET CONTENT\n" {
 		t.Fatalf("outside file was modified: %q", string(got))
@@ -71,8 +70,8 @@ func TestAdoptWireAdaptersRefusesSymlinkedOutsideVendor(t *testing.T) {
 	}
 }
 
-// adopt does not migrate a symlinked-outside vendor file: it is not in Migrated
-// and no imported doc contains the outside secret.
+// adopt does not migrate a symlinked-outside vendor file: not in Migrated, and
+// no imported doc contains the outside secret.
 func TestAdoptDoesNotMigrateSymlinkedOutsideVendor(t *testing.T) {
 	dir := t.TempDir()
 	outside := t.TempDir()
@@ -108,8 +107,8 @@ func TestAdoptDoesNotMigrateSymlinkedOutsideVendor(t *testing.T) {
 	}
 }
 
-// migrationDoc fences migrated content so raw HTML is shown verbatim: the
-// <script> payload lives inside a ``` fence, not as a bare rendered line.
+// migrationDoc fences migrated content so raw HTML stays verbatim: the <script>
+// payload lives inside a fence, not as a bare rendered line.
 func TestMigrationDocFencesRawHTML(t *testing.T) {
 	dir := t.TempDir()
 	exec.Command("git", "init", "-q", dir).Run()
@@ -130,7 +129,6 @@ func TestMigrationDocFencesRawHTML(t *testing.T) {
 	if !strings.Contains(string(imported), "```") {
 		t.Fatal("migrated content should be wrapped in a fenced code block")
 	}
-	// The script text is present, inside the fence (not as a bare rendered line).
 	fenceRe := regexp.MustCompile("(?s)(`{3,})\n(.*?)\n`{3,}")
 	m := fenceRe.FindStringSubmatch(string(imported))
 	if m == nil {

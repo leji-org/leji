@@ -1,8 +1,7 @@
 import { defineCollection, z } from 'astro:content';
 import { glob } from 'astro/loaders';
 
-// The spec markdown in ../spec is the single source of truth; the site loads
-// it in place. Nothing is copied.
+// Single-sourced from ../spec, loaded in place (nothing is copied).
 const spec = defineCollection({
    loader: glob({ pattern: '*.md', base: '../../spec' }),
    schema: z.object({}).passthrough(),

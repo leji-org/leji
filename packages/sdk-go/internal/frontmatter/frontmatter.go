@@ -14,26 +14,35 @@ import (
 )
 
 // Frontmatter is the parsed result: Data is the YAML mapping (nil when absent),
-// Body is the document after the block, Error is set when the block exists but
-// is invalid.
+// Body the document after the block, Error set when the block exists but is invalid.
+// Keys carries the top-level mapping's authored key order, which a Go map does not:
+// the effective profile an inheritance resolves to is presented in that order.
 type Frontmatter struct {
 	Data  map[string]any
+	Keys  []string
 	Body  string
 	Error string
 }
 
-var fence = regexp.MustCompile(`\r?\n---[ \t]*\r?\n`)
+// Submatch 1 is the line terminator ending the block's last line; Parse slices by
+// its length so a CRLF file's terminator is kept whole.
+var fence = regexp.MustCompile(`(\r?\n)---[ \t]*\r?\n`)
 
 // Parse extracts the frontmatter block from a markdown document.
 func Parse(text string) Frontmatter {
 	if !strings.HasPrefix(text, "---\n") && !strings.HasPrefix(text, "---\r\n") {
 		return Frontmatter{Data: nil, Body: text}
 	}
-	loc := fence.FindStringIndex(text[3:])
+	loc := fence.FindStringSubmatchIndex(text[3:])
 	if loc == nil {
 		return Frontmatter{Data: nil, Body: text, Error: "unterminated frontmatter block"}
 	}
-	raw := text[3 : 3+loc[0]+1]
+	// loc[3] ends submatch 1, which starts at the match start: slicing to it keeps
+	// the whole terminator. Taking a fixed single byte leaves a CRLF file's bare
+	// `\r` in the raw YAML, which yaml.v3 tolerates but the Node SDK's parser folds
+	// into the last scalar's value. All three SDKs hand their YAML library the same
+	// bytes rather than relying on a given library's leniency.
+	raw := text[3 : 3+loc[3]]
 	body := text[3+loc[1]:]
 
 	var root yaml.Node
@@ -54,7 +63,27 @@ func Parse(text string) Frontmatter {
 	if !ok {
 		return Frontmatter{Data: nil, Body: body, Error: "frontmatter is not a YAML mapping"}
 	}
-	return Frontmatter{Data: m, Body: body}
+	return Frontmatter{Data: m, Keys: topLevelKeys(root.Content[0]), Body: body}
+}
+
+// topLevelKeys is the authored key order of the frontmatter mapping. Duplicate
+// keys never reach here (convert rejects them), so the order is one key per pair.
+func topLevelKeys(node *yaml.Node) []string {
+	for node != nil && node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		node = node.Content[0]
+	}
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	keys := make([]string, 0, len(node.Content)/2)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key, err := scalarKey(node.Content[i])
+		if err != nil {
+			return nil
+		}
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 var boolRe = regexp.MustCompile(`^(?:true|True|TRUE|false|False|FALSE)$`)
@@ -63,8 +92,8 @@ var octRe = regexp.MustCompile(`^0o[0-7]+$`)
 var hexRe = regexp.MustCompile(`^0x[0-9a-fA-F]+$`)
 var floatRe = regexp.MustCompile(`^[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?$`)
 
-// convert walks a yaml.Node into Go values applying YAML 1.2 core scalar
-// resolution (no yes/no/on/off booleans, no timestamp coercion).
+// convert walks a yaml.Node into Go values under YAML 1.2 core scalar resolution
+// (no yes/no/on/off booleans, no timestamp coercion).
 func convert(node *yaml.Node) (any, error) {
 	switch node.Kind {
 	case yaml.DocumentNode:

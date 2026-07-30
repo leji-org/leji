@@ -1,0 +1,17 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "category-empty",
+        "severity": "error",
+        "path": "docs/context/domain.md"
+      },
+      {
+        "rule": "category-conflict",
+        "severity": "error",
+        "path": "docs/shared.md"
+      }
+    ]
+  }
+}

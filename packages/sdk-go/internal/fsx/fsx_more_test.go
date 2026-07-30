@@ -6,9 +6,8 @@ import (
 	"testing"
 )
 
-// A declared markdown path that is a symlink escaping the root must not be
-// returned by WalkMd, whether the link is the top-level declared file or a
-// child of a declared directory. Mirrors the TS/Python containment guard.
+// A symlink escaping the root must not be returned by WalkMd, whether it is the
+// declared file or a child of a declared directory.
 func TestWalkMdRejectsSymlinkEscape(t *testing.T) {
 	outside := t.TempDir()
 	secret := filepath.Join(outside, "secret.md")

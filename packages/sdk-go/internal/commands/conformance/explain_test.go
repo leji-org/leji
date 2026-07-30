@@ -8,8 +8,7 @@ import (
 	initcmd "github.com/leji-org/leji/packages/sdk-go/internal/commands/init"
 )
 
-// conformance --explain guides toward the next level: a fresh core layer points
-// at "indexed" and surfaces the content-lint pointer.
+// A fresh core layer points at "indexed" and surfaces the content-lint pointer.
 func TestRenderExplainGuidesTowardNextLevel(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := initcmd.InitLayer(initcmd.Options{Dir: dir, Yes: true}); err != nil { // core, not indexed
@@ -22,7 +21,11 @@ func TestRenderExplainGuidesTowardNextLevel(t *testing.T) {
 			t.Fatalf("git init: %v", err)
 		}
 	}
-	explain := RenderExplain(Report(dir))
+	report, err := Report(dir, false)
+	if err != nil {
+		t.Fatalf("conformance: %v", err)
+	}
+	explain := RenderExplain(report)
 	if !strings.Contains(explain, `To reach "indexed"`) {
 		t.Fatalf("expected guidance toward indexed, got:\n%s", explain)
 	}
@@ -31,10 +34,9 @@ func TestRenderExplainGuidesTowardNextLevel(t *testing.T) {
 	}
 }
 
-// RenderExplain covers two branches reachable only by constructed results: the
-// federated (top) case has nothing further to reach, and a verified=core layer
-// whose every next-level (indexed) item already passes is told to bump the claim.
-// Mirrors the Node SDK's renderExplain branch test.
+// Two branches reachable only by constructed results: federated (top) has nothing
+// further to reach; a verified=core layer whose next-level items all pass is told
+// to bump the claim.
 func TestRenderExplainFederatedAndAllPass(t *testing.T) {
 	top := RenderExplain(Result{
 		ClaimedLevel:  "federated",

@@ -3,10 +3,11 @@ id: <role-id>
 name: <Role name>
 role: <role>
 purpose: <one line>
-# host + invocation only for agents engaged as external CLIs; omit for the resident agent
+# host + invocation only for agents engaged as external CLIs; omit for the resident agent.
+# In command, <prompt> stands as its own unquoted shell word (never inside quotes).
 host: <agent host, e.g. codex>
 invocation:
-  command: <command template with <prompt> placeholder>
+  command: some-cli exec <prompt>
   constraints:
     - <operational constraint worth machine-knowing>
 inherits: core

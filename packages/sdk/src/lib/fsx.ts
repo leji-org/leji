@@ -30,12 +30,10 @@ export function readText(abs: string): string {
 }
 
 /**
- * Read a declared file's text, but only if it is a regular file whose real path
- * (after resolving symlinks) stays within `rootAbs`. Returns null when the
- * target is missing, is not a regular file, or escapes the root via a symlink.
- * Use this for every read of a repository-relative path a manifest declares, so
- * a hostile layer cannot use a symlink to redirect a reader (the CLI, or an MCP
- * exposing these reads to an agent) outside the layer root.
+ * Read a declared file's text, only if it is a regular file whose real path stays
+ * within `rootAbs`. Returns null when missing, not a regular file, or symlinked
+ * out of root. Use for every manifest-declared path so a hostile layer cannot use
+ * a symlink to redirect a reader (CLI, or MCP exposing reads to an agent) out.
  */
 export function readTextWithin(rootAbs: string, abs: string): string | null {
    if (!isFile(abs) || !realpathWithin(rootAbs, abs)) return null;
@@ -43,9 +41,8 @@ export function readTextWithin(rootAbs: string, abs: string): string | null {
 }
 
 /**
- * True when `abs` resolves (following symlinks) to a path that remains within
- * `rootAbs` (itself resolved). Symlinks that escape the served/scanned root are
- * rejected. A path that does not yet exist cannot escape, so it is allowed.
+ * True when `abs` resolves (following symlinks) within `rootAbs`. Escaping
+ * symlinks are rejected; a non-existent path cannot escape, so it is allowed.
  */
 export function realpathWithin(rootAbs: string, abs: string): boolean {
    let resolvedRoot: string;
@@ -58,18 +55,16 @@ export function realpathWithin(rootAbs: string, abs: string): boolean {
    try {
       real = fs.realpathSync(abs);
    } catch {
-      // Non-existent target: it cannot point outside via a symlink.
-      return true;
+      return true; // non-existent target cannot point outside via a symlink
    }
    return real === resolvedRoot || real.startsWith(resolvedRoot + path.sep);
 }
 
 /**
- * True when `abs` resolves (following symlinks) to a path within `rootAbs`,
- * even when `abs` does not yet exist. Unlike `realpathWithin`, a non-existent
- * target is checked by resolving its nearest existing ancestor and re-appending
- * the remainder, so a symlinked ancestor that escapes root is caught before a
- * write creates the final file under it.
+ * True when `abs` resolves (following symlinks) within `rootAbs`, even when `abs`
+ * does not yet exist. Unlike `realpathWithin`, a non-existent target is checked
+ * via its nearest existing ancestor, so a symlinked ancestor that escapes root is
+ * caught before a write creates the file under it.
  */
 export function resolvedWithinRoot(rootAbs: string, abs: string): boolean {
    let real: string;
@@ -95,9 +90,8 @@ export function resolvedWithinRoot(rootAbs: string, abs: string): boolean {
 }
 
 /**
- * Recursively collect markdown files under a declared path (file or directory),
- * returned as repository-root-relative POSIX paths, sorted. Entries whose real
- * path (after resolving symlinks) escapes `root` are excluded.
+ * Recursively collect markdown files under a declared path (file or directory) as
+ * repo-root-relative POSIX paths, sorted. Symlink-escaping entries are excluded.
  */
 export function walkMd(root: string, relPath: string): string[] {
    const rootAbs = path.resolve(root);
@@ -126,15 +120,33 @@ export function walkMd(root: string, relPath: string): string[] {
    return out.sort();
 }
 
+/**
+ * All markdown files under a context path, repo-relative POSIX, sorted. Used by
+ * the viewer sidebar; shares walkMd's dotfile/node_modules skip and symlink
+ * containment, so the `.leji` viewer dir is never traversed.
+ */
+export function walkTree(root: string, relPath: string): string[] {
+   return walkMd(root, relPath);
+}
+
 /** Normalize a declared directory path for prefix comparison: no trailing slash. */
 export function stripSlash(p: string): string {
    return p.endsWith('/') ? p.slice(0, -1) : p;
 }
 
+/**
+ * Join a sub-path under a context root with POSIX semantics, treating `.` or
+ * empty root as the repo root: `joinUnderRoot('.', 'context/')` is `context/`,
+ * never the hidden `.context/` a bare concatenation would produce.
+ */
+export function joinUnderRoot(rootPath: string, sub: string): string {
+   const base = stripSlash(rootPath);
+   return base === '' || base === '.' ? sub : `${base}/${sub}`;
+}
+
 /** True when relPath is the declared path itself or falls under it (POSIX). */
 export function underPath(relPath: string, declared: string): boolean {
    const base = stripSlash(declared);
-   // An empty or "." root means the repository root: everything is under it.
-   if (base === '' || base === '.') return true;
+   if (base === '' || base === '.') return true; // root: everything is under it
    return relPath === base || relPath.startsWith(base + '/');
 }

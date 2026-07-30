@@ -1,8 +1,13 @@
 # Security headers for static hosts that honour a _headers file
-# (Netlify, Cloudflare Pages). Host-agnostic; ignored elsewhere. The
-# Content-Security-Policy here is kept in lockstep with the
-# <meta http-equiv="Content-Security-Policy"> in src/layouts/Base.astro so the
-# policy holds even on hosts that ignore this file.
+# (Netlify, Cloudflare Pages). Host-agnostic, and silently ignored by every host
+# that does not read this format, so it is a convenience for self-hosters rather
+# than this site's protection: real response headers are the deployment's job.
+#
+# The <meta http-equiv="Content-Security-Policy"> in src/layouts/Base.astro
+# carries this policy minus frame-ancestors, which a meta CSP ignores. It is not
+# an equivalent fallback either way: X-Frame-Options and X-Content-Type-Options
+# cannot be set by meta at all. Clickjacking and nosniff protection therefore
+# only exist where these are served as response headers.
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin

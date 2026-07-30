@@ -1,5 +1,4 @@
-// Package indexgen generates the context index from the tree, checks the stored
-// index for currency, and serializes it deterministically.
+// Package indexgen generates, checks, and serializes the context index.
 package indexgen
 
 import (
@@ -25,13 +24,18 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/schemas"
 )
 
-// IndexEntry mirrors the Node IndexEntry. Optional fields use pointers / nil
-// slices so they are omitted exactly as Node/Python omit undefined fields.
+// IndexEntry mirrors the Node IndexEntry; optional fields use pointers/nil slices
+// so they omit exactly as Node/Python omit undefined fields.
 type IndexEntry struct {
-	ID           string
-	Path         string
-	Title        string
-	Category     string
+	ID       string
+	Path     string
+	Title    string
+	Category string
+	// Kind is "intent" or "record". Always emitted; consumers treat an
+	// absent value (older indexes) as "intent".
+	Kind string
+	// Date is a record's date, sourced only from valid frontmatter `date`.
+	Date         string
 	Summary      string
 	Tags         []string
 	Owners       []string
@@ -45,6 +49,19 @@ type Freshness struct {
 	ReviewAfter string
 }
 
+// IndexMount is a federated sibling's routing record from federation.mounts.
+type IndexMount struct {
+	Name         string
+	Source       string
+	Pin          string
+	TrackingRef  string
+	Owner        manifest.Owner
+	Role         string
+	Categories   []string
+	Topics       []string
+	RequiredWhen []string
+}
+
 type ContextIndex struct {
 	Schema        string
 	SchemaVersion string
@@ -52,6 +69,7 @@ type ContextIndex struct {
 	Generator     *Generator
 	RootPath      string
 	Entries       []IndexEntry
+	Mounts        []IndexMount
 }
 
 type Generator struct {
@@ -67,6 +85,7 @@ type Result struct {
 }
 
 var idPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+var recordDateRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 var nonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
 var trimDash = regexp.MustCompile(`^-+|-+$`)
 var headingRe = regexp.MustCompile(`(?m)^#\s+(.+)$`)
@@ -119,7 +138,6 @@ func strArray(v any) []string {
 	return out
 }
 
-// LoadStoredIndex reads and parses the stored index as a generic map.
 func LoadStoredIndex(root string, m *manifest.Manifest) map[string]any {
 	rel := manifest.EffectiveIndexPath(m)
 	abs := filepath.Join(root, rel)
@@ -151,19 +169,29 @@ func storedEntries(stored map[string]any) []map[string]any {
 	return out
 }
 
-// GenerateIndex builds the context index from the tree.
 func GenerateIndex(root string, m *manifest.Manifest) Result {
 	var fs []findings.Finding
-	docs := layer.ScanCategories(root, m)
+	scan := layer.ScanCategories(root, m)
+	fs = append(fs, scan.Findings...)
+	docs := scan.Docs
 	stored := LoadStoredIndex(root, m)
 	storedByPath := map[string]map[string]any{}
-	storedByHash := map[string]map[string]any{}
+	// Carry an id by content-hash only when that hash maps to exactly one stored
+	// entry: two byte-identical documents share a hash, so a hash-carry there would
+	// misattribute one document's id to the other on a move.
+	hashEntries := map[string][]map[string]any{}
 	for _, entry := range storedEntries(stored) {
 		if p, ok := entry["path"].(string); ok {
 			storedByPath[p] = entry
 		}
 		if h, ok := entry["contentHash"].(string); ok && h != "" {
-			storedByHash[h] = entry
+			hashEntries[h] = append(hashEntries[h], entry)
+		}
+	}
+	storedByHash := map[string]map[string]any{}
+	for h, arr := range hashEntries {
+		if len(arr) == 1 {
+			storedByHash[h] = arr[0]
 		}
 	}
 
@@ -231,7 +259,14 @@ func GenerateIndex(root string, m *manifest.Manifest) Result {
 		if title == "" {
 			title = strings.TrimSuffix(path.Base(doc.RelPath), ".md")
 		}
-		entry := IndexEntry{ID: id, Path: doc.RelPath, Title: title, Category: doc.Category}
+		entry := IndexEntry{ID: id, Path: doc.RelPath, Title: title, Category: doc.Category, Kind: doc.Kind}
+		if doc.Kind == "record" {
+			// A record's date comes only from explicit, valid frontmatter; nothing
+			// is scraped from prose or filename conventions.
+			if d := str(fm["date"]); d != "" && recordDateRe.MatchString(d) {
+				entry.Date = d
+			}
+		}
 
 		summary := str(fm["summary"])
 		if summary == "" && carried != nil {
@@ -260,6 +295,43 @@ func GenerateIndex(root string, m *manifest.Manifest) Result {
 		entries = append(entries, entry)
 	}
 
+	// Id churn: a stored id whose path is gone and that did not reappear at a new path
+	// vanished (a document moved AND edited with no frontmatter id mints a fresh slug).
+	// Inbound references to the old id now dangle; warn so it is caught, not silent.
+	newIDs := map[string]bool{}
+	for _, e := range entries {
+		newIDs[e.ID] = true
+	}
+	currentPaths := map[string]bool{}
+	for _, d := range docs {
+		currentPaths[d.RelPath] = true
+	}
+	for _, entry := range storedEntries(stored) {
+		p, _ := entry["path"].(string)
+		id, _ := entry["id"].(string)
+		if !currentPaths[p] && !newIDs[id] {
+			fs = append(fs, findings.New("id-vanished", findings.Warning,
+				fmt.Sprintf("stored id %q (was %s) did not reappear; references to it now dangle. Declare a frontmatter id to keep ids stable across moves.", id, p), p))
+		}
+	}
+
+	var mounts []IndexMount
+	if m.Federation != nil {
+		for _, mt := range m.Federation.Mounts {
+			rec := IndexMount{Name: mt.Name, Source: mt.Source, Pin: mt.Pin, TrackingRef: mt.TrackingRef, Owner: mt.Owner, Role: mt.Role}
+			if len(mt.Categories) > 0 {
+				rec.Categories = mt.Categories
+			}
+			if len(mt.Topics) > 0 {
+				rec.Topics = mt.Topics
+			}
+			if len(mt.RequiredWhen) > 0 {
+				rec.RequiredWhen = mt.RequiredWhen
+			}
+			mounts = append(mounts, rec)
+		}
+	}
+
 	index := &ContextIndex{
 		Schema:        "https://leji.org/schemas/v1.0/context-index.schema.json",
 		SchemaVersion: "1.0",
@@ -268,18 +340,25 @@ func GenerateIndex(root string, m *manifest.Manifest) Result {
 		RootPath:      m.RootPath,
 		Entries:       entries,
 	}
+	if len(mounts) > 0 {
+		index.Mounts = mounts
+	}
 	return Result{Index: index, Findings: fs}
 }
 
-// entryComparable builds the currency-comparison view of a generated entry
-// (lastModified excluded), as an ordered map serialized via stableStringify.
+// entryComparable is the currency-comparison view of an entry (only lastModified
+// excluded; kind and date compare like any other field).
 func entryComparable(e IndexEntry) map[string]any {
 	out := map[string]any{
 		"id":          e.ID,
 		"path":        e.Path,
 		"title":       e.Title,
 		"category":    e.Category,
+		"kind":        e.Kind,
 		"contentHash": e.ContentHash,
+	}
+	if e.Date != "" {
+		out["date"] = e.Date
 	}
 	if e.Summary != "" {
 		out["summary"] = e.Summary
@@ -307,6 +386,35 @@ func toAnySlice(in []string) []any {
 	return out
 }
 
+func mountComparables(mounts []IndexMount) []any {
+	out := make([]any, 0, len(mounts))
+	for _, mt := range mounts {
+		mm := map[string]any{"name": mt.Name, "source": mt.Source, "pin": mt.Pin}
+		if mt.TrackingRef != "" {
+			mm["trackingRef"] = mt.TrackingRef
+		}
+		ow := map[string]any{"name": mt.Owner.Name}
+		if mt.Owner.Contact != "" {
+			ow["contact"] = mt.Owner.Contact
+		}
+		mm["owner"] = ow
+		if mt.Role != "" {
+			mm["role"] = mt.Role
+		}
+		if mt.Categories != nil {
+			mm["categories"] = toAnySlice(mt.Categories)
+		}
+		if mt.Topics != nil {
+			mm["topics"] = toAnySlice(mt.Topics)
+		}
+		if mt.RequiredWhen != nil {
+			mm["requiredWhen"] = toAnySlice(mt.RequiredWhen)
+		}
+		out = append(out, mm)
+	}
+	return out
+}
+
 // storedComparable strips lastModified from a stored entry map.
 func storedComparable(e map[string]any) map[string]any {
 	out := make(map[string]any, len(e))
@@ -319,8 +427,8 @@ func storedComparable(e map[string]any) map[string]any {
 	return out
 }
 
-// StableStringify is a key-order-insensitive, numeric-spelling-insensitive
-// serialization mirrored across the SDKs (1.0 collapses to 1, like JS JSON).
+// StableStringify is a key-order- and numeric-spelling-insensitive serialization
+// mirrored across the SDKs (1.0 collapses to 1, like JS JSON).
 func StableStringify(value any) string {
 	var sb strings.Builder
 	stableWrite(&sb, value)
@@ -394,6 +502,20 @@ func CheckIndex(root string, m *manifest.Manifest) Result {
 	}
 
 	regen := GenerateIndex(root, m)
+	// A regeneration that itself errors (missing/malformed index file, a
+	// category-conflict, a dangling entry) means the tree cannot be indexed
+	// cleanly, so the stored index cannot be current: fail rather than compare a
+	// partial regen against it and falsely pass.
+	var regenErrors []findings.Finding
+	for _, f := range regen.Findings {
+		if f.Severity == findings.Error {
+			regenErrors = append(regenErrors, f)
+		}
+	}
+	if len(regenErrors) > 0 {
+		fs = append(fs, regenErrors...)
+		return Result{Index: nil, Findings: fs, Stale: &staleTrue}
+	}
 	wantEntries := make([]any, 0, len(regen.Index.Entries))
 	for _, e := range regen.Index.Entries {
 		wantEntries = append(wantEntries, entryComparable(e))
@@ -401,6 +523,7 @@ func CheckIndex(root string, m *manifest.Manifest) Result {
 	want := StableStringify(map[string]any{
 		"rootPath": regen.Index.RootPath,
 		"entries":  wantEntries,
+		"mounts":   mountComparables(regen.Index.Mounts),
 	})
 
 	stEntries := storedEntries(stored)
@@ -419,9 +542,14 @@ func CheckIndex(root string, m *manifest.Manifest) Result {
 	if rp, ok := stored["rootPath"]; ok {
 		gotRoot = rp
 	}
+	gotMounts := []any{}
+	if sm, ok := stored["mounts"].([]any); ok {
+		gotMounts = sm
+	}
 	got := StableStringify(map[string]any{
 		"rootPath": gotRoot,
 		"entries":  gotEntries,
+		"mounts":   gotMounts,
 	})
 
 	if want != got {
@@ -461,16 +589,17 @@ func CheckIndex(root string, m *manifest.Manifest) Result {
 		items = append(items, layer.IDItem{ID: e["id"], RelPath: p})
 	}
 	staleFalse := false
-	return Result{Index: nil, Findings: layer.DuplicateIDFindings(items, "index"), Stale: &staleFalse}
+	out := append([]findings.Finding{}, regen.Findings...)
+	out = append(out, layer.DuplicateIDFindings(items, "index")...)
+	return Result{Index: nil, Findings: out, Stale: &staleFalse}
 }
 
 var entryKeyOrder = []string{
-	"id", "path", "title", "category", "summary", "tags", "owners",
+	"id", "path", "title", "category", "kind", "date", "summary", "tags", "owners",
 	"lastModified", "contentHash", "freshness", "links",
 }
 
-// SerializeIndex emits the index with stable key order, 2-space indent, and a
-// trailing newline, matching JSON.stringify(_, null, 2)+"\n".
+// SerializeIndex emits the index matching JSON.stringify(_, null, 2)+"\n".
 func SerializeIndex(index *ContextIndex) string {
 	entries := make([]json.RawMessage, 0, len(index.Entries))
 	for _, e := range index.Entries {
@@ -490,6 +619,13 @@ func SerializeIndex(index *ContextIndex) string {
 	}
 	out.set("rootPath", index.RootPath)
 	out.set("entries", entries)
+	if len(index.Mounts) > 0 {
+		mounts := make([]json.RawMessage, 0, len(index.Mounts))
+		for _, mt := range index.Mounts {
+			mounts = append(mounts, orderedMountJSON(mt))
+		}
+		out.set("mounts", mounts)
+	}
 	var buf bytes.Buffer
 	out.encodeIndent(&buf, "", "  ")
 	buf.WriteByte('\n')
@@ -508,6 +644,12 @@ func orderedEntryJSON(e IndexEntry) json.RawMessage {
 			o.set("title", e.Title)
 		case "category":
 			o.set("category", e.Category)
+		case "kind":
+			o.set("kind", e.Kind)
+		case "date":
+			if e.Date != "" {
+				o.set("date", e.Date)
+			}
 		case "summary":
 			if e.Summary != "" {
 				o.set("summary", e.Summary)
@@ -545,10 +687,64 @@ func orderedEntryJSON(e IndexEntry) json.RawMessage {
 	return json.RawMessage(buf.Bytes())
 }
 
+var mountKeyOrder = []string{"name", "source", "pin", "trackingRef", "owner", "role", "categories", "topics", "requiredWhen"}
+
+func orderedMountJSON(mt IndexMount) json.RawMessage {
+	o := newOrdered()
+	for _, key := range mountKeyOrder {
+		switch key {
+		case "name":
+			o.set("name", mt.Name)
+		case "source":
+			o.set("source", mt.Source)
+		case "pin":
+			o.set("pin", mt.Pin)
+		case "trackingRef":
+			if mt.TrackingRef != "" {
+				o.set("trackingRef", mt.TrackingRef)
+			}
+		case "owner":
+			ow := newOrdered()
+			ow.set("name", mt.Owner.Name)
+			if mt.Owner.Contact != "" {
+				ow.set("contact", mt.Owner.Contact)
+			}
+			o.set("owner", ow)
+		case "role":
+			if mt.Role != "" {
+				o.set("role", mt.Role)
+			}
+		case "categories":
+			if mt.Categories != nil {
+				o.set("categories", mt.Categories)
+			}
+		case "topics":
+			if mt.Topics != nil {
+				o.set("topics", mt.Topics)
+			}
+		case "requiredWhen":
+			if mt.RequiredWhen != nil {
+				o.set("requiredWhen", mt.RequiredWhen)
+			}
+		}
+	}
+	var buf bytes.Buffer
+	o.encodeIndent(&buf, "", "  ")
+	return json.RawMessage(buf.Bytes())
+}
+
 // WriteIndex generates and writes the index to the effective path.
 func WriteIndex(root string, m *manifest.Manifest) (Result, error) {
 	rel := manifest.EffectiveIndexPath(m)
 	result := GenerateIndex(root, m)
+	// Refuse to write a partial or incorrect index when generation hit a hard
+	// error (e.g. category-conflict, index-file-parse, a dangling entry): writing
+	// would persist a half-correct artifact that later reads trust.
+	for _, f := range result.Findings {
+		if f.Severity == findings.Error {
+			return result, nil
+		}
+	}
 	if result.Index != nil {
 		abs := filepath.Join(root, rel)
 		// Contain before creating any directory: ResolvesUnder resolves the nearest

@@ -16,15 +16,241 @@
          through a served Markdown document cannot execute. The layer config is a
          JSON data block, not executable script. Styles allow 'unsafe-inline' because
          Docsify sets element styles at runtime; that is not a script-execution path.
+         frame-src 'none' closes the framing path: without it a governed document
+         could frame a same-origin /content/ page, which inherits none of this.
+         The local server sends the same policy as a response header on every
+         response, so it also covers documents fetched outside this shell.
       -->
       <meta
          http-equiv="Content-Security-Policy"
-         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; frame-src 'none'"
       />
       <title>{{LEJI_NAME_HTML}}</title>
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <link rel="icon" href="{{FAVICON_URL}}" />
       <link rel="stylesheet" href="assets/vue.css" />
       <link rel="stylesheet" href="assets/docsify-sidebar-collapse.min.css" />
+      <style>
+         /* Viewer default styling: white content, a light-gray sidebar, tight
+            nesting — the shape teams hand-build for internal dashboards. Accents
+            ride --theme-color (set by Docsify from viewer.theme.primary). */
+         body {
+            background-color: #ffffff;
+         }
+
+         /* Classification chip: top-right corner, the page's category (+ record
+            date) as agents see it. */
+         .lj-cat {
+            position: fixed;
+            top: 12px;
+            right: 16px;
+            z-index: 5;
+            font-size: 0.7rem;
+            letter-spacing: 0.02em;
+            color: #555555;
+            background: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 999px;
+            padding: 3px 10px;
+            user-select: none;
+         }
+
+         /* Light sidebar */
+         .sidebar {
+            background-color: #f8f9fa;
+            border-right: 1px solid #e0e0e0;
+         }
+         /* Loading state while the served sidebar is being generated: the CSS
+            :empty rule paints instantly (before any script runs); the boot
+            script's placeholder covers browsers/DOM states :empty misses.
+            Both vanish when Docsify writes the compiled nav. */
+         .sidebar-nav:empty::before,
+         .sidebar-nav .lj-nav-loading {
+            content: 'Loading navigation…';
+            /* Centered in the sidebar panel, vertically and horizontally: the
+               placeholder positions against .sidebar (the nearest positioned
+               ancestor, position: fixed). */
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            margin: 0;
+            padding: 0;
+            width: max-content;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #999999;
+            animation: lj-nav-pulse 1.2s ease-in-out infinite;
+         }
+         @keyframes lj-nav-pulse {
+            0%, 100% { opacity: 0.45; }
+            50% { opacity: 1; }
+         }
+         .sidebar-nav li {
+            list-style: none;
+         }
+         .sidebar-nav li::before {
+            content: none !important;
+         }
+         .sidebar-nav li > a {
+            color: #2c3e50;
+            padding: 6px 0;
+         }
+         .sidebar-nav li > a:hover {
+            color: var(--theme-color, #223f93);
+         }
+
+         /* Top-level links (boot profile, pins) */
+         .sidebar-nav > ul > li > a {
+            font-weight: 500;
+            font-size: 15px;
+            padding: 4px 0;
+         }
+
+         /* Metadata header tables (`| | |` convention): hide the empty header
+            row instead of rendering blank cells. */
+         .markdown-section th:empty {
+            padding: 0;
+            border: 0;
+            height: 0;
+            line-height: 0;
+            font-size: 0;
+         }
+         .markdown-section thead:has(th:empty) {
+            display: none;
+         }
+         .markdown-section thead:has(th:empty) + tbody tr:first-child {
+            border-top: 0;
+         }
+
+         /* Sidebar bold rides the 600 face: Source Sans Pro ships 300/400/600,
+            so a 500 here would resolve down to the regular 400 face. */
+         .sidebar li > p {
+            font-weight: 600;
+         }
+         .sidebar ul li.active > a {
+            font-weight: 600 !important;
+         }
+
+         /* Group headers: the theme's default bold rendering, at full size. */
+         .sidebar-nav li > strong,
+         .sidebar-nav li > p > strong {
+            color: #1a1a1a;
+            font-weight: 600;
+            user-select: none;
+         }
+
+         /* Sidebar collapse: small triangles, pinned to the label's first line
+            (never centered against the whole li, which drifts on expand). */
+         .sidebar-nav li.folder::before {
+            content: "▶" !important;
+            border: none !important;
+            height: auto !important;
+            width: auto !important;
+            transform: none !important;
+            font-size: 8px;
+            line-height: 1;
+            color: #aaa;
+            top: 0.9em;
+            margin-top: 0;
+            left: -4px;
+            transition: none !important;
+         }
+         .sidebar-nav li.folder.open:not(.collapse)::before {
+            content: "▼" !important;
+         }
+         .sidebar-nav li.folder.collapse::before {
+            content: "▶" !important;
+         }
+         .sidebar-nav > ul {
+            padding-left: 12px;
+         }
+         .sidebar-nav > ul > li {
+            margin-top: 2px;
+         }
+         .sidebar-nav ul ul {
+            padding-left: 12px;
+         }
+         .sidebar-nav ul ul li {
+            margin: 0;
+            padding: 0;
+         }
+         .sidebar-nav ul ul li > a {
+            font-size: 14px;
+            color: #555;
+            padding: 2px 0;
+         }
+         .sidebar-nav ul ul li > a:hover {
+            color: var(--theme-color, #223f93);
+            transition: color 0.2s ease;
+         }
+
+         /* Divider between sidebar zones */
+         .sidebar-nav hr {
+            margin: 16px 0;
+            border: none;
+            border-top: 1px solid #e0e0e0;
+         }
+
+         /* Search */
+         .search input {
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+            color: #2c3e50;
+         }
+         .search .results-panel {
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+         }
+         .search .results-panel .matching-post > a {
+            color: #2c3e50;
+         }
+         .search .results-panel .matching-post > a:hover {
+            color: var(--theme-color, #223f93);
+         }
+         .matching-post {
+            border-bottom: 1px solid #e0e0e0;
+         }
+
+         /* App name / logo block */
+         .sidebar .app-name {
+            text-align: left;
+            margin: 0 0 16px 27px;
+            padding: 0;
+         }
+         .sidebar .app-name-link {
+            display: inline-block;
+         }
+         .sidebar {
+            padding-bottom: 0;
+         }
+
+         /* Powered-by mark: lower-right corner, out of the way. The overrides
+            neutralize the theme stylesheet's older bar treatment. The Leji link
+            keeps Leji blue whatever the layer's own accent is. */
+         .leji-powered {
+            position: fixed;
+            left: auto;
+            right: 14px;
+            bottom: 10px;
+            padding: 0;
+            background: transparent;
+            border-top: none;
+            font-size: 11px;
+            letter-spacing: normal;
+            text-transform: none;
+            color: #9aa0a6;
+            z-index: 30;
+         }
+         .leji-powered a {
+            color: var(--leji-blue, #223f93);
+            text-decoration: none;
+         }
+         .leji-powered a:hover {
+            color: #162960;
+         }
+      </style>
    </head>
    <body>
       <div id="app">Loading the context layer…</div>

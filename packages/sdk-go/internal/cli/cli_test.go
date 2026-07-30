@@ -21,7 +21,7 @@ func fixture(t *testing.T, name string) string {
 	return filepath.Join(repoRoot(t), "fixtures", name)
 }
 
-// captureRun runs the CLI capturing stdout/stderr by swapping os.Stdout/Stderr.
+// captureRun runs the CLI, capturing stdout/stderr.
 func captureRun(t *testing.T, argv []string) (int, string, string) {
 	t.Helper()
 	origOut, origErr := os.Stdout, os.Stderr
@@ -54,7 +54,6 @@ func drain(r *os.File) string {
 }
 
 func TestCLIVersion(t *testing.T) {
-	// --version and lowercase -v print the version and exit 0.
 	for _, flag := range []string{"--version", "-v"} {
 		code, out, _ := captureRun(t, []string{flag})
 		if code != 0 {
@@ -135,9 +134,7 @@ func TestIndexDoesNotSeedChangelogOnCoreLayer(t *testing.T) {
 
 func TestIndexRefusesSymlinkedAncestorEscape(t *testing.T) {
 	// writeIndex must refuse to write through a symlinked ancestor that escapes
-	// the layer root (the H1 fix). Point machine.indexPath under docs/evil, a
-	// symlink to an outside dir, and assert the escape is reported, exit 1, and
-	// nothing lands outside the root.
+	// the layer root (the H1 fix): escape reported, exit 1, nothing written outside.
 	outside := t.TempDir()
 	dir := t.TempDir()
 	if code, _, errs := captureRun(t, []string{"init", "--dir", dir, "--yes", "--level", "indexed", "--name", "demo"}); code != 0 {
@@ -234,6 +231,48 @@ func TestCLIBadFlagValuesExit2(t *testing.T) {
 	}
 }
 
+// init/adopt --mode: invalid and missing values fail with usage exit 2; solo
+// plans the starters. Mirrors the Node run.test.ts working-mode test.
+func TestCLIInitModeValidationAndSoloPlan(t *testing.T) {
+	dir := t.TempDir()
+	code, _, errs := captureRun(t, []string{"init", "--dir", dir, "--yes", "--mode", "squad"})
+	if code != 2 {
+		t.Fatalf("invalid mode should exit 2, got %d", code)
+	}
+	if !strings.Contains(errs, "--mode must be solo or team") {
+		t.Fatalf("expected the mode usage error, got %q", errs)
+	}
+	code, _, errs = captureRun(t, []string{"init", "--dir", dir, "--yes", "--mode"})
+	if code != 2 {
+		t.Fatalf("missing mode value should exit 2, got %d", code)
+	}
+	if !strings.Contains(errs, "--mode requires a value") {
+		t.Fatalf("expected the missing-value error, got %q", errs)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("usage errors write nothing, got %d entries", len(entries))
+	}
+
+	code, out, _ := captureRun(t, []string{"init", "--dir", dir, "--yes", "--mode", "solo", "--dry-run"})
+	if code != 0 {
+		t.Fatalf("solo dry-run exit %d", code)
+	}
+	for _, rel := range []string{"docs/domain/identity.md", "docs/practice/writing-style.md"} {
+		planned := false
+		for _, line := range strings.Split(out, "\n") {
+			if strings.Contains(line, rel) && strings.HasPrefix(strings.TrimSpace(line), "create") {
+				planned = true
+			}
+		}
+		if !planned {
+			t.Fatalf("dry-run plan should create %s, got:\n%s", rel, out)
+		}
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("dry-run writes nothing, got %d entries", len(entries))
+	}
+}
+
 func TestCLIValidateJSONFailingFixture(t *testing.T) {
 	code, out, _ := captureRun(t, []string{"validate", "--root", fixture(t, "invalid-bad-decision"), "--json"})
 	if code != 1 {
@@ -295,6 +334,9 @@ func TestCLIDocumentedCommandsAreKnown(t *testing.T) {
 		}
 		if c.Name == "agent" {
 			full = append(full, "--host", "codex", "--name", "reviewer")
+		}
+		if c.Name == "mounts locate" {
+			full = append(full, "some-mount")
 		}
 		code, _, errs := captureRun(t, full)
 		if strings.Contains(errs, "unknown command") {
@@ -385,11 +427,15 @@ func TestCLICiWritesIdempotentAndNoManifest(t *testing.T) {
 	}
 }
 
+// `stage: .pre` is deliberate: without an explicit stage GitLab assigns `test`, and a
+// pipeline whose own `stages:` list omits it rejects the whole configuration.
 const gitlabBlock = "# >>> leji ci (managed) >>>\n" +
 	"leji-validate:\n" +
+	"  stage: .pre\n" +
 	"  image: node:22\n" +
 	"  script:\n" +
-	"    - npx -y @leji-org/leji@latest validate\n" +
+	"    - npx -y @leji-org/leji@1 validate\n" +
+	"    - npx -y @leji-org/leji@1 index --check\n" +
 	"# <<< leji ci (managed) <<<\n"
 
 func seededCiDir(t *testing.T) string {
@@ -536,7 +582,7 @@ func TestCLICiProviderCircleci(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config not written: %v", err)
 	}
-	if string(before) != initcmd.BuildCircleCiConfig() {
+	if string(before) != initcmd.BuildCircleCiConfig(false) {
 		t.Fatalf("created config not byte-exact:\n%s", before)
 	}
 	code, out, _ = captureRun(t, []string{"ci", "--root", dir, "--provider", "circleci", "--json"})
@@ -554,7 +600,7 @@ func TestCLICiProviderCircleci(t *testing.T) {
 	if j2.Action != "manual" || j2.Created {
 		t.Fatalf("expected manual/created=false, got %+v", j2)
 	}
-	if j2.Snippet != initcmd.BuildCircleCiSnippet() {
+	if j2.Snippet != initcmd.BuildCircleCiSnippet(false) {
 		t.Fatalf("manual snippet not byte-exact: %q", j2.Snippet)
 	}
 	after, _ := os.ReadFile(cc)
@@ -595,7 +641,7 @@ func TestCLICiProviderAzure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pipeline not written: %v", err)
 	}
-	if string(got) != initcmd.BuildAzurePipeline() {
+	if string(got) != initcmd.BuildAzurePipeline(false) {
 		t.Fatalf("pipeline file not byte-exact:\n%s", got)
 	}
 	code, out, _ = captureRun(t, []string{"ci", "--root", d1, "--provider", "azure", "--json"})

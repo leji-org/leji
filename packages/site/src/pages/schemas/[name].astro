@@ -8,7 +8,8 @@ import Doc from '../../layouts/Doc.astro';
 const ROOT = path.resolve(process.cwd(), '../..');
 const SCHEMA_DIR = path.join(ROOT, 'schemas');
 
-// Each schema gets a real validating instance from the monorepo example; frontmatter artifacts use the actual markdown file, since that's what tooling reads.
+// Each schema's example is a real validating instance from the monorepo; frontmatter
+// artifacts use the actual markdown file, since that's what tooling reads.
 const EXAMPLES: Record<string, { file: string; lang: string; label: string; note: string }> = {
    'context-manifest': {
       file: 'examples/monorepo/leji.json',
@@ -58,7 +59,10 @@ const ex = EXAMPLES[name!];
 const exampleRaw = ex ? fs.readFileSync(path.join(ROOT, ex.file), 'utf-8').trimEnd() : null;
 ---
 
-<Doc title={`${schema.title ?? file} · Leji`}>
+<Doc
+   title={`${schema.title ?? file} · Leji`}
+   description={`The ${schema.title ?? file} JSON Schema, part of the Leji specification for the shared context layer of AI-native teams.`}
+>
    <h1>{schema.title ?? file}</h1>
    {schema.description && <p class="sp-lede">{schema.description}</p>}
 

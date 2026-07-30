@@ -1,8 +1,7 @@
 import { defineConfig } from 'astro/config';
 import sitemap from '@astrojs/sitemap';
-import { rehypeMdLinks } from './src/rehype-md-links';
-import { rehypeTableScroll } from './src/rehype-table-scroll';
-import { rehypeHeadingAnchors } from './src/rehype-heading-anchors';
+import { satteri } from '@astrojs/markdown-satteri';
+import { markdownProcessorOptions } from './src/markdown-options';
 
 export default defineConfig({
    site: 'https://leji.org',
@@ -10,7 +9,9 @@ export default defineConfig({
    server: { port: 21200 },
    devToolbar: { enabled: false },
    markdown: {
-      rehypePlugins: [rehypeMdLinks, rehypeTableScroll, rehypeHeadingAnchors],
+      // Astro 7's default Markdown processor. Our content transforms run as Sätteri
+      // hast plugins (the unified/remark pipeline is no longer used).
+      processor: satteri(markdownProcessorOptions),
       shikiConfig: { theme: 'night-owl' },
    },
 });

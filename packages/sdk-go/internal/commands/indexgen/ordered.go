@@ -7,8 +7,8 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/jsonenc"
 )
 
-// ordered is an insertion-ordered JSON object that encodes with a fixed key
-// order and 2-space indentation, byte-compatible with JSON.stringify(_,null,2).
+// ordered is an insertion-ordered JSON object, byte-compatible with
+// JSON.stringify(_, null, 2).
 type ordered struct {
 	keys   []string
 	values map[string]any
@@ -25,8 +25,6 @@ func (o *ordered) set(key string, value any) {
 	o.values[key] = value
 }
 
-// encodeIndent writes the object as indented JSON. prefix is the current line
-// prefix; indent is the per-level indent string.
 func (o *ordered) encodeIndent(buf *bytes.Buffer, prefix, indent string) {
 	if len(o.keys) == 0 {
 		buf.WriteString("{}")

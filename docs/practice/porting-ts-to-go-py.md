@@ -1,4 +1,5 @@
 ---
+title: Porting to Go & Python
 summary: How to port a change from the TypeScript reference SDK to the Go and Python SDKs without breaking parity.
 freshness:
   reviewAfter: 2026-12-21

@@ -78,14 +78,37 @@ def walk_md(root: str, rel_path: str) -> list[str]:
             if name.startswith(".") or not name.endswith(".md"):
                 continue
             full = Path(dirpath) / name
+            # Skip symlinked entries during traversal to match the Node and Go walks,
+            # which only collect regular files (a symlink is not isFile/IsRegular). A
+            # directly-declared symlinked .md still resolves via the is_file branch above.
+            if full.is_symlink():
+                continue
             if not is_contained(root, full):
                 continue
             out.append(to_posix(str(full.relative_to(root))))
     return sorted(out)
 
 
+def walk_tree(root: str, rel_path: str) -> list[str]:
+    """All markdown files under a context path, repo-relative POSIX, sorted.
+
+    The viewer uses this to build the directory browse zone of the sidebar; it
+    shares walk_md's dotfile/node_modules skip and symlink containment, so the
+    ``.leji`` viewer dir is never traversed."""
+    return walk_md(root, rel_path)
+
+
 def strip_slash(p: str) -> str:
     return p[:-1] if p.endswith("/") else p
+
+
+def join_under_root(root_path: str, sub: str) -> str:
+    """Join a sub-path under a context root with POSIX semantics, treating a ``.``
+    or empty root as the repository root. ``join_under_root('docs/', 'context/')``
+    is ``docs/context/``, and ``join_under_root('.', 'context/')`` is
+    ``context/``, never the hidden ``.context/`` a bare concatenation produces."""
+    base = strip_slash(root_path)
+    return sub if base in ("", ".") else f"{base}/{sub}"
 
 
 def under_path(rel_path: str, declared: str) -> bool:

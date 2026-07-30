@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Pre-publish smoke test for the Leji reference SDKs.
 #
-# Builds the exact artifacts that will be published (npm tarball, PyPI wheel,
-# Go binary), installs each one COLD into a throwaway sandbox, and runs the CLI
-# battery end to end. It touches no registry: pack/build/dry-run only. Run it
-# before cutting the release tag, because the tag is irreversible.
+# Builds the exact publishable artifacts (npm tarball, PyPI wheel, Go binary),
+# cold-installs each into a throwaway sandbox, and runs the CLI battery end to end.
+# Touches no registry (pack/build/dry-run only). Run before tagging (tags are final).
 #
 #   scripts/smoke-prepublish.sh
 #
@@ -28,6 +27,16 @@ trap 'rm -rf "$TMP" "$ROOT"/packages/sdk/leji-*.tgz "$ROOT"/packages/sdk-py/dist
 # Expected version, read from the canonical npm manifest. All three SDKs must
 # report it (the release workflow separately checks tag == each SDK's version).
 VER="$(node -p "require('$ROOT/packages/sdk/package.json').version")"
+
+# Python for the PyPI battery: the wheel's requires-python is >=3.10, and a stock
+# macOS python3 is 3.9 (pip then refuses the wheel and the whole battery 127s).
+# Resolve the first interpreter that satisfies the floor; $PYTHON overrides.
+PYBIN=""
+for c in ${PYTHON:+"$PYTHON"} python3 python3.14 python3.13 python3.12 python3.11 python3.10; do
+   command -v "$c" >/dev/null 2>&1 || continue
+   if "$c" -c 'import sys; raise SystemExit(sys.version_info < (3, 10))' 2>/dev/null; then PYBIN="$c"; break; fi
+done
+[ -n "$PYBIN" ] || PYBIN=python3   # nothing suitable found; the battery will fail visibly below
 
 PASS=0; FAIL=0
 ok(){ printf "  \033[32mPASS\033[0m %s\n" "$1"; PASS=$((PASS+1)); }
@@ -59,14 +68,14 @@ chk 1 "npm validate (invalid layer)" -- "$NPM" validate --root "$INV"
 chk 2 "npm bogus command"            -- "$NPM" bogus
 
 echo "== PyPI artifact =="
-python3 -m venv "$TMP/pybuild" >/dev/null 2>&1
+"$PYBIN" -m venv "$TMP/pybuild" >/dev/null 2>&1
 "$TMP/pybuild/bin/pip" install -q build >/dev/null 2>&1
 ( cd packages/sdk-py && "$TMP/pybuild/bin/python" -m build >/dev/null 2>&1 )
 WHL="$(ls -t packages/sdk-py/dist/*.whl 2>/dev/null | head -1)"
 [ -n "$WHL" ] && ok "wheel built -> $(basename "$WHL")" || no "wheel build"
 [ "$(unzip -l "$WHL" 2>/dev/null | grep -c '_assets/schemas/')" -gt 0 ] && ok "wheel bundles schemas + templates" || no "wheel missing data files"
 PY="$TMP/pyrun/bin/leji"
-python3 -m venv "$TMP/pyrun" >/dev/null 2>&1
+"$PYBIN" -m venv "$TMP/pyrun" >/dev/null 2>&1
 "$TMP/pyrun/bin/pip" install -q "$WHL" >/dev/null 2>&1 && ok "cold install (clean venv)" || no "cold install (venv)"
 [ "$("$PY" --version 2>/dev/null)" = "$VER" ] && ok "py --version = $VER" || no "py --version (want $VER)"
 chk 0 "py validate (valid layer)"   -- "$PY" validate --root "$EX"

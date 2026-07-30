@@ -4,8 +4,20 @@
   "rootPath": "docs/",
   "bootProfilePath": "docs/boot-profile.md",
   "categories": {
-    "domain": { "paths": ["docs/domain/"] },
-    "decisions": { "paths": ["docs/decisions/"] }
+    "domain": {
+      "indexes": [
+        "docs/context/domain.md"
+      ]
+    },
+    "decisions": {
+      "indexes": [
+        "docs/context/decisions.md"
+      ]
+    }
   },
-  "owners": { "primary": { "name": "Fixture Owner" } }
+  "owners": {
+    "primary": {
+      "name": "Fixture Owner"
+    }
+  }
 }

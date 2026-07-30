@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-// ToPosix converts an OS path to forward-slash form.
 func ToPosix(p string) string {
 	return filepath.ToSlash(p)
 }
@@ -19,10 +18,10 @@ func ToPosix(p string) string {
 // existing ancestor, so a brand-new file under a real root is allowed while a
 // path reached through a symlink that escapes root is rejected.
 func ResolvesUnder(root, abs string) bool {
-	// Resolve both operands to absolute first, mirroring the Node reference
-	// (fs.realpathSync always yields absolute paths). EvalSymlinks of a relative
-	// path returns a relative path, so without this an absolute realRoot would
-	// never prefix-match a relative target and every file would be excluded.
+	// Resolve both operands to absolute first (Node's fs.realpathSync always
+	// yields absolute paths). EvalSymlinks of a relative path stays relative, so
+	// without this an absolute realRoot would never prefix-match and every file
+	// would be excluded.
 	if a, err := filepath.Abs(root); err == nil {
 		root = a
 	}
@@ -77,8 +76,8 @@ func ReadText(abs string) (string, error) {
 	return string(b), nil
 }
 
-// WalkMd recursively collects markdown files under a declared path (file or
-// directory), returned as repository-root-relative POSIX paths, sorted.
+// WalkMd collects markdown under a declared path (file or directory), as sorted
+// repo-relative POSIX paths.
 func WalkMd(root, relPath string) []string {
 	abs := filepath.Join(root, relPath)
 	if IsFile(abs) {
@@ -130,9 +129,25 @@ func WalkMd(root, relPath string) []string {
 	return out
 }
 
-// StripSlash drops a single trailing slash.
+// WalkTree is the viewer's sidebar browse walk; an alias for WalkMd, so it
+// inherits the dotfile/node_modules skip and symlink containment.
+func WalkTree(root, relPath string) []string {
+	return WalkMd(root, relPath)
+}
+
 func StripSlash(p string) string {
 	return strings.TrimSuffix(p, "/")
+}
+
+// JoinUnderRoot joins sub under a context root (POSIX), treating "." or "" as the
+// repository root, so JoinUnderRoot(".", "context/") is "context/", never the
+// hidden ".context/" a bare concatenation would produce.
+func JoinUnderRoot(rootPath, sub string) string {
+	base := StripSlash(rootPath)
+	if base == "" || base == "." {
+		return sub
+	}
+	return base + "/" + sub
 }
 
 // UnderPath is true when relPath is the declared path itself or falls under it.

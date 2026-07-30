@@ -8,6 +8,9 @@ const config = `{
   }
 }`;
 
+const claudeAdd = 'claude mcp add leji --scope user -- npx -y @leji-org/mcp';
+const codexAdd = 'codex mcp add leji -- npx -y @leji-org/mcp';
+
 const resources = [
    ['leji://spec/full', 'The complete specification, one document.'],
    ['leji://spec/{id}', 'One spec document, e.g. leji://spec/conformance.'],
@@ -28,7 +31,7 @@ const tools = [
 
 <Doc
    title="MCP server · Leji"
-   description="Use Leji tooling from your AI agent: a local, read-only Model Context Protocol (MCP) server that serves the spec and schemas and validates and scores a context layer on your disk. Install once, no shell required."
+   description="Use Leji tooling from your AI agent: a local, read-only MCP server that serves the spec and schemas and checks a context layer on disk."
 >
    <h1>MCP server</h1>
    <p class="sp-lede">
@@ -38,35 +41,69 @@ const tools = [
    <p>
       <code>@leji-org/mcp</code> is a local <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener"
          >MCP</a
-      > server that wraps the reference SDK. Your agent reads the spec and schemas and runs validation and conformance against
-      a context layer on disk, instead of reading this site and shelling out to the CLI. It runs locally over stdio, needs
-      no network or auth, and exposes only read-only tools.
+      > server that wraps the reference SDK. Your agent reads the spec and schemas, validates a context layer on disk, and
+      scores its conformance, with no site fetch and no CLI shell-out. It runs locally over stdio, needs no network or auth,
+      and exposes only read-only tools.
    </p>
 
    <h2>Add it to your client</h2>
    <p>
-      Configure it once in any MCP client (Claude Code, Claude Desktop, Cursor, Windsurf, and others). The client
-      launches
-      <code>leji-mcp</code> on demand; the <code>leji</code> tools then appear in every session, in every repo, with no further
-      setup.
+      Configure it once and the <code>leji</code> tools appear in every session its scope covers, with no further setup: a
+      user-level registration reaches every project, a project-level one reaches that repository. The client launches{
+         ' '
+      }
+      <code>leji-mcp</code> on demand.
    </p>
+   <p>
+      If you're adopting with the CLI and either Claude Code or Codex is on your <code>PATH</code>, <code
+         >leji init</code
+      >
+      and <code>leji adopt</code> offer to register this server for that host, before handing off to your agent. The offer
+      is interactive, so a <code>--yes</code> run skips it. What follows is for anyone who skipped the prompt, uses another
+      client, or wants a different scope.
+   </p>
+
+   <h3>Claude Code</h3>
+   <CopyableCode code={claudeAdd} lang="bash" label="Copy command" />
+   <p>
+      <code>--scope user</code> installs it once for your user, so the <code>leji</code> tools are available in every project;
+      drop it to limit the server to the current project. Full reference:{' '}
+      <a href="https://docs.claude.com/en/docs/claude-code/mcp" target="_blank" rel="noopener">Claude Code MCP docs</a>.
+   </p>
+
+   <h3>Codex</h3>
+   <CopyableCode code={codexAdd} lang="bash" label="Copy command" />
+   <p>
+      Or add an <code>[mcp_servers.leji]</code> table to <code>~/.codex/config.toml</code> directly. Full reference:{
+         ' '
+      }
+      <a href="https://developers.openai.com/codex/mcp" target="_blank" rel="noopener">Codex MCP docs</a>.
+   </p>
+
+   <h3>Other clients</h3>
+   <p>Claude Desktop, Cursor, Windsurf, and any other MCP client take the standard config:</p>
    <CopyableCode code={config} lang="json" label="Copy MCP config" />
+
    <p>
       Requires <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 22 or newer (<code>npx</code> ships
-      with Node). The first run fetches the package; later runs use the cache.
+      with Node). The first run fetches the package; later runs use the cache. Point each tool at the repository root that
+      holds your <code>leji.json</code>.
    </p>
-   <p>Point each tool at the repository root that holds your <code>leji.json</code>.</p>
 
    <h2>Tools</h2>
-   <p>All read-only. Nothing the server exposes can write or change your layer.</p>
+   <p>All read-only. Nothing the server exposes can write or change your context layer.</p>
    <table class="mcp-table">
+      <caption class="vh">MCP tools the server exposes</caption>
+      <thead>
+         <tr><th scope="col">Tool</th><th scope="col">What it returns</th></tr>
+      </thead>
       <tbody>
          {
             tools.map(([name, summary]) => (
                <tr>
-                  <td>
+                  <th scope="row">
                      <code>{name}</code>
-                  </td>
+                  </th>
                   <td>{summary}</td>
                </tr>
             ))
@@ -76,13 +113,17 @@ const tools = [
 
    <h2>Resources</h2>
    <table class="mcp-table">
+      <caption class="vh">MCP resources the server exposes</caption>
+      <thead>
+         <tr><th scope="col">URI</th><th scope="col">What it serves</th></tr>
+      </thead>
       <tbody>
          {
             resources.map(([uri, summary]) => (
                <tr>
-                  <td>
+                  <th scope="row">
                      <code>{uri}</code>
-                  </td>
+                  </th>
                   <td>{summary}</td>
                </tr>
             ))
@@ -92,8 +133,8 @@ const tools = [
 
    <h2>Why a server, and not just the CLI?</h2>
    <p>
-      The CLI already validates and scores a layer. The server adds no new capability; it's a different surface, the one
-      an agent reaches for on its own:
+      The CLI already validates and scores a context layer. The server adds no new capability; it's a different surface,
+      the one an agent reaches for on its own:
    </p>
    <ul>
       <li>
@@ -110,8 +151,10 @@ const tools = [
       </li>
    </ul>
    <p>
-      Consuming a layer doesn't need the server: a conformant repository's <a href="/spec/boot-profile/">boot profile</a
-      > already onboards your agent. The server is for the other half, building, validating, and learning Leji.
+      Consuming a context layer doesn't need the server: a conformant repository's <a href="/spec/boot-profile/"
+         >boot profile</a
+      > already onboards your agent. The server is for the other half, learning Leji and checking a context layer against
+      it.
    </p>
 </Doc>
 
@@ -120,6 +163,34 @@ const tools = [
       width: 100%;
       border-collapse: collapse;
       margin: 0.8rem 0 0;
+   }
+   .mcp-table caption.vh {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+   }
+   .mcp-table th {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+      font-weight: 400;
+      color: var(--ink-soft);
+      white-space: nowrap;
+   }
+   .mcp-table thead th {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--blue);
+   }
+   .mcp-table th code {
+      color: var(--blue-deep);
+      font-size: 0.85em;
    }
    .mcp-table td {
       padding: 0.5rem 0.9rem 0.5rem 0;

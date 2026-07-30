@@ -7,15 +7,14 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/jsonenc"
 )
 
-// entryKeyOrder is the schema field order for a serialized changelog entry,
-// mirrored across the SDKs.
+// entryKeyOrder is the schema field order for a serialized changelog entry.
 var entryKeyOrder = []string{
 	"id", "date", "type", "summary", "paths", "categories",
 	"decisionRefs", "proposedBy", "approvedBy", "breaking", "compacted",
 }
 
-// orderedEntry returns the (key, value) pairs of an entry in schema order, then
-// any remaining keys sorted, so no data is dropped on a re-serialize.
+// orderedEntry returns an entry's pairs in schema order, then remaining keys
+// sorted, so no data is dropped on a re-serialize.
 func orderedEntry(e entry) [][2]any {
 	var out [][2]any
 	seen := map[string]bool{}
@@ -41,9 +40,8 @@ func orderedEntry(e entry) [][2]any {
 }
 
 // serializeChangelog emits a changelog with stable key order, 2-space indent, and
-// a trailing newline, matching JSON.stringify(_, null, 2)+"\n": $schema first (if
-// present), then schemaVersion (defaulting to "1.0"), then any other top-level
-// keys sorted, then entries.
+// a trailing newline, matching JSON.stringify(_, null, 2)+"\n": $schema, then
+// schemaVersion (default "1.0"), then other top-level keys sorted, then entries.
 func serializeChangelog(log map[string]any) string {
 	var pairs [][2]any
 	if v, ok := log["$schema"]; ok && v != nil {
@@ -80,8 +78,8 @@ func serializeChangelog(log map[string]any) string {
 	return buf.String()
 }
 
-// writeObject encodes an ordered list of key/value pairs as an indented JSON
-// object. An [][2]any value is itself treated as an ordered object.
+// writeObject encodes ordered key/value pairs as an indented JSON object. An
+// [][2]any value is itself treated as an ordered object.
 func writeObject(buf *bytes.Buffer, pairs [][2]any, prefix, indent string) {
 	if len(pairs) == 0 {
 		buf.WriteString("{}")

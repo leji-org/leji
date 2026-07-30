@@ -6,10 +6,26 @@
   "rootPath": "docs/",
   "bootProfilePath": "docs/boot-profile.md",
   "categories": {
-    "domain": { "paths": ["docs/domain/"] },
-    "system": { "paths": ["docs/system/"] },
-    "governance": { "paths": ["docs/governance/"] },
-    "decisions": { "paths": ["docs/decisions/"] }
+    "domain": {
+      "indexes": [
+        "docs/context/domain.md"
+      ]
+    },
+    "system": {
+      "indexes": [
+        "docs/context/system.md"
+      ]
+    },
+    "governance": {
+      "indexes": [
+        "docs/context/governance.md"
+      ]
+    },
+    "decisions": {
+      "indexes": [
+        "docs/context/decisions.md"
+      ]
+    }
   },
   "machine": {
     "indexPath": "docs/context-index.json",
@@ -18,8 +34,13 @@
     "decisionRecordsPath": "docs/decisions/"
   },
   "owners": {
-    "primary": { "name": "Sam Park", "contact": "sam@acme.example" },
-    "continuity": { "name": "Ada Okafor" }
+    "primary": {
+      "name": "Sam Park",
+      "contact": "sam@acme.example"
+    },
+    "continuity": {
+      "name": "Ada Okafor"
+    }
   },
   "conformance": {
     "claimedLevel": "federated",
@@ -28,11 +49,26 @@
   "federation": {
     "mounts": [
       {
-        "path": "docs/product-context/",
         "name": "acme-product-context",
         "source": "https://github.com/acme/product-context",
-        "owner": { "name": "Product team" },
-        "role": "product-side context, owned and kept current by the product team"
+        "pin": "7d3f2a19c4e8b6a0d5f1c2e9b8a7f6d5c4b3a2e1",
+        "trackingRef": "refs/heads/main",
+        "owner": {
+          "name": "Product team"
+        },
+        "role": "product-side context, owned and kept current by the product team",
+        "categories": [
+          "domain",
+          "decisions"
+        ],
+        "topics": [
+          "product surface",
+          "customer-facing semantics",
+          "billing"
+        ],
+        "requiredWhen": [
+          "a task touches customer-facing product behavior, product terminology, or product-owned decisions"
+        ]
       }
     ]
   }

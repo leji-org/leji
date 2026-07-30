@@ -1,5 +1,4 @@
-// Package assets embeds the vendored schemas, templates, and cli.json so the
-// Go SDK ships them the same way the Node and Python SDKs bundle their copies.
+// Package assets embeds the vendored schemas, templates, and cli.json.
 package assets
 
 import "embed"

@@ -1,9 +1,10 @@
 ---
-// A low-fidelity "shape of it" mock of the leji viewer: the human-readable face
-// of a context layer. Not a faithful Docsify reproduction: just the silhouette
-// (left nav, search, a content column with an H1 + layer-map chart) that reads
-// instantly as "a doc viewer." Decorative; aria-hidden. Paired with the
-// conformance terminal to show the layer's two audiences in one window.
+// Low-fidelity mock of the leji viewer (decorative, aria-hidden), not a faithful
+// reproduction. The sidebar mirrors what a real layer renders, in order: the
+// pinned entrypoints (boot profile, the generated Manifest page), then the agent
+// profiles, then the categories. The repository's own tree is not shown; in the
+// real viewer it lives behind the Reference drawer, not as a second sidebar zone.
+// Re-check this against `leji viewer` when the sidebar changes.
 import icon from '../assets/leji-icon.svg?raw';
 ---
 
@@ -12,46 +13,87 @@ import icon from '../assets/leji-icon.svg?raw';
       <div class="g-search">Search the context layer…</div>
       <div class="g-brand"><span class="g-mark" set:html={icon} /><span class="g-name">AI-native Team</span></div>
       <div class="g-boot"><span class="g-emo">🤖</span> Boot profile</div>
+      <div class="g-boot"><span class="g-emo">📄</span> Manifest</div>
       <hr class="g-hr" />
       <ul class="g-nav">
+         <li><span class="g-tri">▶</span><span class="g-emo">🤖</span> Agents</li>
          <li><span class="g-tri">▶</span><span class="g-emo">📖</span> Domain</li>
          <li><span class="g-tri">▶</span><span class="g-emo">⚙️</span> System</li>
          <li><span class="g-tri">▶</span><span class="g-emo">🛠️</span> Practice</li>
+         <li><span class="g-tri">▶</span><span class="g-emo">🛡️</span> Governance</li>
          <li><span class="g-tri">▶</span><span class="g-emo">🧭</span> Decisions</li>
       </ul>
    </aside>
 
    <section class="g-main">
-      <p class="g-eyebrow">Human-readable · for people</p>
+      <p class="g-eyebrow">Overview</p>
       <h3 class="g-h1">AI-native Team</h3>
-      <p class="g-lede">The shared, validated context people and coding agents read before working here.</p>
+      <p class="g-lede">The context people and agents read before working here.</p>
 
-      <svg class="g-map" viewBox="0 0 280 104" role="presentation" preserveAspectRatio="xMidYMid meet">
+      <svg class="g-map" viewBox="0 0 320 250" role="presentation" preserveAspectRatio="xMidYMid meet">
+         <defs>
+            <marker id="lj-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+               <path d="M0 1 L6 4 L0 7 z"></path>
+            </marker>
+         </defs>
+
          <g class="g-edge" fill="none">
-            <path d="M140 26 C140 50 35 50 35 74"></path>
-            <path d="M140 26 C140 50 105 50 105 74"></path>
-            <path d="M140 26 C140 50 175 50 175 74"></path>
-            <path d="M140 26 C140 50 245 50 245 74"></path>
+            <path d="M160 50 L160 58" marker-end="url(#lj-arrow)"></path>
+            <path d="M160 104 L160 114" marker-end="url(#lj-arrow)"></path>
+            <path d="M160 146 L160 156" marker-end="url(#lj-arrow)"></path>
+            <path d="M160 200 L160 212" marker-end="url(#lj-arrow)"></path>
          </g>
-         <g class="g-node g-node-boot">
-            <rect x="85" y="2" width="110" height="24" rx="4"></rect>
-            <text x="140" y="18">🤖 Boot profile</text>
+         <g class="g-edge g-edge-back" fill="none">
+            <path d="M206 98 C272 98 282 26 188 26" marker-end="url(#lj-arrow)"></path>
+            <path d="M114 198 C40 198 32 26 132 26" marker-end="url(#lj-arrow)"></path>
          </g>
+
+         <g class="g-entry">
+            <circle cx="160" cy="26" r="24"></circle>
+            <text class="g-t" x="160" y="29">Propose</text>
+         </g>
+
+         <g class="g-gate">
+            <path d="M160 60 L220 104 L100 104 Z"></path>
+            <text class="g-t" x="160" y="88">Review</text>
+            <text class="g-s" x="160" y="98">a person approves</text>
+         </g>
+
+         <g class="g-artifact">
+            <rect x="76" y="116" width="168" height="30"></rect>
+            <text class="g-t" x="160" y="130">In the context layer</text>
+            <text class="g-s" x="160" y="140">indexed, owned, routed</text>
+         </g>
+
+         <g class="g-gate">
+            <path d="M160 156 L220 200 L100 200 Z"></path>
+            <text class="g-t" x="160" y="184">Review horizon</text>
+            <text class="g-s" x="160" y="194">past its date?</text>
+         </g>
+
          <g class="g-node">
-            <rect x="4" y="74" width="62" height="24" rx="4"></rect>
-            <text x="35" y="90">📖 Domain</text>
+            <rect x="76" y="214" width="168" height="30"></rect>
+            <text class="g-t" x="160" y="228">Loaded on the next task</text>
+            <text class="g-s" x="160" y="238">by people and agents</text>
          </g>
-         <g class="g-node">
-            <rect x="74" y="74" width="62" height="24" rx="4"></rect>
-            <text x="105" y="90">⚙️ System</text>
+
+         <g class="g-lbl">
+            <rect x="140" y="105" width="40" height="10"></rect>
+            <text x="160" y="112">approved</text>
          </g>
-         <g class="g-node">
-            <rect x="144" y="74" width="62" height="24" rx="4"></rect>
-            <text x="175" y="90">🛠️ Practice</text>
+         <g class="g-lbl">
+            <rect x="131" y="201" width="58" height="10"></rect>
+            <text x="160" y="208">within horizon</text>
          </g>
-         <g class="g-node">
-            <rect x="214" y="74" width="62" height="24" rx="4"></rect>
-            <text x="245" y="90">🧭 Decisions</text>
+         <g class="g-lbl">
+            <rect x="254" y="46" width="48" height="19"></rect>
+            <text x="278" y="54">changes</text>
+            <text x="278" y="63">requested</text>
+         </g>
+         <g class="g-lbl">
+            <rect x="10" y="102" width="46" height="19"></rect>
+            <text x="33" y="110">past due,</text>
+            <text x="33" y="119">flagged</text>
          </g>
       </svg>
    </section>
@@ -63,25 +105,31 @@ import icon from '../assets/leji-icon.svg?raw';
       inset: 0;
       display: grid;
       grid-template-columns: minmax(7.5rem, 38%) 1fr;
-      background: var(--paper);
+      /* Pure white, not the site's warm --white: this panel mimics the viewer's
+         own window sitting on the dark hero band, and the real viewer renders on
+         white. The sidebar takes a hair of grey so the split reads. */
+      background: #fff;
       color: var(--ink);
       font-family: var(--serif-text);
       overflow: hidden;
       text-align: left;
    }
 
-   /* ── left nav ─────────────────────────────────────── */
+   /* Sidebar chrome sampled from a running `leji viewer`: #f8f9fa on #e0e0e0
+      dividers over a white page. Deliberately the viewer's neutral greys, not
+      the site's warm --line / --paper, because this panel is the viewer. */
    .g-side {
       position: relative;
-      border-right: 1px solid var(--line);
+      background: #f8f9fa;
+      border-right: 1px solid #e0e0e0;
       padding: 0.55rem 0.6rem 1.4rem;
       min-width: 0;
    }
    .g-search {
       font-size: 0.56rem;
       color: var(--ink-soft);
-      background: var(--white);
-      border: 1px solid var(--line);
+      background: #fff;
+      border: 1px solid #e0e0e0;
       border-radius: 5px;
       padding: 0.32rem 0.45rem;
       white-space: nowrap;
@@ -113,7 +161,7 @@ import icon from '../assets/leji-icon.svg?raw';
    }
    .g-hr {
       border: 0;
-      border-top: 1px solid var(--line);
+      border-top: 1px solid #e0e0e0;
       margin: 0.45rem 0;
    }
    .g-nav {
@@ -139,7 +187,6 @@ import icon from '../assets/leji-icon.svg?raw';
    .g-emo {
       font-size: 0.66rem;
    }
-   /* ── content column ───────────────────────────────── */
    .g-main {
       padding: 0.7rem 0.9rem;
       min-width: 0;
@@ -169,29 +216,99 @@ import icon from '../assets/leji-icon.svg?raw';
    }
    .g-map {
       width: 100%;
-      max-width: 18rem;
+      max-width: 15.75rem;
       height: auto;
       display: block;
    }
-   /* layer map, re-toned to the brand palette (no generic mermaid purple): a
-      gold-tinted Boot root, blue-tinted category nodes, muted blue connectors */
+   /* The review gate, drawn the way a team would keep it under governance:
+      people and agents both propose, a person approves, rejected work returns.
+      Gold is spent once, on the gate, because that approval is the mechanism
+      the whole spec exists to enforce; everything else stays quiet blue. Left
+      to right, matching the flowchart LR the generated viewer emits. Gold is a
+      fill and never text: --gold measures 1.53:1 on paper. */
    .g-edge path {
-      stroke: #aebada;
-      stroke-width: 1.2;
+      stroke: var(--blue-soft);
+      stroke-width: 1.3;
+      opacity: 0.6;
+   }
+   .g-edge-back path {
+      stroke-dasharray: 3 3;
+      opacity: 0.55;
+   }
+   .g-map marker path {
+      fill: var(--blue-soft);
+      opacity: 0.6;
    }
    .g-node rect {
-      fill: #e9eefb;
-      stroke: #c1ccee;
+      fill: var(--blue);
+      stroke: var(--blue-deep);
       stroke-width: 1;
    }
-   .g-node-boot rect {
-      fill: #fcebd2;
-      stroke: #ecc78c;
+   .g-gate path {
+      fill: var(--gold);
+      stroke: var(--gold-ink);
+      stroke-width: 1;
    }
-   .g-node text {
-      fill: var(--blue-deep);
+   .g-node text,
+   .g-gate text,
+   .g-entry text,
+   .g-artifact text {
       font-family: var(--serif-text);
-      font-size: 8.5px;
+      text-anchor: middle;
+   }
+   .g-t {
+      font-size: 9.5px;
+      font-weight: 600;
+   }
+   .g-s {
+      font-size: 7px;
+   }
+   .g-node .g-t {
+      fill: var(--paper);
+   }
+   .g-node .g-s {
+      fill: rgba(250, 246, 239, 0.72);
+   }
+   .g-gate .g-t,
+   .g-gate .g-s {
+      fill: var(--blue-deep);
+   }
+   .g-gate .g-s {
+      opacity: 0.72;
+   }
+   /* Flat shapes only, matching what mermaid actually renders: sharp rectangles,
+      triangles for the gates, a circle for the entry point, arrows for flow. The
+      split is semantic, not decorative: blue for a step, gold for a decision,
+      pale for the artifact the steps act on. */
+   .g-entry circle {
+      fill: var(--blue);
+      stroke: var(--blue-deep);
+      stroke-width: 1;
+   }
+   .g-artifact rect {
+      fill: #dfe4f4;
+      stroke: var(--blue);
+      stroke-width: 1;
+   }
+   .g-entry .g-t {
+      fill: var(--paper);
+   }
+   .g-artifact .g-t {
+      fill: var(--blue-deep);
+   }
+   .g-artifact .g-s {
+      fill: var(--blue-deep);
+      opacity: 0.7;
+   }
+   /* Edge labels sit on the line with a white knockout, the way mermaid draws
+      them, rather than floating in the margin. */
+   .g-lbl rect {
+      fill: #fff;
+   }
+   .g-lbl text {
+      fill: var(--ink-soft);
+      font-family: var(--serif-text);
+      font-size: 7.5px;
       text-anchor: middle;
    }
 </style>

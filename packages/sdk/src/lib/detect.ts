@@ -4,9 +4,8 @@ import * as path from 'node:path';
 
 /**
  * A coding-agent host Leji knows how to wire. `adapter` is the vendor entrypoint
- * file Leji would create (a one-line redirect to the boot profile); `null` marks
- * a directory-style host (Cursor, Windsurf) whose adapter wiring is deferred
- * until validation grows directory semantics.
+ * file Leji creates (a one-line redirect to the boot profile); `null` marks a
+ * directory-style host (Cursor, Windsurf) whose adapter wiring is deferred.
  */
 export interface HostSpec {
    id: string;
@@ -15,7 +14,28 @@ export interface HostSpec {
    repoFiles: string[];
    userDirs: string[];
    adapter: string | null;
+   /** Argv (after the host bin) that registers the local Leji MCP server, or absent
+    * for a host with no known `mcp add` command. Run from the layer root so a
+    * project-scoped write (Claude's `.mcp.json`) lands in the right repository. */
+   mcpAdd?: string[];
+   /** Argv that reports whether the Leji MCP server is already registered (exit 0 =
+    * present); used to skip the install offer when it's already there. */
+   mcpCheck?: string[];
 }
+
+/** The registered server name and the npm package behind the local Leji MCP server. */
+export const MCP_SERVER_NAME = 'leji';
+export const MCP_PACKAGE = '@leji-org/mcp';
+
+/**
+ * The portable discovery adapter. `AGENTS.md` is a cross-host entrypoint
+ * convention (stewarded by the Linux Foundation's Agentic AI Foundation, read
+ * natively by Codex, Copilot, Cursor, Gemini CLI, and others), not any one
+ * vendor's file, so `init`/`adopt` generate it as the default pointer-only
+ * redirect to the boot profile. Hosts with their own entrypoint (`CLAUDE.md`)
+ * are wired individually via `--wire-adapters` / `--agent`.
+ */
+export const PORTABLE_ADAPTER = 'AGENTS.md';
 
 export const HOST_SPECS: HostSpec[] = [
    {
@@ -25,14 +45,22 @@ export const HOST_SPECS: HostSpec[] = [
       repoFiles: ['CLAUDE.md'],
       userDirs: ['.claude', '.config/claude'],
       adapter: 'CLAUDE.md',
+      // Project scope writes a committed `.mcp.json` so the whole team gets the server.
+      mcpAdd: ['mcp', 'add', MCP_SERVER_NAME, '--scope', 'project', '--', 'npx', '-y', MCP_PACKAGE],
+      mcpCheck: ['mcp', 'get', MCP_SERVER_NAME],
    },
    {
       id: 'codex',
       name: 'Codex',
       bins: ['codex'],
+      // AGENTS.md is a detection signal for Codex but is not Codex's file: it is
+      // the portable adapter (PORTABLE_ADAPTER) many hosts read.
       repoFiles: ['AGENTS.md'],
       userDirs: ['.codex'],
       adapter: 'AGENTS.md',
+      // Codex registers at user level (~/.codex/config.toml); no project scope.
+      mcpAdd: ['mcp', 'add', MCP_SERVER_NAME, '--', 'npx', '-y', MCP_PACKAGE],
+      mcpCheck: ['mcp', 'get', MCP_SERVER_NAME],
    },
    {
       id: 'copilot',
@@ -118,8 +146,7 @@ function onPathFactory(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): (bin:
             try {
                const st = fs.statSync(path.join(d, bin + ext));
                if (!st.isFile()) return false;
-               // On POSIX a "confirmed" host means a runnable binary: require an
-               // executable bit. On Windows the extension implies executability.
+               // POSIX: require an executable bit. Windows: extension implies it.
                return platform === 'win32' || (st.mode & 0o111) !== 0;
             } catch {
                return false;
@@ -131,10 +158,9 @@ function onPathFactory(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): (bin:
 const STRENGTH_RANK: Record<Strength, number> = { confirmed: 0, 'project-present': 1, 'installed-likely': 2 };
 
 /**
- * Best-effort detection of the coding-agent hosts available to this user, ranked
- * by signal strength. Never launches anything and never writes; purely informs
- * the handoff and (on explicit request) adapter wiring. Probes are injectable so
- * the result is deterministic under test.
+ * Best-effort detection of available coding-agent hosts, ranked by signal
+ * strength. Never launches anything and never writes. Probes are injectable for
+ * deterministic tests.
  */
 export function detectHosts(opts: DetectOptions): DetectedHost[] {
    const env = opts.env ?? process.env;

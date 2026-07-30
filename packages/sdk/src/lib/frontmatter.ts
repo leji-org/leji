@@ -10,19 +10,21 @@ export interface Frontmatter {
 }
 
 /**
- * Extract the leading YAML frontmatter block (`---` fences) from a markdown
- * document. Dates and booleans follow YAML 1.2 core semantics (the `yaml`
- * package default): unquoted dates stay strings, only true/false are booleans.
+ * Extract the leading YAML frontmatter block (`---` fences) from markdown.
+ * YAML 1.2 core semantics: unquoted dates stay strings, only true/false coerce.
  */
 export function parseFrontmatter(text: string): Frontmatter {
    if (!text.startsWith('---\n') && !text.startsWith('---\r\n')) {
       return { data: null, body: text };
    }
-   const fence = /\r?\n---[ \t]*\r?\n/.exec(text.slice(3));
+   const fence = /(\r?\n)---[ \t]*\r?\n/.exec(text.slice(3));
    if (!fence) {
       return { data: null, body: text, error: 'unterminated frontmatter block' };
    }
-   const raw = text.slice(3, 3 + fence.index + 1);
+   // Capture group 1 is the line terminator that ends the block's last line, so
+   // the slice keeps it whole: taking a fixed single character leaves a CRLF
+   // file's bare `\r` behind, which YAML folds into the last scalar's value.
+   const raw = text.slice(3, 3 + fence.index + fence[1].length);
    const body = text.slice(3 + fence.index + fence[0].length);
    try {
       const data = parse(raw);

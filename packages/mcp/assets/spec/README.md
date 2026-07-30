@@ -5,16 +5,17 @@
 | | |
 |---|---|
 | **Spec version** | 1.0.0 |
-| **Status** | Released. Breaking changes require a new major version. |
+| **Status** | GA, frozen at the v1.3.0 reference-tooling release. Breaking changes require a new major version. |
 | **Editor** | Vuong Nguyen |
-| **One page** | [The full specification on a single page](/spec/full/) |
+| **One page** | [The full specification on a single page](https://leji.org/spec/full/) |
 
 ## Principles (non-normative)
 
 1. **Intent over instructions.** Leji captures durable intent (what things mean, what must hold, why it is so) instead of imperative, per-vendor instructions. People and agents derive actions from declared intent plus task context.
 2. **A circle, not a tier.** Human-to-human, human-to-AI, and human-to-AI-to-human are first-class flows around one shared context layer. Equal access, not equal authority: everyone with access to a context layer reads all of it, anyone proposes, people approve. Participation is role-based, not tool-based: a participant who never touches git directly is first-class in the circle. Access itself is the version control system's to grant, not Leji's; the circle is scoped to a context layer's audience.
+3. **Mechanism over goodwill.** Shared context decays by default: reality moves, documents don't, and nothing forces a wiki current. Leji's forcing functions are mechanical, not goodwill: changes ride the same review gate as code, tooling fails on mechanical drift, freshness horizons flag what has aged, and stale context is never silently treated as current (normatively, [governance.md](governance.md) → Freshness).
 
-The rest of this specification is the normative consequence of those two principles.
+The rest of this specification is the normative consequence of those three principles.
 
 ## Conformance language
 
@@ -35,14 +36,14 @@ These terms are used consistently across all normative documents:
 
 | Term | Meaning |
 |---|---|
-| **context layer** | The artifact this specification governs: a repo-owned, versioned set of human-readable documents and machine-readable artifacts encoding a team's durable operating context. "Leji context layer" is the full disambiguating form. Always write "context layer"; bare "layer" is reserved for naming a countable sibling, host, or mounted context layer under federation. |
+| **context layer** | The artifact this specification governs: a repo-owned, versioned set of human-readable documents and machine-readable artifacts encoding a team's durable operating context. "Leji context layer" is the full disambiguating form. Always write "context layer"; bare "layer" is reserved for naming a countable federation instance (a sibling, host, mounted, restricted, companion, or inaccessible context layer). |
 | **agent** | An AI system that acts: it loads repository context, performs or assists work, and may propose changes. The normative actor noun. |
 | **person** / **people** | Human participants. People hold approval authority. |
 | **participant** | A person or an agent. |
 | **audience** | The people and agents admitted to read a context layer by its repository permissions and any filesystem or shared-drive permissions that expose the checkout. "Everyone reads" is scoped to a context layer's audience; different audiences are served by separate context layers, never by gating content within one. |
 | **agent host** | The product or runtime an agent operates through (for example Claude Code, Codex, Cursor). Vendor adapters configure agent hosts. |
 | **tool** | A callable capability an agent uses (shell, search, an MCP server). Never a product name. |
-| **vendor adapter** | An agent-host-specific entrypoint file (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules`) that redirects to the boot profile. |
+| **vendor adapter** | An agent-host entrypoint file that redirects to the boot profile and never holds canonical content. Some are portable across hosts (`AGENTS.md`); others serve a single host (`CLAUDE.md`, `.cursor/rules`). The rule is the same for both; the difference changes only what tooling generates by default. |
 | **boot profile** | The agent-agnostic entrypoint of the context layer, for people and agents alike. |
 | **agent profile** | A role-specific loading-and-posture document for agents. |
 | **AI** | Used adjectivally (AI-native) and in the flow names **human-to-human**, **human-to-AI**, **human-to-AI-to-human**. In flow names, "AI" refers to agents operating through an agent host. |
@@ -59,7 +60,7 @@ In reading order:
 | Document | Defines |
 |---|---|
 | [context-layer.md](context-layer.md) | The context layer, the manifest, the root, the vendor-adapter rule |
-| [content-categories.md](content-categories.md) | The five logical content categories and path mapping |
+| [content-categories.md](content-categories.md) | The five logical content categories and how index files map content to them |
 | [boot-profile.md](boot-profile.md) | The agent-agnostic entrypoint every agent host loads |
 | [machine-readable-surface.md](machine-readable-surface.md) | Manifest, index, changelog, profiles, decision records |
 | [decisions.md](decisions.md) | Decision records |

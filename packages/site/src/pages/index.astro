@@ -9,239 +9,308 @@ import ViewerGlimpse from '../components/ViewerGlimpse.astro';
 import InstallTabs from '../components/InstallTabs.astro';
 import githubIcon from '../assets/github.svg?raw';
 
+// Captured verbatim from a real run: a repo with an existing docs/ tree and an
+// AGENTS.md, `leji adopt --yes --wire-adapters`, then validate and conformance
+// (the file list is elided to its first entries, real sorted order).
+// The fixture carries AGENTS.md, the portable adapter, rather than a
+// single-vendor entrypoint: this is a neutral standard and the hero should not
+// showcase one vendor's file.
+// Re-capture this after any change to what init/adopt writes; it drifted once
+// when AGENTS.md generation landed and took the file count with it.
+// To re-capture: outside this repo, make a fresh dir with a docs/ tree (a couple
+// of markdown files) and a non-empty AGENTS.md, then `git init && git add -A &&
+// git commit` (adopt refuses a dirty tree). From that dir run, in order:
+//   node <leji-repo>/packages/sdk/dist/cli.js adopt --yes --wire-adapters
+//   node <leji-repo>/packages/sdk/dist/cli.js validate
+//   node <leji-repo>/packages/sdk/dist/cli.js conformance
 const heroSession = [
    { cmd: 'leji adopt --yes --wire-adapters' },
-   { out: 'Wrote 12 files (context root: docs/):' },
-   { out: '   leji.json   docs/boot-profile.md   docs/agents/core.md   …', mark: 'dim' },
+   { out: 'Wrote 16 files (context root: docs/):' },
+   { out: '   AGENTS.md   docs/.leji/onboarding-brief.md   docs/agents/core.md   …', mark: 'dim' },
    { gap: true },
    { cmd: 'leji validate' },
    { out: 'ok (0 errors, 0 warnings)', mark: 'ok' },
    { gap: true },
    { cmd: 'leji conformance' },
-   { out: 'ok (0 errors, 0 warnings; verifiedLevel: core)', mark: 'ok' },
+   { out: 'ok (0 errors, 0 warnings; claimedLevel: core, verifiedLevel: core, processAttested: 4)', mark: 'ok' },
 ];
 
+// Shaped like what `leji init` actually scaffolds (templates/leji.json), so the
+// paths here are ones a reader can reproduce rather than invent.
 const peekJson = `{
-  "$schema": "https://leji.org/schemas/v1.0/context-manifest.schema.json",
   "leji": "1.0",
   "name": "ai-native-team-context",
   "rootPath": "docs/",
   "bootProfilePath": "docs/boot-profile.md",
   "categories": {
-    "domain": { "paths": ["docs/business/"] },
-    "decisions": { "paths": ["docs/decisions/"] },
-    ...
+    "domain": { "indexes": ["docs/context/domain.md"] },
+    "system": { "indexes": ["docs/context/system.md"] },
+    "decisions": { "indexes": ["docs/context/decisions.md"] }
   },
   "machine": {
     "indexPath": "docs/context-index.json",
-    "changelogPath": "docs/context-changelog.json",
-    ...
+    "changelogPath": "docs/context-changelog.json"
   },
-  "agents": {
-    "reviewer": "docs/agents/reviewer.md",
-    "thought-partner": "docs/agents/thought-partner.md"
-  },
-  "owners": {
-    "primary": { "name": "John Smith" }
-  },
-  "conformance": { "claimedLevel": "indexed" },
-  ...
+  "agents": { "reviewer": "docs/agents/reviewer.md" },
+  "owners": { "primary": { "name": "John Smith" } },
+  "conformance": { "claimedLevel": "indexed" }
 }`;
 ---
 
 <Base>
-   <div class="monument">
-      <SiteHeader flush />
+   <!-- The banner sits outside <main>, but the monument band still has to start above
+        it so the gradient, glow and fluting run unbroken behind the header. .monument
+        pulls itself up by the header's height and pads the same amount back, and the
+        header paints transparent on top. See --header-h below. -->
+   <SiteHeader flush />
+   <main id="content">
+      <div class="monument">
+         <div class="wrap">
+            <section class="hero">
+               <div class="hero-text">
+                  <p class="kicker reveal r1">
+                     <span>/LEH-jee/</span><i class="sep" aria-hidden="true">◆</i><span
+                        >Open specification & tooling</span
+                     >
+                  </p>
+                  <!-- "legible" is the name: Leji, from legible, per the /LEH-jee/ kicker above. -->
+                  <h1 class="reveal r2">Make your<br />context <span class="gild">legible.</span></h1>
+                  <div class="carved-rule reveal r2" aria-hidden="true"></div>
+                  <p class="lede reveal r3">
+                     Leji gives the intent buried in team chats and per-tool instructions one place to live: a shared
+                     context layer your team reviews and owns. It standardizes the shape and the governance, not the
+                     contents. People and agents can now read the same source, and validation tooling makes drift
+                     visible.
+                  </p>
+                  <div class="cta reveal r4">
+                     <a class="btn solid" href="/quickstart/">Quickstart</a>
+                     <a class="btn ghost" href="/spec/">Read the spec</a>
+                  </div>
+               </div>
+
+               <div class="hero-proof reveal r5">
+                  <AnimatedTerminal
+                     lines={heroSession}
+                     title="ai-native-repo"
+                     glimpseTitle="leji view  ·  AI-native Team  (illustration)"
+                     label="A real Leji session: adopt an existing repo, validate it, score it"
+                  >
+                     <HeroMark slot="brand" size={64} loop />
+                     <ViewerGlimpse slot="glimpse" />
+                     <InstallTabs slot="footer" />
+                  </AnimatedTerminal>
+                  <p class="hero-license">
+                     <a class="oss-link" href="https://github.com/leji-org/leji" target="_blank" rel="noopener">
+                        <span class="gh-icon" set:html={githubIcon} /><span class="free">Free &amp; open source</span>
+                     </a>&ensp;·&ensp;Apache-2.0&ensp;·&ensp;CC-BY-4.0
+                  </p>
+               </div>
+            </section>
+         </div>
+      </div>
+
+      <div class="levels-band">
+         <div class="wrap">
+            <section class="levels">
+               <p class="section-eyebrow">Adoption, not migration</p>
+               <h2 class="section-title levels-title">Start from the repo you have.</h2>
+               <p class="levels-lede">
+                  The Leji CLI scaffolds the context layer over the tree you already have. It moves nothing, rewrites an
+                  entrypoint only when you ask it to with <code>--wire-adapters</code>, and writes an onboarding brief
+                  that drives your coding agent to populate it from the real codebase.
+               </p>
+               <ol class="adopt-flow">
+                  <li class="adopt-step">
+                     <span class="step-when">First</span>
+                     <h3>Scaffolds around your tree</h3>
+                     <p>
+                        <code>adopt</code> reuses your docs root, seeds the category index files, and copies what your agent
+                        entrypoint already says into the context layer. Nothing you wrote is moved or rewritten.
+                     </p>
+                  </li>
+                  <li class="adopt-step">
+                     <span class="step-when">Then</span>
+                     <h3>Your agent proposes the mapping</h3>
+                     <p>
+                        The onboarding brief has your agent read the repository and propose which documents belong in
+                        which category. You review that proposal like any other change.
+                     </p>
+                  </li>
+                  <li class="adopt-step">
+                     <span class="step-when">Ongoing</span>
+                     <h3>Governs from there</h3>
+                     <p>
+                        Changes follow your repo's review gate. Validation in CI catches drift, and freshness horizons
+                        flag context that has aged.
+                     </p>
+                  </li>
+               </ol>
+            </section>
+         </div>
+      </div>
+
       <div class="wrap">
-         <section class="hero">
-            <div class="hero-text">
-               <p class="kicker reveal r1">
-                  <span>/Leh jee/</span><i class="sep" aria-hidden="true">◆</i><span>Open specification & tooling</span>
-               </p>
-               <h1 class="reveal r2">Make your context <span class="gild">legible</span>.</h1>
-               <div class="carved-rule reveal r2" aria-hidden="true"></div>
-               <p class="lede reveal r3">
-                  Leji is an open specification & tooling that turns intent scattered across many threads and per-tool
-                  instructions into one <strong>reviewed and governed</strong>
-                  <a href="/spec/context-layer/">shared context layer</a> for your
-                  <a href="/ai-native/">AI-native teams</a>.
-               </p>
-               <div class="cta reveal r4">
-                  <a class="btn solid" href="/quickstart/">Quickstart</a>
-                  <a class="btn ghost" href="/spec/">Read the spec</a>
+         <section class="surfaces">
+            <p class="section-eyebrow">Read by people, reached by agents</p>
+            <h2 class="section-title surfaces-title">One source, two kinds of&nbsp;readers.</h2>
+            <p class="surfaces-lede">
+               The shared context layer is a repo-owned record of how a team thinks (domain language, constraints,
+               decisions, conventions, agent guardrails), read by people and AI agents and changed through one review
+               gate. It governs your dated evidence too, as records that a later state supersedes rather than documents
+               anyone promises to keep current.
+            </p>
+            <div class="chart">
+               <div class="chart-source">
+                  <span class="chart-source-name">Shared Context Layer</span>
+                  <span class="chart-source-tag">changed through review</span>
+               </div>
+               <svg class="chart-fork" viewBox="0 0 40 100" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="M0 50 H20 M20 23 V77 M20 23 H40 M20 77 H40"></path>
+               </svg>
+               <div class="chart-surfaces">
+                  <article class="surface">
+                     <p class="surface-label">For people</p>
+                     <p class="surface-body">
+                        Anyone on the team can read the same context layer agents are pointed at. <code>leji view</code
+                        >{' '}
+                        opens the <strong>shared context layer</strong>, rendered human-readable in the browser.
+                     </p>
+                  </article>
+                  <article class="surface">
+                     <p class="surface-label">For agents</p>
+                     <p class="surface-body">
+                        Agents enter through the boot profile (vendor entrypoints redirect there), and the{' '}
+                        <strong>MCP server</strong> hands them the spec and schemas and lets them{' '}
+                        <a href="/mcp/">validate it and score conformance</a> natively.
+                     </p>
+                  </article>
                </div>
             </div>
+         </section>
+      </div>
 
-            <div class="hero-proof reveal r5">
-               <AnimatedTerminal
-                  lines={heroSession}
-                  title="ai-native-repo  ·  ~60s"
-                  glimpseTitle="leji view  ·  AI-native Team"
-                  label="A real leji session: adopt an existing repo, validate it, score it"
-               >
-                  <HeroMark slot="brand" size={64} loop />
-                  <ViewerGlimpse slot="glimpse" />
-                  <InstallTabs slot="footer" />
-               </AnimatedTerminal>
-               <p class="hero-license">
-                  <a class="oss-link" href="https://github.com/leji-org/leji" target="_blank" rel="noopener">
-                     <span class="gh-icon" set:html={githubIcon} /><span class="free">Free &amp; open source</span>
-                  </a>&ensp;·&ensp;Apache-2.0&ensp;·&ensp;CC-BY-4.0
+      <div class="levels-band">
+         <div class="wrap">
+            <section class="levels">
+               <p class="section-eyebrow">Conformance</p>
+               <h2 class="section-title levels-title">Claim a level, then check it.</h2>
+               <p class="levels-lede">
+                  Conformance grades a context layer across 4 cumulative levels by what's in place, not self-assessed
+                  maturity. Most teams should reach <code>governed</code> and stop. It stays self-attested: the reference
+                  CLI checks what a machine can check and reports the rest, which your team stands behind.
                </p>
-            </div>
-         </section>
-      </div>
-   </div>
-
-   <div class="levels-band">
-      <div class="wrap">
-         <section class="levels">
-            <p class="section-eyebrow">From scattered AI use to governed team context</p>
-            <h2 class="section-title levels-title">Start from the repo you have.</h2>
-            <p class="levels-lede">
-               The Leji CLI and SDK read the codebase and docs you already have, turning scattered intent into one
-               shared context layer, useful from day one.
-            </p>
-            <ol class="adopt-flow">
-               <li class="adopt-step">
-                  <span class="step-when">First</span>
-                  <h3>Reads what exists</h3>
-                  <p>Code, docs, decisions, and agent instructions become the source.</p>
-               </li>
-               <li class="adopt-step">
-                  <span class="step-when">Then</span>
-                  <h3>Organizes in place</h3>
-                  <p>Existing files map into the context layer without a rewrite.</p>
-               </li>
-               <li class="adopt-step">
-                  <span class="step-when">Ongoing</span>
-                  <h3>Governs from there</h3>
-                  <p>Every change passes review and validation to stay current.</p>
-               </li>
-            </ol>
-            <p class="ladder-intro">
-               Conformance is Leji's standard scale for how far a shared context layer has matured, across 4 cumulative
-               levels.
-            </p>
-            <ol class="ladder">
-               <li>
-                  <span class="rung-tag">core</span>
-                  <strong class="rung-cap">Shared team context</strong>
-                  <span>manifest, boot profile, real content, a first decision, a named owner.</span>
-               </li>
-               <li>
-                  <span class="rung-tag">indexed</span>
-                  <strong class="rung-cap">Legible to tooling</strong>
-                  <span>a generated index and a machine-readable changelog.</span>
-               </li>
-               <li>
-                  <span class="rung-tag">governed</span>
-                  <strong class="rung-cap">Reviewed and current</strong>
-                  <span>pull-request review, agent profiles, CI, and checked freshness horizons.</span>
-               </li>
-               <li>
-                  <span class="rung-tag">federated</span>
-                  <strong class="rung-cap">Org-wide practice</strong>
-                  <span>a pinned docs-only mount in other repos, with stale-pin reporting.</span>
-               </li>
-            </ol>
-         </section>
-      </div>
-   </div>
-
-   <div class="wrap">
-      <section class="surfaces">
-         <p class="section-eyebrow">One context layer, two surfaces</p>
-         <h2 class="section-title surfaces-title">Read by people, reached by agents.</h2>
-         <p class="surfaces-lede">
-            The shared context layer is a repo-owned record of how a team thinks (domain language, constraints,
-            decisions, conventions, agent guardrails), read by people and AI agents and changed through one review gate.
-         </p>
-         <div class="chart">
-            <div class="chart-source">
-               <span class="chart-source-name">Shared Context Layer</span>
-               <span class="chart-source-tag">reviewed &amp; governed</span>
-            </div>
-            <svg class="chart-fork" viewBox="0 0 40 100" preserveAspectRatio="none" aria-hidden="true">
-               <path d="M0 50 H20 M20 23 V77 M20 23 H40 M20 77 H40"></path>
-            </svg>
-            <div class="chart-surfaces">
-               <article class="surface">
-                  <p class="surface-label">For people</p>
-                  <p class="surface-body">
-                     Anyone on the team can read exactly what agents read. <code>leji view</code> opens the
-                     <strong>shared context layer</strong>, rendered human-readable in the browser.
+               <ol class="ladder">
+                  <li>
+                     <span class="rung-tag">core</span>
+                     <strong class="rung-cap">Shared team context</strong>
+                     <span>manifest, boot profile, real content, a first decision, a named owner.</span>
+                  </li>
+                  <li>
+                     <span class="rung-tag">indexed</span>
+                     <strong class="rung-cap">Legible to tooling</strong>
+                     <span>a generated index and a machine-readable changelog.</span>
+                  </li>
+                  <li>
+                     <span class="rung-tag">governed</span>
+                     <strong class="rung-cap">Reviewed, with drift checked</strong>
+                     <span>pull-request review, agent profiles, CI, and checked freshness horizons.</span>
+                  </li>
+                  <li>
+                     <span class="rung-tag">federated</span>
+                     <strong class="rung-cap">Org-wide practice</strong>
+                     <span>a pinned mount in other repos, with stale-pin reporting.</span>
+                  </li>
+               </ol>
+               <aside class="standard-note">
+                  <span class="standard-note-label">A neutral standard</span>
+                  <p>
+                     Every level is reachable with the open specification and reference tooling alone. Conformance never
+                     requires a commercial product or service.
                   </p>
-               </article>
-               <article class="surface">
-                  <p class="surface-label">For agents</p>
-                  <p class="surface-body">
-                     Agents read the same shared context layer from the repo, then use the <strong>MCP server</strong>
-                     to retrieve the spec and schemas, <a href="/mcp/">validate it and score conformance</a>.
-                  </p>
-               </article>
-            </div>
+               </aside>
+            </section>
          </div>
-      </section>
-   </div>
+      </div>
 
-   <div class="why-band">
+      <div class="why-band">
+         <div class="wrap">
+            <p class="section-eyebrow why-eyebrow">Why it's built this way</p>
+            <h2 class="section-title levels-title">Durable intent, shared in a circle, checked by&nbsp;mechanism.</h2>
+            <p class="why-lede">
+               An <a href="/ai-native/">AI-native team</a> is a team where people and AI agents work from one shared, versioned,
+               governed context layer.
+            </p>
+            <section class="theses">
+               <article class="thesis">
+                  <span class="thesis-num">I.</span>
+                  <div class="thesis-body">
+                     <h3>Intent over instructions</h3>
+                     <p>
+                        Where team context is re-encoded as imperative instructions in a file per vendor, it fragments
+                        and drifts. Leji puts durable intent in one shared context layer, changed through review, and
+                        lets people and agents derive actions from it. Vendor entrypoints redirect into the shared
+                        context layer rather than being the source, so your team's context outlives any single tool or
+                        model choice.
+                     </p>
+                  </div>
+               </article>
+               <article class="thesis">
+                  <span class="thesis-num">II.</span>
+                  <div class="thesis-body">
+                     <h3>A circle, not a tier</h3>
+                     <p>
+                        Human-to-human, human-to-AI, and human-to-AI-to-human are first-class flows around one shared
+                        context layer. Equal access, not equal authority: everyone reads, anyone proposes, people
+                        approve through pull requests.
+                     </p>
+                  </div>
+               </article>
+               <article class="thesis">
+                  <span class="thesis-num">III.</span>
+                  <div class="thesis-body">
+                     <h3>Mechanism over goodwill</h3>
+                     <p>
+                        Shared context decays by default: reality moves, documents don't, and nothing forces a wiki
+                        current. Leji's forcing functions are mechanical, not goodwill: changes ride the same review
+                        gate as code, tooling fails on mechanical drift, freshness horizons flag what has aged, and
+                        stale context is never silently treated as current.
+                     </p>
+                  </div>
+               </article>
+            </section>
+         </div>
+      </div>
+
       <div class="wrap">
-         <p class="section-eyebrow why-eyebrow">Why it's built this way</p>
-         <h2 class="section-title levels-title">Durable intent, shared in a circle.</h2>
-         <p class="why-lede">
-            An AI-native team is a team where people and AI agents work from one shared, versioned, governed context
-            layer.
-         </p>
-         <section class="theses">
-            <article class="thesis">
-               <h3><span class="thesis-num">I.</span> Intent over instructions</h3>
+         <section class="manifest-peek">
+            <div class="peek-text">
+               <p class="section-eyebrow">The machine entrypoint</p>
+               <h2 class="section-title">One manifest file</h2>
                <p>
-                  Most AI adoption writes imperative, per-vendor instructions. Leji's spec and tooling help enforce
-                  durable intent and let people and agents derive actions from it. Vendor entrypoints redirect into the
-                  shared context layer rather than being the source, so your team's truth survives any tooling or AI
-                  model upgrade.
+                  Your existing <code>docs/</code> tree conforms by <em>mapping</em>, not renaming. A single{' '}
+                  <code>leji.json</code> at the repository root declares the context root, the boot profile, the category
+                  mappings, and the conformance claim.
                </p>
-            </article>
-            <div class="theses-divider" aria-hidden="true"></div>
-            <article class="thesis">
-               <h3><span class="thesis-num">II.</span> A circle, not a tier</h3>
                <p>
-                  Human-to-human, human-to-AI, and human-to-AI-to-human are first-class flows around one shared context
-                  layer. Equal access, not equal authority: everyone reads, anyone proposes, people approve through pull
-                  requests.
+                  The cleanest context layer needs no vendor files at all: invocation points the agent host straight at
+                  the boot profile, or <code>leji start</code> opens a detected host there.
                </p>
-            </article>
+               <p>
+                  Entrypoint files are pointers, never homes. <code>AGENTS.md</code> is the portable one most agent hosts
+                  read, so <code>init</code> and <code>adopt</code> write a pointer-only version when your repo has none (<code
+                     >--no-agents</code
+                  > skips it, and an existing file is never touched). Single-vendor files like{' '}
+                  <code>CLAUDE.md</code> are never created; <code>adopt --wire-adapters</code> turns one you already keep
+                  into the same one-line redirect.
+               </p>
+               <p class="peek-more"><a href="/manifest/">Manifest reference →</a></p>
+            </div>
+            <div class="peek-code">
+               <Code code={peekJson} lang="json" theme="night-owl" wrap />
+            </div>
          </section>
       </div>
-   </div>
-
-   <div class="wrap">
-      <section class="manifest-peek">
-         <div class="peek-text">
-            <p class="section-eyebrow">The machine entrypoint</p>
-            <h2 class="section-title">One manifest file</h2>
-            <p>
-               Your existing <code>docs/</code> tree conforms by <em>mapping</em>, not renaming. A single
-               <code>leji.json</code> at the repository root declares the context root, the boot profile, the category mappings,
-               and the conformance claim.
-            </p>
-            <p>
-               The cleanest context layer needs no vendor files at all: invocation points the agent host straight at the
-               boot profile, or <code>leji start</code> opens a detected host there.
-            </p>
-            <p>
-               Leji's CLI and SDK never create vendor entrypoints (<code>CLAUDE.md</code>, <code>AGENTS.md</code>, and
-               the like). If your repo already keeps one, <code>adopt --wire-adapters</code> turns it into a one-line redirect
-               to the boot profile, not where context lives.
-            </p>
-            <p class="peek-more"><a href="/manifest/">Manifest reference →</a></p>
-         </div>
-         <div class="peek-code">
-            <Code code={peekJson} lang="json" theme="night-owl" wrap />
-         </div>
-      </section>
-   </div>
+   </main>
    <SiteFooter />
 </Base>
 
@@ -256,6 +325,13 @@ const peekJson = `{
          radial-gradient(90% 60% at 50% 118%, rgba(61, 86, 160, 0.55), transparent 60%),
          linear-gradient(180deg, #0c1736 0%, var(--blue-deep) 32%, #18306e 100%);
       padding-bottom: clamp(3.5rem, 8vh, 6rem);
+      /* The banner is a sibling above this band, not a child, so <main> can be the
+         page's landmark. Pull the band up behind it and pad the same amount back, so
+         the gradient, glow and fluting are continuous under the header.
+         --header-h mirrors SiteHeader's row: the 30px logo plus its 1.05rem padding. */
+      --header-h: calc(30px + 2 * 1.05rem);
+      margin-top: calc(-1 * var(--header-h));
+      padding-top: var(--header-h);
    }
    /* stone grain */
    .monument::before {
@@ -324,13 +400,14 @@ const peekJson = `{
       font-family: var(--serif-display);
       font-variation-settings: 'opsz' 144;
       font-weight: 460;
-      font-size: clamp(2.5rem, 5vw, 4.05rem);
-      line-height: 1.02;
+      font-size: clamp(2.4rem, 5.2vw, 4.05rem);
+      line-height: 1.06;
       letter-spacing: -0.02em;
       color: var(--white);
       margin: 0;
-      max-width: 19ch;
+      max-width: 30ch;
    }
+
    .gild {
       position: relative;
       white-space: nowrap;
@@ -621,21 +698,48 @@ const peekJson = `{
          width: 50%;
       }
    }
-   .ladder-intro {
-      margin: clamp(3rem, 5.5vh, 4.5rem) 0 0;
+   .standard-note {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin: clamp(1.6rem, 3.5vh, 2.6rem) 0 0;
+      max-width: 64ch;
+      padding: 0.15rem 0 0.15rem 1.1rem;
+      border-left: 2px solid var(--gold);
+   }
+   .standard-note-label {
+      font-family: var(--mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--blue);
+   }
+   .standard-note p {
+      margin: 0;
       color: var(--ink-soft);
-      font-size: 1rem;
+      font-size: 0.95rem;
       line-height: 1.6;
-      max-width: none;
    }
    .ladder {
       list-style: none;
       margin: clamp(1.7rem, 3.2vh, 2.3rem) 0 0;
       padding: 0;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(218px, 1fr));
+      grid-template-columns: repeat(4, 1fr);
       gap: 1rem;
       counter-reset: ladder;
+   }
+   @media (max-width: 900px) {
+      .ladder {
+         grid-template-columns: repeat(2, 1fr);
+         row-gap: 1.6rem;
+      }
+   }
+   @media (max-width: 560px) {
+      .ladder {
+         grid-template-columns: 1fr;
+         row-gap: 1.6rem;
+      }
    }
    .ladder li {
       counter-increment: ladder;
@@ -738,7 +842,7 @@ const peekJson = `{
    }
    .chart {
       display: grid;
-      grid-template-columns: minmax(190px, 260px) clamp(2rem, 5vw, 3.5rem) 1fr;
+      grid-template-columns: minmax(240px, 320px) clamp(2rem, 5vw, 3.5rem) 1fr;
       align-items: center;
       margin-top: 2.4rem;
    }
@@ -746,7 +850,7 @@ const peekJson = `{
       display: flex;
       flex-direction: column;
       gap: 0.55rem;
-      padding: 1.3rem 1.5rem;
+      padding: 1.5rem 1.7rem;
       border: 1px solid var(--gold);
       border-radius: 14px;
       background: var(--white);
@@ -890,37 +994,35 @@ const peekJson = `{
       max-width: 58ch;
       font-size: 1.05rem;
       line-height: 1.7;
-      margin: 0 0 2rem;
+      margin: 0 0 0.8rem;
+   }
+   .why-lede a {
+      color: var(--gold-bright);
+      text-decoration: underline;
+      text-decoration-color: rgba(255, 189, 110, 0.4);
+      text-underline-offset: 3px;
+   }
+   .why-lede a:hover {
+      text-decoration-color: var(--gold-bright);
    }
    .theses {
-      display: grid;
-      grid-template-columns: 1fr 1px 1fr;
-      gap: clamp(2rem, 5vw, 3.6rem);
-      align-items: start;
       margin-top: 0;
    }
-   @media (max-width: 720px) {
-      .theses {
-         grid-template-columns: 1fr;
-         gap: 2.4rem;
-      }
-      .theses-divider {
-         display: none;
-      }
-   }
-   .theses-divider {
-      align-self: stretch;
-      background: linear-gradient(
-         180deg,
-         transparent,
-         rgba(255, 189, 110, 0.28) 14%,
-         rgba(255, 189, 110, 0.28) 86%,
-         transparent
-      );
+   .thesis {
+      display: grid;
+      grid-template-columns: clamp(3.6rem, 7vw, 5.5rem) minmax(0, 1fr);
+      gap: clamp(1.4rem, 3.5vw, 3rem);
+      align-items: baseline;
+      padding: clamp(1.8rem, 3.6vh, 2.6rem) 0;
    }
    .thesis-num {
+      font-family: var(--serif-display);
+      font-variation-settings: 'opsz' 144;
+      font-weight: 460;
+      font-size: clamp(2.1rem, 3.4vw, 2.9rem);
+      line-height: 1;
       color: var(--gold);
-      margin-right: 0.15em;
+      text-align: right;
    }
    .thesis h3 {
       font-family: var(--serif-display);
@@ -933,15 +1035,32 @@ const peekJson = `{
    .thesis p {
       margin: 0;
       color: var(--white-soft);
-      font-size: 1rem;
+      font-size: 1.02rem;
       line-height: 1.72;
+      max-width: 66ch;
+   }
+   @media (max-width: 640px) {
+      .thesis {
+         grid-template-columns: 2.4rem minmax(0, 1fr);
+         gap: 1rem;
+         padding: 1.5rem 0;
+      }
+      .thesis-num {
+         font-size: 1.5rem;
+      }
    }
    .manifest-peek {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      /* code column gets the larger share: monospace needs the horizontal room */
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
       gap: clamp(2rem, 4vw, 3rem);
       align-items: center;
       padding: clamp(3.5rem, 8vh, 6rem) 0;
+   }
+   @media (max-width: 760px) {
+      .manifest-peek {
+         grid-template-columns: 1fr;
+      }
    }
    .peek-text p {
       color: var(--ink-soft);

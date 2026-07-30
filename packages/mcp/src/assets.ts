@@ -2,9 +2,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Bundled, drift-checked copies of the canonical spec and schemas, vendored from
-// the repo-root spec/ and schemas/ by scripts/sync-assets.ts (no forked spec).
-// Resolved relative to the built file: dist/ -> package root -> assets/.
+// Drift-checked copies of the spec and schemas, vendored from repo-root spec/ and
+// schemas/ by scripts/sync-assets.ts. Resolved relative to the built file:
+// dist/ -> package root -> assets/.
 const assetsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'assets');
 const specDir = path.join(assetsDir, 'spec');
 const schemasDir = path.join(assetsDir, 'schemas');
@@ -34,9 +34,9 @@ export function schemaNames(): string[] {
 }
 
 /**
- * Read one spec document by id, or null when the id is not a known document.
- * The id is matched against the enumerated set (a basename never contains a path
- * separator), so a caller cannot use it to traverse out of the bundle.
+ * Read one spec document by id, or null when unknown. The id is matched against
+ * the enumerated set (a basename has no path separator), so it cannot traverse
+ * out of the bundle.
  */
 export function readSpec(id: string): string | null {
    if (!specIds().includes(id)) return null;

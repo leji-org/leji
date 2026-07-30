@@ -1,0 +1,11 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": []
+  },
+  "conformance": {
+    "exit": 0,
+    "claimedLevel": "core",
+    "verifiedLevel": "core"
+  }
+}

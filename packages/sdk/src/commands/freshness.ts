@@ -24,17 +24,17 @@ function reviewAfterOf(fm: Record<string, unknown> | null): string | null {
    return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
 }
 
-/**
- * Report freshness horizons across category documents and agent profiles.
- * Report-only by default (warnings); --strict raises expired horizons to
- * errors. Scans documents directly so it works at any conformance level.
- */
+/** Report-only by default (warnings); --strict raises expired horizons to errors.
+ * Scans documents directly so it works at any conformance level. */
 export function freshnessReport(root: string, manifest: Manifest, strict = false): FreshnessReport {
    const today = new Date().toISOString().slice(0, 10);
    const horizon = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
 
    const items: FreshnessItem[] = [];
-   for (const doc of scanCategories(root, manifest)) {
+   for (const doc of scanCategories(root, manifest).docs) {
+      // Freshness is an intent mechanism: records are dated evidence and carry
+      // no review horizon (a horizon on a record is a validation error).
+      if (doc.kind === 'record') continue;
       const reviewAfter = reviewAfterOf(doc.frontmatter);
       if (reviewAfter) items.push({ path: doc.relPath, reviewAfter });
    }

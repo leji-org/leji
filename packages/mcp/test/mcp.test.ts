@@ -115,7 +115,10 @@ test('validate_manifest validates inline JSON and reports findings', async () =>
       name: 'inline',
       rootPath: 'docs/',
       bootProfilePath: 'docs/boot-profile.md',
-      categories: { domain: { paths: ['docs/domain/'] }, decisions: { paths: ['docs/decisions/'] } },
+      categories: {
+         domain: { indexes: ['docs/context/domain.md'] },
+         decisions: { indexes: ['docs/context/decisions.md'] },
+      },
       owners: { primary: { name: 'Inline Owner' } },
    });
    const okRes = structured(await client.callTool({ name: 'validate_manifest', arguments: { manifestJson: good } }));
