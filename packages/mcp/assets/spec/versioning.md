@@ -5,7 +5,15 @@ Three things version independently: the specification, the schemas, and any impl
 ## The specification
 
 1. The spec carries a SemVer version (currently **1.0.0**). Breaking changes require a major version; every change is recorded in the repository changelog.
-2. A context layer declares the spec line it targets in `leji.json` via the self-naming `leji` key (e.g. `"leji": "1.0"`), following the OpenAPI convention. Tooling **MUST** validate a context layer against the declared line, not the newest one.
+2. A context layer declares the spec line it targets in `leji.json` via the self-naming `leji` key (e.g. `"leji": "1.0"`), following the OpenAPI convention. The value is the spec **line** (`major.minor`), never the spec's patch version: a patch release (`1.0.0` to `1.0.1`) refines wording or tooling without moving the line, so the manifest stays `"1.0"` across every patch. Tooling **MUST** validate a context layer against the declared line, not the newest one.
+
+## Preview lines
+
+A spec line **MAY** be designated **preview**. A preview line is revisable in place: it **MAY** change in ways that would otherwise be breaking, rather than being bumped to a new version, until it is frozen at general availability (GA). The "breaking changes require a major version" rule (item 1) and the "`$id` moves on an incompatible shape change" rule (item 3) apply from the GA freeze onward, not while a line is in preview. At GA the line is frozen and both rules take effect.
+
+A line that ships before general availability **MUST** declare that at its initial release.
+
+The 1.0 line is **frozen at the v1.3.0 reference-tooling release**. Within the line, schema changes are additive only and the `$id` stays on `v1.0`; any incompatible change ships as a new line, never in place.
 
 ## The schemas
 

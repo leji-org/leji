@@ -7,6 +7,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from leji.cli import main
 from leji.init_cmd import (
     build_azure_pipeline,
@@ -49,12 +51,16 @@ def test_ci_writes_when_absent_idempotent_and_exits_1_with_no_manifest(
     assert "manifest-missing" in (out + err) or "no leji.json" in (out + err)
 
 
+# `stage: .pre` is deliberate: without an explicit stage GitLab assigns `test`, and a
+# pipeline whose own `stages:` list omits it rejects the whole configuration.
 GITLAB_BLOCK = (
     "# >>> leji ci (managed) >>>\n"
     "leji-validate:\n"
+    "  stage: .pre\n"
     "  image: node:22\n"
     "  script:\n"
-    "    - npx -y @leji-org/leji@latest validate\n"
+    "    - npx -y @leji-org/leji@1 validate\n"
+    "    - npx -y @leji-org/leji@1 index --check\n"
     "# <<< leji ci (managed) <<<\n"
 )
 
@@ -286,3 +292,222 @@ def test_ci_write_failure_cleans_up(capsys, tmp_path: Path, monkeypatch) -> None
     wf = layer / ".github" / "workflows"
     assert not (wf / "leji.yml").exists()
     assert not (wf / "leji.yml.leji-tmp").exists()
+
+
+# Mirrors units.test.ts "ci: provider inference from the origin remote".
+def test_ci_provider_inference_from_origin_remote() -> None:
+    from leji.init_cmd import ci_provider_from_remote
+
+    assert ci_provider_from_remote("git@github.com:acme/app.git") == "github"
+    assert ci_provider_from_remote("git@gitlab.com:acme/app.git") == "gitlab"
+    assert ci_provider_from_remote("https://gitlab.example.co/acme/app.git") == "gitlab"
+    assert ci_provider_from_remote("https://dev.azure.com/acme/app/_git/app") == "azure"
+    assert ci_provider_from_remote("https://bitbucket.org/acme/app.git") is None
+    assert ci_provider_from_remote(None) is None
+
+
+# Mirrors units.test.ts "ci --hooks: managed pre-commit hook is created,
+# idempotent, and never clobbers".
+def test_ci_hooks_created_idempotent_never_clobbers(tmp_path: Path) -> None:
+    from leji.init_cmd import ensure_local_hook
+
+    _git_init(tmp_path)
+    first = ensure_local_hook(str(tmp_path))
+    assert first.action == "created"
+    second = ensure_local_hook(str(tmp_path))
+    assert second.action == "unchanged"
+    hook_path = tmp_path / ".git" / "hooks" / "pre-commit"
+    assert hook_path.stat().st_mode & 0o111, "hook is executable"
+    hook_path.write_text("#!/bin/sh\necho custom hook\n", encoding="utf-8")
+    third = ensure_local_hook(str(tmp_path))
+    assert third.action == "manual", "unmanaged hook is never clobbered"
+    assert third.reason == "foreign-hook"
+    assert '"$LEJI" validate' in (third.snippet or "")
+    assert "node_modules/.bin/leji" in (third.snippet or ""), "hook prefers the local bin"
+    assert "custom hook" in hook_path.read_text(encoding="utf-8"), "foreign hook untouched"
+
+
+def test_ci_hooks_requires_git_repo(tmp_path: Path) -> None:
+    from leji.init_cmd import ensure_local_hook
+
+    try:
+        ensure_local_hook(str(tmp_path))
+    except RuntimeError as e:
+        assert str(e) == "not a git repository (no .git directory); hooks need one"
+    else:
+        raise AssertionError("expected the no-git error")
+
+
+def _git_init(tmp_path: Path) -> None:
+    import subprocess
+
+    subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=True)
+
+
+def _set_hooks_path(tmp_path: Path, value: str) -> None:
+    import subprocess
+
+    subprocess.run(["git", "-C", str(tmp_path), "config", "core.hooksPath", value], check=True)
+
+
+# Mirrors units.test.ts "ci --hooks: husky (.husky/_) merges a managed block ...".
+def test_ci_hooks_husky_merges_managed_block(tmp_path: Path) -> None:
+    from leji.init_cmd import ensure_local_hook
+
+    _git_init(tmp_path)
+    _set_hooks_path(tmp_path, ".husky/_")
+    husky_pre = tmp_path / ".husky" / "pre-commit"
+    husky_pre.parent.mkdir(parents=True)
+    husky_pre.write_text("#!/bin/sh\nnpm test\n", encoding="utf-8")
+    r = ensure_local_hook(str(tmp_path))
+    assert r.path == ".husky/pre-commit"
+    assert r.action == "updated"
+    assert r.managed == "block"
+    merged = husky_pre.read_text(encoding="utf-8")
+    assert "npm test" in merged, "existing husky content untouched"
+    assert "# >>> leji hooks (managed) >>>" in merged
+    assert '"$LEJI" validate || exit 1' in merged
+    assert not (tmp_path / ".git" / "hooks" / "pre-commit").exists()
+    assert ensure_local_hook(str(tmp_path)).action == "unchanged", "rerun is idempotent"
+
+
+# Mirrors units.test.ts "ci --hooks: husky repo without .husky/pre-commit ...".
+def test_ci_hooks_husky_creates_file_when_absent(tmp_path: Path) -> None:
+    from leji.init_cmd import ensure_local_hook
+
+    _git_init(tmp_path)
+    _set_hooks_path(tmp_path, ".husky/_")
+    r = ensure_local_hook(str(tmp_path))
+    assert r.action == "created"
+    assert r.managed == "block"
+    husky_pre = tmp_path / ".husky" / "pre-commit"
+    body = husky_pre.read_text(encoding="utf-8")
+    assert body.startswith("#!/bin/sh\n")
+    assert husky_pre.stat().st_mode & 0o111, "husky hook is executable"
+    assert not (tmp_path / ".git" / "hooks" / "pre-commit").exists()
+
+
+# Mirrors units.test.ts "ci --hooks: a custom core.hooksPath dir ...".
+def test_ci_hooks_custom_dir_writes_managed_file(tmp_path: Path) -> None:
+    from leji.init_cmd import ensure_local_hook
+
+    _git_init(tmp_path)
+    _set_hooks_path(tmp_path, "githooks")
+    r = ensure_local_hook(str(tmp_path))
+    assert r.path == "githooks/pre-commit"
+    assert r.action == "created"
+    assert r.managed == "file"
+    custom = tmp_path / "githooks" / "pre-commit"
+    assert "# leji pre-commit (managed)" in custom.read_text(encoding="utf-8")
+    assert "node_modules/.bin/leji" in custom.read_text(encoding="utf-8"), "prefers the local bin"
+    assert custom.stat().st_mode & 0o111, "custom hook is executable"
+    assert not (tmp_path / ".git" / "hooks" / "pre-commit").exists()
+
+
+# Mirrors units.test.ts "ci --hooks: direct .husky (v8) hook is executable and
+# mode-corrected on rerun".
+def test_ci_hooks_direct_husky_v8_mode_correction(tmp_path: Path) -> None:
+    from leji.init_cmd import ensure_local_hook
+
+    _git_init(tmp_path)
+    _set_hooks_path(tmp_path, ".husky")
+    first = ensure_local_hook(str(tmp_path))
+    assert first.action == "created"
+    assert first.path == ".husky/pre-commit"
+    assert first.managed == "block"
+    husky_pre = tmp_path / ".husky" / "pre-commit"
+    assert husky_pre.stat().st_mode & 0o111, "created hook is executable"
+    assert ensure_local_hook(str(tmp_path)).action == "unchanged"
+    husky_pre.chmod(0o644)
+    third = ensure_local_hook(str(tmp_path))
+    assert third.action == "updated", "mode-only correction is updated"
+    assert husky_pre.stat().st_mode & 0o111, "hook re-made executable"
+
+
+# Mirrors units.test.ts "ci --hooks: a core.hooksPath outside the repo ...".
+def test_ci_hooks_path_outside_repo_is_manual(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    from leji.init_cmd import ensure_local_hook
+
+    _git_init(tmp_path)
+    outside = tmp_path_factory.mktemp("outside")
+    _set_hooks_path(tmp_path, str(outside))
+    r = ensure_local_hook(str(tmp_path))
+    assert r.action == "manual", "an escaping hooks path is never written"
+    assert r.managed == "file"
+    assert r.reason == "outside-root"
+    assert r.path == f"{outside}/pre-commit", "reports the computed target"
+    assert '"$LEJI" validate' in (r.snippet or "")
+    assert not (outside / "pre-commit").exists(), "nothing written outside the repo"
+    assert not (tmp_path / ".git" / "hooks" / "pre-commit").exists()
+
+
+# Mirrors units.test.ts "ci --hooks: a byte-current .git/hooks/pre-commit that lost
+# its exec bit is mode-corrected".
+def test_ci_hooks_standalone_mode_correction(tmp_path: Path) -> None:
+    from leji.init_cmd import ensure_local_hook
+
+    _git_init(tmp_path)
+    assert ensure_local_hook(str(tmp_path)).action == "created"
+    hook_path = tmp_path / ".git" / "hooks" / "pre-commit"
+    assert hook_path.stat().st_mode & 0o111, "created hook is executable"
+    assert ensure_local_hook(str(tmp_path)).action == "unchanged"
+    hook_path.chmod(0o644)
+    third = ensure_local_hook(str(tmp_path))
+    assert third.action == "updated", "mode-only correction is updated"
+    assert hook_path.stat().st_mode & 0o111, "hook re-made executable"
+
+
+# Mirrors units.test.ts "ci --hooks: a relative out-of-root core.hooksPath reports a
+# normalized target".
+def test_ci_hooks_relative_out_of_root_normalized(tmp_path: Path) -> None:
+    from leji.init_cmd import ensure_local_hook
+
+    _git_init(tmp_path)
+    _set_hooks_path(tmp_path, "../sibling-ext/.husky/_")
+    r = ensure_local_hook(str(tmp_path))
+    assert r.action == "manual"
+    assert r.reason == "outside-root"
+    assert r.managed == "block"
+    want = f"{tmp_path.parent}/sibling-ext/.husky/pre-commit"
+    assert r.path == want, "the reported target is lexically normalized (no ..)"
+    assert ".." not in r.path
+
+
+# Mirrors units.test.ts "ci: local-first CI variant ..." / "ci: npx @1 fallback ...".
+def test_ci_template_variants_local_vs_npx() -> None:
+    from leji.init_cmd import build_github_workflow
+
+    local = build_github_workflow(True)
+    assert "- run: npm ci" in local
+    assert "npx --no-install @leji-org/leji validate" in local
+    assert "npx -y @leji-org/leji@1" not in local
+    fallback = build_github_workflow(False)
+    assert "npx -y @leji-org/leji@1 validate" in fallback
+    assert "npm ci" not in fallback
+
+
+def test_declares_leji_dep_detection(tmp_path: Path) -> None:
+    from leji.init_cmd import _declares_leji_dep
+
+    assert not _declares_leji_dep(tmp_path), "no package.json"
+    (tmp_path / "package.json").write_text("{ not json", encoding="utf-8")
+    assert not _declares_leji_dep(tmp_path), "unparseable package.json"
+    (tmp_path / "package.json").write_text(
+        '{"devDependencies":{"@leji-org/leji":"^1.3.0"}}', encoding="utf-8"
+    )
+    assert _declares_leji_dep(tmp_path), "devDependencies entry declares the dep"
+    # A leading UTF-8 BOM is stripped, so a valid manifest is still detected.
+    (tmp_path / "package.json").write_bytes(
+        b"\xef\xbb\xbf" + b'{"dependencies":{"@leji-org/leji":"1.3.0"}}'
+    )
+    assert _declares_leji_dep(tmp_path), "BOM-prefixed manifest declares the dep"
+    # dependencies as a JSON array is not an object -> treated as absent, not an error.
+    (tmp_path / "package.json").write_text('{"dependencies":["@leji-org/leji"]}', encoding="utf-8")
+    assert not _declares_leji_dep(tmp_path), "array dependencies field treated as absent"
+    # A non-finite JSON constant (NaN) fails the strict parse (matches TS/Go) -> absent.
+    (tmp_path / "package.json").write_text(
+        '{"dependencies":{"@leji-org/leji":NaN}}', encoding="utf-8"
+    )
+    assert not _declares_leji_dep(tmp_path), "NaN value fails the strict parse"

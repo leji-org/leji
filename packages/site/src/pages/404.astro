@@ -4,18 +4,22 @@ import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
 ---
 
-<Base title="Not found · Leji">
+<Base
+   title="Not found · Leji"
+   description="This page does not exist on leji.org. Start from the home page or go straight to the specification."
+   noindex
+>
    <SiteHeader />
-   <div class="wrap">
+   <main id="content" class="wrap">
       <section class="lost">
          <p class="lost-eyebrow">404 · NOT FOUND</p>
          <h1>Nothing engraved here.</h1>
          <p class="lost-text">
-            The page you asked for isn't here. Start from the
+            The page you asked for isn't here. Start from the{' '}
             <a href="/">monument</a> or go straight to <a href="/spec/">the specification</a>.
          </p>
       </section>
-   </div>
+   </main>
    <SiteFooter />
 </Base>
 
@@ -28,8 +32,7 @@ import SiteFooter from '../components/SiteFooter.astro';
       font-family: var(--mono);
       font-size: 0.78rem;
       letter-spacing: 0.22em;
-      color: var(--gold);
-      filter: brightness(0.8);
+      color: var(--gold-ink);
       margin: 0 0 1rem;
    }
    h1 {

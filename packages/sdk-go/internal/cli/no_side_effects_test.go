@@ -1,10 +1,9 @@
 package cli
 
-// The filesystem-mutation invariant: only write-intent commands (init, adopt,
-// index, viewer) may touch the filesystem. Read/analysis commands, and any command
-// invoked with a --help/--version meta-flag, must leave the working tree
-// unchanged. Regression guard for the bug where `leji adopt --help` ran adopt and
-// scaffolded files instead of printing help.
+// Filesystem-mutation invariant: only write-intent commands (init, adopt, index,
+// viewer) may touch the filesystem. Read/analysis commands, and any command with a
+// --help/--version meta-flag, must leave the working tree unchanged. Regression
+// guard for the bug where `leji adopt --help` ran adopt and scaffolded files.
 
 import (
 	"crypto/sha256"
@@ -83,7 +82,7 @@ func seedEmpty(t *testing.T) string {
 
 func TestReadCommandsDoNotWrite(t *testing.T) {
 	cmds := [][]string{
-		{"validate"}, {"conformance"}, {"freshness"}, {"detect"},
+		{"validate"}, {"conformance"}, {"freshness"}, {"route"}, {"detect"},
 		{"index", "--check"}, {"changelog", "check"},
 	}
 	for _, argv := range cmds {

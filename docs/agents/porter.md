@@ -1,6 +1,6 @@
 ---
 id: porter
-name: porter
+name: Porter
 role: porter
 purpose: Port a change from the TypeScript reference SDK to the Go and Python SDKs without breaking parity.
 inherits: core

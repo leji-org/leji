@@ -33,9 +33,9 @@
       ]
     },
     "date": {
-      "description": "ISO 8601 date the decision was made or last changed status.",
+      "description": "ISO 8601 date the decision was made; it is immutable once published, and a later status change does not move it.",
       "type": "string",
-      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
     },
     "deciders": {
       "description": "People who made the decision.",
@@ -50,7 +50,7 @@
     },
     "supersededBy": {
       "type": "string",
-      "description": "id of the record that replaced this one."
+      "description": "id of the record that replaced this one. REQUIRED when status is \"superseded\": a superseded record must point to its successor so the supersession link is navigable in both directions."
     },
     "affectedPaths": {
       "description": "Repository-root-relative paths the decision affects.",
@@ -80,5 +80,20 @@
         "type": "string"
       }
     }
+  },
+  "if": {
+    "properties": {
+      "status": {
+        "const": "superseded"
+      }
+    },
+    "required": [
+      "status"
+    ]
+  },
+  "then": {
+    "required": [
+      "supersededBy"
+    ]
   }
 }

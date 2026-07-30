@@ -1,10 +1,10 @@
 {
   "$schema": "https://leji.org/schemas/v1.0/context-index.schema.json",
   "schemaVersion": "1.0",
-  "generatedAt": "2026-06-14T05:29:10.448Z",
+  "generatedAt": "2026-07-18T04:58:18.826Z",
   "generator": {
     "name": "leji",
-    "version": "1.0.0"
+    "version": "1.3.0"
   },
   "rootPath": "docs/",
   "entries": [
@@ -13,7 +13,9 @@
       "path": "docs/decisions/0001-adopt-leji.md",
       "title": "Adopt the Leji context layer",
       "category": "decisions",
-      "lastModified": "2026-06-14",
+      "kind": "record",
+      "date": "2026-06-10",
+      "lastModified": "2026-06-17",
       "contentHash": "sha256:9680ba24ad268894"
     },
     {
@@ -21,8 +23,9 @@
       "path": "docs/domain/glossary.md",
       "title": "Glossary",
       "category": "domain",
+      "kind": "intent",
       "summary": "What invoice, credit note, and settlement mean at Acme.",
-      "lastModified": "2026-06-13",
+      "lastModified": "2026-06-17",
       "contentHash": "sha256:22d9bcc4fe0ce860"
     },
     {
@@ -30,8 +33,9 @@
       "path": "docs/system/invariants.md",
       "title": "System Invariants",
       "category": "system",
+      "kind": "intent",
       "summary": "Money handling, ledger append-only rule, service boundaries.",
-      "lastModified": "2026-06-13",
+      "lastModified": "2026-06-17",
       "contentHash": "sha256:6e179b4fa71bd5ad",
       "freshness": {
         "reviewAfter": "2026-12-10"

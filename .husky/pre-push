@@ -28,7 +28,7 @@ while read -r _lref _lsha _rref _rsha; do
       main | feat/* | chore/* | fix/* | context/* | release/*) ;;
       *)
          echo "✖ Refusing to push branch '$_branch'."
-         echo "  Allowed: main, or {feat,chore,fix,context,release}/<name> (e.g. release/v1.2.0)."
+         echo "  Allowed: main, or {feat,chore,fix,context,release}/<name> (e.g. release/v1.3.0)."
          _violation=1
          ;;
    esac

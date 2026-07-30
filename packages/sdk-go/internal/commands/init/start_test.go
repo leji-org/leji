@@ -15,8 +15,7 @@ var errExit = errors.New("exit status 1")
 
 const bootPromptStr = "Read ./docs/boot-profile.md, follow it, and tell me when you're ready."
 
-// bootLayer creates a minimal real layer dir with a boot profile, for EnterLayer's
-// existence check, and the matching manifest.
+// bootLayer creates a minimal layer dir with a boot profile and matching manifest.
 func bootLayer(t *testing.T) (string, *manifest.Manifest) {
 	t.Helper()
 	dir := t.TempDir()

@@ -1,5 +1,4 @@
-// Package detectcmd renders the human-readable detection report, mirroring the
-// Node SDK's commands/detect.ts (detectLayer + renderDetect).
+// Package detectcmd renders the human-readable agent-host detection report.
 package detectcmd
 
 import (
@@ -13,7 +12,6 @@ func DetectLayer(root string) []detect.DetectedHost {
 	return detect.DetectHosts(detect.Options{Root: root})
 }
 
-// RenderDetect produces the human-readable detection report.
 func RenderDetect(hosts []detect.DetectedHost) string {
 	if len(hosts) == 0 {
 		return "No coding-agent hosts detected. Leji works without one; the onboarding brief still guides any agent you point at it."
@@ -37,11 +35,16 @@ func RenderDetect(hosts []detect.DetectedHost) string {
 		}
 		lines = append(lines, "   "+padEnd(string(h.Strength), 16)+" "+h.Name+" — "+signals+"; "+adapter)
 	}
-	lines = append(lines, "", "Wire one into a fresh layer with: leji init --agent <name>")
+	// --agent names the host Leji launches, and only claude-code and codex accept
+	// an inline prompt; suggesting `--agent <name>` for every detected host offered
+	// a command the flag rejects.
+	lines = append(lines, "",
+		"--agent takes a launchable host, claude-code or codex: leji init --agent claude-code, leji start --agent codex.",
+		"Any other host above enters the layer through its vendor-file redirect.")
 	return strings.Join(lines, "\n")
 }
 
-// padEnd right-pads s with spaces to at least width, matching JS String.padEnd.
+// padEnd right-pads s with spaces to at least width.
 func padEnd(s string, width int) string {
 	if len(s) >= width {
 		return s

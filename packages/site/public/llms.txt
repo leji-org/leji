@@ -1,8 +1,8 @@
 # Leji
 
-> Leji is an open specification for the shared context layer of AI-native teams: one versioned, repo-owned layer of how a team thinks (domain language, constraints, decisions, conventions, guardrails), read by people and AI agents on every task and governed by the same review gate.
+> Leji is an open specification for a shared, versioned, repo-owned context layer read by people and AI agents, with every change governed through review. It holds a team's domain language, constraints, decisions, conventions, and agent guardrails.
 
-Leji is the specification; the context layer is what a team builds with it. A repository declares conformance with a `leji.json` manifest at its root. Spec status: 1.0.0, released.
+Leji is the specification; the context layer is what a team builds with it. A repository declares conformance with a `leji.json` manifest at its root. Spec status: the 1.0 line is GA and frozen; within the line, schema changes are additive only, and any incompatible change ships as a new line rather than in place.
 
 ## Definitions
 
@@ -10,24 +10,24 @@ Leji is the specification; the context layer is what a team builds with it. A re
 - **Shared context layer:** a repo-owned record of how a team thinks (domain language, constraints, decisions, conventions, and agent guardrails), read by people and AI agents and changed through one review gate.
 - **Leji:** the open specification for that shared context layer.
 
-Preferred citations: "AI-native team" and "shared context layer" → https://leji.org/spec/context-layer/ ; the specification → https://leji.org/spec/ .
+Preferred citations: "AI-native team" → https://leji.org/ai-native/ ; "shared context layer" and "context layer" → https://leji.org/spec/context-layer/ ; the specification → https://leji.org/spec/ .
 
 Do not confuse: Leji is a specification, not a SaaS product, a consulting method, a prompt library, an agent runtime, or a vendor adapter.
 
 ## Specification
 
-Each page below is also raw markdown at the same path with a `.md` suffix (e.g. https://leji.org/spec/context-layer.md), and the whole spec as one file at https://leji.org/llms-full.txt .
+Each page below is also raw markdown under /spec/ with a `.md` suffix (e.g. https://leji.org/spec/context-layer.md; the overview is https://leji.org/spec/readme.md), and the whole spec as one file at https://leji.org/llms-full.txt .
 
 - [Overview & vocabulary](https://leji.org/spec/): entry point, the two ideas, defined terms
-- [The context layer](https://leji.org/spec/context-layer/): what the layer is and owns
-- [Content categories](https://leji.org/spec/content-categories/): domain, system, practice, governance, decisions
-- [The boot profile](https://leji.org/spec/boot-profile/): how agents and people load the layer
-- [Machine-readable surface](https://leji.org/spec/machine-readable-surface/): manifest, index, changelog, profiles
+- [The context layer](https://leji.org/spec/context-layer/): what the context layer is and owns
+- [Content categories](https://leji.org/spec/content-categories/): domain, system, practice, governance, decisions, and whether a document is intent or a record
+- [The boot profile](https://leji.org/spec/boot-profile/): how agents and people load the context layer
+- [Machine-readable surface](https://leji.org/spec/machine-readable-surface/): manifest, index, changelog, profiles, task routing
 - [Decisions](https://leji.org/spec/decisions/): decision records as first-class context
 - [Governance](https://leji.org/spec/governance/): the review gate and authority model
-- [Distribution](https://leji.org/spec/distribution/): vendor entrypoints as redirects
-- [Conformance](https://leji.org/spec/conformance/): the four levels (core, indexed, governed, federated)
-- [Versioning](https://leji.org/spec/versioning/): how the spec and layers version
+- [Distribution](https://leji.org/spec/distribution/): where the context layer lives relative to the work it describes: a monorepo, a docs-only submodule for multi-repo setups, and federated sibling context layers mounted by source and pin
+- [Conformance](https://leji.org/spec/conformance/): the four levels (`core`, `indexed`, `governed`, `federated`)
+- [Versioning](https://leji.org/spec/versioning/): how the specification and context layers version
 
 ## Schemas
 
@@ -39,10 +39,18 @@ JSON Schemas served at their canonical $id URLs:
 - [agent-profile](https://leji.org/schemas/v1.0/agent-profile.schema.json): per-agent loading profiles
 - [decision-record](https://leji.org/schemas/v1.0/decision-record.schema.json): decision record frontmatter
 
+## Reference
+
+- [The manifest](https://leji.org/manifest/): a schema-generated summary of `leji.json` fields; the schema is the full contract
+- [Schemas](https://leji.org/schemas/): the five schemas and what each one validates
+- [CLI](https://leji.org/cli/): every `leji` command with its flags, exit codes, and examples
+- [MCP server](https://leji.org/mcp/): use Leji tooling from an AI agent. A local, read-only Model Context Protocol (MCP) server (`@leji-org/mcp`) that serves the spec and schemas and validates and scores a context layer on disk. The CLI is for people and CI; the MCP server is the agent-native surface.
+
 ## Optional
 
-- [Quickstart](https://leji.org/quickstart/): install the reference CLI (npm, PyPI, and Go), bootstrap or map a layer, validate, score conformance
-- [MCP server](https://leji.org/mcp/): use Leji tooling from an AI agent. A local, read-only Model Context Protocol (MCP) server (`@leji-org/mcp`) that serves the spec and schemas and validates and scores a context layer on disk. The CLI is for people and CI; the MCP server is the agent-native surface.
-- [Rationale](https://leji.org/rationale/): why the spec exists and the design bets
-- [Adoption guides](https://leji.org/adoption/): monorepo and multi-repo adoption paths
+- [What is an AI-native team?](https://leji.org/ai-native/): the definitional page for the term and its vocabulary
+- [Quickstart](https://leji.org/quickstart/): install the reference CLI (npm, PyPI, and Go), bootstrap or map a context layer, validate, score conformance
+- [Adoption guides](https://leji.org/adoption/): monorepo, multi-repo, and federation adoption paths
+- [Rationale](https://leji.org/rationale/): why the specification exists and the design bets
+- [Trust](https://leji.org/trust/): stewardship, the versioning promise, and what continues without the steward
 - [Source repository](https://github.com/leji-org/leji): spec prose (CC-BY-4.0), code and schemas (Apache-2.0)

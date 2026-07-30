@@ -17,6 +17,8 @@ Load by task:
 
 The generated map at `docs/context-index.json` routes you to the right slice. Load the decisions that touch your task, not the whole `docs/decisions/` directory.
 
+If a task fits none of the above, fall back to that index to find its slice; when nothing matches, load only the read-before-any-task set and say that no task-specific context was routed.
+
 ## Posture
 
 - Proceed without asking: refactors with passing tests, additive schema changes, doc fixes.

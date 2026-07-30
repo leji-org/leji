@@ -91,8 +91,8 @@ func TestAgentsMapBadTargetFlagged(t *testing.T) {
 	}
 }
 
-// A doc carrying tags/owners/links exercises the index entry array path: strArray
-// (parse) and toAnySlice + the ordered writeValue array branch (serialize).
+// A doc carrying tags/owners/links exercises the index entry array path (parse +
+// ordered serialize).
 func TestIndexEntryArraysSerialized(t *testing.T) {
 	dir := copyTree(t, exampleDir(t))
 	doc := "---\nsummary: tagged doc\ntags:\n  - billing\n  - core\nowners:\n  - jo\nlinks:\n  - https://example.com\n---\n# Tagged\n"
@@ -107,16 +107,14 @@ func TestIndexEntryArraysSerialized(t *testing.T) {
 	if !strings.Contains(string(b), "\"tags\"") || !strings.Contains(string(b), "billing") {
 		t.Fatalf("expected serialized tags in the index: %s", string(b))
 	}
-	// CheckIndex compares the stored (now tagged) index against the tree, running
-	// the array comparison path: entryComparable -> toAnySlice, strArray non-nil.
+	// CheckIndex compares the stored tagged index against the tree (array path).
 	if res := indexgen.CheckIndex(dir, m); res.Stale != nil && *res.Stale {
 		t.Fatalf("freshly written index should be current, findings: %v", res.Findings)
 	}
 }
 
-// Append-only check against a real git HEAD baseline: appending a new entry is
-// allowed and the verifier sorts the HEAD entries (compareByDateID / entryDate /
-// entryIDStr) while confirming the surviving entries are immutable.
+// Append-only against a real git HEAD baseline: appending a new entry is allowed
+// while the surviving entries stay immutable.
 func TestChangelogAppendOnlyGitBaseline(t *testing.T) {
 	dir := gitSeedExample(t)
 	clPath := filepath.Join(dir, "docs", "context-changelog.json")
@@ -146,8 +144,6 @@ func TestChangelogAppendOnlyGitBaseline(t *testing.T) {
 }
 
 // Removing an entry from other than the oldest end is an append-only violation.
-// Exercises the removal-detection path, the canonical (date,id) sort, and the
-// pluralized diagnostic.
 func TestChangelogIllegalRemovalDetected(t *testing.T) {
 	dir := gitSeedExample(t)
 	clPath := filepath.Join(dir, "docs", "context-changelog.json")
@@ -186,12 +182,11 @@ func gitCommitAll(t *testing.T, dir string) {
 	}
 }
 
-// Proves the (date, id) tiebreak (machine-readable-surface.md: (date,id) is a total
-// order even when dates tie). HEAD's array order [bbb, aaa] is the REVERSE of the
-// canonical order [aaa, bbb] (same date; "aaa" < "bbb"), so canonical-oldest is aaa
-// and newest is bbb. Dropping bbb is illegal "from other than the oldest end" only
-// if the verifier sorts by (date, id); an array-order impl would treat bbb as oldest
-// and not flag it. Asserting that specific violation proves the tiebreak ran.
+// Proves the (date,id) tiebreak (machine-readable-surface.md: (date,id) is a total
+// order even when dates tie). HEAD order [bbb, aaa] reverses canonical [aaa, bbb]
+// (same date; "aaa" < "bbb"), so canonical-newest is bbb. Dropping bbb is illegal
+// "from other than the oldest end" only if the verifier sorts by (date,id); an
+// array-order impl would treat bbb as oldest and miss it.
 func TestChangelogSameDateTiebreakOrder(t *testing.T) {
 	dir := copyTree(t, exampleDir(t))
 	clPath := filepath.Join(dir, "docs", "context-changelog.json")

@@ -1,9 +1,10 @@
 {
    "name": "@leji-org/leji",
-   "version": "1.2.0",
+   "version": "1.3.0",
    "license": "Apache-2.0",
    "exports": "./src/index.ts",
    "publish": {
+      "include": ["src", "schemas", "templates", "cli.json", "README.md", "LICENSE"],
       "exclude": ["test"]
    }
 }

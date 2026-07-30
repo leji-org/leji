@@ -1,12 +1,17 @@
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
    buildSidebar,
+   buildManifestPage,
+   ciProviderFromRemote,
+   ensureCiWorkflow,
+   ensureLocalHook,
    checkChangelogAppendOnly,
    checkIndex,
    compactChangelog,
@@ -16,13 +21,24 @@ import {
    loadManifest,
    seedChangelogIfMissing,
    serializeChangelog,
+   statusReport,
    validateLayer,
    writeIndex,
 } from '../dist/index.js';
-import { bindAgentInManifestText, declareVendorAdapterInManifestText } from '../dist/lib/manifest.js';
+import { bindAgentInManifestText } from '../dist/lib/manifest.js';
+import {
+   cacheKeyFor,
+   hydrateMounts,
+   mountStatus,
+   normalizeSource,
+   validTrackingRef,
+   witnessRefFor,
+} from '../dist/lib/mounts.js';
 import { finding, hasErrors, summarize } from '../dist/lib/findings.js';
-import { walkMd, underPath } from '../dist/lib/fsx.js';
+import { joinUnderRoot, walkMd, underPath } from '../dist/lib/fsx.js';
+import { templatesDir } from '../dist/lib/schemas.js';
 import { excludedFromCategories, scanAgentProfiles, scanCategories } from '../dist/lib/layer.js';
+import { route } from '../dist/lib/route.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const exampleDir = path.join(repoRoot, 'examples', 'monorepo');
@@ -31,9 +47,34 @@ function tmpdir(prefix: string): string {
    return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
+// The example's git-tracked file list is invariant across a test-file run, so
+// resolve it once instead of shelling out to git on every copyExample().
+let trackedExampleFiles: string[] | undefined;
+function exampleTrackedFiles(): string[] {
+   if (!trackedExampleFiles) {
+      trackedExampleFiles = execFileSync('git', ['ls-files', '-z'], { cwd: exampleDir, encoding: 'utf8' })
+         .split('\0')
+         .filter(Boolean);
+   }
+   return trackedExampleFiles;
+}
+
 function copyExample(): string {
    const dir = tmpdir('leji-unit-');
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   // Conformance evaluates the directory it is given, so a layer outside a git
+   // repository fails `core`'s git requirement. Any test asserting a verified level
+   // has to run somewhere git can answer.
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+   execFileSync('git', ['config', 'user.name', 'Test'], { cwd: dir });
+   // Copy only git-tracked files so a polluted working tree (a local `leji
+   // viewer`/`init` run leaving generated .leji/ output or a seeded root
+   // overview.md) cannot leak into fixtures. Mirrors a clean checkout.
+   for (const rel of exampleTrackedFiles()) {
+      const target = path.join(dir, rel);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(path.join(exampleDir, rel), target);
+   }
    return dir;
 }
 
@@ -104,7 +145,7 @@ test('no machine block: agents/decisions resolve to docs/agents/ and docs/decisi
    // docs/agents/ is excluded from category content even when undeclared.
    const excluded = excludedFromCategories(manifest!);
    assert.equal(excluded('docs/agents/core.md'), true, 'docs/agents/ excluded from categories');
-   const docs = scanCategories(dir, manifest!);
+   const docs = scanCategories(dir, manifest!).docs;
    assert.ok(!docs.some((d) => d.relPath === 'docs/agents/core.md'), 'agent profile is not category content');
 });
 
@@ -128,11 +169,9 @@ test('corrupt changelog is artifact-parse', () => {
 test('changelog entry removal violates append-only', () => {
    const dir = tmpdir('leji-chrm-');
    execFileSync('git', ['init', '-q'], { cwd: dir });
-   execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: dir });
-   execFileSync('git', ['config', 'user.name', 'T'], { cwd: dir });
    fs.cpSync(exampleDir, dir, { recursive: true });
    execFileSync('git', ['add', '-A'], { cwd: dir });
-   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: dir });
+   execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', 'seed'], { cwd: dir });
    const rel = path.join('docs', 'context-changelog.json');
    const changelog = JSON.parse(fs.readFileSync(path.join(dir, rel), 'utf8'));
    changelog.entries.pop();
@@ -149,7 +188,7 @@ test('duplicate agent-profile ids and unknown inherits are reported', () => {
    );
    const result = validateLayer(dir);
    assert.ok(result.findings.some((f) => f.rule === 'id-duplicate'));
-   assert.ok(result.findings.some((f) => f.rule === 'inherits-unknown' && f.severity === 'warning'));
+   assert.ok(result.findings.some((f) => f.rule === 'inherits-unknown' && f.severity === 'error'));
 });
 
 test('frontmatter id wins over slug; invalid frontmatter id is id-pattern', () => {
@@ -171,13 +210,18 @@ test('slug collisions de-collide with the parent directory', () => {
    assert.ok(ids.includes('payments-glossary'));
 });
 
-test('a category path may declare a single file', () => {
+test('a category index entry may be a single file', () => {
    const dir = tmpdir('leji-file-');
    fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
    const manifestPath = path.join(dir, 'leji.json');
    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-   manifest.categories.system = { paths: ['docs/system-notes.md'] };
+   manifest.categories.system = { indexes: ['docs/context/system.md'] };
    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+   fs.mkdirSync(path.join(dir, 'docs', 'context'), { recursive: true });
+   fs.writeFileSync(
+      path.join(dir, 'docs', 'context', 'system.md'),
+      '# System\n\n```leji-index\n- path: docs/system-notes.md\n```\n',
+   );
    fs.writeFileSync(path.join(dir, 'docs', 'system-notes.md'), '# System Notes\n');
    const result = validateLayer(dir);
    assert.deepEqual(
@@ -232,8 +276,11 @@ test('audit: decision records in a second mapped decisions path are found', () =
    fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
    const manifestPath = path.join(dir, 'leji.json');
    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-   manifest.categories.decisions.paths = ['docs/adr/', 'docs/decisions/'];
-   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+   // List a second decisions location in the decisions index file.
+   fs.writeFileSync(
+      path.join(dir, 'docs', 'context', 'decisions.md'),
+      '# Decisions\n\n```leji-index\n- path: docs/adr/\n- path: docs/decisions/\n```\n',
+   );
    fs.mkdirSync(path.join(dir, 'docs', 'adr'));
    fs.writeFileSync(path.join(dir, 'docs', 'adr', 'note.md'), '# Note\n\nNot a decision record.\n');
    const result = validateLayer(dir);
@@ -260,7 +307,7 @@ test('audit: index --check rejects an unsupported schemaVersion', () => {
    writeIndex(dir, manifest!);
    const rel = path.join(dir, 'docs', 'context-index.json');
    const index = JSON.parse(fs.readFileSync(rel, 'utf8'));
-   index.schemaVersion = '2.0';
+   index.schemaVersion = '9.9'; // a line this SDK does not support
    fs.writeFileSync(rel, JSON.stringify(index, null, 2) + '\n');
    const result = checkIndex(dir, manifest!);
    assert.equal(result.stale, true);
@@ -270,11 +317,9 @@ test('audit: index --check rejects an unsupported schemaVersion', () => {
 test('audit: reordering keys in a committed changelog entry is not a violation', () => {
    const dir = tmpdir('leji-reord-');
    execFileSync('git', ['init', '-q'], { cwd: dir });
-   execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: dir });
-   execFileSync('git', ['config', 'user.name', 'T'], { cwd: dir });
    fs.cpSync(exampleDir, dir, { recursive: true });
    execFileSync('git', ['add', '-A'], { cwd: dir });
-   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: dir });
+   execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', 'seed'], { cwd: dir });
    const rel = path.join(dir, 'docs', 'context-changelog.json');
    const changelog = JSON.parse(fs.readFileSync(rel, 'utf8'));
    // Reverse the key order of the first entry without changing values.
@@ -306,12 +351,15 @@ test('quality: generated index content is exact for the example layer', () => {
          path: 'docs/decisions/0001-adopt-leji.md',
          title: 'Adopt the Leji context layer',
          category: 'decisions',
+         kind: 'record',
+         date: '2026-06-10',
       },
       {
          id: 'glossary',
          path: 'docs/domain/glossary.md',
          title: 'Glossary',
          category: 'domain',
+         kind: 'intent',
          summary: 'What invoice, credit note, and settlement mean at Acme.',
       },
       {
@@ -319,6 +367,7 @@ test('quality: generated index content is exact for the example layer', () => {
          path: 'docs/system/invariants.md',
          title: 'System Invariants',
          category: 'system',
+         kind: 'intent',
          summary: 'Money handling, ledger append-only rule, service boundaries.',
          freshness: { reviewAfter: '2026-12-10' },
       },
@@ -350,6 +399,10 @@ test('quality: duplicate frontmatter ids across index docs are reported', () => 
 
 test('quality: governed layer with profiles and freshness verifies governed', () => {
    const dir = copyExample();
+   // A committed baseline, because append-only discipline compares against HEAD and
+   // an uncommitted tree correctly reports unverified rather than passing.
+   execFileSync('git', ['add', '-A'], { cwd: dir });
+   execFileSync('git', ['commit', '-qm', 'baseline'], { cwd: dir });
    const manifestPath = path.join(dir, 'leji.json');
    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
    manifest.conformance.claimedLevel = 'governed';
@@ -362,18 +415,90 @@ test('quality: governed layer with profiles and freshness verifies governed', ()
    assert.ok(manual.includes('review-gate') && manual.includes('ci-validates'));
 });
 
-test('quality: federated claim with a missing mount path fails sibling-mounts', () => {
+test('quality: a pinned, unhydrated mount passes sibling-mounts (availability never fails the claim)', () => {
    const dir = copyExample();
    const manifestPath = path.join(dir, 'leji.json');
    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
    manifest.conformance.claimedLevel = 'federated';
-   manifest.federation = { mounts: [{ path: 'context/product', name: 'product', owner: { name: 'Jo' } }] };
+   manifest.federation = {
+      mounts: [
+         {
+            name: 'product',
+            source: 'https://github.com/acme/product-context',
+            pin: 'a'.repeat(40),
+            owner: { name: 'Jo' },
+            categories: ['domain'],
+            topics: ['billing'],
+         },
+      ],
+   };
    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
    writeIndex(dir, manifest);
    const result = conformanceReport(dir);
-   const item = result.items.find((i) => i.id === 'sibling-mounts');
-   assert.equal(item!.status, 'fail');
+   // Declaration completeness passes; the mount being unhydrated here is honest
+   // degraded availability (a validate warning), never a failed federated claim.
+   assert.equal(result.items.find((i) => i.id === 'sibling-mounts')!.status, 'pass');
+   assert.equal(result.items.find((i) => i.id === 'mount-routing')!.status, 'pass');
+   const validation = validateLayer(dir);
+   assert.ok(validation.findings.some((f) => f.rule === 'mount-unavailable' && f.severity === 'warning'));
+});
+
+test('quality: a federated claim with zero mounts does not machine-verify federated', () => {
+   const dir = copyExample();
+   const manifestPath = path.join(dir, 'leji.json');
+   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+   manifest.conformance.claimedLevel = 'federated';
+   // No federation.mounts at all: every federated item is process-attested, so the
+   // machine has no evidence for federated and must not lift the verified level.
+   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+   const result = conformanceReport(dir);
+   assert.notEqual(result.verifiedLevel, 'federated');
    assert.ok(result.findings.some((f) => f.rule === 'conformance-claim'));
+});
+
+test('quality: a hydrated mount reports no availability warning', () => {
+   const dir = copyExample();
+   const manifestPath = path.join(dir, 'leji.json');
+   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+   manifest.federation = {
+      mounts: [
+         {
+            name: 'product',
+            source: 'https://github.com/acme/product-context',
+            pin: 'a'.repeat(40),
+            owner: { name: 'Jo' },
+         },
+      ],
+   };
+   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+   // Availability is the published marker at the derived key: no state file exists to
+   // point at a projection, so the cache key comes from the declaration itself.
+   const mount = manifest.federation.mounts[0];
+   const cacheKey = cacheKeyFor(normalizeSource(mount.source)!, mount.pin);
+   const projection = path.join(dir, '.leji', 'mounts', 'cache', cacheKey, 'projection');
+   fs.mkdirSync(projection, { recursive: true });
+   fs.writeFileSync(path.join(projection, 'complete'), '');
+   const result = validateLayer(dir);
+   assert.ok(!result.findings.some((f) => f.rule === 'mount-unavailable'));
+});
+
+test('quality: a mount reusing the host layer name is a validation error', () => {
+   const dir = copyExample();
+   const manifestPath = path.join(dir, 'leji.json');
+   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+   manifest.federation = {
+      mounts: [
+         {
+            name: manifest.name,
+            source: 'https://github.com/acme/self',
+            pin: 'a'.repeat(40),
+            owner: { name: 'Jo' },
+         },
+      ],
+   };
+   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+   const result = validateLayer(dir);
+   assert.ok(result.findings.some((f) => f.rule === 'mount-self' && f.severity === 'error'));
 });
 
 test('quality: duplicate YAML keys in frontmatter are invalid', () => {
@@ -389,11 +514,9 @@ test('quality: duplicate YAML keys in frontmatter are invalid', () => {
 function gitSeedExample(prefix: string): string {
    const dir = tmpdir(prefix);
    execFileSync('git', ['init', '-q'], { cwd: dir });
-   execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: dir });
-   execFileSync('git', ['config', 'user.name', 'T'], { cwd: dir });
    fs.cpSync(exampleDir, dir, { recursive: true });
    execFileSync('git', ['add', '-A'], { cwd: dir });
-   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: dir });
+   execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', 'seed'], { cwd: dir });
    return dir;
 }
 
@@ -417,6 +540,30 @@ test('compaction: dropping the oldest entry with a compaction entry passes', () 
       [],
    );
    assert.equal(result.verified, true);
+});
+
+test('compaction: a compaction entry that misrecords the dropped run fails', () => {
+   const dir = gitSeedExample('leji-compact-forge-');
+   const rel = path.join(dir, 'docs', 'context-changelog.json');
+   const changelog = JSON.parse(fs.readFileSync(rel, 'utf8'));
+   const droppedEntry = changelog.entries.shift();
+   // Forge the audit record: claim a different count and a bogus firstId/lastId.
+   changelog.entries.push({
+      id: 'compact-2026-06',
+      date: '2026-06-12',
+      type: 'compaction',
+      summary: 'A compaction entry whose recorded drop is wrong.',
+      paths: ['docs/context-changelog.json'],
+      compacted: { entries: 5, firstId: 'not-the-dropped-id', lastId: 'also-wrong' },
+   });
+   void droppedEntry;
+   fs.writeFileSync(rel, JSON.stringify(changelog, null, 2) + '\n');
+   const result = checkChangelogAppendOnly(dir, 'docs/context-changelog.json');
+   assert.ok(
+      result.findings.some(
+         (f) => f.rule === 'changelog-append-only' && /compaction entry records .* but .* were dropped/.test(f.message),
+      ),
+   );
 });
 
 test('compaction: dropping the oldest entry without a compaction entry fails', () => {
@@ -449,8 +596,6 @@ const CHANGELOG_REL = 'docs/context-changelog.json';
 function seedWithEntries(prefix: string, count: number): string {
    const dir = tmpdir(prefix);
    execFileSync('git', ['init', '-q'], { cwd: dir });
-   execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: dir });
-   execFileSync('git', ['config', 'user.name', 'T'], { cwd: dir });
    fs.cpSync(exampleDir, dir, { recursive: true });
    const abs = path.join(dir, CHANGELOG_REL);
    const log = JSON.parse(fs.readFileSync(abs, 'utf8'));
@@ -463,7 +608,7 @@ function seedWithEntries(prefix: string, count: number): string {
    }));
    fs.writeFileSync(abs, JSON.stringify(log, null, 2) + '\n');
    execFileSync('git', ['add', '-A'], { cwd: dir });
-   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: dir });
+   execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', 'seed'], { cwd: dir });
    return dir;
 }
 
@@ -762,6 +907,100 @@ test('serializeChangelog preserves unknown entry and top-level keys in determini
    assert.equal(out.endsWith('\n'), true, 'trailing newline');
 });
 
+test('buildManifestPage: escapes hostile strings, covers drift states, byte-order sort, no timestamp', () => {
+   const manifest = {
+      leji: '1.0',
+      name: 'demo | layer',
+      description: 'line1\nline2 with | pipe',
+      rootPath: 'docs/',
+      bootProfilePath: 'docs/boot-profile.md',
+      categories: { domain: { indexes: ['docs/context/domain.md'] } },
+      agents: { 'z-role': 'docs/agents/Z.md', 'a-role': 'docs/agents/A.md' },
+      owners: { primary: { name: 'Owner', contact: 'o@x.com' } },
+      conformance: { claimedLevel: 'governed' },
+      federation: {
+         mounts: [
+            {
+               name: 'bravo',
+               source: 'https://x/b',
+               pin: 'abcdef1234567890',
+               trackingRef: 'refs/heads/main',
+               owner: { name: 'O|B' },
+               role: 'role with | pipe and `tick`',
+            },
+            { name: 'alpha', source: 'https://x/a', pin: 'deadbeefcafe0000', owner: { name: 'O' }, role: 'r' },
+            { name: 'charlie', source: 'https://x/c', pin: 'feedface00001111', owner: { name: '' } },
+         ],
+      },
+   } as unknown as Parameters<typeof buildManifestPage>[0];
+   const mk = (name: string, present: boolean, state: string, extra: Record<string, unknown> = {}) => ({
+      name,
+      sourceIdentity: `https://x/${name}`,
+      pin: name === 'bravo' ? 'abcdef1234567890' : 'deadbeefcafe0000',
+      trackingRef: name === 'bravo' ? 'refs/heads/main' : null,
+      present,
+      verified: null,
+      pinReport: {
+         state,
+         comparedRef: null,
+         comparisonRepository: null,
+         witnessProvenance: null,
+         ancestryComplete: true,
+         observedAt: 'WALLCLOCK-SHOULD-NOT-RENDER',
+         ...extra,
+      },
+   });
+   const statuses = [
+      mk('bravo', true, 'diverged', { ahead: 2, behind: 3 }),
+      mk('alpha', false, 'unrelated'),
+   ] as unknown as Parameters<typeof buildManifestPage>[1];
+   const page = buildManifestPage(manifest, statuses);
+   assert.ok(!page.includes('WALLCLOCK'), 'observedAt / wall-clock is never rendered (determinism)');
+   assert.ok(page.indexOf('| alpha ') < page.indexOf('| bravo '), 'mounts sorted by byte order, not manifest order');
+   assert.ok(page.includes('role with \\| pipe'), 'a pipe inside a cell is escaped, not a column break');
+   assert.ok(page.includes('O\\|B'), 'a pipe in the owner cell is escaped');
+   assert.ok(page.includes('diverged (ahead 2, behind 3)'), 'diverged drift label with counts');
+   assert.ok(page.includes('| unknown |'), 'unknown drift label');
+   assert.ok(page.includes('not hydrated') && /\| hydrated \|/.test(page), 'availability rendered both ways');
+   assert.ok(page.indexOf('a-role') < page.indexOf('z-role'), 'agents sorted by byte order');
+   assert.ok(page.includes('claims `governed`'), 'claimed conformance shown');
+   assert.ok(page.includes('\\`tick'), 'a backtick inside a cell is escaped, not left active');
+   assert.ok(page.includes('**Declared**') && page.includes('**Observed**'), 'the declared-vs-observed key is present');
+   assert.ok(page.includes('**Declared index files:**'), 'categories shown as a count summary, not a path dump');
+   assert.ok(page.includes('mounts hydrated locally'), 'federation shows an observed-state summary line');
+   assert.ok(
+      page.includes('· 2 drifting from pin'),
+      'unrelated counts as drift and the count is always shown (bravo diverged + alpha unrelated)',
+   );
+   assert.ok(page.includes('unrelated'), 'the unrelated drift label is rendered');
+   assert.ok(
+      page.includes('**Roles**') && page.includes('- **alpha** — r'),
+      'role descriptions move below the table as a per-mount list',
+   );
+   assert.ok(
+      !/\| Mount \| Availability \| Drift \| Owner \| Pin \| Source \| Role \|/.test(page),
+      'Role is no longer a table column',
+   );
+   // Declaration-driven, columns Mount|Availability|Drift|Owner|…: charlie has no status and no role/owner-name.
+   assert.ok(
+      /\| charlie \| unknown \| unknown \| — \|/.test(page),
+      'no status → unknown availability+drift; absent owner → em dash',
+   );
+   assert.ok(
+      page.includes('| unknown | unknown |'),
+      'a declared mount with no status shows unknown availability + drift',
+   );
+   // Mermaid federation graph: flat host → mounts, index ids on the same byte-sorted order.
+   assert.ok(page.includes('```mermaid') && page.includes('flowchart LR'), 'mermaid federation graph rendered');
+   assert.ok(page.includes('host --> m0') && page.includes('host --> m2'), 'host edges to every declared mount');
+   assert.ok(page.includes('m0["alpha"]'), 'first graph node is the byte-first mount (alpha)');
+   const noMounts = buildManifestPage(
+      { ...(manifest as object), federation: undefined } as typeof manifest,
+      [] as typeof statuses,
+   );
+   assert.ok(noMounts.includes('No federated mounts are declared'), 'empty mounts handled, not an error');
+});
+
 test('viewer: generates viewer + sidebar that reflect the layer', () => {
    const dir = copyExample();
    const { manifest } = loadManifest(dir);
@@ -774,19 +1013,41 @@ test('viewer: generates viewer + sidebar that reflect the layer', () => {
       'docs/.leji/viewer/assets/docsify-sidebar-collapse.min.css',
       'docs/.leji/viewer/assets/docsify-sidebar-collapse.min.js',
       'docs/.leji/viewer/assets/docsify.min.js',
+      'docs/.leji/viewer/assets/fonts-licenses.txt',
       'docs/.leji/viewer/assets/leji-logo.svg',
       'docs/.leji/viewer/assets/mermaid.min.js',
       'docs/.leji/viewer/assets/prism-bash.min.js',
       'docs/.leji/viewer/assets/prism-json.min.js',
       'docs/.leji/viewer/assets/prism-markdown.min.js',
       'docs/.leji/viewer/assets/prism-typescript.min.js',
+      'docs/.leji/viewer/assets/roboto-mono-400-latin-ext.woff2',
+      'docs/.leji/viewer/assets/roboto-mono-400-latin.woff2',
+      'docs/.leji/viewer/assets/roboto-mono-400-vietnamese.woff2',
       'docs/.leji/viewer/assets/search.min.js',
+      'docs/.leji/viewer/assets/source-sans-pro-300-latin-ext.woff2',
+      'docs/.leji/viewer/assets/source-sans-pro-300-latin.woff2',
+      'docs/.leji/viewer/assets/source-sans-pro-300-vietnamese.woff2',
+      'docs/.leji/viewer/assets/source-sans-pro-400-latin-ext.woff2',
+      'docs/.leji/viewer/assets/source-sans-pro-400-latin.woff2',
+      'docs/.leji/viewer/assets/source-sans-pro-400-vietnamese.woff2',
+      'docs/.leji/viewer/assets/source-sans-pro-600-latin-ext.woff2',
+      'docs/.leji/viewer/assets/source-sans-pro-600-latin.woff2',
+      'docs/.leji/viewer/assets/source-sans-pro-600-vietnamese.woff2',
       'docs/.leji/viewer/assets/viewer-boot.js',
       'docs/.leji/viewer/assets/vue.css',
       'docs/.leji/viewer/assets/zoom-image.min.js',
       'docs/overview.md',
+      'docs/.leji/viewer/_manifest.md',
    ]);
    const viewer = path.join(dir, 'docs', '.leji', 'viewer');
+   // The Manifest page is generated chrome in the viewer dir (reserved underscore
+   // name, collision-free) and pinned, like the sidebar.
+   const manifestPage = fs.readFileSync(path.join(viewer, '_manifest.md'), 'utf8');
+   assert.ok(manifestPage.startsWith('# '), 'manifest page has a title heading');
+   assert.ok(/—\s*Manifest/.test(manifestPage), 'title ends with — Manifest');
+   assert.ok(manifestPage.includes('## Identity') && manifestPage.includes('## Entrypoints'), 'core sections present');
+   const sidebarMd = fs.readFileSync(path.join(viewer, '_sidebar.md'), 'utf8');
+   assert.ok(sidebarMd.includes('[📄 Manifest](_manifest.md)'), 'Manifest page is pinned in the sidebar');
    const html = fs.readFileSync(path.join(viewer, 'index.html'), 'utf8');
    assert.ok(html.includes('acme-billing-context'), 'layer name baked into the JSON config');
    assert.ok(html.includes('viewer-boot.js'), 'boot script (carrying the frontmatter hook) is wired');
@@ -816,14 +1077,18 @@ test('viewer: generates viewer + sidebar that reflect the layer', () => {
       sidebar,
       [
          '- [🤖 Boot profile](boot-profile.md)',
+         '- [📄 Manifest](_manifest.md)',
          '',
          '---',
          '',
-         '- 📖 Domain',
+         '- **🤖 Agents**',
+         '  - [Agent Core](agents/core.md)',
+         '  - [Thought Partner (Codex)](agents/thought-partner.md)',
+         '- **📖 Domain**',
          '  - [Glossary](domain/glossary.md)',
-         '- ⚙️ System',
-         '  - [System Invariants](system/invariants.md)',
-         '- 🧭 Decisions',
+         '- **⚙️ System**',
+         '  - [Invariants](system/invariants.md)',
+         '- **🧭 Decisions**',
          '  - [Adopt the Leji context layer](decisions/0001-adopt-leji.md)',
          '',
       ].join('\n'),
@@ -833,23 +1098,31 @@ test('viewer: generates viewer + sidebar that reflect the layer', () => {
    assert.equal(fs.readFileSync(path.join(viewer, '_sidebar.md'), 'utf8'), sidebar);
 });
 
-test('viewer: theme overrides (logo, primary color, category emoji) flow into the viewer', () => {
+test('viewer: brand config (logo, primary color, title, favicon, pins) flows into the viewer', () => {
    const dir = copyExample();
    const { manifest } = loadManifest(dir);
    manifest!.viewer = {
       logo: 'assets/brand.svg',
       theme: { primary: '#FF6600' },
-      categoryEmojis: { domain: '💰' },
+      title: 'Acme Billing',
+      favicon: 'assets/icon.svg',
+      pins: ['docs/domain/glossary.md', 'docs/nope.md'],
    };
-   generateViewer(dir, manifest!);
+   const result = generateViewer(dir, manifest!);
    const viewer = path.join(dir, 'docs', '.leji', 'viewer');
    const html = fs.readFileSync(path.join(viewer, 'index.html'), 'utf8');
    // A relative logo path is served from the content mount; absolute/url is used as-is.
    assert.ok(html.includes('/content/assets/brand.svg'), 'configured logo resolved under /content/');
    assert.ok(html.includes('"themeColor":"#FF6600"'), 'configured primary color wins');
+   assert.ok(html.includes('<title>Acme Billing</title>'), 'viewer.title drives the page title');
+   assert.ok(html.includes('href="/content/assets/icon.svg"'), 'configured favicon resolved under /content/');
    const sidebar = fs.readFileSync(path.join(viewer, '_sidebar.md'), 'utf8');
-   assert.match(sidebar, /^- 💰 Domain$/m, 'category emoji override applied');
-   assert.match(sidebar, /^- ⚙️ System$/m, 'unoverridden categories keep the default emoji');
+   const top = sidebar.split('---')[0];
+   assert.ok(top.includes('- [Glossary](domain/glossary.md)'), 'pinned page renders in the top zone');
+   assert.ok(
+      result.findings.some((f) => f.rule === 'viewer-pin-missing' && f.path === 'docs/nope.md'),
+      'a missing pin is surfaced, not silently dropped',
+   );
 });
 
 test('viewer: seeds an editable overview homepage with a generated layer map', () => {
@@ -861,9 +1134,10 @@ test('viewer: seeds an editable overview homepage with a generated layer map', (
    const text = fs.readFileSync(overview, 'utf8');
    assert.match(text, /^# acme-billing-context$/m, 'titled with the layer name');
    assert.match(text, /<!-- leji:generated-map:start -->/, 'carries the regen markers');
-   assert.match(text, /```mermaid\nflowchart TD/, 'the map is a mermaid flowchart');
+   assert.match(text, /```mermaid\nflowchart LR/, 'the map is a mermaid flowchart');
    assert.match(text, /boot --> cat_domain/, 'boot links to the domain category');
-   assert.match(text, /cat_domain --> n_glossary/, 'category links to its docs');
+   assert.match(text, /cat_domain\["📖 Domain · 1 doc"\]/, 'categories carry counts, never per-doc nodes');
+   assert.ok(!text.includes('n_glossary'), 'no per-document nodes (unreadable at scale)');
 });
 
 test('viewer: overview is seeded once; only the marked map block is regenerated', () => {
@@ -878,7 +1152,7 @@ test('viewer: overview is seeded once; only the marked map block is regenerated'
    const after = fs.readFileSync(overview, 'utf8');
    assert.match(after, /^# My own title$/m, 'owner prose preserved');
    assert.match(after, /More prose\./, 'trailing prose preserved');
-   assert.match(after, /```mermaid\nflowchart TD/, 'the stale map block was refreshed');
+   assert.match(after, /```mermaid\nflowchart LR/, 'the stale map block was refreshed');
    assert.ok(!after.includes('\nstale\n'), 'old map content replaced');
    assert.ok(
       !result.findings.some((f) => f.rule === 'overview-markers-missing'),
@@ -922,6 +1196,185 @@ test('viewer build: exports a self-contained static folder carrying the protect 
    const html = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
    assert.match(html, /^<!--/, 'warning comment is prepended');
    assert.match(html, /Host the exported folder behind internal authentication/);
+});
+
+test('viewer build: refuses an --out inside the context root, leaving governed content intact', async () => {
+   const dir = copyExample();
+   const { buildViewer } = await import('../dist/index.js');
+   const { manifest } = loadManifest(dir);
+   const glossary = path.join(dir, 'docs', 'domain', 'glossary.md');
+   const before = fs.readFileSync(glossary, 'utf8');
+   // The reported reproduction: exporting into a governed directory used to rm -rf
+   // it and then recurse into its own output until the paths grew too long.
+   assert.throws(() => buildViewer(dir, manifest!, 'docs/domain'), /refusing to build the viewer/);
+   assert.equal(fs.readFileSync(glossary, 'utf8'), before, 'governed content survives the refusal');
+   // The context root itself, and a directory containing it, are refused too.
+   assert.throws(() => buildViewer(dir, manifest!, 'docs'), /refusing to build the viewer/);
+   assert.throws(() => buildViewer(dir, manifest!, '.'), /refusing to build the viewer/);
+});
+
+test('viewer build: clears a previous export, never a directory it did not write', async () => {
+   const dir = copyExample();
+   const { buildViewer } = await import('../dist/index.js');
+   const { manifest } = loadManifest(dir);
+   // A fresh target, then the same target again: the second run recognizes its own
+   // export by the marker comment and clears it.
+   buildViewer(dir, manifest!, 'out');
+   fs.writeFileSync(path.join(dir, 'out', 'stale.txt'), 'from the previous export');
+   buildViewer(dir, manifest!, 'out');
+   assert.ok(!fs.existsSync(path.join(dir, 'out', 'stale.txt')), 'a previous export is rebuilt clean');
+   // An occupied directory that is not an export is somebody's content: refused.
+   const occupied = path.join(dir, 'notes');
+   fs.mkdirSync(occupied);
+   fs.writeFileSync(path.join(occupied, 'keep.md'), '# keep');
+   assert.throws(() => buildViewer(dir, manifest!, 'notes'), /neither empty nor a previous viewer export/);
+   assert.ok(fs.existsSync(path.join(occupied, 'keep.md')), 'the occupied target is untouched');
+   // An empty directory is fine.
+   fs.mkdirSync(path.join(dir, 'empty'));
+   assert.doesNotThrow(() => buildViewer(dir, manifest!, 'empty'));
+});
+
+test('viewer build: active file types are left out of the exported content', async () => {
+   const dir = copyExample();
+   const { buildViewer } = await import('../dist/index.js');
+   const { manifest } = loadManifest(dir);
+   fs.writeFileSync(path.join(dir, 'docs', 'evil.html'), '<script>alert(1)</script>');
+   fs.writeFileSync(path.join(dir, 'docs', 'evil.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+   buildViewer(dir, manifest!, 'out');
+   const out = path.join(dir, 'out');
+   assert.ok(!fs.existsSync(path.join(out, 'content', 'evil.html')), 'no HTML in the exported content');
+   // SVG stays a first-class asset: viewer.logo/viewer.favicon may point at one
+   // under the context root, and an SVG in an <img> never executes script.
+   assert.ok(fs.existsSync(path.join(out, 'content', 'evil.svg')), 'SVG is still exported');
+   // The chrome's own vendored assets are untouched by the content-side exclusion.
+   assert.ok(fs.existsSync(path.join(out, 'assets', 'docsify.min.js')));
+   assert.ok(fs.existsSync(path.join(out, 'index.html')));
+   // Only the prepended warning comment, not the page below it (whose favicon
+   // link legitimately names the vendored leji-logo.svg).
+   const warning = fs.readFileSync(path.join(out, 'index.html'), 'utf8').split('-->')[0];
+   assert.match(warning, /Active file types/);
+   assert.ok(!warning.includes('.svg'), 'the warning does not claim SVG is excluded');
+});
+
+test('viewer: a hostile manifest string cannot break out of its substitution site', () => {
+   const dir = copyExample();
+   const { manifest } = loadManifest(dir);
+   // Both values name other placeholders: with sequential substitution passes they
+   // were expanded a second time, injecting a literal </script> into the JSON island
+   // and breaking out of the favicon's href attribute.
+   manifest!.viewer = { title: '{{MERMAID_SCRIPTS}}', favicon: '{{DOCSIFY_CONFIG}}' };
+   generateViewer(dir, manifest!);
+   const html = fs.readFileSync(path.join(dir, 'docs', '.leji', 'viewer', 'index.html'), 'utf8');
+   assert.ok(html.includes('<title>{{MERMAID_SCRIPTS}}</title>'), 'the title stays a literal');
+   assert.ok(html.includes('href="/content/{{DOCSIFY_CONFIG}}"'), 'the favicon stays inside its attribute');
+   // The page keeps exactly the scripts the template declares: nothing injected.
+   const expected = fs.readFileSync(path.join(templatesDir(), 'viewer', 'index.html'), 'utf8');
+   assert.equal(
+      (html.match(/<script/g) ?? []).length,
+      (expected.match(/<script/g) ?? []).length + 2,
+      'only the two mermaid scripts are added',
+   );
+});
+
+test('viewer: an unusable viewer.theme.primary is refused, not interpolated', () => {
+   const dir = copyExample();
+   const { manifest } = loadManifest(dir);
+   manifest!.viewer = { theme: { primary: 'red; } body { display: none } /*' } };
+   const result = generateViewer(dir, manifest!);
+   const html = fs.readFileSync(path.join(dir, 'docs', '.leji', 'viewer', 'index.html'), 'utf8');
+   assert.ok(html.includes('"themeColor":"#223F93"'), 'the accent falls back to the default');
+   assert.ok(
+      result.findings.some((f) => f.rule === 'viewer-theme-invalid' && f.severity === 'warning'),
+      'the rejected accent is surfaced, never silently dropped',
+   );
+   // A plain color is kept as authored.
+   manifest!.viewer = { theme: { primary: '#ff0000' } };
+   generateViewer(dir, manifest!);
+   const ok = fs.readFileSync(path.join(dir, 'docs', '.leji', 'viewer', 'index.html'), 'utf8');
+   assert.ok(ok.includes('"themeColor":"#ff0000"'));
+});
+
+test('viewer: a sidebar label carrying HTML is escaped, not rendered', () => {
+   const dir = copyExample();
+   const { manifest } = loadManifest(dir);
+   manifest!.viewer = { agentsLabel: '<img src=x onerror=alert(1)>' };
+   generateViewer(dir, manifest!);
+   const sidebar = fs.readFileSync(path.join(dir, 'docs', '.leji', 'viewer', '_sidebar.md'), 'utf8');
+   assert.ok(sidebar.includes('\\<img src=x onerror=alert(1)\\>'), 'the angle brackets are escaped');
+   assert.ok(!/(^|[^\\])</m.test(sidebar), 'no unescaped angle bracket reaches the sidebar');
+});
+
+test('viewer: serve sends policy headers on every response and never an active content type', async () => {
+   const dir = copyExample();
+   const { manifest } = loadManifest(dir);
+   fs.writeFileSync(path.join(dir, 'docs', 'evil.html'), '<script>alert(1)</script>');
+   fs.writeFileSync(path.join(dir, 'docs', 'evil.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+   generateViewer(dir, manifest!);
+   const { serveViewer: serve } = await import('../dist/index.js');
+   const server = await serve(dir, 0, manifest!.rootPath);
+   const address = server.address();
+   const port = typeof address === 'object' && address ? address.port : 0;
+   try {
+      // A governed .html is served inert: same-origin execution was the blocker.
+      const evil = await fetch(`http://127.0.0.1:${port}/content/evil.html`);
+      assert.equal(evil.status, 200);
+      assert.equal(evil.headers.get('content-type'), 'text/plain; charset=utf-8');
+      // SVG keeps its real type so a configured logo/favicon still renders. Its
+      // inertness is the policy's job, not the content type's: the sandbox puts a
+      // navigated or framed SVG in an opaque origin with scripting off.
+      const svg = await fetch(`http://127.0.0.1:${port}/content/evil.svg`);
+      assert.equal(svg.status, 200);
+      assert.equal(svg.headers.get('content-type'), 'image/svg+xml');
+      assert.match(svg.headers.get('content-security-policy') ?? '', /sandbox/);
+      assert.equal(svg.headers.get('x-content-type-options'), 'nosniff');
+      // Every route carries the policy, including the 404s and the chrome.
+      for (const route of ['/', '/assets/docsify.min.js', '/content/domain/glossary.md', '/content/nope.md']) {
+         const res = await fetch(`http://127.0.0.1:${port}${route}`);
+         assert.equal(res.headers.get('x-content-type-options'), 'nosniff', route);
+         assert.ok(res.headers.get('content-security-policy'), `${route} carries a policy`);
+      }
+      // The shell keeps its own policy; layer content gets the inert one.
+      const shell = await fetch(`http://127.0.0.1:${port}/`);
+      assert.match(shell.headers.get('content-security-policy') ?? '', /script-src 'self'/);
+      assert.match(shell.headers.get('content-security-policy') ?? '', /frame-src 'none'/);
+      const doc = await fetch(`http://127.0.0.1:${port}/content/domain/glossary.md`);
+      assert.match(doc.headers.get('content-security-policy') ?? '', /sandbox/);
+      // A NUL in the path is a clean 404, not a crash.
+      assert.equal((await fetch(`http://127.0.0.1:${port}/content/%00`)).status, 404);
+   } finally {
+      server.close();
+   }
+});
+
+test('viewer: serve answers only loopback Host names (DNS rebinding)', async () => {
+   const dir = copyExample();
+   const { manifest } = loadManifest(dir);
+   generateViewer(dir, manifest!);
+   const { serveViewer: serve } = await import('../dist/index.js');
+   const server = await serve(dir, 0, manifest!.rootPath);
+   const address = server.address();
+   const port = typeof address === 'object' && address ? address.port : 0;
+   // fetch() refuses to set Host (a forbidden header), so drive a raw socket.
+   const status = (host: string): Promise<number> =>
+      new Promise((resolve, reject) => {
+         const socket = net.connect(port, '127.0.0.1', () => {
+            socket.write(`GET / HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`);
+         });
+         let buf = '';
+         socket.on('data', (chunk) => (buf += chunk));
+         socket.on('error', reject);
+         socket.on('end', () => resolve(Number(buf.split(' ')[1])));
+      });
+   try {
+      for (const host of ['localhost', 'localhost:5354', '127.0.0.1', '[::1]:5354']) {
+         assert.equal(await status(host), 200, `${host} is the viewer's own name`);
+      }
+      for (const host of ['evil.example', 'rebound.example:5354']) {
+         assert.equal(await status(host), 403, `${host} reached the loopback under another name`);
+      }
+   } finally {
+      server.close();
+   }
 });
 
 test('viewer: mermaid disabled omits the scripts and skips the heavy asset', () => {
@@ -1001,6 +1454,15 @@ test('viewer: serve serves the scaffold on localhost', async () => {
    }
 });
 
+test('viewer: serve refuses a rootRel that escapes the layer root', async () => {
+   const dir = copyExample();
+   const { serveViewer: serve } = await import('../dist/index.js');
+   // serveViewer validates synchronously (like its realpathSync); the async thunk
+   // turns that synchronous throw into the rejection assert.rejects awaits.
+   await assert.rejects(async () => serve(dir, 0, '..'), /escapes the layer root/);
+   await assert.rejects(async () => serve(dir, 0, '../..'), /escapes the layer root/);
+});
+
 test('viewer: port precedence is flag, then manifest viewer.port, then 5354', async () => {
    const { resolveViewerPort } = await import('../dist/index.js');
    const base = JSON.parse(fs.readFileSync(path.join(exampleDir, 'leji.json'), 'utf8'));
@@ -1076,18 +1538,25 @@ test('freshness: same-date items sort by path; distinct dates sort by date', () 
    assert.equal(report.declared, 4);
 });
 
-test('viewer: buildSidebar skips the boot profile and entries that fall outside rootPath', () => {
+test('viewer: buildSidebar skips an out-of-root boot profile and renders plain entries', () => {
    const base = JSON.parse(fs.readFileSync(path.join(exampleDir, 'leji.json'), 'utf8'));
    // Boot profile outside rootPath: relativeToRoot returns null, so no boot line.
    const manifest = { ...base, bootProfilePath: 'README.md', rootPath: 'docs/' };
    const sidebar = buildSidebar(manifest, [
-      { path: 'docs/domain/glossary.md', title: 'Glossary', category: 'domain' },
-      // Entry outside rootPath is dropped (relativeToRoot returns null).
-      { path: 'outside/notes.md', title: 'Outside', category: 'domain' },
+      {
+         label: '💰 Finance',
+         entries: [
+            { rel: 'domain/glossary.md', title: 'Glossary' },
+            { rel: 'records/status.md', title: 'Status' },
+         ],
+      },
+      { label: 'Empty group', entries: [] },
    ]);
    assert.ok(!sidebar.includes('Boot profile'), 'boot profile outside root is omitted');
-   assert.ok(sidebar.includes('Glossary'), 'in-root entry is kept');
-   assert.ok(!sidebar.includes('Outside'), 'out-of-root entry is dropped');
+   assert.ok(sidebar.includes('- **💰 Finance**'), 'group label is the index-file H1, verbatim, bold');
+   assert.ok(sidebar.includes('  - [Glossary](domain/glossary.md)'), 'entries render as plain links');
+   assert.ok(!sidebar.includes('lj-rec'), 'no record badges in the sidebar: kind and date are page-chip metadata now');
+   assert.ok(!sidebar.includes('Empty group'), 'empty groups are skipped');
 });
 
 test('changelog: a declared changelog that does not exist is changelog-required', () => {
@@ -1097,10 +1566,12 @@ test('changelog: a declared changelog that does not exist is changelog-required'
    assert.ok(result.findings.some((f) => f.rule === 'changelog-required'));
 });
 
-test('changelog: a new changelog not yet at HEAD verifies (nothing to diff)', () => {
+test('changelog: a new changelog not yet at HEAD is unverifiable, not verified', () => {
    const dir = gitSeedExample('leji-newcl-');
    // A changelog file present in the working tree but never committed: gitShowHead
-   // returns null, so there is no HEAD baseline to diff and the check passes.
+   // returns null, so there is no baseline. Nothing is violated, but nothing is
+   // established either, and those are different: the check reports unverified, which
+   // conformance surfaces as `unknown` rather than awarding `indexed`.
    const rel = 'docs/fresh-changelog.json';
    fs.writeFileSync(
       path.join(dir, rel),
@@ -1114,15 +1585,13 @@ test('changelog: a new changelog not yet at HEAD verifies (nothing to diff)', ()
       ) + '\n',
    );
    const result = checkChangelogAppendOnly(dir, rel);
-   assert.equal(result.verified, true);
+   assert.equal(result.verified, false);
    assert.ok(!result.findings.some((f) => f.rule === 'changelog-append-only'));
 });
 
-test('changelog: an unparseable HEAD baseline is treated as no baseline', () => {
+test('changelog: an unparseable HEAD baseline yields no baseline, so unverifiable', () => {
    const dir = tmpdir('leji-headbad-');
    execFileSync('git', ['init', '-q'], { cwd: dir });
-   execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: dir });
-   execFileSync('git', ['config', 'user.name', 'T'], { cwd: dir });
    fs.cpSync(exampleDir, dir, { recursive: true });
    const rel = path.join('docs', 'context-changelog.json');
    // Commit a NON-JSON changelog as the HEAD baseline, then replace the working
@@ -1130,7 +1599,7 @@ test('changelog: an unparseable HEAD baseline is treated as no baseline', () => 
    // verified with no append-only violation.
    fs.writeFileSync(path.join(dir, rel), 'not json at head\n');
    execFileSync('git', ['add', '-A'], { cwd: dir });
-   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: dir });
+   execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', 'seed'], { cwd: dir });
    fs.writeFileSync(
       path.join(dir, rel),
       JSON.stringify(
@@ -1143,7 +1612,7 @@ test('changelog: an unparseable HEAD baseline is treated as no baseline', () => 
       ) + '\n',
    );
    const result = checkChangelogAppendOnly(dir, 'docs/context-changelog.json');
-   assert.equal(result.verified, true);
+   assert.equal(result.verified, false);
    assert.ok(!result.findings.some((f) => f.rule === 'changelog-append-only'));
 });
 
@@ -1236,15 +1705,15 @@ test('validate: a layer mapping neither domain nor system is categories-minimum'
    assert.ok(result.findings.some((f) => f.rule === 'categories-minimum' && f.path === 'leji.json'));
 });
 
-test('validate: a declared category path that does not exist is category-path-missing', () => {
+test('validate: a category index file that does not exist is category-index-missing', () => {
    const dir = tmpdir('leji-catmiss-');
    fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
    const manifestPath = path.join(dir, 'leji.json');
    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-   manifest.categories.domain.paths = ['docs/ghost/'];
+   manifest.categories.domain.indexes = ['docs/context/ghost.md'];
    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
    const result = validateLayer(dir);
-   assert.ok(result.findings.some((f) => f.rule === 'category-path-missing' && f.path === 'docs/ghost/'));
+   assert.ok(result.findings.some((f) => f.rule === 'category-index-missing' && f.path === 'docs/context/ghost.md'));
 });
 
 // Changelog dates are UTC (machine-readable-surface.md req 6): a date-only value
@@ -1260,10 +1729,18 @@ test('changelog: date accepts UTC forms and rejects offsets/zoneless times', asy
 
    assert.ok(!dateError('2026-06-13'), 'date-only is UTC start-of-day');
    assert.ok(!dateError('2026-06-13T15:04:05Z'), 'full Z timestamp is allowed');
-   assert.ok(!dateError('2026-06-13T15:04:05.123Z'), 'fractional Z timestamp is allowed');
    assert.ok(dateError('2026-06-13T15:04:05'), 'zoneless time is rejected');
    assert.ok(dateError('2026-06-13T15:04:05+09:00'), 'non-UTC offset is rejected');
    assert.ok(dateError('June 13'), 'non-ISO date is rejected');
+   // Fractional seconds are rejected because they falsify the spec's own guarantee
+   // that a lexical sort of `date` is a chronological sort: "…05.1Z" sorts before
+   // "…05Z" while being later, and compaction picks the oldest run by that order.
+   assert.ok(dateError('2026-06-13T15:04:05.123Z'), 'fractional seconds are rejected');
+   // Calendar-ranged, so a shape that can never be a date cannot enter the changelog
+   // and drive a destructive compaction.
+   assert.ok(dateError('2026-99-99'), 'an impossible month and day are rejected');
+   assert.ok(dateError('2026-13-01'), 'month 13 is rejected');
+   assert.ok(dateError('2026-06-13T99:99:99Z'), 'an impossible time is rejected');
 });
 
 // --- in-place manifest text edits (byte-exact, the cross-SDK parity contract) ---
@@ -1310,26 +1787,493 @@ test('bindAgentInManifestText prepends a second agent and is idempotent', () => 
    assert.equal(again.text, two.text);
 });
 
-test('declareVendorAdapterInManifestText creates the array, prepends, and dedupes', () => {
-   const created = declareVendorAdapterInManifestText(MANIFEST_NO_AGENTS, 'AGENTS.md');
-   assert.equal(created.changed, true);
-   assert.equal(
-      created.text,
-      `{
-  "leji": "1.0",
-  "categories": {},
-  "vendorAdapters": [
-    "AGENTS.md"
-  ],
-  "owners": {
-    "primary": { "name": "x" }
-  }
-}
-`,
+test('joinUnderRoot treats "." and "" as the repo root (no hidden .context/)', () => {
+   assert.equal(joinUnderRoot('docs/', 'context/'), 'docs/context/');
+   assert.equal(joinUnderRoot('.', 'context/'), 'context/');
+   assert.equal(joinUnderRoot('', 'context/'), 'context/');
+   assert.equal(joinUnderRoot('.', '.leji/onboarding-brief.md'), '.leji/onboarding-brief.md');
+});
+
+test('status reports unindexed reference, dangling entries, and stale index paths', () => {
+   const dir = tmpdir('leji-status-');
+   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   const { manifest } = loadManifest(dir);
+   writeIndex(dir, manifest!); // stored index is current with the tree
+   // (a) a reference doc that no category index lists
+   fs.writeFileSync(path.join(dir, 'docs', 'notes.md'), '# Notes\n\nReference, not governed.\n');
+   // (b) a dangling entry, and (c) drop docs/domain/ so its stored entry goes stale
+   fs.writeFileSync(
+      path.join(dir, 'docs', 'context', 'domain.md'),
+      '# Domain\n\n```leji-index\n- path: docs/ghost.md\n```\n',
    );
-   const second = declareVendorAdapterInManifestText(created.text, 'CLAUDE.md');
-   assert.match(second.text, /"vendorAdapters": \[\n {4}"CLAUDE.md",\n {4}"AGENTS.md"\n {2}\],/);
-   const dupe = declareVendorAdapterInManifestText(second.text, 'AGENTS.md');
-   assert.equal(dupe.changed, false);
-   assert.equal(dupe.text, second.text);
+   const report = statusReport(dir, manifest!);
+   assert.ok(report.unindexed.includes('docs/notes.md'), 'unindexed lists the reference doc');
+   assert.ok(
+      report.dangling.some((d) => d.detail.includes('docs/ghost.md')),
+      'dangling lists the missing entry',
+   );
+   assert.ok(
+      report.stale.some((p) => p.startsWith('docs/domain/')),
+      'stale lists the stored path no longer resolved',
+   );
+});
+
+test('status flags an escaping index entry as dangling (so --strict fails)', () => {
+   const dir = tmpdir('leji-status-escape-');
+   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   fs.writeFileSync(
+      path.join(dir, 'docs', 'context', 'domain.md'),
+      '# Domain\n\n```leji-index\n- path: ../escape.md\n```\n',
+   );
+   const { manifest } = loadManifest(dir);
+   const report = statusReport(dir, manifest!);
+   assert.ok(
+      report.dangling.some((d) => /escape\.md/.test(d.detail)),
+      'an escaping entry path is surfaced as a dangling item',
+   );
+});
+
+/** Generate (without writing) for a fixture dir, so fixtures stay pristine. */
+function writeIndexTo(dir: string, manifest: NonNullable<ReturnType<typeof loadManifest>['manifest']>) {
+   const copy = tmpdir('leji-idx-copy-');
+   fs.cpSync(dir, copy, { recursive: true });
+   return writeIndex(copy, manifest);
+}
+
+// --- intent/records ---
+
+test('records: valid-records fixture resolves kinds by block and file-selector override', () => {
+   const dir = path.join(repoRoot, 'fixtures', 'valid-records');
+   const { manifest } = loadManifest(dir);
+   const scan = scanCategories(dir, manifest!);
+   const kinds = new Map(scan.docs.map((d) => [d.relPath, d.kind]));
+   assert.equal(kinds.get('docs/domain/overview.md'), 'intent');
+   assert.equal(kinds.get('docs/records/2026-07-03-status.md'), 'record');
+   assert.equal(kinds.get('docs/records/ledger.md'), 'record');
+   // The file selector beats the record directory selector.
+   assert.equal(kinds.get('docs/records/escalation-policy.md'), 'intent');
+   // Decision-category documents are inherently records.
+   assert.equal(kinds.get('docs/decisions/0001-adopt-leji.md'), 'record');
+});
+
+test('records: frontmatter kind overrides the block kind; an invalid kind is an error', () => {
+   const dir = tmpdir('leji-kind-fm-');
+   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-records'), dir, { recursive: true });
+   fs.writeFileSync(
+      path.join(dir, 'docs', 'records', 'pinned.md'),
+      '---\nkind: intent\n---\n\n# Pinned\n\nA record-directory file declaring itself intent.\n',
+   );
+   fs.writeFileSync(
+      path.join(dir, 'docs', 'domain', 'bad.md'),
+      '---\nkind: sometimes\n---\n\n# Bad\n\nInvalid kind value.\n',
+   );
+   const { manifest } = loadManifest(dir);
+   const scan = scanCategories(dir, manifest!);
+   const kinds = new Map(scan.docs.map((d) => [d.relPath, d.kind]));
+   assert.equal(kinds.get('docs/records/pinned.md'), 'intent');
+   assert.ok(scan.findings.some((f) => f.rule === 'kind-invalid' && f.path === 'docs/domain/bad.md'));
+});
+
+test('records: route separates intent documents from record candidates', () => {
+   const dir = path.join(repoRoot, 'fixtures', 'valid-records');
+   const { manifest } = loadManifest(dir);
+   const result = route(dir, manifest!, { paths: ['docs/records/ledger.md'], categories: ['domain'] });
+   const docPaths = result.documents.map((d) => d.path);
+   assert.ok(docPaths.includes('docs/domain/overview.md'));
+   assert.ok(
+      docPaths.includes('docs/records/escalation-policy.md'),
+      'the intent-overridden file routes as required context',
+   );
+   assert.ok(!docPaths.some((p) => p.startsWith('docs/records/2')), 'records never route as documents');
+   const byPath = new Map(result.records.map((r) => [r.path, r]));
+   assert.deepEqual(byPath.get('docs/records/2026-07-03-status.md'), {
+      path: 'docs/records/2026-07-03-status.md',
+      category: 'domain',
+      date: '2026-07-03',
+      required: false,
+   });
+   assert.deepEqual(byPath.get('docs/records/ledger.md'), {
+      path: 'docs/records/ledger.md',
+      category: 'domain',
+      date: null,
+      required: true,
+   });
+   // Decision records route via `decisions`, never as generic records.
+   assert.ok(!byPath.has('docs/decisions/0001-adopt-leji.md'));
+});
+
+test('records: freshness skips records; the index carries kind and record dates', () => {
+   const dir = path.join(repoRoot, 'fixtures', 'valid-records');
+   const { manifest } = loadManifest(dir);
+   const report = freshnessReport(dir, manifest!);
+   assert.equal(report.declared, 0, 'no intent doc in the fixture declares a horizon');
+   const result = writeIndexTo(dir, manifest!);
+   const entries = new Map(result.index!.entries.map((e) => [e.path, e]));
+   assert.equal(entries.get('docs/records/2026-07-03-status.md')?.kind, 'record');
+   assert.equal(entries.get('docs/records/2026-07-03-status.md')?.date, '2026-07-03');
+   assert.equal(entries.get('docs/records/ledger.md')?.kind, 'record');
+   assert.equal(entries.get('docs/records/ledger.md')?.date, undefined);
+   assert.equal(entries.get('docs/records/escalation-policy.md')?.kind, 'intent');
+});
+
+test('records: a fully displaced broad selector is reported as shadowed by status', () => {
+   const dir = tmpdir('leji-shadow-');
+   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-records'), dir, { recursive: true });
+   // Shrink the record directory to only the file the intent selector steals.
+   fs.rmSync(path.join(dir, 'docs', 'records', '2026-07-03-status.md'));
+   fs.rmSync(path.join(dir, 'docs', 'records', 'ledger.md'));
+   const { manifest } = loadManifest(dir);
+   const report = statusReport(dir, manifest!);
+   assert.deepEqual(report.shadowed, [{ indexFile: 'docs/context/domain.md', path: 'docs/records/' }]);
+});
+
+test('viewer: homepage, favicon, and pins accept repo-relative and root-relative forms', () => {
+   const dir = copyExample();
+   fs.writeFileSync(path.join(dir, 'docs', 'HOME.md'), '# Home\n');
+   const { manifest } = loadManifest(dir);
+   manifest!.viewer = {
+      mermaid: false,
+      homepage: 'docs/HOME.md', // repo-relative: normalized to HOME.md
+      favicon: 'docs/HOME.md', // repo-relative: content URL must not double the root
+      pins: ['domain/glossary.md'], // rootPath-relative pin (canonical form is repo-relative)
+   };
+   const result = generateViewer(dir, manifest!);
+   assert.ok(!result.findings.some((f) => f.rule === 'viewer-path-missing'));
+   const html = fs.readFileSync(path.join(dir, 'docs', '.leji', 'viewer', 'index.html'), 'utf8');
+   assert.ok(html.includes('"homepage":"HOME.md"'), 'repo-relative homepage normalized');
+   assert.ok(html.includes('/content/HOME.md'), 'favicon URL normalized under the content mount');
+   const sidebar = fs.readFileSync(path.join(dir, 'docs', '.leji', 'viewer', '_sidebar.md'), 'utf8');
+   assert.ok(
+      sidebar.split('---')[0].includes('](domain/glossary.md)'),
+      'rootPath-relative pin resolves into the top zone',
+   );
+   // An unresolvable homepage is kept as authored and warned about, never silent.
+   manifest!.viewer = { mermaid: false, homepage: 'docs/NOPE.md' };
+   const bad = generateViewer(dir, manifest!);
+   assert.ok(bad.findings.some((f) => f.rule === 'viewer-path-missing'));
+});
+
+test('ci: provider inference from the origin remote', () => {
+   assert.equal(ciProviderFromRemote('git@github.com:acme/app.git'), 'github');
+   assert.equal(ciProviderFromRemote('git@gitlab.com:acme/app.git'), 'gitlab');
+   assert.equal(ciProviderFromRemote('https://gitlab.example.co/acme/app.git'), 'gitlab');
+   assert.equal(ciProviderFromRemote('https://dev.azure.com/acme/app/_git/app'), 'azure');
+   assert.equal(ciProviderFromRemote('https://bitbucket.org/acme/app.git'), null);
+   assert.equal(ciProviderFromRemote(null), null);
+});
+
+test('ci --hooks: managed pre-commit hook is created, idempotent, and never clobbers', () => {
+   const dir = gitSeedExample('leji-hook-');
+   const first = ensureLocalHook(dir);
+   assert.equal(first.action, 'created');
+   const second = ensureLocalHook(dir);
+   assert.equal(second.action, 'unchanged');
+   const hookPath = path.join(dir, '.git', 'hooks', 'pre-commit');
+   assert.ok((fs.statSync(hookPath).mode & 0o111) !== 0, 'hook is executable');
+   fs.writeFileSync(hookPath, '#!/bin/sh\necho custom hook\n');
+   const third = ensureLocalHook(dir);
+   assert.equal(third.action, 'manual', 'unmanaged hook is never clobbered');
+   assert.equal(third.reason, 'foreign-hook');
+   assert.match(third.snippet ?? '', /"\$LEJI" validate/);
+   assert.match(third.snippet ?? '', /\[ -x "node_modules\/\.bin\/leji" \]/, 'hook prefers the local bin');
+   assert.match(fs.readFileSync(hookPath, 'utf8'), /custom hook/, 'foreign hook untouched');
+});
+
+test('ci --hooks: husky (.husky/_) merges a managed block into .husky/pre-commit, leaving its content', () => {
+   const dir = gitSeedExample('leji-hook-husky-');
+   execFileSync('git', ['config', 'core.hooksPath', '.husky/_'], { cwd: dir });
+   const huskyPre = path.join(dir, '.husky', 'pre-commit');
+   fs.mkdirSync(path.dirname(huskyPre), { recursive: true });
+   fs.writeFileSync(huskyPre, '#!/bin/sh\nnpm test\n');
+   const r = ensureLocalHook(dir);
+   assert.equal(r.path, '.husky/pre-commit');
+   assert.equal(r.action, 'updated');
+   assert.equal(r.managed, 'block');
+   const merged = fs.readFileSync(huskyPre, 'utf8');
+   assert.match(merged, /npm test/, 'existing husky content untouched');
+   assert.match(merged, /# >>> leji hooks \(managed\) >>>/);
+   assert.match(merged, /"\$LEJI" validate \|\| exit 1/);
+   assert.ok(!fs.existsSync(path.join(dir, '.git', 'hooks', 'pre-commit')), '.git/hooks not written');
+   assert.equal(ensureLocalHook(dir).action, 'unchanged', 'rerun is idempotent');
+});
+
+test('ci --hooks: husky repo without .husky/pre-commit creates an executable shebang + block', () => {
+   const dir = gitSeedExample('leji-hook-husky-new-');
+   execFileSync('git', ['config', 'core.hooksPath', '.husky/_'], { cwd: dir });
+   const r = ensureLocalHook(dir);
+   assert.equal(r.path, '.husky/pre-commit');
+   assert.equal(r.action, 'created');
+   assert.equal(r.managed, 'block');
+   const huskyPre = path.join(dir, '.husky', 'pre-commit');
+   const body = fs.readFileSync(huskyPre, 'utf8');
+   assert.ok(body.startsWith('#!/bin/sh\n'), 'shebang first');
+   assert.match(body, /# <<< leji hooks \(managed\) <<</);
+   assert.ok((fs.statSync(huskyPre).mode & 0o111) !== 0, 'husky hook is executable');
+   assert.ok(!fs.existsSync(path.join(dir, '.git', 'hooks', 'pre-commit')));
+});
+
+test('ci --hooks: direct .husky (v8) hook is executable and mode-corrected on rerun', () => {
+   const dir = gitSeedExample('leji-hook-v8-');
+   execFileSync('git', ['config', 'core.hooksPath', '.husky'], { cwd: dir });
+   const first = ensureLocalHook(dir);
+   assert.equal(first.action, 'created');
+   assert.equal(first.path, '.husky/pre-commit');
+   assert.equal(first.managed, 'block');
+   const huskyPre = path.join(dir, '.husky', 'pre-commit');
+   assert.ok((fs.statSync(huskyPre).mode & 0o111) !== 0, 'created executable');
+   assert.equal(ensureLocalHook(dir).action, 'unchanged', 'byte-current second run');
+   // A byte-current but non-executable direct .husky hook is a mode-only correction.
+   fs.chmodSync(huskyPre, 0o644);
+   const corrected = ensureLocalHook(dir);
+   assert.equal(corrected.action, 'updated', 'mode-only correction is updated');
+   assert.ok((fs.statSync(huskyPre).mode & 0o111) !== 0, 're-made executable');
+});
+
+test('ci --hooks: a custom core.hooksPath dir gets a managed hook file', () => {
+   const dir = gitSeedExample('leji-hook-custom-');
+   execFileSync('git', ['config', 'core.hooksPath', 'githooks'], { cwd: dir });
+   const r = ensureLocalHook(dir);
+   assert.equal(r.path, 'githooks/pre-commit');
+   assert.equal(r.action, 'created');
+   assert.equal(r.managed, 'file');
+   const custom = path.join(dir, 'githooks', 'pre-commit');
+   assert.ok((fs.statSync(custom).mode & 0o111) !== 0, 'custom hook is executable');
+   assert.match(fs.readFileSync(custom, 'utf8'), /# leji pre-commit \(managed\)/);
+   assert.match(fs.readFileSync(custom, 'utf8'), /\[ -x "node_modules\/\.bin\/leji" \]/, 'prefers the local bin');
+   assert.ok(!fs.existsSync(path.join(dir, '.git', 'hooks', 'pre-commit')));
+});
+
+test('ci --hooks: a core.hooksPath outside the repo is never written, reported manual', () => {
+   const dir = gitSeedExample('leji-hook-escape-');
+   const outside = tmpdir('leji-hook-outside-');
+   execFileSync('git', ['config', 'core.hooksPath', outside], { cwd: dir });
+   const r = ensureLocalHook(dir);
+   assert.equal(r.action, 'manual', 'an escaping hooks path is never written');
+   assert.equal(r.managed, 'file');
+   assert.equal(r.reason, 'outside-root');
+   assert.equal(r.path, `${outside}/pre-commit`, 'reports the computed target');
+   assert.match(r.snippet ?? '', /"\$LEJI" validate/);
+   assert.ok(!fs.existsSync(path.join(outside, 'pre-commit')), 'nothing written outside the repo');
+   assert.ok(!fs.existsSync(path.join(dir, '.git', 'hooks', 'pre-commit')));
+});
+
+test('ci --hooks: a byte-current .git/hooks/pre-commit that lost its exec bit is mode-corrected', () => {
+   const dir = gitSeedExample('leji-hook-modefix-');
+   assert.equal(ensureLocalHook(dir).action, 'created');
+   const hookPath = path.join(dir, '.git', 'hooks', 'pre-commit');
+   assert.ok((fs.statSync(hookPath).mode & 0o111) !== 0, 'created executable');
+   assert.equal(ensureLocalHook(dir).action, 'unchanged', 'byte-current second run');
+   fs.chmodSync(hookPath, 0o644);
+   const corrected = ensureLocalHook(dir);
+   assert.equal(corrected.action, 'updated', 'mode-only correction is updated');
+   assert.ok((fs.statSync(hookPath).mode & 0o111) !== 0, 're-made executable');
+});
+
+test('ci --hooks: a relative out-of-root core.hooksPath reports a normalized target', () => {
+   const dir = gitSeedExample('leji-hook-relesc-');
+   execFileSync('git', ['config', 'core.hooksPath', '../sibling-ext/.husky/_'], { cwd: dir });
+   const r = ensureLocalHook(dir);
+   assert.equal(r.action, 'manual');
+   assert.equal(r.reason, 'outside-root');
+   assert.equal(r.managed, 'block');
+   const expected = path.join(path.dirname(dir), 'sibling-ext', '.husky', 'pre-commit');
+   assert.equal(r.path, expected, 'the reported target is lexically normalized (no ..)');
+   assert.ok(!r.path.includes('..'), 'no unnormalized .. in the reported path');
+});
+
+test('ci: local-first CI variant when the repo declares @leji-org/leji', () => {
+   const dir = gitSeedExample('leji-ci-local-');
+   fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ devDependencies: { '@leji-org/leji': '^1.3.0' } }),
+   );
+   // The generated job runs `npm ci`, which needs an npm lockfile: declaring the
+   // dependency is necessary but not sufficient.
+   fs.writeFileSync(path.join(dir, 'package-lock.json'), '{"lockfileVersion":3}');
+   ensureCiWorkflow(dir, 'github');
+   const wf = fs.readFileSync(path.join(dir, '.github', 'workflows', 'leji.yml'), 'utf8');
+   assert.match(wf, /- run: npm ci/);
+   assert.match(wf, /npx --no-install @leji-org\/leji validate/);
+   assert.ok(!wf.includes('npx -y @leji-org/leji@1'), 'no floating fallback when the dep is local');
+});
+
+test('ci: a declared dep without an npm lockfile falls back, rather than generating a job that fails', () => {
+   // pnpm, Yarn and Bun repositories can declare the dependency and have no
+   // package-lock.json. The generated `npm ci` would fail before Leji ran.
+   const dir = gitSeedExample('leji-ci-nolock-');
+   fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ devDependencies: { '@leji-org/leji': '^1.3.0' } }),
+   );
+   fs.writeFileSync(path.join(dir, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
+   ensureCiWorkflow(dir, 'github');
+   const wf = fs.readFileSync(path.join(dir, '.github', 'workflows', 'leji.yml'), 'utf8');
+   assert.ok(!wf.includes('npm ci'), 'no npm ci without an npm lockfile');
+   assert.match(wf, /npx -y @leji-org\/leji@1 validate/, 'falls back to the pinned npx form');
+});
+
+test('ci: npx @1 fallback when no package.json (or an unparseable one) declares the dep', () => {
+   const noPkg = gitSeedExample('leji-ci-npx-');
+   ensureCiWorkflow(noPkg, 'github');
+   const wf = fs.readFileSync(path.join(noPkg, '.github', 'workflows', 'leji.yml'), 'utf8');
+   assert.match(wf, /- run: npx -y @leji-org\/leji@1 validate/);
+   assert.ok(!wf.includes('npm ci'), 'no local install without the dep');
+   const badPkg = gitSeedExample('leji-ci-bad-');
+   fs.writeFileSync(path.join(badPkg, 'package.json'), '{ not json');
+   ensureCiWorkflow(badPkg, 'gitlab');
+   const gl = fs.readFileSync(path.join(badPkg, '.gitlab-ci.yml'), 'utf8');
+   assert.match(gl, /- npx -y @leji-org\/leji@1 validate/);
+});
+
+test('ci: package.json parsing — BOM is stripped and detected; an array field is ignored', () => {
+   // A BOM-prefixed valid manifest still detects the declared dep (local-first).
+   const bomDir = gitSeedExample('leji-ci-bom-');
+   fs.writeFileSync(
+      path.join(bomDir, 'package.json'),
+      '\ufeff' + JSON.stringify({ dependencies: { '@leji-org/leji': '1.3.0' } }),
+   );
+   fs.writeFileSync(path.join(bomDir, 'package-lock.json'), '{"lockfileVersion":3}');
+   ensureCiWorkflow(bomDir, 'github');
+   assert.match(
+      fs.readFileSync(path.join(bomDir, '.github', 'workflows', 'leji.yml'), 'utf8'),
+      /npx --no-install @leji-org\/leji validate/,
+      'BOM stripped, dep detected',
+   );
+   // `dependencies` as a JSON array is not an object, so it is treated as absent.
+   const arrDir = gitSeedExample('leji-ci-arr-');
+   fs.writeFileSync(path.join(arrDir, 'package.json'), JSON.stringify({ dependencies: ['@leji-org/leji'] }));
+   ensureCiWorkflow(arrDir, 'gitlab');
+   assert.match(
+      fs.readFileSync(path.join(arrDir, '.gitlab-ci.yml'), 'utf8'),
+      /- npx -y @leji-org\/leji@1 validate/,
+      'array dependencies field falls back',
+   );
+   // A non-finite JSON constant (NaN) fails the strict parse -> fallback (matches Go).
+   const nanDir = gitSeedExample('leji-ci-nan-');
+   fs.writeFileSync(path.join(nanDir, 'package.json'), '{"dependencies":{"@leji-org/leji":NaN}}');
+   ensureCiWorkflow(nanDir, 'github');
+   assert.match(
+      fs.readFileSync(path.join(nanDir, '.github', 'workflows', 'leji.yml'), 'utf8'),
+      /- run: npx -y @leji-org\/leji@1 validate/,
+      'NaN value falls back',
+   );
+});
+
+test('mounts: the witness ref scheme is fixed-length and injective, and rejects unusable tracking refs', () => {
+   assert.ok(validTrackingRef('refs/heads/main') && validTrackingRef('refs/tags/v1.2.3'));
+   assert.ok(validTrackingRef('refs/heads/release/1.x'), 'a slashed branch name is ordinary');
+   // Everything `git check-ref-format` rejects is a manifest error, not a refresh
+   // that quietly does something else.
+   const bad = [
+      'main',
+      'refs/remotes/origin/main',
+      'refs/heads/*',
+      'refs/heads/a b',
+      'refs/heads/x^{}',
+      'refs/heads/a..b',
+      'refs/heads/a@{0}',
+      'refs/heads//b',
+      'refs/heads/b/',
+      'refs/heads/b.',
+      'refs/heads/.hidden',
+      'refs/heads/a/.hidden',
+      'refs/heads/b.lock',
+      'refs/heads/a.lock/b',
+      'refs/heads/a\\b',
+      'refs/heads/a\tb',
+      'refs/heads/a\u0000b',
+      'refs/heads/',
+   ];
+   for (const ref of bad) assert.equal(validTrackingRef(ref), false, JSON.stringify(ref));
+   // Both components are fixed-length hex: no per-component filesystem limit to
+   // outgrow, and no case fold that collides two declarations.
+   const identity = 'https://github.com/acme/product-context';
+   const ref = witnessRefFor(identity, 'refs/heads/main');
+   assert.match(ref, /^refs\/leji-witness\/v1\/[0-9a-f]{64}\/[0-9a-f]{64}$/);
+   assert.equal(witnessRefFor(identity, `refs/heads/${'x'.repeat(2000)}`).length, ref.length, 'fixed length');
+   assert.notEqual(ref, witnessRefFor(identity, 'refs/heads/Main'));
+   assert.notEqual(ref, witnessRefFor('https://github.com/acme/other', 'refs/heads/main'));
+});
+
+test('mounts: status takes one clock reading per run and omits counts it did not compute', () => {
+   const dir = copyExample();
+   const manifestPath = path.join(dir, 'leji.json');
+   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+   manifest.federation = {
+      mounts: [
+         { name: 'zeta', source: 'https://github.com/acme/zeta', pin: 'a'.repeat(40), owner: { name: 'Jo' } },
+         {
+            name: 'alpha',
+            source: 'not-a-locator',
+            pin: 'b'.repeat(40),
+            trackingRef: 'refs/heads/main',
+            owner: { name: 'Jo' },
+         },
+      ],
+   };
+   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+   const rows = mountStatus(dir, JSON.parse(fs.readFileSync(manifestPath, 'utf8')), {
+      now: () => new Date('2020-01-02T03:04:05.000Z'),
+   });
+   assert.deepEqual(
+      rows.map((r) => r.name),
+      ['alpha', 'zeta'],
+      'rows sort by name, not manifest order',
+   );
+   assert.deepEqual(
+      rows.map((r) => r.pinReport.observedAt),
+      ['2020-01-02T03:04:05.000Z', '2020-01-02T03:04:05.000Z'],
+      'one injectable clock reading for the whole execution',
+   );
+   assert.equal(rows[0].pinReport.reason, 'mount-source-unnormalizable');
+   assert.equal(rows[1].pinReport.reason, 'mount-no-tracking-ref');
+   // Uncomputed counts are absent keys, never nulls; the schema key order is fixed.
+   for (const row of rows) {
+      assert.ok(!('behind' in row.pinReport) && !('ahead' in row.pinReport));
+      assert.deepEqual(Object.keys(row.pinReport), [
+         'state',
+         'comparedRef',
+         'comparisonRepository',
+         'witnessProvenance',
+         'ancestryComplete',
+         'reason',
+         'observedAt',
+      ]);
+      assert.equal(row.pinReport.comparisonRepository, null);
+      assert.equal(row.pinReport.witnessProvenance, null);
+   }
+});
+
+test('mounts: a hydrate declaration error never echoes the declaration back into its detail', () => {
+   const dir = copyExample();
+   const manifestPath = path.join(dir, 'leji.json');
+   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+   manifest.federation = {
+      mounts: [
+         // A source may be a local checkout path, and a path is machine-specific.
+         {
+            name: 'local',
+            source: '/Users/someone/checkouts/product-context',
+            pin: 'a'.repeat(40),
+            owner: { name: 'Jo' },
+         },
+         {
+            name: 'tracked',
+            source: 'https://github.com/acme/product-context',
+            pin: 'b'.repeat(40),
+            trackingRef: 'main',
+            owner: { name: 'Jo' },
+         },
+      ],
+   };
+   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+   const r = hydrateMounts(dir, JSON.parse(fs.readFileSync(manifestPath, 'utf8')), {});
+   assert.deepEqual(
+      r.outcomes.map((o) => [o.name, o.status, o.detail]),
+      [
+         ['local', 'error', 'source is not a normalizable locator'],
+         ['tracked', 'error', 'trackingRef is not a fully qualified branch or tag'],
+      ],
+   );
+   assert.ok(!JSON.stringify(r.outcomes).includes('/Users/'), 'no filesystem path reaches canonical output');
 });

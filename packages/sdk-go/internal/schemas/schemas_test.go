@@ -24,7 +24,7 @@ func TestSchemaErrorsValidManifest(t *testing.T) {
 		"name":            "x",
 		"rootPath":        "docs/",
 		"bootProfilePath": "docs/boot-profile.md",
-		"categories":      map[string]any{"domain": map[string]any{"paths": []any{"docs/domain/"}}},
+		"categories":      map[string]any{"domain": map[string]any{"indexes": []any{"docs/context/domain.md"}}},
 		"owners":          map[string]any{"primary": map[string]any{"name": "Jo"}},
 	}
 	if errs := SchemaErrors("context-manifest", data); len(errs) != 0 {
@@ -63,7 +63,7 @@ func TestSchemaErrorsECMARegexPattern(t *testing.T) {
 		"name":            "x",
 		"rootPath":        "/absolute/path",
 		"bootProfilePath": "docs/boot-profile.md",
-		"categories":      map[string]any{"domain": map[string]any{"paths": []any{"docs/"}}},
+		"categories":      map[string]any{"domain": map[string]any{"indexes": []any{"docs/context/domain.md"}}},
 		"owners":          map[string]any{"primary": map[string]any{"name": "Jo"}},
 	}
 	errs := SchemaErrors("context-manifest", bad)

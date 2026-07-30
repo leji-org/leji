@@ -53,7 +53,9 @@ class Frontmatter:
     error: Optional[str] = None
 
 
-_FENCE = re.compile(r"\r?\n---[ \t]*\r?\n")
+# Group 1 is the line terminator ending the block's last line; parse_frontmatter
+# slices by its end so a CRLF file's terminator is kept whole.
+_FENCE = re.compile(r"(\r?\n)---[ \t]*\r?\n")
 
 
 def parse_frontmatter(text: str) -> Frontmatter:
@@ -62,7 +64,12 @@ def parse_frontmatter(text: str) -> Frontmatter:
     fence = _FENCE.search(text[3:])
     if not fence:
         return Frontmatter(data=None, body=text, error="unterminated frontmatter block")
-    raw = text[3 : 3 + fence.start() + 1]
+    # ``end(1)`` closes the terminator group, which opens at the match start:
+    # slicing to it keeps the whole terminator. Taking a fixed single character
+    # leaves a CRLF file's bare ``\r`` in the raw YAML, which PyYAML tolerates but
+    # the Node SDK's parser folds into the last scalar's value. All three SDKs hand
+    # their YAML library the same bytes rather than relying on a library's leniency.
+    raw = text[3 : 3 + fence.end(1)]
     body = text[3 + fence.end() :]
     try:
         data = yaml.load(raw, Loader=_LejiLoader)

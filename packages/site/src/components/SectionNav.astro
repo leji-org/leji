@@ -7,7 +7,7 @@ const here = (href: string) => (current === href ? 'page' : undefined);
 const schemasHere = current.startsWith('/schemas') ? 'page' : undefined;
 ---
 
-<aside class="doc-nav">
+<nav class="doc-nav" aria-label="Documentation">
    <details data-group="spec" open>
       <summary><span>Specification</span><span class="chev" aria-hidden="true">›</span></summary>
       <ol>
@@ -41,8 +41,8 @@ const schemasHere = current.startsWith('/schemas') ? 'page' : undefined;
       </ol>
    </details>
 
-   <details data-group="adopt" open>
-      <summary><span>Learn</span><span class="chev" aria-hidden="true">›</span></summary>
+   <details data-group="resources" open>
+      <summary><span>Resources</span><span class="chev" aria-hidden="true">›</span></summary>
       <ol class="plain">
          <li>
             <a href="/quickstart/" aria-current={here('/quickstart/')}>Quickstart</a>
@@ -56,13 +56,15 @@ const schemasHere = current.startsWith('/schemas') ? 'page' : undefined;
          <li>
             <a href="/ai-native/" aria-current={here('/ai-native/')}>AI-native teams</a>
          </li>
+         <li>
+            <a href="/trust/" aria-current={here('/trust/')}>Trust</a>
+         </li>
       </ol>
    </details>
-</aside>
+</nav>
 
 <script is:inline>
-   // Restore and persist each group's collapsed state across navigation, so a
-   // collapse sticks instead of resetting (which would feel like jumping).
+   // Persist each group's collapsed state across navigation so it doesn't reset.
    for (const d of document.querySelectorAll('.doc-nav details[data-group]')) {
       const key = 'leji-nav-' + d.dataset.group;
       const saved = localStorage.getItem(key);

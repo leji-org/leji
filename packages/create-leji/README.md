@@ -1,6 +1,7 @@
 # create-leji
 
-Bootstrap a [Leji](https://leji.org) context layer interactively:
+Bootstrap a [Leji](https://leji.org) context layer interactively. Leji is the open
+specification for the shared context layer of AI-native teams.
 
 ```bash
 npm create leji            # or: pnpm create leji / yarn create leji

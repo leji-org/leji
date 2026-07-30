@@ -50,9 +50,8 @@ const nodes = [
       }
    }
 
-   /* looping variant: the circuit nodes reveal outside-in, hold, then re-cover
-      and repeat. Covers are blue-deep, so over a blue-deep surface (the
-      terminal) the conceal/reveal reads as the nodes powering on and off. */
+   /* looping variant: covers are blue-deep, so over the blue-deep terminal the
+      conceal/reveal reads as the nodes powering on and off */
    .loop .cover {
       animation: conceal-loop 3.6s ease-in-out infinite;
    }

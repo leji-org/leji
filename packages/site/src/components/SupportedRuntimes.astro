@@ -1,5 +1,5 @@
 ---
-// "Currently supported" runtimes line, shared by Quickstart and CLI; the set is declared once in ../data/runtimes.
+// Supported-runtimes line, shared by Quickstart and CLI. Set lives in ../data/runtimes.
 import { runtimes } from '../data/runtimes';
 ---
 
@@ -51,8 +51,7 @@ import { runtimes } from '../data/runtimes';
       height: 1.05em;
       width: auto;
    }
-   /* wordmark logos are wider than tall; render them shorter so their visual
-      weight matches the square marks */
+   /* wordmark logos render shorter so their weight matches the square marks */
    .lang-icon--wide :global(svg) {
       height: 0.85em;
    }

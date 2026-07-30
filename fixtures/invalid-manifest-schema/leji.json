@@ -3,5 +3,5 @@
   "name": "fixture",
   "rootPath": "docs/",
   "bootProfilePath": "docs/boot-profile.md",
-  "categories": { "domain": { "paths": ["docs/domain/"] } }
+  "categories": { "domain": { "indexes": ["docs/context/domain.md"] } }
 }

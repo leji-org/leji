@@ -47,7 +47,12 @@ func FreshnessReport(root string, m *manifest.Manifest, strict bool) Report {
 	horizon := time.Now().UTC().Add(30 * 24 * time.Hour).Format("2006-01-02")
 
 	var items []Item
-	for _, doc := range layer.ScanCategories(root, m) {
+	for _, doc := range layer.ScanCategories(root, m).Docs {
+		// Freshness is an intent mechanism: records are dated evidence and carry
+		// no review horizon (a horizon on a record is a validation error).
+		if doc.Kind == "record" {
+			continue
+		}
 		if ra := reviewAfterOf(doc.Frontmatter); ra != "" {
 			items = append(items, Item{Path: doc.RelPath, ReviewAfter: ra})
 		}

@@ -1,3 +1,5 @@
+import { byteCompare } from './text.js';
+
 /** Severity of a finding: `error` fails validation; `warning` does not. */
 export type Severity = 'error' | 'warning';
 
@@ -22,11 +24,10 @@ export function finding(rule: string, severity: Severity, message: string, path?
 
 export function sortFindings(findings: Finding[]): Finding[] {
    return [...findings].sort((a, b) => {
-      const pa = a.path ?? '';
-      const pb = b.path ?? '';
-      if (pa !== pb) return pa < pb ? -1 : 1;
-      if (a.rule !== b.rule) return a.rule < b.rule ? -1 : 1;
-      return a.message < b.message ? -1 : a.message > b.message ? 1 : 0;
+      const p = byteCompare(a.path ?? '', b.path ?? '');
+      if (p !== 0) return p;
+      const r = byteCompare(a.rule, b.rule);
+      return r !== 0 ? r : byteCompare(a.message, b.message);
    });
 }
 

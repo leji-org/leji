@@ -11,8 +11,8 @@ const (
 	Warning Severity = "warning"
 )
 
-// Finding points at a single rule violation. Path is the repository-root-relative
-// POSIX path the finding points at, empty when it has none.
+// Finding is a single rule violation. Path is the repo-root-relative POSIX path,
+// empty when none.
 type Finding struct {
 	Rule     string
 	Severity Severity
@@ -23,12 +23,10 @@ type Finding struct {
 	HasPath bool
 }
 
-// New builds a finding with a path.
 func New(rule string, severity Severity, message, path string) Finding {
 	return Finding{Rule: rule, Severity: severity, Message: message, Path: path, HasPath: true}
 }
 
-// NewNoPath builds a finding without a path.
 func NewNoPath(rule string, severity Severity, message string) Finding {
 	return Finding{Rule: rule, Severity: severity, Message: message}
 }
@@ -38,7 +36,7 @@ type Summary struct {
 	Warnings int `json:"warnings"`
 }
 
-// Sort orders findings by (path||"", rule, message); stable to mirror JS sort.
+// Sort orders findings by (path, rule, message); stable to mirror JS sort.
 func Sort(in []Finding) []Finding {
 	out := make([]Finding, len(in))
 	copy(out, in)

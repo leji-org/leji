@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// gitSeedExample copies the example layer into a fresh git repo and commits it,
-// so changelog append-only has a HEAD baseline to compare against.
+// gitSeedExample copies the example layer into a fresh git repo and commits it
+// (a HEAD baseline for changelog append-only).
 func gitSeedExample(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -58,7 +58,6 @@ func entriesOf(m map[string]any) []any {
 }
 
 func replaceFirstSummary(s string) string {
-	// Change the value of the first "summary" field, preserving JSON validity.
 	var m map[string]any
 	if json.Unmarshal([]byte(s), &m) != nil {
 		return s

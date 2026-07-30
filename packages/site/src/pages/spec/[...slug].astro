@@ -30,11 +30,13 @@ const articleLd = {
    url: pageUrl,
    inLanguage: 'en',
    isPartOf: { '@type': 'TechArticle', name: 'The Leji Specification', url: new URL('/spec/', Astro.site).href },
-   publisher: { '@type': 'Organization', name: 'Leji', url: 'https://leji.org' },
+   // The steward node the sitewide graph defines in Base.astro. Leji is the
+   // specification, not an organization; naming one here invented an entity.
+   publisher: { '@id': 'https://leji.org/#organization' },
 };
 ---
 
-<Doc title={title} alternate={`/spec/${doc.id}.md`}>
+<Doc title={title} description={description} alternate={`/spec/${doc.id}.md`}>
    <script type="application/ld+json" set:html={JSON.stringify(articleLd)} />
    <Content />
 </Doc>

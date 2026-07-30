@@ -1,13 +1,14 @@
 package conformancetest
 
 // Go equivalents of units.test.ts / sdk.test.ts / run.test.ts: the parts the
-// shared fixtures do not exercise (index gen/check, freshness, conformance
-// scoring, changelog append-only against git, viewer, init).
+// shared fixtures do not exercise (index, freshness, conformance, changelog,
+// viewer, init).
 
 import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -15,9 +16,11 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/freshness"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
 	initcmd "github.com/leji-org/leji/packages/sdk-go/internal/commands/init"
+	statuscmd "github.com/leji-org/leji/packages/sdk-go/internal/commands/status"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/validate"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/viewer"
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
+	"github.com/leji-org/leji/packages/sdk-go/internal/layer"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 )
 
@@ -38,7 +41,27 @@ func copyTree(t *testing.T, src string) string {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("cp failed: %v: %s", err, out)
 	}
+	// Conformance evaluates the directory it is given, so a layer outside a git
+	// repository fails core's git requirement. Any test asserting a verified level
+	// has to run somewhere git can answer.
+	gitInit(t, dst)
+	gitCommitAll(t, dst)
 	return dst
+}
+
+func gitInit(t *testing.T, dir string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "Test"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v: %s", args, err, out)
+		}
+	}
 }
 
 func hasRule(fs []findings.Finding, rule string) bool {
@@ -130,17 +153,20 @@ func TestGeneratedIndexContentExact(t *testing.T) {
 		t.Fatalf("expected 3 entries, got %d", len(got))
 	}
 	type want struct {
-		id, path, title, category, summary, fresh string
+		id, path, title, category, kind, date, summary, fresh string
 	}
 	wants := []want{
-		{"adopt-leji", "docs/decisions/0001-adopt-leji.md", "Adopt the Leji context layer", "decisions", "", ""},
-		{"glossary", "docs/domain/glossary.md", "Glossary", "domain", "What invoice, credit note, and settlement mean at Acme.", ""},
-		{"system-invariants", "docs/system/invariants.md", "System Invariants", "system", "Money handling, ledger append-only rule, service boundaries.", "2026-12-10"},
+		{"adopt-leji", "docs/decisions/0001-adopt-leji.md", "Adopt the Leji context layer", "decisions", "record", "2026-06-10", "", ""},
+		{"glossary", "docs/domain/glossary.md", "Glossary", "domain", "intent", "", "What invoice, credit note, and settlement mean at Acme.", ""},
+		{"system-invariants", "docs/system/invariants.md", "System Invariants", "system", "intent", "", "Money handling, ledger append-only rule, service boundaries.", "2026-12-10"},
 	}
 	for i, w := range wants {
 		e := got[i]
 		if e.ID != w.id || e.Path != w.path || e.Title != w.title || e.Category != w.category || e.Summary != w.summary {
 			t.Fatalf("entry %d mismatch: %+v vs %+v", i, e, w)
+		}
+		if e.Kind != w.kind || e.Date != w.date {
+			t.Fatalf("entry %d kind/date mismatch: got %s/%q want %s/%q", i, e.Kind, e.Date, w.kind, w.date)
 		}
 		if w.fresh != "" && (e.Freshness == nil || e.Freshness.ReviewAfter != w.fresh) {
 			t.Fatalf("entry %d freshness mismatch: %+v", i, e.Freshness)
@@ -177,7 +203,10 @@ func TestConformanceOverClaimFails(t *testing.T) {
 	os.WriteFile(inv, []byte(replace(string(ib), "freshness:\n  reviewAfter: 2026-12-10\n", "")), 0o644)
 	m := loadM(t, dir)
 	mustWriteIndex(t, dir, m)
-	result := conformance.Report(dir)
+	result, err := conformance.Report(dir, false)
+	if err != nil {
+		t.Fatalf("conformance: %v", err)
+	}
 	if result.VerifiedLevel != "indexed" {
 		t.Fatalf("expected verified indexed, got %q", result.VerifiedLevel)
 	}
@@ -193,7 +222,10 @@ func TestGovernedVerifiesWithProfiles(t *testing.T) {
 	os.WriteFile(mp, []byte(replace(string(b), `"claimedLevel": "indexed"`, `"claimedLevel": "governed"`)), 0o644)
 	m := loadM(t, dir)
 	mustWriteIndex(t, dir, m)
-	result := conformance.Report(dir)
+	result, err := conformance.Report(dir, false)
+	if err != nil {
+		t.Fatalf("conformance: %v", err)
+	}
 	if result.VerifiedLevel != "governed" {
 		t.Fatalf("expected governed, got %q", result.VerifiedLevel)
 	}
@@ -217,17 +249,31 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 		"docs/.leji/viewer/assets/docsify-sidebar-collapse.min.css",
 		"docs/.leji/viewer/assets/docsify-sidebar-collapse.min.js",
 		"docs/.leji/viewer/assets/docsify.min.js",
+		"docs/.leji/viewer/assets/fonts-licenses.txt",
 		"docs/.leji/viewer/assets/leji-logo.svg",
 		"docs/.leji/viewer/assets/mermaid.min.js",
 		"docs/.leji/viewer/assets/prism-bash.min.js",
 		"docs/.leji/viewer/assets/prism-json.min.js",
 		"docs/.leji/viewer/assets/prism-markdown.min.js",
 		"docs/.leji/viewer/assets/prism-typescript.min.js",
+		"docs/.leji/viewer/assets/roboto-mono-400-latin-ext.woff2",
+		"docs/.leji/viewer/assets/roboto-mono-400-latin.woff2",
+		"docs/.leji/viewer/assets/roboto-mono-400-vietnamese.woff2",
 		"docs/.leji/viewer/assets/search.min.js",
+		"docs/.leji/viewer/assets/source-sans-pro-300-latin-ext.woff2",
+		"docs/.leji/viewer/assets/source-sans-pro-300-latin.woff2",
+		"docs/.leji/viewer/assets/source-sans-pro-300-vietnamese.woff2",
+		"docs/.leji/viewer/assets/source-sans-pro-400-latin-ext.woff2",
+		"docs/.leji/viewer/assets/source-sans-pro-400-latin.woff2",
+		"docs/.leji/viewer/assets/source-sans-pro-400-vietnamese.woff2",
+		"docs/.leji/viewer/assets/source-sans-pro-600-latin-ext.woff2",
+		"docs/.leji/viewer/assets/source-sans-pro-600-latin.woff2",
+		"docs/.leji/viewer/assets/source-sans-pro-600-vietnamese.woff2",
 		"docs/.leji/viewer/assets/viewer-boot.js",
 		"docs/.leji/viewer/assets/vue.css",
 		"docs/.leji/viewer/assets/zoom-image.min.js",
 		"docs/overview.md",
+		"docs/.leji/viewer/_manifest.md",
 	}
 	if len(result.Written) != len(wantWritten) {
 		t.Fatalf("unexpected written: %v", result.Written)
@@ -252,7 +298,7 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 		t.Fatalf("expected content mount in the boot script, got: %q", bootJS)
 	}
 	// Default theming: the Leji mark (in the name HTML, served relative to the page
-	// so basePath does not break it) and the brand blue, plus the layer name/title.
+	// so basePath does not break it), brand blue, and the layer name/title.
 	page, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "index.html"))
 	for _, want := range []string{
 		"/assets/leji-logo.svg",
@@ -265,39 +311,95 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 		}
 	}
 	sidebar, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "_sidebar.md"))
-	want := "- [🤖 Boot profile](boot-profile.md)\n\n---\n\n" +
-		"- 📖 Domain\n  - [Glossary](domain/glossary.md)\n" +
-		"- ⚙️ System\n  - [System Invariants](system/invariants.md)\n" +
-		"- 🧭 Decisions\n  - [Adopt the Leji context layer](decisions/0001-adopt-leji.md)\n"
+	want := "- [🤖 Boot profile](boot-profile.md)\n- [📄 Manifest](_manifest.md)\n\n---\n\n" +
+		"- **🤖 Agents**\n  - [Agent Core](agents/core.md)\n  - [Thought Partner (Codex)](agents/thought-partner.md)\n" +
+		"- **📖 Domain**\n  - [Glossary](domain/glossary.md)\n" +
+		"- **⚙️ System**\n  - [Invariants](system/invariants.md)\n" +
+		"- **🧭 Decisions**\n  - [Adopt the Leji context layer](decisions/0001-adopt-leji.md)\n"
 	if string(sidebar) != want {
 		t.Fatalf("sidebar mismatch:\n got=%q\nwant=%q", sidebar, want)
 	}
+	// Deterministic: regeneration is byte-identical.
+	if _, err := viewer.GenerateViewer(dir, m); err != nil {
+		t.Fatalf("GenerateViewer (regen): %v", err)
+	}
+	again, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "_sidebar.md"))
+	if string(again) != want {
+		t.Fatalf("regenerated sidebar diverged:\n got=%q\nwant=%q", again, want)
+	}
 }
 
-func TestViewerThemeOverrides(t *testing.T) {
+func TestViewerBrandConfig(t *testing.T) {
 	dir := copyTree(t, exampleDir(t))
 	m := loadM(t, dir)
 	m.Viewer = &manifest.Viewer{
-		Logo:           "assets/brand.svg",
-		Theme:          &manifest.Theme{Primary: "#FF6600"},
-		CategoryEmojis: map[string]string{"domain": "💰"},
+		Logo:    "assets/brand.svg",
+		Theme:   &manifest.Theme{Primary: "#FF6600"},
+		Title:   "Acme Billing",
+		Favicon: "assets/icon.svg",
+		Pins:    []manifest.ViewerPin{{Path: "docs/domain/glossary.md"}, {Path: "docs/nope.md"}},
 	}
-	if _, err := viewer.GenerateViewer(dir, m); err != nil {
+	result, err := viewer.GenerateViewer(dir, m)
+	if err != nil {
 		t.Fatalf("GenerateViewer: %v", err)
 	}
 	page, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "index.html"))
-	// A relative logo path is served from the content mount; the configured primary wins.
-	for _, want := range []string{"/content/assets/brand.svg", "\"themeColor\":\"#FF6600\""} {
+	// A relative logo path is served from the content mount; absolute/url is used as-is.
+	for _, want := range []string{
+		"/content/assets/brand.svg",
+		"\"themeColor\":\"#FF6600\"",
+		"<title>Acme Billing</title>",
+		"href=\"/content/assets/icon.svg\"",
+	} {
 		if !strings.Contains(string(page), want) {
 			t.Fatalf("expected index.html to contain %q", want)
 		}
 	}
 	sidebar, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "_sidebar.md"))
-	if !strings.Contains(string(sidebar), "- 💰 Domain") {
-		t.Fatalf("expected overridden domain emoji, got: %q", sidebar)
+	top := strings.SplitN(string(sidebar), "---", 2)[0]
+	if !strings.Contains(top, "- [Glossary](domain/glossary.md)") {
+		t.Fatalf("expected the pinned page in the top zone, got: %q", top)
 	}
-	if !strings.Contains(string(sidebar), "- ⚙️ System") {
-		t.Fatalf("expected default system emoji, got: %q", sidebar)
+	pinMissing := false
+	for _, f := range result.Findings {
+		if f.Rule == "viewer-pin-missing" && f.Path == "docs/nope.md" {
+			pinMissing = true
+		}
+	}
+	if !pinMissing {
+		t.Fatal("expected a missing pin to be surfaced, not silently dropped")
+	}
+}
+
+func TestBuildSidebarSkipsOutOfRootBootAndRendersPlainEntries(t *testing.T) {
+	m := loadM(t, exampleDir(t))
+	// Boot profile outside rootPath: relativeToRoot fails, so no boot line.
+	m.BootProfilePath = "README.md"
+	m.RootPath = "docs/"
+	sidebar := viewer.BuildSidebar(m, []viewer.SidebarGroup{
+		{
+			Label: "💰 Finance",
+			Entries: []viewer.SidebarEntry{
+				{Rel: "domain/glossary.md", Title: "Glossary"},
+				{Rel: "records/status.md", Title: "Status"},
+			},
+		},
+		{Label: "Empty group"},
+	}, nil, nil, false)
+	if strings.Contains(sidebar, "Boot profile") {
+		t.Fatal("expected the out-of-root boot profile to be omitted")
+	}
+	if !strings.Contains(sidebar, "- **💰 Finance**") {
+		t.Fatalf("expected the group label to be the index-file H1, verbatim, bold, got: %q", sidebar)
+	}
+	if !strings.Contains(sidebar, "  - [Glossary](domain/glossary.md)") {
+		t.Fatalf("expected entries to render as plain links, got: %q", sidebar)
+	}
+	if strings.Contains(sidebar, "lj-rec") {
+		t.Fatalf("expected no record badges in the sidebar (kind and date are page-chip metadata now), got: %q", sidebar)
+	}
+	if strings.Contains(sidebar, "Empty group") {
+		t.Fatal("expected empty groups to be skipped")
 	}
 }
 
@@ -355,16 +457,21 @@ func TestInitYesValidatesCleanCore(t *testing.T) {
 
 func TestInitIndexedVerifiesImmediately(t *testing.T) {
 	dir := t.TempDir()
+	gitInit(t, dir)
 	if _, err := initcmd.InitLayer(initcmd.Options{Dir: dir, Yes: true, Level: "indexed", Name: "acme-context"}); err != nil {
 		t.Fatal(err)
 	}
+	gitCommitAll(t, dir)
 	v := validate.ValidateLayer(dir, false)
 	for _, f := range v.Findings {
 		if f.Severity == findings.Error {
 			t.Fatalf("unexpected error: %s", f.Rule)
 		}
 	}
-	c := conformance.Report(dir)
+	c, cerr := conformance.Report(dir, false)
+	if cerr != nil {
+		t.Fatalf("conformance: %v", cerr)
+	}
 	if c.ClaimedLevel != "indexed" || c.VerifiedLevel != "indexed" {
 		t.Fatalf("expected indexed/indexed, got %s/%s", c.ClaimedLevel, c.VerifiedLevel)
 	}
@@ -400,7 +507,6 @@ func TestChangelogAppendOnlyModifiedEntry(t *testing.T) {
 func TestChangelogCompactionPasses(t *testing.T) {
 	dir := gitSeedExample(t)
 	abs := filepath.Join(dir, "docs", "context-changelog.json")
-	// Drop the oldest entry and append a compaction entry covering it.
 	dropOldestWithCompaction(t, abs)
 	result := validate.CheckChangelogAppendOnly(dir, "docs/context-changelog.json", false)
 	for _, f := range result.Findings {
@@ -420,7 +526,142 @@ func TestChangelogReorderNotViolation(t *testing.T) {
 	}
 }
 
-// --- helpers ---
+// --- intent/records ---
+
+func recordsFixtureDir(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(repoRoot(t), "fixtures", "valid-records")
+}
+
+func kindsByPath(scan layer.CategoryScan) map[string]string {
+	out := map[string]string{}
+	for _, d := range scan.Docs {
+		out[d.RelPath] = d.Kind
+	}
+	return out
+}
+
+func TestRecordsFixtureResolvesKindsByBlockAndFileSelectorOverride(t *testing.T) {
+	dir := recordsFixtureDir(t)
+	m := loadM(t, dir)
+	kinds := kindsByPath(layer.ScanCategories(dir, m))
+	if kinds["docs/domain/overview.md"] != "intent" {
+		t.Fatalf("overview.md: got %q want intent", kinds["docs/domain/overview.md"])
+	}
+	if kinds["docs/records/2026-07-03-status.md"] != "record" {
+		t.Fatalf("2026-07-03-status.md: got %q want record", kinds["docs/records/2026-07-03-status.md"])
+	}
+	if kinds["docs/records/ledger.md"] != "record" {
+		t.Fatalf("ledger.md: got %q want record", kinds["docs/records/ledger.md"])
+	}
+	// The file selector beats the record directory selector.
+	if kinds["docs/records/escalation-policy.md"] != "intent" {
+		t.Fatalf("rates.md: got %q want intent", kinds["docs/records/escalation-policy.md"])
+	}
+	// Decision-category documents are inherently records.
+	if kinds["docs/decisions/0001-adopt-leji.md"] != "record" {
+		t.Fatalf("0001-adopt-leji.md: got %q want record", kinds["docs/decisions/0001-adopt-leji.md"])
+	}
+}
+
+func TestRecordsFrontmatterKindOverridesBlockKindAndInvalidKindErrors(t *testing.T) {
+	dir := copyTree(t, recordsFixtureDir(t))
+	os.WriteFile(filepath.Join(dir, "docs", "records", "pinned.md"),
+		[]byte("---\nkind: intent\n---\n\n# Pinned\n\nA record-directory file declaring itself intent.\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "docs", "domain", "bad.md"),
+		[]byte("---\nkind: sometimes\n---\n\n# Bad\n\nInvalid kind value.\n"), 0o644)
+	m := loadM(t, dir)
+	scan := layer.ScanCategories(dir, m)
+	if kinds := kindsByPath(scan); kinds["docs/records/pinned.md"] != "intent" {
+		t.Fatalf("pinned.md: got %q want intent", kinds["docs/records/pinned.md"])
+	}
+	found := false
+	for _, f := range scan.Findings {
+		if f.Rule == "kind-invalid" && f.Path == "docs/domain/bad.md" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected kind-invalid for docs/domain/bad.md, got %v", scan.Findings)
+	}
+}
+
+func TestRecordsRouteSeparatesIntentDocumentsFromRecordCandidates(t *testing.T) {
+	dir := recordsFixtureDir(t)
+	m := loadM(t, dir)
+	result, _ := layer.Route(dir, m, layer.RouteInput{
+		Paths:      []string{"docs/records/ledger.md"},
+		Categories: []string{"domain"},
+	})
+	docPaths := map[string]bool{}
+	for _, d := range result.Documents {
+		docPaths[d.Path] = true
+		if strings.HasPrefix(d.Path, "docs/records/2") {
+			t.Fatalf("records never route as documents: %s", d.Path)
+		}
+	}
+	if !docPaths["docs/domain/overview.md"] {
+		t.Fatal("expected docs/domain/overview.md in documents")
+	}
+	if !docPaths["docs/records/escalation-policy.md"] {
+		t.Fatal("the intent-overridden file routes as required context")
+	}
+	byPath := map[string]layer.RoutedRecord{}
+	for _, r := range result.Records {
+		byPath[r.Path] = r
+	}
+	statusDate := "2026-07-03"
+	wantStatus := layer.RoutedRecord{Path: "docs/records/2026-07-03-status.md", Category: "domain", Date: &statusDate, Required: false}
+	if got, ok := byPath["docs/records/2026-07-03-status.md"]; !ok || !reflect.DeepEqual(got, wantStatus) {
+		t.Fatalf("status record mismatch: got %+v want %+v", got, wantStatus)
+	}
+	wantLedger := layer.RoutedRecord{Path: "docs/records/ledger.md", Category: "domain", Date: nil, Required: true}
+	if got, ok := byPath["docs/records/ledger.md"]; !ok || !reflect.DeepEqual(got, wantLedger) {
+		t.Fatalf("ledger record mismatch: got %+v want %+v", got, wantLedger)
+	}
+	// Decision records route via `decisions`, never as generic records.
+	if _, ok := byPath["docs/decisions/0001-adopt-leji.md"]; ok {
+		t.Fatal("decision record must not appear in records")
+	}
+}
+
+func TestRecordsFreshnessSkipsRecordsAndIndexCarriesKindAndDates(t *testing.T) {
+	dir := recordsFixtureDir(t)
+	m := loadM(t, dir)
+	report := freshness.FreshnessReport(dir, m, false)
+	if report.Declared != 0 {
+		t.Fatalf("no intent doc in the fixture declares a horizon; declared=%d", report.Declared)
+	}
+	// Generate on a copy so the fixture stays pristine.
+	copyDir := copyTree(t, dir)
+	result := mustWriteIndex(t, copyDir, loadM(t, copyDir))
+	entries := map[string]indexgen.IndexEntry{}
+	for _, e := range result.Index.Entries {
+		entries[e.Path] = e
+	}
+	if e := entries["docs/records/2026-07-03-status.md"]; e.Kind != "record" || e.Date != "2026-07-03" {
+		t.Fatalf("status entry: got kind %q date %q", e.Kind, e.Date)
+	}
+	if e := entries["docs/records/ledger.md"]; e.Kind != "record" || e.Date != "" {
+		t.Fatalf("ledger entry: got kind %q date %q", e.Kind, e.Date)
+	}
+	if e := entries["docs/records/escalation-policy.md"]; e.Kind != "intent" {
+		t.Fatalf("rates entry: got kind %q", e.Kind)
+	}
+}
+
+func TestRecordsFullyDisplacedBroadSelectorReportedAsShadowed(t *testing.T) {
+	dir := copyTree(t, recordsFixtureDir(t))
+	// Shrink the record directory to only the file the intent selector steals.
+	os.Remove(filepath.Join(dir, "docs", "records", "2026-07-03-status.md"))
+	os.Remove(filepath.Join(dir, "docs", "records", "ledger.md"))
+	m := loadM(t, dir)
+	report := statuscmd.StatusReport(dir, m)
+	want := []statuscmd.ShadowedSelector{{IndexFile: "docs/context/domain.md", Path: "docs/records/"}}
+	if !reflect.DeepEqual(report.Shadowed, want) {
+		t.Fatalf("shadowed mismatch: got %+v want %+v", report.Shadowed, want)
+	}
+}
 
 func replace(s, old, new string) string {
 	out := ""

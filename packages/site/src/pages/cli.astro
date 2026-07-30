@@ -6,26 +6,25 @@ import Doc from '../layouts/Doc.astro';
 import SupportedRuntimes from '../components/SupportedRuntimes.astro';
 import InstallTabs from '../components/InstallTabs.astro';
 
-// Single-sourced from the SDK's canonical CLI spec; the terminal `leji --help`
-// renders from the same file, so this page and the tool cannot disagree.
+// Single-sourced from the SDK's CLI spec; `leji --help` renders from the same
+// file, so this page and the tool cannot disagree.
 const cli = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), '../../packages/sdk/cli.json'), 'utf-8'));
 const slug = (name: string) => name.replace(/\s+/g, '-');
 
-// Render inline `code` spans from the canonical copy: split on backticks, the
-// odd segments are code. Returns plain segments (text stays an escaped string
-// child, never set:html) so this is safe for the controlled cli.json copy.
+// Split inline `code` spans on backticks (odd segments are code). Segments stay
+// escaped text children, never set:html.
 const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i % 2 === 1 }));
 ---
 
 <Doc
    title="CLI reference · Leji"
-   description="Every leji command: validate, index, changelog, freshness, conformance, viewer, viewer serve, viewer build, view, detect, adopt, init, start, ci, and agent, with flags, exit codes, and examples."
+   description="The complete leji command reference, generated from the CLI's own specification: every command with its flags, exit codes, and examples."
 >
    <h1>CLI reference</h1>
    <p class="sp-lede">{cli.summary}</p>
    <p>
-      Install it below in whichever runtime your toolchain or CI uses; the command surface is identical across all
-      three. Every command takes <code>--root &lt;dir&gt;</code>; the reporting commands also emit machine-readable <code
+      Install it in whichever runtime your toolchain or CI uses; the command surface is identical across all three.
+      Every command takes <code>--root &lt;dir&gt;</code>; the reporting commands also emit machine-readable <code
          >--json</code
       >. The same spec generates both this reference and <code>leji --help</code>. Working through an agent? The same
       validation and conformance are available as <a href="/mcp/">MCP tools</a>.
@@ -49,13 +48,14 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
    <aside class="cli-onboarding">
       <h2>Agent onboarding</h2>
       <p>
-         Bring a repository into a context layer.
-         <a href="#adopt"><code>leji adopt</code></a> maps an existing repo and migrates <code>CLAUDE.md</code> /
-         <code>AGENTS.md</code> into the context layer (with <code>--wire-adapters</code> it converts those existing entrypoints
-         into one-line redirects); <a href="#init"><code>leji init</code></a> scaffolds a new one with an onboarding brief
-         for your agent to fill; <a href="#detect"><code>leji detect</code></a> finds installed hosts, and <a
-            href="#start"><code>leji start</code></a
-         > opens one in the layer. Preview <code>init</code> or <code>adopt</code> with <code>--dry-run</code>.
+         Bring a repository into a context layer.{' '}
+         <a href="#adopt"><code>leji adopt</code></a> scaffolds a context layer around an existing repo and leaves its files
+         in place (with <code>--wire-adapters</code> it converts existing <code>CLAUDE.md</code> /
+         <code>AGENTS.md</code> entrypoints into one-line redirects); <a href="#init"><code>leji init</code></a> scaffolds
+         a new one with an onboarding brief for your agent to fill; <a href="#detect"><code>leji detect</code></a> finds installed
+         hosts, and <a href="#start"><code>leji start</code></a> opens one in the context layer. Preview <code
+            >init</code
+         > or <code>adopt</code> with <code>--dry-run</code>.
       </p>
    </aside>
 
@@ -89,7 +89,7 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
                   <td>
                      <code>{e.code}</code>
                   </td>
-                  <td>{e.meaning}</td>
+                  <td>{segments(e.meaning).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
                </tr>
             ))
          }
@@ -105,7 +105,7 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
                   <td>
                      <code>{o.flags}</code>
                   </td>
-                  <td>{o.summary}</td>
+                  <td>{segments(o.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
                </tr>
             ))
          }
@@ -137,7 +137,7 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
                            <td>
                               <code>{o.flags}</code>
                            </td>
-                           <td>{o.summary}</td>
+                           <td>{segments(o.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
                         </tr>
                      ))}
                   </tbody>
@@ -169,8 +169,7 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
       color: var(--ink-soft);
    }
 
-   /* command names read like the schema links: blue pill, gold link underline,
-      not bold (each still jumps to its detail section) */
+   /* command names styled like the schema links */
    .cmd-table td a code {
       color: var(--blue);
    }
@@ -182,8 +181,7 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
       margin-bottom: 1.2rem;
    }
 
-   /* on-page install: same single-sourced tabs as the hero/quickstart, in a
-      dark wrapper because InstallTabs is styled for a dark background */
+   /* dark wrapper because InstallTabs is styled for a dark background */
    .cli-install {
       margin: 0 0 1.8rem;
    }
@@ -248,8 +246,6 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
       background: none;
       padding: 0;
    }
-   /* per-command sub-points: quiet bullets with a small gold marker, tied to the
-      same accent the onboarding aside uses; the code spans inherit prose styling */
    .cmd-details {
       margin: 0.9rem 0 0;
       padding: 0;

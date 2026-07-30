@@ -20,7 +20,7 @@ const validManifest = `{
   "name": "acme-billing-context",
   "rootPath": "docs/",
   "bootProfilePath": "docs/boot-profile.md",
-  "categories": { "domain": { "paths": ["docs/domain/"] } },
+  "categories": { "domain": { "indexes": ["docs/context/domain.md"] } },
   "machine": {
     "indexPath": "docs/context-index.json",
     "changelogPath": "docs/context-changelog.json",
@@ -71,7 +71,7 @@ func TestLoadManifestUnsupportedLine(t *testing.T) {
   "name": "x",
   "rootPath": "docs/",
   "bootProfilePath": "docs/boot-profile.md",
-  "categories": { "domain": { "paths": ["docs/"] } },
+  "categories": { "domain": { "indexes": ["docs/context/domain.md"] } },
   "owners": { "primary": { "name": "Jo" } }
 }`)
 	res := LoadManifest(dir)

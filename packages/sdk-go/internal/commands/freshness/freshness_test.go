@@ -23,8 +23,8 @@ func buildLayer(t *testing.T) string {
 		"rootPath":        "docs/",
 		"bootProfilePath": "docs/boot-profile.md",
 		"categories": map[string]any{
-			"domain":    map[string]any{"paths": []any{"docs/domain/"}},
-			"decisions": map[string]any{"paths": []any{"docs/decisions/"}},
+			"domain":    map[string]any{"indexes": []any{"docs/context/domain.md"}},
+			"decisions": map[string]any{"indexes": []any{"docs/context/decisions.md"}},
 		},
 		"owners": map[string]any{"primary": map[string]any{"name": "Owner"}},
 	}
@@ -35,7 +35,22 @@ func buildLayer(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(dir, "docs", "domain"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The domain index lists docs/domain/, so markdown the tests drop there becomes
+	// governed domain content.
+	writeFile(t, dir, "docs/context/domain.md", "# Domain\n\n```leji-index\n- path: docs/domain/\n```\n")
+	writeFile(t, dir, "docs/context/decisions.md", "# Decisions\n\n```leji-index\n- path: docs/decisions/\n```\n")
 	return dir
+}
+
+func writeFile(t *testing.T, dir, rel, content string) {
+	t.Helper()
+	abs := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeDoc(t *testing.T, dir, rel, reviewAfter, body string) {

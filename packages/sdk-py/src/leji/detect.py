@@ -27,6 +27,29 @@ class HostSpec:
     repo_files: list[str]
     user_dirs: list[str]
     adapter: Optional[str]
+    # Argv (after the host bin) that registers the local Leji MCP server, or None
+    # for a host with no known `mcp add` command. Run from the layer root so a
+    # project-scoped write (Claude's `.mcp.json`) lands in the right repository.
+    # Defaulted so existing keyword constructions stay valid and no positional call
+    # breaks when the field is added (parity with the Node/Go registries).
+    mcp_add: Optional[list[str]] = None
+    # Argv that reports whether the Leji MCP server is already registered (exit 0 =
+    # present); used to skip the install offer when it's already there.
+    mcp_check: Optional[list[str]] = None
+
+
+# The registered server name and the npm package behind the local Leji MCP server.
+MCP_SERVER_NAME = "leji"
+MCP_PACKAGE = "@leji-org/mcp"
+
+
+# The portable discovery adapter. `AGENTS.md` is a cross-host entrypoint
+# convention (stewarded by the Linux Foundation's Agentic AI Foundation, read
+# natively by Codex, Copilot, Cursor, Gemini CLI, and others), not any one
+# vendor's file, so `init`/`adopt` generate it as the default pointer-only
+# redirect to the boot profile. Hosts with their own entrypoint (`CLAUDE.md`)
+# are wired individually via `--wire-adapters` / `--agent`.
+PORTABLE_ADAPTER = "AGENTS.md"
 
 
 HOST_SPECS: list[HostSpec] = [
@@ -37,14 +60,32 @@ HOST_SPECS: list[HostSpec] = [
         repo_files=["CLAUDE.md"],
         user_dirs=[".claude", ".config/claude"],
         adapter="CLAUDE.md",
+        # Project scope writes a committed `.mcp.json` so the whole team gets the server.
+        mcp_add=[
+            "mcp",
+            "add",
+            MCP_SERVER_NAME,
+            "--scope",
+            "project",
+            "--",
+            "npx",
+            "-y",
+            MCP_PACKAGE,
+        ],
+        mcp_check=["mcp", "get", MCP_SERVER_NAME],
     ),
     HostSpec(
         id="codex",
         name="Codex",
         bins=["codex"],
+        # AGENTS.md is a detection signal for Codex but is not Codex's file: it is
+        # the portable adapter (PORTABLE_ADAPTER) many hosts read.
         repo_files=["AGENTS.md"],
         user_dirs=[".codex"],
         adapter="AGENTS.md",
+        # Codex registers at user level (~/.codex/config.toml); no project scope.
+        mcp_add=["mcp", "add", MCP_SERVER_NAME, "--", "npx", "-y", MCP_PACKAGE],
+        mcp_check=["mcp", "get", MCP_SERVER_NAME],
     ),
     HostSpec(
         id="copilot",
@@ -155,8 +196,7 @@ def detect_hosts(
 ) -> list[DetectedHost]:
     """Detect the coding-agent hosts available to this user, ranked by signal
     strength. Never launches anything and never writes; purely informs the
-    handoff and (on explicit request) adapter wiring. Probes are injectable so
-    the result is deterministic under test."""
+    handoff and (on explicit request) adapter wiring."""
     env = env if env is not None else dict(os.environ)
     platform = (
         platform if platform is not None else ("win32" if sys.platform == "win32" else sys.platform)
@@ -228,5 +268,15 @@ def render_detect(hosts: list[DetectedHost]) -> str:
             f"adapter {h.adapter}" if h.adapter else "directory-style adapter (wiring deferred)"
         )
         lines.append(f"   {h.strength.ljust(16)} {h.name} — {signals}; {adapter}")
-    lines.extend(["", "Wire one into a fresh layer with: leji init --agent <name>"])
+    # --agent names the host Leji launches, and only claude-code and codex accept
+    # an inline prompt; suggesting `--agent <name>` for every detected host offered
+    # a command the flag rejects.
+    lines.extend(
+        [
+            "",
+            "--agent takes a launchable host, claude-code or codex: "
+            "leji init --agent claude-code, leji start --agent codex.",
+            "Any other host above enters the layer through its vendor-file redirect.",
+        ]
+    )
     return "\n".join(lines)

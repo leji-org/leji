@@ -10,7 +10,9 @@
       "declaration": true,
       "sourceMap": true,
       "skipLibCheck": true,
-      "forceConsistentCasingInFileNames": true
+      "forceConsistentCasingInFileNames": true,
+      "incremental": true,
+      "tsBuildInfoFile": "../../.cache/tsc/sdk.tsbuildinfo"
    },
    "include": ["src"]
 }

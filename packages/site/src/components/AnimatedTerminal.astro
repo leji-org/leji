@@ -1,14 +1,12 @@
 ---
-// A self-playing terminal. `lines` is {cmd} | {out, mark} | {gap}. The full
-// transcript renders in the markup (works with no JS / for screen readers); the
-// script replays it on scroll-into-view, and stays static under reduced motion.
-//
-// Optional `glimpse` slot: a static mock of the leji viewer (the human-readable
-// face). When present, after the run settles the script fades the viewer in over
-// the terminal, pauses, then diagonally clips it back so the terminal shows
-// through underneath, the layer's two audiences (agents conform, people read)
-// in one window. The glimpse is decorative (aria-hidden); the terminal stays the
-// accessible content.
+// Self-playing terminal. `lines` is {cmd} | {out, mark} | {gap}. The full
+// transcript renders in the markup (no-JS accessible); the script replays it on
+// scroll-into-view, static under reduced motion. When it does animate it swaps in
+// a screen-reader-only copy of the transcript, because the reveal hides lines with
+// `visibility` and that takes them out of the accessibility tree.
+// Optional `glimpse` slot: a static viewer mock that fades in over the settled
+// run, then diagonally clips back so both faces share the window. Decorative
+// (aria-hidden); the terminal stays the accessible content.
 const { lines, title = 'your-repo', glimpseTitle = '', label = 'Example leji session' } = Astro.props;
 const hasGlimpse = Astro.slots.has('glimpse');
 
@@ -117,8 +115,7 @@ const bodyHtml = lines
    .term[data-state='split'] .t-glimpse {
       opacity: 1;
    }
-   /* the brand mark floats over the terminal's top-right corner, so it never
-      changes the title-bar height; its own animation loops */
+   /* floats over the top-right corner so it never changes the title-bar height */
    .term-brand {
       position: absolute;
       top: -1.5rem;
@@ -131,8 +128,7 @@ const bodyHtml = lines
    .term-brand :global(svg) {
       display: block;
    }
-   /* the stage holds the terminal transcript and (optionally) the viewer glimpse
-      as stacked layers; the <pre> defines the height, the glimpse overlays it */
+   /* stacked layers: the <pre> sets the height, the glimpse overlays it */
    .term-stage {
       position: relative;
    }
@@ -147,19 +143,15 @@ const bodyHtml = lines
       overflow-wrap: anywhere;
       min-height: 1em;
    }
-   /* the viewer glimpse: an opaque paper panel that fades in over the terminal,
-      then peels back along a soft diagonal so the terminal shows through the
-      lower-right, the human-readable layer sitting on top of the machine one.
-      The seam is a feathered gradient mask (not a hard clip), and --reveal is
-      registered via @property so the diagonal wipe interpolates smoothly. */
+   /* opaque paper panel that fades in over the terminal, then clips back along a
+      soft diagonal so the terminal shows through the lower-right */
    .term-glimpse {
       position: absolute;
       inset: 0;
       opacity: 0;
       transform: scale(1.018);
       transform-origin: 28% 30%;
-      /* corner-to-corner diagonal: the cut runs from the terminal's top-right
-         corner to its bottom-left corner (percent coords stay exact at any size) */
+      /* corner-to-corner diagonal cut (percent coords stay exact at any size) */
       clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
       transition:
          opacity 1.7s ease,
@@ -170,16 +162,13 @@ const bodyHtml = lines
    }
    .term[data-state='cover'] .term-glimpse,
    .term[data-state='split'] .term-glimpse {
-      /* slightly translucent so the dark terminal tempers the bright paper and
-         the panel reads as softly layered, not a stark cut-in */
+      /* slightly translucent so the dark terminal tempers the bright paper */
       opacity: 0.95;
       transform: scale(1);
    }
    .term[data-state='split'] .term-glimpse {
       clip-path: polygon(0 0, 100% 0, 0 100%, 0 100%);
-      /* layered, darker drop-shadow so the human layer reads as a panel casting
-         onto the terminal beneath it; the soft edge keeps the diagonal from
-         looking like a harsh cut */
+      /* layered drop-shadow so the panel reads as casting onto the terminal */
       filter: drop-shadow(1px 7px 20px rgba(3, 7, 22, 0.72)) drop-shadow(0 2px 5px rgba(3, 7, 22, 0.55));
    }
    .line {
@@ -209,8 +198,7 @@ const bodyHtml = lines
       color: var(--white-faint);
    }
 
-   /* Animated mode: hide the transcript, reveal it through the script. The
-      caret rides the end of whatever is currently printing. */
+   /* Animated mode: hide the transcript, reveal it through the script */
    .term[data-playing] .term-body {
       position: relative;
    }
@@ -250,14 +238,27 @@ const bodyHtml = lines
       const hasGlimpse = term.hasAttribute('data-has-glimpse');
 
       const mode: Mode = reduce ? 'static' : 'animate';
-      // Leave the full transcript visible when motion is reduced, or when the
-      // browser can't tell us the block scrolled into view (no replay trigger).
+      // Leave the full transcript visible under reduced motion, or with no
+      // IntersectionObserver to trigger replay.
       if (mode === 'static' || !('IntersectionObserver' in window)) return;
 
-      // Capture the original nodes, then clear and replay.
       const caret = document.createElement('span');
       caret.className = 'caret';
       caret.setAttribute('aria-hidden', 'true');
+
+      // `visibility: hidden` below removes the lines from the accessibility tree,
+      // not just from view, so replace the transcript for assistive tech before
+      // animating: a static screen-reader copy, and the animated one marked
+      // decorative. Only in animate mode, so nothing is duplicated when static.
+      // Styled inline, not by a class: Astro scopes component CSS to a
+      // data-astro-cid attribute that an element built here never carries, so a
+      // scoped `.sr-transcript` rule would not match and the copy would render.
+      const srCopy = document.createElement('pre');
+      srCopy.style.cssText =
+         'position:absolute;width:1px;height:1px;margin:0;padding:0;overflow:hidden;clip-path:inset(50%);white-space:pre;';
+      srCopy.textContent = body.textContent ?? '';
+      body.setAttribute('aria-hidden', 'true');
+      body.parentElement?.insertBefore(srCopy, body);
 
       // Hide lines with visibility (not display) so the terminal keeps its full
       // height up front and the page doesn't shift as lines reveal.
@@ -294,10 +295,9 @@ const bodyHtml = lines
             if (line.classList.contains('cmd')) await typeCommand(line);
             else await showOutput(line);
          }
-         caret.remove(); // settle on the final frame, no trailing caret
+         caret.remove();
 
-         // The human-readable reveal: fade the viewer in over the settled run,
-         // hold, then diagonally clip it back so both faces share the window.
+         // Reveal: fade the viewer in over the settled run, hold, then clip back.
          if (!hasGlimpse) return;
          await wait(1400);
          term.setAttribute('data-state', 'cover');

@@ -25,7 +25,28 @@ EXAMPLE = REPO_ROOT / "examples" / "monorepo"
 def example_copy(tmp_path: Path) -> Path:
     dest = tmp_path / "layer"
     shutil.copytree(EXAMPLE, dest)
+    _git_init(dest)
+    _git_commit_all(dest)
     return dest
+
+
+def _git_commit_all(path: Path) -> None:
+    """A committed baseline. A repository alone is not enough: append-only discipline
+    compares against HEAD, so an unborn repo reports unverified."""
+    for args in (["add", "-A"], ["commit", "-qm", "baseline"]):
+        subprocess.run(["git", *args], cwd=str(path), check=True)
+
+
+def _git_init(path: Path) -> None:
+    """Conformance evaluates the directory it is given, so a layer outside a git
+    repository fails core's git requirement. Any test asserting a verified level has
+    to run somewhere git can answer."""
+    for args in (
+        ["init", "-q"],
+        ["config", "user.email", "test@example.com"],
+        ["config", "user.name", "Test"],
+    ):
+        subprocess.run(["git", *args], cwd=str(path), check=True)
 
 
 def test_example_monorepo_validates_clean() -> None:
@@ -71,7 +92,9 @@ def test_init_yes_core_validates_clean(tmp_path: Path) -> None:
 
 
 def test_init_yes_indexed_verifies_claim(tmp_path: Path) -> None:
+    _git_init(tmp_path)
     init_layer(str(tmp_path), yes=True, level="indexed", name="acme-context")
+    _git_commit_all(tmp_path)
     validation = validate_layer(str(tmp_path))
     assert [f for f in validation.findings if f.severity == "error"] == []
     conformance = conformance_report(str(tmp_path))
@@ -107,7 +130,9 @@ def test_init_emits_no_machine_block_core(tmp_path: Path) -> None:
 
 
 def test_indexed_init_no_machine_key_yet_writes_index_and_changelog(tmp_path: Path) -> None:
+    _git_init(tmp_path)
     result = init_layer(str(tmp_path), yes=True, level="indexed", name="acme-context")
+    _git_commit_all(tmp_path)
     assert "machine" not in result.manifest, "no machine key even at indexed level"
     written = json.loads((tmp_path / "leji.json").read_text())
     assert "machine" not in written, "leji.json on disk has no machine key"

@@ -10,11 +10,10 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 )
 
-// Regression for the relative-root walk bug: validating with root "." while the
-// process cwd is the layer directory must produce the same findings as an
-// absolute root. Before the fix, fsx.ResolvesUnder compared an absolute
-// realRoot against a relative target, so WalkMd excluded every file and every
-// mapped category reported a spurious category-empty error.
+// Regression: validating with root "." from the layer cwd must match an absolute
+// root. Before the fix, fsx.ResolvesUnder compared an absolute realRoot against a
+// relative target, so WalkMd excluded everything and every category reported a
+// spurious category-empty error.
 func TestValidateLayerRelativeRoot(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := initcmd.InitLayer(initcmd.Options{Dir: dir, Yes: true, Out: io.Discard}); err != nil {

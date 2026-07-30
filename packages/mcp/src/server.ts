@@ -28,9 +28,8 @@ const MAX_SEARCH_MATCHES = 50;
 const INSTRUCTIONS =
    'Leji: the shared context layer for AI-native teams. Use the resources to read the spec and JSON Schemas, and the tools to search the spec and to validate / score a context layer on disk. All tools are read-only.';
 
-// --- reusable JSON Schema fragments ---
-// `type: 'object'` stays a literal (Tool's input/output schema require it); the
-// arrays stay mutable string[] (Tool's `required` is mutable), so no `as const`.
+// `type: 'object'` stays a literal (Tool schemas require it); arrays stay mutable
+// string[] (Tool's `required` is mutable), so no `as const`.
 const rootInput = {
    type: 'object' as const,
    properties: {
@@ -160,7 +159,7 @@ const TOOLS: Tool[] = [
                      id: { type: 'string' },
                      level: { type: 'string' },
                      description: { type: 'string' },
-                     status: { type: 'string', enum: ['pass', 'fail', 'manual'] },
+                     status: { type: 'string', enum: ['pass', 'fail', 'manual', 'unknown', 'not-applicable'] },
                      detail: { type: 'string' },
                   },
                   required: ['id', 'level', 'description', 'status'],
@@ -188,7 +187,6 @@ const TOOLS: Tool[] = [
    },
 ];
 
-// --- result helpers ---
 function summarize(findings: Finding[]): { errors: number; warnings: number } {
    const errors = findings.filter((f) => f.severity === 'error').length;
    return { errors, warnings: findings.length - errors };
@@ -211,7 +209,6 @@ function strArg(args: Record<string, unknown>, key: string): string | null {
    return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
-// --- tool handlers ---
 function searchSpec(query: string): CallToolResult {
    const q = query.toLowerCase();
    const all = specIds().flatMap((id) => specSections(id, readSpec(id)!));
@@ -253,10 +250,9 @@ function validateManifestTool(manifestJson: string): CallToolResult {
    return ok({ ok: summary.errors === 0, findings, summary }, text);
 }
 
-// The root-based tools wrap their whole body: resolveRoot, the SDK call, and any
-// filesystem access can all throw on a hostile or racy input, and every such
-// failure must surface as a tool result (isError), never an unhandled JSON-RPC
-// handler exception.
+// Wrap the whole body: resolveRoot, the SDK call, and filesystem access can throw
+// on hostile/racy input, and every failure must surface as a tool result (isError),
+// never an unhandled JSON-RPC exception.
 function validateLayerTool(root: string): CallToolResult {
    try {
       const { findings } = validateLayer(resolveRoot(root));
@@ -296,7 +292,6 @@ function explainConformanceTool(root: string): CallToolResult {
    }
 }
 
-// --- resource helpers ---
 function readResource(uri: string): ReadResourceResult {
    if (uri === 'leji://cli/help') {
       return { contents: [{ uri, mimeType: 'text/plain', text: renderUsage() }] };
@@ -318,8 +313,7 @@ function readResource(uri: string): ReadResourceResult {
    throw new Error(`unknown resource: ${uri}`);
 }
 
-/** Build the Leji MCP server: read-only resources (spec, schemas, CLI help) and
- * read-only tools (search, fetch, validate, conformance) wired to the SDK. */
+/** Build the Leji MCP server with its read-only resources and tools. */
 export function createServer(version: string): Server {
    const server = new Server(
       { name: SERVER_NAME, version },

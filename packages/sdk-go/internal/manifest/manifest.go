@@ -30,7 +30,7 @@ type Owner struct {
 }
 
 type CategoryMapping struct {
-	Paths []string `json:"paths"`
+	Indexes []string `json:"indexes"`
 }
 
 type Machine struct {
@@ -41,11 +41,15 @@ type Machine struct {
 }
 
 type Mount struct {
-	Path   string `json:"path"`
-	Name   string `json:"name"`
-	Owner  Owner  `json:"owner"`
-	Role   string `json:"role,omitempty"`
-	Source string `json:"source,omitempty"`
+	Name         string   `json:"name"`
+	Source       string   `json:"source"`
+	Pin          string   `json:"pin"`
+	TrackingRef  string   `json:"trackingRef,omitempty"`
+	Owner        Owner    `json:"owner"`
+	Role         string   `json:"role,omitempty"`
+	Categories   []string `json:"categories,omitempty"`
+	Topics       []string `json:"topics,omitempty"`
+	RequiredWhen []string `json:"requiredWhen,omitempty"`
 }
 
 type Federation struct {
@@ -66,16 +70,56 @@ type Theme struct {
 	Primary string `json:"primary,omitempty"`
 }
 
+// ViewerPin is one viewer.pins entry: canonically a repo-relative path string,
+// or `{ path, label }` when the team curates the sidebar label (emoji welcome).
+type ViewerPin struct {
+	Path  string
+	Label string
+}
+
+// UnmarshalJSON accepts both pin forms (a bare string or an object), mirroring
+// the Node SDK's `string | { path, label? }` union.
+func (p *ViewerPin) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		p.Path = s
+		p.Label = ""
+		return nil
+	}
+	var obj struct {
+		Path  string `json:"path"`
+		Label string `json:"label"`
+	}
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return err
+	}
+	p.Path = obj.Path
+	p.Label = obj.Label
+	return nil
+}
+
 type Viewer struct {
 	Port           *int              `json:"port,omitempty"`
 	Logo           string            `json:"logo,omitempty"`
+	Title          string            `json:"title,omitempty"`
+	AgentsLabel    string            `json:"agentsLabel,omitempty"`
+	Favicon        string            `json:"favicon,omitempty"`
+	Homepage       string            `json:"homepage,omitempty"`
+	Pins           []ViewerPin       `json:"pins,omitempty"`
+	GroupOrder     []string          `json:"groupOrder,omitempty"`
 	Theme          *Theme            `json:"theme,omitempty"`
 	Mermaid        *bool             `json:"mermaid,omitempty"`
+	PoweredBy      *bool             `json:"poweredBy,omitempty"`
 	CategoryEmojis map[string]string `json:"categoryEmojis,omitempty"`
 }
 
-// Manifest is the typed view of leji.json. Categories preserve insertion order
-// via the Machine map ordering helpers below where it matters.
+// Manifest is the typed view of leji.json.
+// Actor is one entry in the optional actor registry.
+type Actor struct {
+	Roles    []string          `json:"roles"`
+	Commands map[string]string `json:"commands"`
+}
+
 type Manifest struct {
 	Schema          string                     `json:"$schema,omitempty"`
 	Leji            string                     `json:"leji"`
@@ -86,16 +130,19 @@ type Manifest struct {
 	Categories      map[string]CategoryMapping `json:"categories"`
 	Machine         *Machine                   `json:"machine,omitempty"`
 	Agents          map[string]string          `json:"agents,omitempty"`
-	Viewer          *Viewer                    `json:"viewer,omitempty"`
-	Owners          Owners                     `json:"owners"`
-	Conformance     *Conformance               `json:"conformance,omitempty"`
-	Federation      *Federation                `json:"federation,omitempty"`
-	VendorAdapters  []string                   `json:"vendorAdapters,omitempty"`
+	// Actors is the optional actor registry: stable actor ids to the roles they can
+	// fill and a command template per role, because one actor can need different
+	// invocations in different roles.
+	Actors         map[string]Actor `json:"actors,omitempty"`
+	Viewer         *Viewer          `json:"viewer,omitempty"`
+	Owners         Owners           `json:"owners"`
+	Conformance    *Conformance     `json:"conformance,omitempty"`
+	Federation     *Federation      `json:"federation,omitempty"`
+	VendorAdapters []string         `json:"vendorAdapters,omitempty"`
 }
 
-// MachineEntries returns the declared machine.* string fields in the canonical
-// emit order (indexPath, changelogPath, agentProfilesPath, decisionRecordsPath),
-// skipping empties. Used for paths-outside-root, which iterates machine entries.
+// MachineEntries returns declared machine.* fields in canonical emit order
+// (indexPath, changelogPath, agentProfilesPath, decisionRecordsPath), skipping empties.
 func (m *Manifest) MachineEntries() [][2]string {
 	if m.Machine == nil {
 		return nil
@@ -151,6 +198,17 @@ func LoadManifest(root string) Load {
 			findings.New("manifest-parse", findings.Error, "invalid JSON: "+err.Error(), Filename),
 		}}
 	}
+	// Before anything reads a value: a manifest string that is not a well-formed
+	// Unicode scalar sequence is refused whole, never carried into a hash, a sort,
+	// or output. The message quotes nothing back — echoing the offending text is
+	// exactly the outcome the check exists to prevent.
+	if !AllStringsScalar([]byte(text)) {
+		return Load{Manifest: nil, Findings: []findings.Finding{
+			findings.New("manifest-not-scalar", findings.Error,
+				Filename+" carries a string that is not a well-formed Unicode scalar sequence (an unpaired surrogate)",
+				Filename),
+		}}
+	}
 
 	var fs []findings.Finding
 	if obj, ok := data.(map[string]any); ok {
@@ -166,6 +224,14 @@ func LoadManifest(root string) Load {
 		fs = append(fs, findings.New("manifest-schema", findings.Error, e, Filename))
 	}
 	if len(schemaErrs) > 0 {
+		// The 1.2 category shape fails as a pile of raw schema text ("must NOT have
+		// additional properties"), which never names the thing to change. One sentence
+		// turns that into an actionable read.
+		if declaresCategoryPaths(data) {
+			fs = append(fs, findings.New("manifest-schema", findings.Error,
+				`a category declares "paths", the 1.2 form: 1.3 categories declare "indexes" instead (see "Migrating a 1.2 manifest" in the changelog)`,
+				Filename))
+		}
 		return Load{Manifest: nil, Findings: fs}
 	}
 
@@ -178,8 +244,87 @@ func LoadManifest(root string) Load {
 	return Load{Manifest: &m, Findings: fs}
 }
 
+// declaresCategoryPaths reports whether any category maps to an object carrying
+// the removed 1.2 `paths` key.
+func declaresCategoryPaths(data any) bool {
+	obj, ok := data.(map[string]any)
+	if !ok {
+		return false
+	}
+	cats, ok := obj["categories"].(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, v := range cats {
+		if entry, ok := v.(map[string]any); ok {
+			if _, has := entry["paths"]; has {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func joinLines() string {
 	return strings.Join(schemas.SupportedLines, ", ")
+}
+
+// AllStringsScalar reports whether every string in a JSON document is a
+// well-formed Unicode scalar sequence: no unpaired surrogate. A JSON parser
+// accepts an escaped lone surrogate, but strict UTF-8 encoding of one raises in
+// some runtimes and silently substitutes U+FFFD in others, so the same document
+// would crash one implementation and produce output in another. Go's decoder is
+// one of the substituting ones, which destroys the evidence, so this reads the
+// document text: in valid JSON a backslash only ever appears inside a string.
+func AllStringsScalar(raw []byte) bool {
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\\' || i+1 >= len(raw) {
+			continue
+		}
+		if raw[i+1] != 'u' {
+			i++ // an escaped backslash never starts an escape of its own
+			continue
+		}
+		cp, ok := hex4(raw, i+2)
+		if !ok {
+			i++
+			continue
+		}
+		if cp >= 0xDC00 && cp <= 0xDFFF {
+			return false // a low surrogate with no high surrogate before it
+		}
+		if cp >= 0xD800 && cp <= 0xDBFF {
+			lo, loOK := hex4(raw, i+8)
+			if !loOK || raw[i+6] != '\\' || raw[i+7] != 'u' || lo < 0xDC00 || lo > 0xDFFF {
+				return false
+			}
+			i += 11 // the whole pair
+			continue
+		}
+		i += 5
+	}
+	return true
+}
+
+// hex4 reads the four hex digits of a \uXXXX escape at off.
+func hex4(raw []byte, off int) (int, bool) {
+	if off+4 > len(raw) {
+		return 0, false
+	}
+	v := 0
+	for _, c := range raw[off : off+4] {
+		switch {
+		case c >= '0' && c <= '9':
+			v = v*16 + int(c-'0')
+		case c >= 'a' && c <= 'f':
+			v = v*16 + int(c-'a') + 10
+		case c >= 'A' && c <= 'F':
+			v = v*16 + int(c-'A') + 10
+		default:
+			return 0, false
+		}
+	}
+	return v, true
 }
 
 // ClaimedLevel returns the effective conformance claim; absent is core.
@@ -195,10 +340,9 @@ func LevelAtLeast(level, threshold string) bool {
 	return slices.Index(ConformanceLevels, level) >= slices.Index(ConformanceLevels, threshold)
 }
 
-// Effective foundational-path resolvers. The spec (machine-readable-surface.md)
-// defines default locations under rootPath for the machine surface, so tooling
-// resolves an undeclared path to its default rather than failing: leji.json lives
-// at the repository root; everything else defaults under rootPath/.
+// Effective foundational-path resolvers. Per spec (machine-readable-surface.md),
+// an undeclared machine path resolves to its default under rootPath/ rather than
+// failing (leji.json itself lives at the repository root).
 func machineField(m *Manifest, get func(*Machine) string) string {
 	if m.Machine != nil {
 		if v := get(m.Machine); v != "" {
@@ -208,36 +352,36 @@ func machineField(m *Manifest, get func(*Machine) string) string {
 	return ""
 }
 
-// EffectiveIndexPath is machine.indexPath or rootPath+context-index.json.
+// EffectiveIndexPath is machine.indexPath or rootPath/context-index.json.
 func EffectiveIndexPath(m *Manifest) string {
 	if v := machineField(m, func(x *Machine) string { return x.IndexPath }); v != "" {
 		return v
 	}
-	return m.RootPath + "context-index.json"
+	return fsx.JoinUnderRoot(m.RootPath, "context-index.json")
 }
 
-// EffectiveChangelogPath is machine.changelogPath or rootPath+context-changelog.json.
+// EffectiveChangelogPath is machine.changelogPath or rootPath/context-changelog.json.
 func EffectiveChangelogPath(m *Manifest) string {
 	if v := machineField(m, func(x *Machine) string { return x.ChangelogPath }); v != "" {
 		return v
 	}
-	return m.RootPath + "context-changelog.json"
+	return fsx.JoinUnderRoot(m.RootPath, "context-changelog.json")
 }
 
-// EffectiveAgentProfilesPath is machine.agentProfilesPath or rootPath+agents/.
+// EffectiveAgentProfilesPath is machine.agentProfilesPath or rootPath/agents/.
 func EffectiveAgentProfilesPath(m *Manifest) string {
 	if v := machineField(m, func(x *Machine) string { return x.AgentProfilesPath }); v != "" {
 		return v
 	}
-	return m.RootPath + "agents/"
+	return fsx.JoinUnderRoot(m.RootPath, "agents/")
 }
 
-// EffectiveDecisionRecordsPath is machine.decisionRecordsPath or rootPath+decisions/.
+// EffectiveDecisionRecordsPath is machine.decisionRecordsPath or rootPath/decisions/.
 func EffectiveDecisionRecordsPath(m *Manifest) string {
 	if v := machineField(m, func(x *Machine) string { return x.DecisionRecordsPath }); v != "" {
 		return v
 	}
-	return m.RootPath + "decisions/"
+	return fsx.JoinUnderRoot(m.RootPath, "decisions/")
 }
 
 // MappedCategories returns categories present in the manifest in canonical order.
@@ -251,22 +395,16 @@ func (m *Manifest) MappedCategories() []string {
 	return out
 }
 
-// --- In-place manifest text edits ---------------------------------------------
-//
-// `leji agent` (and any future post-init command that touches leji.json) edits
-// the raw manifest text rather than parsing and re-serializing the whole object.
-// This is deliberate: it preserves the user's field order, formatting, and any
-// keys this SDK does not model, and it is the only way the three reference SDKs
-// can produce byte-identical output (a generic parse + re-serialize diverges,
-// e.g. Go alphabetizes map keys). The edits below assume the canonical two-space
-// layout every SDK emits, and `owners` (a required key) as a stable anchor for
-// inserting a new top-level key in schema position (right after `agents` would
-// sit, before `owners`).
+// In-place manifest text edits: `leji agent` and similar edit the raw manifest
+// text rather than parse + re-serialize, to preserve the user's field order,
+// formatting, and unmodeled keys, and because it is the only way the three SDKs
+// produce byte-identical output (Go alphabetizes map keys). The edits assume the
+// canonical two-space layout and use `owners` (required) as the anchor for
+// inserting a new top-level key in schema position.
 
-// insertAfterMarkerLine inserts line (already indented) as the first member
-// directly after the line that opens marker (e.g. `"agents": {` or
-// `"vendorAdapters": [`). Prepending sidesteps fixing up the previous last
-// member's trailing comma.
+// insertAfterMarkerLine inserts line (already indented) as the first member after
+// the line opening marker (e.g. `"agents": {`). Prepending sidesteps fixing up the
+// previous last member's trailing comma.
 func insertAfterMarkerLine(text, marker, line string) (string, error) {
 	at := strings.Index(text, marker)
 	if at < 0 {
@@ -281,8 +419,7 @@ func insertAfterMarkerLine(text, marker, line string) (string, error) {
 }
 
 // insertBeforeOwners inserts a multi-line top-level block immediately before the
-// `owners` key, so a newly created `agents` / `vendorAdapters` key lands in
-// schema position.
+// `owners` key, so a newly created `agents` key lands in schema position.
 func insertBeforeOwners(text string, lines []string) (string, error) {
 	anchor := "\n  \"owners\":"
 	at := strings.Index(text, anchor)
@@ -292,10 +429,8 @@ func insertBeforeOwners(text string, lines []string) (string, error) {
 	return text[:at+1] + strings.Join(lines, "\n") + "\n" + text[at+1:], nil
 }
 
-// BindAgentInManifestText binds a named agent to its profile path in the
-// manifest's `agents` map. Creates the map (before `owners`) when absent,
-// otherwise prepends the entry. Idempotent: an already-bound name leaves the
-// text untouched.
+// BindAgentInManifestText binds a named agent to its profile path in the `agents`
+// map, creating it (before `owners`) when absent. Idempotent.
 func BindAgentInManifestText(text, name, profileRel string) (string, bool, error) {
 	var parsed struct {
 		Agents map[string]json.RawMessage `json:"agents"`
@@ -314,28 +449,5 @@ func BindAgentInManifestText(text, name, profileRel string) (string, bool, error
 		return out, true, err
 	}
 	out, err := insertAfterMarkerLine(text, "\"agents\": {", "    "+entry+",")
-	return out, true, err
-}
-
-// DeclareVendorAdapterInManifestText declares a vendor adapter path in the
-// manifest's `vendorAdapters` array. Creates the array (before `owners`) when
-// absent, otherwise prepends the entry. Idempotent: an already-declared path
-// leaves the text untouched.
-func DeclareVendorAdapterInManifestText(text, adapter string) (string, bool, error) {
-	var parsed struct {
-		VendorAdapters []string `json:"vendorAdapters"`
-	}
-	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
-		return "", false, err
-	}
-	if slices.Contains(parsed.VendorAdapters, adapter) {
-		return text, false, nil
-	}
-	entry := "\"" + adapter + "\""
-	if parsed.VendorAdapters == nil {
-		out, err := insertBeforeOwners(text, []string{"  \"vendorAdapters\": [", "    " + entry, "  ],"})
-		return out, true, err
-	}
-	out, err := insertAfterMarkerLine(text, "\"vendorAdapters\": [", "    "+entry+",")
 	return out, true, err
 }

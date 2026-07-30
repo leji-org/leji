@@ -1,14 +1,15 @@
 ---
-import { getCollection, render } from 'astro:content';
-import { experimental_AstroContainer as AstroContainer } from 'astro/container';
+import { getCollection } from 'astro:content';
+import { createSatteriMarkdownProcessor } from '@astrojs/markdown-satteri';
 import Doc from '../../layouts/Doc.astro';
 import { SPEC_DOCS, specPath } from '../../data/spec-docs';
+import { markdownRenderOptions } from '../../markdown-options';
 
 // One straight-through copy of the spec in canonical order; per-section anchors live on the individual documents.
 const ORDER = SPEC_DOCS;
 
 // Each source doc opens with its own <h1>; demote those to <h2> (and shift deeper headings down) so the page keeps one <h1> and a valid outline.
-const container = await AstroContainer.create();
+const processor = await createSatteriMarkdownProcessor(markdownRenderOptions);
 const shiftHeadings = (html: string) =>
    html.replace(/<(\/?)(h[1-5])\b/gi, (_m, slash: string, tag: string) => {
       const level = Number(tag[1]);
@@ -16,17 +17,29 @@ const shiftHeadings = (html: string) =>
    });
 
 const all = await getCollection('spec');
+// Each source document is rendered independently, so headings that repeat across
+// documents ("Requirements", "Notes (non-normative)") would mint the same id more
+// than once on this combined page. Namespace every id and every same-page link
+// that targets one by its document, so fragments stay unique and resolvable.
+const namespaceIds = (html: string, docId: string) =>
+   html
+      .replace(/\bid="([^"]+)"/g, (_m, id: string) => `id="${docId}--${id}"`)
+      .replace(/\bhref="#([^"]+)"/g, (_m, id: string) => `href="#${docId}--${id}"`);
+
 const byId = Object.fromEntries(all.map((d) => [d.id, d]));
 const sections = await Promise.all(
    ORDER.map(async ({ id, label }) => {
-      const { Content } = await render(byId[id]);
-      const rendered = await container.renderToString(Content);
-      return { id, label, html: shiftHeadings(rendered), href: specPath(id) };
+      const rendered = (await processor.render(byId[id].body)).code;
+      return { id, label, html: namespaceIds(shiftHeadings(rendered), id), href: specPath(id) };
    }),
 );
 ---
 
-<Doc title="The Leji Specification (one page) · Leji" alternate="/llms-full.txt">
+<Doc
+   title="The Leji Specification (one page) · Leji"
+   alternate="/llms-full.txt"
+   description="The complete Leji specification on one page: every normative document of the open specification for the shared context layer of AI-native teams."
+>
    <div class="spec-full">
       <h1>The Leji Specification</h1>
       <p class="sp-lede">
@@ -109,9 +122,7 @@ const sections = await Promise.all(
    .sec-meta a:hover {
       color: var(--blue);
    }
-   /* the document's own heading (demoted from h1 to h2 here) is the first
-      heading after the section meta line; it reads as a section title within
-      the consolidated page */
+   /* the demoted h2 (was h1) reads as the section title on the consolidated page */
    .sec-meta + :global(h2) {
       font-family: var(--serif-display);
       font-weight: 580;
@@ -123,8 +134,8 @@ const sections = await Promise.all(
    .spec-section:first-of-type .sec-meta + :global(h2) {
       display: none;
    }
-   /* on the consolidated page the per-heading anchors would point at the first
-      of any repeated id; section links above are the navigation path here */
+   /* hide per-heading anchors here: repeated ids would point at the first match;
+      the section links above are the navigation path */
    .spec-full :global(a.heading-anchor) {
       display: none;
    }

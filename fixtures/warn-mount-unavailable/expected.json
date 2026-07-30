@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": [
+      {
+        "rule": "mount-unavailable",
+        "severity": "warning",
+        "path": "product-context"
+      }
+    ]
+  }
+}

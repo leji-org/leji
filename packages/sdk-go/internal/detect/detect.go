@@ -1,8 +1,6 @@
-// Package detect performs best-effort, read-only detection of the coding-agent
-// hosts available to this user, ranked by signal strength. It mirrors the Node
-// SDK's lib/detect.ts: same host ids, bins, repo files, user dirs, adapters,
-// aliases, ranking, and redirect text. It never launches anything and never
-// writes; it purely informs the handoff and (on explicit request) adapter wiring.
+// Package detect does best-effort, read-only detection of available coding-agent
+// hosts, ranked by signal strength. Mirrors the Node SDK's lib/detect.ts. Never
+// launches or writes anything.
 package detect
 
 import (
@@ -14,9 +12,8 @@ import (
 )
 
 // HostSpec is a coding-agent host Leji knows how to wire. Adapter is the vendor
-// entrypoint file Leji would create (a one-line redirect to the boot profile);
-// an empty Adapter marks a directory-style host (Cursor, Windsurf) whose adapter
-// wiring is deferred until validation grows directory semantics.
+// entrypoint file (a one-line redirect to the boot profile); empty Adapter marks
+// a directory-style host (Cursor, Windsurf) whose wiring is deferred.
 type HostSpec struct {
 	ID        string
 	Name      string
@@ -24,7 +21,29 @@ type HostSpec struct {
 	RepoFiles []string
 	UserDirs  []string
 	Adapter   string
+	// McpAdd is the argv (after the host bin) that registers the local Leji MCP
+	// server, or nil for a host with no known `mcp add` command. Run from the layer
+	// root so a project-scoped write (Claude's `.mcp.json`) lands in the right repo.
+	McpAdd []string
+	// McpCheck reports whether the Leji MCP server is already registered (exit 0 =
+	// present); used to skip the install offer when it's already there.
+	McpCheck []string
 }
+
+// MCPServerName and MCPPackage are the registered server name and the npm package
+// behind the local Leji MCP server.
+const (
+	MCPServerName = "leji"
+	MCPPackage    = "@leji-org/mcp"
+)
+
+// PortableAdapter is the portable discovery adapter. `AGENTS.md` is a cross-host
+// entrypoint convention (stewarded by the Linux Foundation's Agentic AI
+// Foundation, read natively by Codex, Copilot, Cursor, Gemini CLI, and others),
+// not any one vendor's file, so `init`/`adopt` generate it as the default
+// pointer-only redirect to the boot profile. Hosts with their own entrypoint
+// (`CLAUDE.md`) are wired individually via `--wire-adapters` / `--agent`.
+const PortableAdapter = "AGENTS.md"
 
 // HostSpecs are the six hosts Leji knows, in spec order.
 var HostSpecs = []HostSpec{
@@ -35,14 +54,22 @@ var HostSpecs = []HostSpec{
 		RepoFiles: []string{"CLAUDE.md"},
 		UserDirs:  []string{".claude", ".config/claude"},
 		Adapter:   "CLAUDE.md",
+		// Project scope writes a committed `.mcp.json` so the whole team gets the server.
+		McpAdd:   []string{"mcp", "add", MCPServerName, "--scope", "project", "--", "npx", "-y", MCPPackage},
+		McpCheck: []string{"mcp", "get", MCPServerName},
 	},
 	{
-		ID:        "codex",
-		Name:      "Codex",
-		Bins:      []string{"codex"},
+		ID:   "codex",
+		Name: "Codex",
+		Bins: []string{"codex"},
+		// AGENTS.md is a detection signal for Codex but is not Codex's file: it is
+		// the portable adapter (PortableAdapter) many hosts read.
 		RepoFiles: []string{"AGENTS.md"},
 		UserDirs:  []string{".codex"},
 		Adapter:   "AGENTS.md",
+		// Codex registers at user level (~/.codex/config.toml); no project scope.
+		McpAdd:   []string{"mcp", "add", MCPServerName, "--", "npx", "-y", MCPPackage},
+		McpCheck: []string{"mcp", "get", MCPServerName},
 	},
 	{
 		ID:        "copilot",
@@ -78,7 +105,7 @@ var HostSpecs = []HostSpec{
 	},
 }
 
-// hostAliases are the common names users type for a host id.
+// hostAliases map common user-typed names to a host id.
 var hostAliases = map[string]string{
 	"claude":         "claude-code",
 	"claude-code":    "claude-code",
@@ -90,14 +117,13 @@ var hostAliases = map[string]string{
 	"windsurf":       "windsurf",
 }
 
-// ResolveHostId returns the canonical host id for a user-typed name/alias, or ""
-// when unknown.
+// ResolveHostId returns the canonical host id for a name/alias, or "" when unknown.
 func ResolveHostId(name string) string {
 	return hostAliases[strings.ToLower(name)]
 }
 
-// Strength is a signal strength, strongest first: a runnable binary beats a repo
-// config file beats a user-level config directory.
+// Strength is a signal strength, strongest first: runnable binary > repo config
+// file > user-level config directory.
 type Strength string
 
 const (
@@ -139,8 +165,8 @@ type Options struct {
 	HasBinary func(bin string) bool
 }
 
-// onPathFactory builds a manual, dependency-free `which`: it scans PATH entries
-// for an executable, OS-aware on separators and extensions.
+// onPathFactory builds a dependency-free `which`: scans PATH for an executable,
+// OS-aware on separators and extensions.
 func onPathFactory(env map[string]string, platform string) func(bin string) bool {
 	raw := env["PATH"]
 	if raw == "" {
@@ -191,8 +217,8 @@ func exists(p string) bool {
 	return err == nil
 }
 
-// DetectHosts returns the hosts available to this user, ranked by signal
-// strength (confirmed > project-present > installed-likely), ties broken by id.
+// DetectHosts returns available hosts ranked by strength (confirmed >
+// project-present > installed-likely), ties broken by id.
 func DetectHosts(opts Options) []DetectedHost {
 	platform := opts.Platform
 	if platform == "" {

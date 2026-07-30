@@ -9,26 +9,16 @@ markers; the prose around it is left untouched.
 
 <!-- leji:generated-map:start -->
 ```mermaid
-flowchart TD
+flowchart LR
   boot["🤖 Boot profile"]
-  cat_domain["📖 Domain"]
+  cat_domain["📖 Domain · 1 doc"]
   boot --> cat_domain
-  n_glossary["Glossary"]
-  cat_domain --> n_glossary
-  cat_system["⚙️ System"]
+  cat_system["⚙️ System · 1 doc"]
   boot --> cat_system
-  n_invariants["System Invariants"]
-  cat_system --> n_invariants
-  cat_practice["🛠️ Practice"]
+  cat_practice["🛠️ Practice · 2 docs"]
   boot --> cat_practice
-  n_porting_ts_to_go_py["Porting TypeScript → Go / Python"]
-  cat_practice --> n_porting_ts_to_go_py
-  cat_decisions["🧭 Decisions"]
+  cat_decisions["🧭 Decisions · 6 docs"]
   boot --> cat_decisions
-  n_adopt_leji["Adopt the Leji context layer"]
-  cat_decisions --> n_adopt_leji
-  n_raise_to_governed["Raise the Leji context layer to governed conformance"]
-  cat_decisions --> n_raise_to_governed
 ```
 <!-- leji:generated-map:end -->
 

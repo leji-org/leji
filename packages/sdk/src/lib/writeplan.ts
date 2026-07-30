@@ -2,9 +2,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 /**
- * The disposition of a single path in a planned operation. Leji writes only the
- * files it owns and never overwrites; the plan makes that contract visible before
- * a single byte is written (the preview / `--dry-run` surface).
+ * Disposition of a single path in a planned operation. Leji writes only files it
+ * owns and never overwrites; the plan makes that contract visible before any byte
+ * is written (the preview / `--dry-run` surface).
  */
 export type PlanStatus = 'create' | 'skip-exists' | 'wont-modify' | 'overwrite';
 
@@ -22,11 +22,10 @@ export interface PlanEntry {
 }
 
 /**
- * Classify each intended write against the filesystem (`create` when absent,
- * `skip-exists` when a path is already there and Leji refuses to overwrite),
- * record foreign files Leji explicitly will not touch (`wont-modify`), and mark
- * the few paths the user has explicitly consented to overwrite (`overwrite`,
- * e.g. converting a vendor entrypoint to a redirect after migrating its content).
+ * Classify each intended write: `create` when absent, `skip-exists` when present
+ * (Leji refuses to overwrite), `wont-modify` for foreign files Leji won't touch,
+ * and `overwrite` for paths the user consented to overwrite (e.g. converting a
+ * vendor entrypoint to a redirect after migrating its content).
  */
 export function buildWritePlan(
    rootAbs: string,

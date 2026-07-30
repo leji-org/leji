@@ -1,15 +1,21 @@
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
    addAgent,
    adoptLayer,
    detectHosts,
    enterLayer,
+   enteringAdopted,
+   ensureLocalHook,
    handoffOffer,
+   ensureApprovalGuard,
+   offerMcpInstall,
    initLayer,
    validateLayer,
    writeIndex,
@@ -157,25 +163,36 @@ const manifestAt = (rootPath: string) => ({ rootPath }) as never;
 
 /** A scripted handoff I/O: returns `answer` for every prompt, records launches.
  * `launchResult` overrides the spawn outcome (default: clean exit, status 0). */
-function fakeIo(
-   answer: string,
-   launchResult?: { error?: Error; status?: number | null; signal?: NodeJS.Signals | null },
-) {
+type SpawnResult = { error?: Error; status?: number | null; signal?: NodeJS.Signals | null };
+
+function fakeIo(answer: string | string[], launchResult?: SpawnResult, runResults?: SpawnResult[]) {
+   const answers = Array.isArray(answer) ? [...answer] : [answer];
    const launches: { bin: string; promptArg: string }[] = [];
    const cwds: (string | undefined)[] = [];
    const questions: string[] = [];
+   const runs: { bin: string; args: string[]; cwd?: string; quiet: boolean }[] = [];
+   // Interleaved run/launch order, for asserting "register before launch".
+   const events: string[] = [];
+   let runIdx = 0;
    const io = {
       async readLine(q: string) {
          questions.push(q);
-         return answer;
+         // Sequenced answers (the last one repeats), so multi-prompt flows are scriptable.
+         return answers.length > 1 ? (answers.shift() as string) : answers[0];
       },
       launch(bin: string, promptArg: string, cwd?: string) {
          launches.push({ bin, promptArg });
          cwds.push(cwd);
+         events.push(`launch:${bin}`);
          return launchResult ?? { status: 0 };
       },
+      run(bin: string, args: string[], cwd: string | undefined, opts: { quiet: boolean }) {
+         runs.push({ bin, args, cwd, quiet: opts.quiet });
+         events.push(`run:${bin}`);
+         return runResults?.[runIdx++] ?? { status: 0 };
+      },
    };
-   return { io, launches, questions, cwds };
+   return { io, launches, questions, cwds, runs, events };
 }
 
 const BRIEF_PROMPT = 'Read ./docs/.leji/onboarding-brief.md and follow it.';
@@ -379,14 +396,79 @@ test('init --agent never overwrites an existing entrypoint', async () => {
    assert.ok(!loadManifest(dir).manifest!.vendorAdapters);
 });
 
-test('init --agent no longer errors on an unknown agent (adapter resolution is gone)', async () => {
+test('init --agent rejects a host it cannot launch and writes nothing', async () => {
    const dir = tmpdir();
-   // init --agent no longer resolves a vendor adapter, so a bogus --agent no
-   // longer errors from adapter resolution: the layer scaffolds with no vendor file.
-   const res = await initLayer({ dir, yes: true, agent: 'frobnicate' });
-   assert.ok(res.written.includes('leji.json'));
+   // --agent names the handoff host, so an unknown value is a usage error naming
+   // the accepted set, the way --mode and --level reject theirs. It is checked
+   // before any filesystem work, so the directory is left untouched.
+   await assert.rejects(
+      () => initLayer({ dir, yes: true, agent: 'frobnicate' }),
+      /--agent must be a launchable host \(claude-code, codex\); got "frobnicate"/,
+   );
+   assert.equal(fs.existsSync(path.join(dir, 'leji.json')), false);
+});
+
+test('init writes the portable AGENTS.md pointer by default and validates clean', async () => {
+   const dir = tmpdir();
+   const res = await initLayer({ dir, yes: true });
+   assert.ok(res.written.includes('AGENTS.md'));
+   assert.equal(
+      fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'),
+      'Read ./docs/boot-profile.md first. It is the canonical context entrypoint for this repository.\n',
+   );
+   // The pointer is the well-known portable adapter; no manifest declaration needed.
    assert.ok(!loadManifest(dir).manifest!.vendorAdapters);
-   assert.equal(fs.existsSync(path.join(dir, 'CLAUDE.md')), false);
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   const v = validateLayer(dir);
+   assert.equal(v.findings.filter((f) => f.severity === 'error').length, 0);
+});
+
+test('init --no-agents skips the portable AGENTS.md pointer', async () => {
+   const dir = tmpdir();
+   const res = await initLayer({ dir, yes: true, noAgents: true });
+   assert.ok(!res.written.includes('AGENTS.md'));
+   assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), false);
+});
+
+test('init never touches an existing AGENTS.md (stays leave-as-is)', async () => {
+   const dir = tmpdir();
+   fs.writeFileSync(path.join(dir, 'AGENTS.md'), 'my own instructions\n');
+   const res = await initLayer({ dir, yes: true });
+   assert.ok(!res.written.includes('AGENTS.md'));
+   assert.equal(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), 'my own instructions\n');
+   assert.equal(res.plan.find((e) => e.rel === 'AGENTS.md')?.status, 'wont-modify');
+});
+
+test('adopt writes the portable AGENTS.md pointer only when absent', async () => {
+   const dir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   fs.mkdirSync(path.join(dir, 'docs'));
+   fs.writeFileSync(path.join(dir, 'docs', 'README.md'), '# Docs\n');
+   gitCommitAll(dir);
+   const res = await adoptLayer({ dir, yes: true });
+   assert.ok(res.written.includes('AGENTS.md'));
+   assert.equal(
+      fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'),
+      'Read ./docs/boot-profile.md first. It is the canonical context entrypoint for this repository.\n',
+   );
+});
+
+test('adopt --no-agents skips the pointer; an existing AGENTS.md keeps the migrate flow', async () => {
+   const skipDir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: skipDir });
+   const skipped = await adoptLayer({ dir: skipDir, yes: true, noAgents: true });
+   assert.ok(!skipped.written.includes('AGENTS.md'));
+   assert.equal(fs.existsSync(path.join(skipDir, 'AGENTS.md')), false);
+
+   const dir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   fs.writeFileSync(path.join(dir, 'AGENTS.md'), 'Team instructions here.\n');
+   gitCommitAll(dir);
+   const res = await adoptLayer({ dir, yes: true });
+   // Present file: content migrated, original untouched, no pointer overwrite.
+   assert.ok(!res.written.includes('AGENTS.md'));
+   assert.deepEqual(res.migrated, ['AGENTS.md']);
+   assert.equal(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), 'Team instructions here.\n');
 });
 
 test('adopt reuses an existing docs root and migrates vendor content (draft)', async () => {
@@ -454,10 +536,14 @@ test('agent wires a named reviewer into an existing layer that validates clean',
    );
    assert.equal(res.hostId, 'codex');
    const { manifest } = loadManifest(dir);
-   // The agent's binding; no vendor adapter is created.
+   // The agent's binding; addAgent creates no vendor adapter. The AGENTS.md on
+   // disk is init's portable pointer (default-on), not addAgent's work.
    assert.equal(manifest!.agents?.reviewer, 'docs/agents/reviewer.md');
    assert.ok(!manifest!.vendorAdapters);
-   assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), false);
+   assert.equal(
+      fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'),
+      'Read ./docs/boot-profile.md first. It is the canonical context entrypoint for this repository.\n',
+   );
    const reviewer = fs.readFileSync(path.join(dir, 'docs', 'agents', 'reviewer.md'), 'utf8');
    assert.match(reviewer, /^id: reviewer$/m);
    assert.match(reviewer, /^role: reviewer$/m);
@@ -535,6 +621,36 @@ function gitCommitAll(dir: string): void {
    execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.com', 'commit', '-q', '-m', 'seed'], { cwd: dir });
 }
 
+test('ci --hooks: the stale-index message is literal text, not a command the hook runs', async () => {
+   const dir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   await initLayer({ dir, yes: true });
+   gitCommitAll(dir);
+   ensureLocalHook(dir);
+   // A repo-local `leji` the hook prefers, so the run is hermetic.
+   const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
+   const binDir = path.join(dir, 'node_modules', '.bin');
+   fs.mkdirSync(binDir, { recursive: true });
+   fs.writeFileSync(path.join(binDir, 'leji'), `#!/bin/sh\nexec node ${cli} "$@"\n`, { mode: 0o755 });
+   // Stale the stored index, the exact condition the message describes.
+   const indexAbs = path.join(dir, 'docs', 'context-index.json');
+   const before = fs.readFileSync(indexAbs, 'utf8');
+   fs.writeFileSync(
+      path.join(dir, 'docs', 'domain', 'extra.md'),
+      '---\nsummary: An extra domain doc.\n---\n\n# Extra\n',
+   );
+
+   const run = spawnSync('sh', [path.join('.git', 'hooks', 'pre-commit')], { cwd: dir, encoding: 'utf8' });
+   assert.equal(run.status, 1, 'the hook rejects the commit');
+   // The backticks reach the message as literal characters; a double-quoted echo
+   // would have run `leji index` and spliced its stdout in here instead.
+   assert.ok(
+      run.stderr.includes('leji: stored index is stale; run `leji index` and stage the result.'),
+      `message was not literal: ${run.stderr}`,
+   );
+   assert.equal(fs.readFileSync(indexAbs, 'utf8'), before, 'the hook regenerated a governed artifact');
+});
+
 test('init refuses on a dirty git working tree and writes nothing', async () => {
    const dir = tmpdir();
    gitInit(dir);
@@ -584,12 +700,14 @@ test('conformance --explain guides toward the next level', async () => {
    assert.match(explain, /validate --content/);
 });
 
-test('init --agent cursor no longer creates a directory-style adapter and validates clean', async () => {
+test('init --agent creates no vendor adapter and validates clean', async () => {
    const dir = tmpdir();
    execFileSync('git', ['init', '-q'], { cwd: dir });
-   const res = await initLayer({ dir, yes: true, agent: 'cursor' });
-   assert.ok(!res.written.includes('.cursor/rules/leji.md'), 'init --agent no longer creates an adapter');
-   assert.equal(fs.existsSync(path.join(dir, '.cursor', 'rules', 'leji.md')), false);
+   // --agent selects the handoff host and nothing else: no vendor entrypoint file,
+   // no `vendorAdapters` manifest key. Only the portable AGENTS.md pointer is written.
+   const res = await initLayer({ dir, yes: true, agent: 'claude-code' });
+   assert.ok(!res.written.includes('CLAUDE.md'), 'init --agent creates no vendor adapter');
+   assert.equal(fs.existsSync(path.join(dir, 'CLAUDE.md')), false);
    assert.ok(!loadManifest(dir).manifest!.vendorAdapters);
    assert.equal(validateLayer(dir).findings.filter((f) => f.severity === 'error').length, 0);
 });
@@ -617,6 +735,61 @@ test('adopt --wire-adapters migrates mixed redirect+instructions before overwrit
    assert.match(imported, /Never deploy on Fridays/, 'same-line instructions are preserved');
    assert.match(imported, /Always run the full test suite/, 'multi-line instructions are preserved');
    assert.match(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), /docs\/boot-profile\.md/);
+});
+
+test('adopt --yes then the printed adopt --wire-adapters reaches a clean layer', async () => {
+   const dir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# Claude instructions\n\nNever deploy on Fridays.\n');
+   gitCommitAll(dir);
+
+   const adopted = await adoptLayer({ dir, yes: true });
+   assert.equal(adopted.draft, true, 'a non-redirecting vendor file leaves an adoption draft');
+   assert.match(enteringAdopted(adopted), /leji adopt --wire-adapters/, 'the draft prints the finishing command');
+
+   // The command it printed has to run against the layer it just created.
+   const wired = await adoptLayer({ dir, yes: true, wireAdapters: true });
+   assert.equal(wired.wiredOnly, true);
+   assert.deepEqual(wired.wired, ['CLAUDE.md']);
+   // The content was archived on the first pass, so wiring re-archives nothing.
+   assert.deepEqual(wired.migrated, []);
+   assert.equal(fs.existsSync(path.join(dir, 'docs', 'governance', 'imported-claude-2.md')), false);
+   assert.equal(
+      fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'),
+      'Read ./docs/boot-profile.md first. It is the canonical context entrypoint for this repository.\n',
+   );
+   assert.equal(validateLayer(dir).findings.filter((f) => f.severity === 'error').length, 0);
+
+   // Idempotent: everything already redirects, so there is nothing left to wire.
+   const again = await adoptLayer({ dir, yes: true, wireAdapters: true });
+   assert.deepEqual(again.wired, []);
+   assert.deepEqual(again.written, []);
+   assert.match(enteringAdopted(again), /already redirects to the boot profile/);
+});
+
+test('adopt --wire-adapters archives a vendor file edited since adoption before overwriting it', async () => {
+   const dir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'original instructions\n');
+   gitCommitAll(dir);
+   await adoptLayer({ dir, yes: true });
+   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'hand-written rules added after adoption\n');
+
+   const wired = await adoptLayer({ dir, yes: true, wireAdapters: true });
+   assert.deepEqual(wired.migrated, ['CLAUDE.md'], 'the newer content is archived, never dropped');
+   const archived = fs.readFileSync(path.join(dir, 'docs', 'governance', 'imported-claude-2.md'), 'utf8');
+   assert.match(archived, /hand-written rules added after adoption/);
+   assert.match(fs.readFileSync(path.join(dir, 'docs', 'governance', 'imported-claude.md'), 'utf8'), /original/);
+   assert.equal(validateLayer(dir).findings.filter((f) => f.severity === 'error').length, 0);
+});
+
+test('adopt refuses an existing layer unless --wire-adapters asked for the wiring', async () => {
+   const dir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   fs.writeFileSync(path.join(dir, 'README.md'), '# repo\n');
+   gitCommitAll(dir);
+   await adoptLayer({ dir, yes: true });
+   await assert.rejects(() => adoptLayer({ dir, yes: true }), /already has a Leji layer/);
 });
 
 test('init refuses to write through a symlinked context root that escapes the dir', async () => {
@@ -782,7 +955,7 @@ test('validate --content thin-category boundary: 2 bullets warns, 3 does not', a
    );
    assert.ok(
       validateLayer(two, { content: true }).findings.some(
-         (f) => f.rule === 'content-thin' && f.path === 'docs/domain/',
+         (f) => f.rule === 'content-thin' && f.path === 'docs/context/domain.md',
       ),
       'two concrete bullets is still thin',
    );
@@ -792,7 +965,7 @@ test('validate --content thin-category boundary: 2 bullets warns, 3 does not', a
    fs.writeFileSync(path.join(three, 'docs', 'domain', 'glossary.md'), '# Glossary\n\n- One.\n- Two.\n- Three.\n');
    assert.ok(
       !validateLayer(three, { content: true }).findings.some(
-         (f) => f.rule === 'content-thin' && f.path === 'docs/domain/',
+         (f) => f.rule === 'content-thin' && f.path === 'docs/context/domain.md',
       ),
       'three concrete bullets clears the thin threshold',
    );
@@ -850,4 +1023,449 @@ test('validate --content flags unconfirmed inferences and proposed decisions', a
    assert.equal(result.findings.filter((f) => f.severity === 'error').length, 0);
    // The TODO(confirm-…) marker must NOT also trip the plain content-placeholder rule.
    assert.ok(!result.findings.some((f) => f.rule === 'content-placeholder' && f.path === 'docs/system/invariants.md'));
+});
+
+test('adopt is collision-aware: existing context/ and agents/ resolve to safe alternates', async () => {
+   const dir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: dir });
+   execFileSync('git', ['config', 'user.name', 'T'], { cwd: dir });
+   // Pre-existing content occupying the default scaffold paths.
+   fs.mkdirSync(path.join(dir, 'docs', 'context'), { recursive: true });
+   fs.writeFileSync(path.join(dir, 'docs', 'context', 'existing.md'), '# Pre-existing context dir\n');
+   fs.mkdirSync(path.join(dir, 'docs', 'agents'), { recursive: true });
+   fs.writeFileSync(path.join(dir, 'docs', 'agents', 'existing.md'), '# Pre-existing agents dir\n');
+   execFileSync('git', ['add', '-A'], { cwd: dir });
+   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: dir });
+
+   await adoptLayer({ dir, yes: true });
+   const { manifest } = loadManifest(dir);
+
+   // The index dir resolved to a non-colliding alternate, recorded via the category paths.
+   const domainIndex = manifest!.categories.domain!.indexes[0];
+   assert.ok(!domainIndex.startsWith('docs/context/'), `index dir avoided the collision: ${domainIndex}`);
+   assert.match(domainIndex, /^docs\/(leji-context|context-layer)\//);
+   // The agents dir resolved to an alternate, recorded in the manifest machine block.
+   assert.ok(
+      manifest!.machine?.agentProfilesPath && manifest!.machine.agentProfilesPath !== 'docs/agents/',
+      'agents dir resolved to a recorded alternate',
+   );
+   // The pre-existing content was left untouched.
+   assert.equal(
+      fs.readFileSync(path.join(dir, 'docs', 'context', 'existing.md'), 'utf8'),
+      '# Pre-existing context dir\n',
+   );
+   // The adopted layer validates clean.
+   assert.equal(validateLayer(dir).findings.filter((f) => f.severity === 'error').length, 0, 'adopted layer is clean');
+});
+
+test('adopt --wire-adapters never loses vendor content when the migration name collides', async () => {
+   const dir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: dir });
+   execFileSync('git', ['config', 'user.name', 'T'], { cwd: dir });
+   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'Original agent rules: always run tests.\n');
+   // A pre-existing file already occupies the default migration-doc name.
+   fs.mkdirSync(path.join(dir, 'docs', 'governance'), { recursive: true });
+   fs.writeFileSync(path.join(dir, 'docs', 'governance', 'imported-claude.md'), '# Unrelated pre-existing file\n');
+   execFileSync('git', ['add', '-A'], { cwd: dir });
+   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: dir });
+
+   await adoptLayer({ dir, yes: true, wireAdapters: true });
+
+   // The pre-existing file is untouched.
+   assert.equal(
+      fs.readFileSync(path.join(dir, 'docs', 'governance', 'imported-claude.md'), 'utf8'),
+      '# Unrelated pre-existing file\n',
+   );
+   // The original CLAUDE.md content was migrated to a collision-free name, not lost.
+   const alt = path.join(dir, 'docs', 'governance', 'imported-claude-2.md');
+   assert.ok(fs.existsSync(alt), 'migration doc resolved to a collision-free alternate');
+   assert.match(fs.readFileSync(alt, 'utf8'), /always run tests/);
+   // CLAUDE.md was converted to a redirect, which is safe only because its content survived.
+   assert.match(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), /docs\/boot-profile\.md/);
+});
+
+const BROKEN_DOT_ROOT_PATHS =
+   /\.boot-profile\.md|\.agents\/|\.governance\/|\.domain\/|\.decisions\/|\.context\/|\.\.leji\//;
+
+test('leji agent: a reviewer profile under a "." root has repo-root requiredRead (not .boot-profile.md / .agents/)', () => {
+   const dir = tmpdir();
+   const manifestObj = {
+      leji: '1.0',
+      name: 'dotroot',
+      rootPath: '.',
+      bootProfilePath: 'boot-profile.md',
+      categories: {
+         domain: { indexes: ['context/domain.md'] },
+         decisions: { indexes: ['context/decisions.md'] },
+      },
+      owners: { primary: { name: 'Owner' } },
+   };
+   fs.writeFileSync(path.join(dir, 'leji.json'), JSON.stringify(manifestObj, null, 2) + '\n');
+   const { manifest } = loadManifest(dir);
+   addAgent(dir, manifest!, { host: 'codex', name: 'reviewer' });
+   const profile = fs.readFileSync(path.join(dir, 'agents', 'reviewer.md'), 'utf8');
+   assert.doesNotMatch(profile, BROKEN_DOT_ROOT_PATHS, 'requiredRead has no hidden .boot-profile.md / .agents/');
+   assert.match(
+      profile,
+      /requiredRead:\n {2}- boot-profile\.md\n {2}- agents\/core\.md/,
+      'requiredRead uses correct repo-root paths',
+   );
+});
+
+test('adopt summary under a "." root references governance/ and .leji/, never .governance/ or ..leji/', () => {
+   // adopt detects a docs/ root in practice; this exercises the "." root path of the
+   // governance/brief references in the user-visible summary directly.
+   const summary = enteringAdopted({
+      manifest: { rootPath: '.' },
+      migrated: ['CLAUDE.md'],
+      draft: false,
+   } as Parameters<typeof enteringAdopted>[0]);
+   assert.doesNotMatch(summary, BROKEN_DOT_ROOT_PATHS, 'no .governance/ or ..leji/ in the summary');
+   assert.match(summary, /into governance\//, 'migrated into governance/');
+   assert.match(summary, /\.leji\/onboarding-brief\.md/, 'brief path is .leji/onboarding-brief.md');
+});
+
+// --- MCP install offer (pre-handoff) ---
+
+const CLAUDE_MCP_ADD = ['mcp', 'add', 'leji', '--scope', 'project', '--', 'npx', '-y', '@leji-org/mcp'];
+const CODEX_MCP_ADD = ['mcp', 'add', 'leji', '--', 'npx', '-y', '@leji-org/mcp'];
+const MCP_CHECK = ['mcp', 'get', 'leji'];
+// A presence check that reports "absent" (exit 1) so the offer fires; the register
+// then reports clean (exit 0).
+const ABSENT_THEN_OK: SpawnResult[] = [{ status: 1 }, { status: 0 }];
+
+test('offerMcpInstall never fires non-interactively', async () => {
+   const f = fakeIo('y', undefined, ABSENT_THEN_OK);
+   await offerMcpInstall({ root: '/repo', detected: [CLAUDE], interactive: false, io: f.io });
+   assert.equal(f.questions.length, 0);
+   assert.equal(f.runs.length, 0);
+});
+
+test('offerMcpInstall makes no offer without a launchable host', async () => {
+   const f = fakeIo('y', undefined, ABSENT_THEN_OK);
+   await offerMcpInstall({ root: '/repo', detected: [CURSOR], interactive: true, io: f.io });
+   assert.equal(f.questions.length, 0);
+   assert.equal(f.runs.length, 0);
+});
+
+test('offerMcpInstall registers on accept, anchored at the layer root', async () => {
+   const f = fakeIo('', undefined, ABSENT_THEN_OK); // empty answer = Y default
+   await offerMcpInstall({ root: '/repo', detected: [CLAUDE], interactive: true, io: f.io });
+   assert.equal(f.questions.length, 1);
+   // First run is the quiet presence check; second is the register, both at the root.
+   assert.deepEqual(f.runs[0], { bin: 'claude', args: MCP_CHECK, cwd: '/repo', quiet: true });
+   assert.deepEqual(f.runs[1], { bin: 'claude', args: CLAUDE_MCP_ADD, cwd: '/repo', quiet: false });
+});
+
+test('offerMcpInstall skips (no prompt, no register) when already registered', async () => {
+   const f = fakeIo('y', undefined, [{ status: 0 }]); // check reports present
+   await offerMcpInstall({ root: '/repo', detected: [CLAUDE], interactive: true, io: f.io });
+   assert.equal(f.questions.length, 0, 'no nag when present');
+   assert.equal(f.runs.length, 1, 'only the presence check ran');
+   assert.equal(f.runs[0].quiet, true);
+});
+
+test('offerMcpInstall declines on n: checks, prompts, but does not register', async () => {
+   const f = fakeIo('n', undefined, ABSENT_THEN_OK);
+   await offerMcpInstall({ root: '/repo', detected: [CLAUDE], interactive: true, io: f.io });
+   assert.equal(f.questions.length, 1);
+   assert.equal(f.runs.length, 1, 'only the presence check ran; no register');
+});
+
+test('offerMcpInstall with several hosts asks the pick once, then registers for the pick', async () => {
+   const f = fakeIo(['2', 'y'], undefined, ABSENT_THEN_OK);
+   const outcome = await offerMcpInstall({ root: '/repo', detected: [CLAUDE, CODEX], interactive: true, io: f.io });
+   assert.match(f.questions[0], /Which agent\?/, 'the host pick comes before the MCP question');
+   assert.equal(f.runs[1].bin, 'codex', 'registers for the picked host, not the top-ranked one');
+   assert.deepEqual(f.runs[1].args, CODEX_MCP_ADD);
+   assert.deepEqual(outcome, { next: 'launch', host: { id: 'codex', bin: 'codex', name: 'Codex' } });
+});
+
+test('offerMcpInstall returns skip when the pick is declined: no MCP prompt, no runs', async () => {
+   const f = fakeIo([''], undefined, ABSENT_THEN_OK);
+   const outcome = await offerMcpInstall({ root: '/repo', detected: [CLAUDE, CODEX], interactive: true, io: f.io });
+   assert.deepEqual(outcome, { next: 'skip' });
+   assert.equal(f.questions.length, 1, 'only the pick was asked');
+   assert.equal(f.runs.length, 0, 'no check or register for a declined pick');
+});
+
+test('offerMcpInstall single host returns default: the handoff keeps its own confirm', async () => {
+   const f = fakeIo('y', undefined, ABSENT_THEN_OK);
+   const outcome = await offerMcpInstall({ root: '/repo', detected: [CLAUDE], interactive: true, io: f.io });
+   assert.deepEqual(outcome, { next: 'default' });
+});
+
+test('handoffOffer launches the MCP-picked host without re-asking', async () => {
+   const f = fakeIo('never-read');
+   const launched = await handoffOffer(manifestAt('docs/'), [CLAUDE, CODEX], true, f.io, undefined, '/repo', {
+      next: 'launch',
+      host: { id: 'codex', bin: 'codex', name: 'Codex' },
+   });
+   assert.equal(launched, true);
+   assert.equal(f.questions.length, 0, 'no second pick, no confirm');
+   assert.equal(f.launches[0].bin, 'codex');
+});
+
+test('handoffOffer honors a skipped MCP pick: no prompt, no launch', async () => {
+   const f = fakeIo('never-read');
+   const launched = await handoffOffer(manifestAt('docs/'), [CLAUDE, CODEX], true, f.io, undefined, '/repo', {
+      next: 'skip',
+   });
+   assert.equal(launched, false);
+   assert.equal(f.questions.length, 0);
+   assert.equal(f.launches.length, 0);
+});
+
+test('offer + handoff compose: the register targets the host that launches, in that order', async () => {
+   const f = fakeIo(['2', 'y'], undefined, ABSENT_THEN_OK);
+   const outcome = await offerMcpInstall({ root: '/repo', detected: [CLAUDE, CODEX], interactive: true, io: f.io });
+   await handoffOffer(manifestAt('docs/'), [CLAUDE, CODEX], true, f.io, undefined, '/repo', outcome);
+   // check, register, launch: all codex, register strictly before the launch.
+   assert.deepEqual(f.events, ['run:codex', 'run:codex', 'launch:codex']);
+});
+
+test('offerMcpInstall honors --agent, using that host’s register command', async () => {
+   const f = fakeIo('y', undefined, ABSENT_THEN_OK);
+   // Codex not even detected; --agent forces it, and its argv omits --scope project.
+   await offerMcpInstall({ root: '/repo', detected: [CLAUDE], interactive: true, io: f.io, agent: 'codex' });
+   assert.equal(f.runs[1].bin, 'codex');
+   assert.deepEqual(f.runs[1].args, CODEX_MCP_ADD);
+});
+
+test('offerMcpInstall never throws when the register fails', async () => {
+   const f = fakeIo('y', undefined, [{ status: 1 }, { error: new Error('spawn claude ENOENT') }]);
+   await offerMcpInstall({ root: '/repo', detected: [CLAUDE], interactive: true, io: f.io });
+   assert.equal(f.runs.length, 2, 'check then attempted register');
+});
+
+// --- working mode (solo / team) ---
+
+/** Every file under dir (repo-relative POSIX), sorted, with contents. */
+function fileTree(dir: string): Map<string, string> {
+   const out = new Map<string, string>();
+   const walk = (rel: string) => {
+      for (const entry of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+         if (entry.name === '.git') continue;
+         const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+         if (entry.isDirectory()) walk(childRel);
+         else out.set(childRel, fs.readFileSync(path.join(dir, childRel), 'utf8'));
+      }
+   };
+   walk('');
+   return out;
+}
+
+test('init --mode solo scaffolds the identity and writing-style starters', async () => {
+   const dir = tmpdir();
+   const result = await initLayer({ dir, yes: true, mode: 'solo' });
+
+   assert.equal(result.mode, 'solo');
+   assert.ok(result.written.includes('docs/domain/identity.md'));
+   assert.ok(result.written.includes('docs/practice/writing-style.md'));
+   assert.ok(fs.readFileSync(path.join(dir, 'docs/domain/identity.md'), 'utf8').includes('## Source basis'));
+   assert.ok(fs.readFileSync(path.join(dir, 'docs/practice/writing-style.md'), 'utf8').includes('## Source basis'));
+
+   const { manifest } = loadManifest(dir);
+   // Solo forces domain + practice; canonical category order in the manifest.
+   assert.deepEqual(Object.keys(manifest!.categories), ['domain', 'system', 'practice', 'decisions']);
+});
+
+test('solo boot profile routes identity and writing work by task, never preloaded', async () => {
+   const dir = tmpdir();
+   await initLayer({ dir, yes: true, mode: 'solo' });
+   const boot = fs.readFileSync(path.join(dir, 'docs/boot-profile.md'), 'utf8');
+
+   const unconditional = boot.slice(0, boot.indexOf('Load by task type'));
+   const routed = boot.slice(boot.indexOf('Load by task type'));
+   assert.ok(routed.includes('`docs/domain/identity.md`'), 'identity routed by task');
+   assert.ok(routed.includes('`docs/practice/writing-style.md`'), 'writing style routed by task');
+   assert.ok(!unconditional.includes('identity.md'), 'identity never in the unconditional set');
+   assert.ok(!unconditional.includes('writing-style.md'), 'writing style never in the unconditional set');
+});
+
+test('solo brief is mode-stamped and carries the interview and artifact rules', async () => {
+   const dir = tmpdir();
+   await initLayer({ dir, yes: true, mode: 'solo' });
+   const brief = fs.readFileSync(path.join(dir, 'docs/.leji/onboarding-brief.md'), 'utf8');
+
+   assert.ok(brief.includes('**Working mode:** solo'));
+   assert.ok(brief.includes('docs/.leji/onboarding-inputs/'), 'drop-folder path rewritten for the root');
+   assert.ok(brief.includes('untrusted data'), 'artifact consent rules present');
+   assert.ok(!brief.includes('<mode>'), 'no unreplaced mode marker');
+   assert.ok(!brief.includes('<root>/'), 'no unreplaced root marker');
+});
+
+test('omitted mode and explicit --mode team are byte-identical, with no solo starters', async () => {
+   const a = tmpdir();
+   const b = tmpdir();
+   await initLayer({ dir: a, yes: true, name: 'acme-context' });
+   const result = await initLayer({ dir: b, yes: true, name: 'acme-context', mode: 'team' });
+
+   assert.equal(result.mode, 'team');
+   assert.deepEqual([...fileTree(a).keys()], [...fileTree(b).keys()]);
+   // The scaffold now writes a context index at every level, and its `generatedAt`
+   // is wall-clock: two runs a millisecond apart differ there and nowhere else.
+   // Null it the way the cross-SDK parity harness does, so this stays a byte
+   // comparison of everything the two modes actually control.
+   const stable = (rel: string, content: string): string =>
+      rel.endsWith('context-index.json') ? content.replace(/("generatedAt": ")[^"]*"/, '$1<GENERATED_AT>"') : content;
+   for (const [rel, content] of fileTree(a)) {
+      assert.equal(
+         stable(rel, content),
+         stable(rel, fileTree(b).get(rel) as string),
+         `${rel} differs between omitted and explicit team`,
+      );
+   }
+   assert.ok(!fs.existsSync(path.join(a, 'docs/domain/identity.md')), 'team scaffolds no identity starter');
+   const brief = fs.readFileSync(path.join(a, 'docs/.leji/onboarding-brief.md'), 'utf8');
+   assert.ok(brief.includes('**Working mode:** team'), 'team brief carries a concrete stamp');
+});
+
+test('an invalid mode fails before any filesystem mutation', async () => {
+   const dir = tmpdir();
+   await assert.rejects(
+      // Direct SDK callers can pass arbitrary strings; validation happens pre-write.
+      initLayer({ dir, yes: true, mode: 'squad' as 'solo' }),
+      /--mode must be solo or team/,
+   );
+   assert.equal(fs.readdirSync(dir).length, 0, 'nothing written');
+});
+
+test('init --mode solo --dry-run writes nothing and plans both starters', async () => {
+   const dir = tmpdir();
+   const result = await initLayer({ dir, yes: true, mode: 'solo', dryRun: true });
+
+   assert.equal(result.dryRun, true);
+   assert.equal(result.mode, 'solo');
+   assert.deepEqual(result.written, []);
+   assert.equal(fs.readdirSync(dir).length, 0, 'dry-run touches nothing');
+   const creates = result.plan.filter((e) => e.status === 'create').map((e) => e.rel);
+   assert.ok(creates.includes('docs/domain/identity.md'));
+   assert.ok(creates.includes('docs/practice/writing-style.md'));
+});
+
+test('indexed solo init seeds the changelog with the starters and no dot-paths', async () => {
+   const dir = tmpdir();
+   await initLayer({ dir, yes: true, mode: 'solo', level: 'indexed' });
+   const changelog = JSON.parse(fs.readFileSync(path.join(dir, 'docs/context-changelog.json'), 'utf8'));
+   const paths: string[] = changelog.entries[0].paths;
+
+   assert.ok(paths.includes('docs/domain/identity.md'));
+   assert.ok(paths.includes('docs/practice/writing-style.md'));
+   assert.ok(
+      !paths.some((p: string) => p.split('/').some((seg: string) => seg.startsWith('.'))),
+      'the transient brief and other dot-paths never seed the machine changelog',
+   );
+});
+
+test('adopt --mode solo scaffolds the starters and maps practice', async () => {
+   const dir = tmpdir();
+   fs.mkdirSync(path.join(dir, 'docs'));
+   fs.writeFileSync(path.join(dir, 'docs/notes.md'), '# Notes\n');
+   const result = await adoptLayer({ dir, yes: true, mode: 'solo' });
+
+   assert.equal(result.mode, 'solo');
+   assert.ok(result.written.includes('docs/domain/identity.md'));
+   assert.ok(result.written.includes('docs/practice/writing-style.md'));
+   const { manifest } = loadManifest(dir);
+   assert.deepEqual(Object.keys(manifest!.categories), ['domain', 'system', 'practice', 'decisions']);
+});
+
+test('adopt --mode solo never overwrites an existing identity or writing-style doc', async () => {
+   const dir = tmpdir();
+   fs.mkdirSync(path.join(dir, 'docs/domain'), { recursive: true });
+   fs.writeFileSync(path.join(dir, 'docs/domain/identity.md'), '# Mine already\n');
+   const result = await adoptLayer({ dir, yes: true, mode: 'solo' });
+
+   assert.equal(fs.readFileSync(path.join(dir, 'docs/domain/identity.md'), 'utf8'), '# Mine already\n');
+   assert.ok(!result.written.includes('docs/domain/identity.md'), 'existing file is skipped, not written');
+   const planned = result.plan.find((e) => e.rel === 'docs/domain/identity.md');
+   assert.equal(planned?.status, 'skip-exists');
+});
+
+test('adopt --mode solo --dry-run writes nothing and plans the starters', async () => {
+   const dir = tmpdir();
+   fs.mkdirSync(path.join(dir, 'docs'));
+   fs.writeFileSync(path.join(dir, 'docs/notes.md'), '# Notes\n');
+   const result = await adoptLayer({ dir, yes: true, mode: 'solo', dryRun: true });
+
+   assert.equal(result.dryRun, true);
+   assert.deepEqual(result.written, []);
+   assert.equal(fs.existsSync(path.join(dir, 'leji.json')), false);
+   const creates = result.plan.filter((e) => e.status === 'create').map((e) => e.rel);
+   assert.ok(creates.includes('docs/domain/identity.md'));
+   assert.ok(creates.includes('docs/practice/writing-style.md'));
+});
+
+test('init refuses while files under .leji/ are tracked by git, leaving the tree untouched', async () => {
+   const dir = tmpdir();
+   const git = (...args: string[]) => execFileSync('git', ['-C', dir, ...args], { stdio: 'ignore' });
+   git('init', '-q');
+   git('config', 'user.name', 'T');
+   git('config', 'user.email', 't@example.com');
+   fs.mkdirSync(path.join(dir, 'docs/.leji'), { recursive: true });
+   fs.writeFileSync(path.join(dir, 'docs/.leji/stale.md'), 'tracked artifact\n');
+   git('add', '-A');
+   git('commit', '-qm', 'seed');
+
+   await assert.rejects(initLayer({ dir, yes: true, mode: 'solo' }), /tracked by git/);
+   assert.equal(fs.existsSync(path.join(dir, 'leji.json')), false, 'no scaffold written');
+   assert.equal(fs.existsSync(path.join(dir, '.gitignore')), false, 'not even the ignore file is written');
+});
+
+test('approval guard: installs idempotently and preserves existing settings', () => {
+   const dir = tmpdir();
+   fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+   fs.writeFileSync(
+      path.join(dir, '.claude', 'settings.json'),
+      JSON.stringify(
+         {
+            existing: true,
+            hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo hi' }] }] },
+         },
+         null,
+         2,
+      ),
+   );
+   assert.equal(ensureApprovalGuard(dir, 'docs/'), 'installed');
+   assert.equal(ensureApprovalGuard(dir, 'docs/'), 'unchanged');
+   const settings = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'));
+   assert.equal(settings.existing, true, 'unrelated settings preserved');
+   const matchers = settings.hooks.PreToolUse.map((e: { matcher: string }) => e.matcher);
+   assert.deepEqual(matchers, ['Bash', 'AskUserQuestion']);
+   assert.ok(fs.existsSync(path.join(dir, 'docs', '.leji', 'hooks', 'approval-guard.mjs')));
+});
+
+test('approval guard: blocks until written and printed, inert after onboarding', () => {
+   const dir = tmpdir();
+   ensureApprovalGuard(dir, 'docs/');
+   const lejiDir = path.join(dir, 'docs', '.leji');
+   const script = path.join(lejiDir, 'hooks', 'approval-guard.mjs');
+   fs.writeFileSync(path.join(lejiDir, 'onboarding-brief.md'), 'brief');
+   const run = (transcript: string): number =>
+      spawnSync('node', [script], {
+         input: JSON.stringify({ transcript_path: transcript }),
+         env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+      }).status ?? -1;
+   assert.equal(run('/nonexistent'), 2, 'no proposal: blocked');
+   fs.writeFileSync(path.join(lejiDir, 'proposal.md'), '# Proposal for approval\n\nbody\n');
+   const t1 = path.join(dir, 't1.jsonl');
+   fs.writeFileSync(
+      t1,
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'about to ask' }] } }) + '\n',
+   );
+   assert.equal(run(t1), 2, 'written but not printed: blocked');
+   const t2 = path.join(dir, 't2.jsonl');
+   fs.writeFileSync(
+      t2,
+      JSON.stringify({
+         type: 'assistant',
+         message: { content: [{ type: 'text', text: '# Proposal for approval\nbody' }] },
+      }) + '\n',
+   );
+   assert.equal(run(t2), 0, 'written and printed: allowed');
+   fs.rmSync(path.join(lejiDir, 'onboarding-brief.md'));
+   assert.equal(run('/nonexistent'), 0, 'brief gone: guard inert');
 });

@@ -14,6 +14,11 @@ export interface IndexEntry {
    path: string;
    title: string;
    category: string;
+   /** The document's kind. Always emitted; consumers treat an absent
+    * value (older indexes) as `intent`. */
+   kind: 'intent' | 'record';
+   /** A record's date, sourced only from valid frontmatter `date`. */
+   date?: string;
    summary?: string;
    tags?: string[];
    owners?: string[];
@@ -21,6 +26,20 @@ export interface IndexEntry {
    contentHash?: string;
    freshness?: { reviewAfter: string };
    links?: string[];
+}
+
+/** One federated sibling's routing record in the generated index, derived from
+ * the manifest's federation.mounts. Routing metadata only, never sibling content. */
+export interface IndexMount {
+   name: string;
+   source: string;
+   pin: string;
+   trackingRef?: string;
+   owner: { name: string; contact?: string };
+   role?: string;
+   categories?: string[];
+   topics?: string[];
+   requiredWhen?: string[];
 }
 
 /** The generated machine index: every indexed artifact in the layer. */
@@ -31,6 +50,7 @@ export interface ContextIndex {
    generator?: { name?: string; version?: string };
    rootPath: string;
    entries: IndexEntry[];
+   mounts?: IndexMount[];
 }
 
 export interface IndexResult {
@@ -78,21 +98,30 @@ export function loadStoredIndex(root: string, manifest: Manifest): ContextIndex 
 }
 
 /**
- * Generate the context index from the tree. Id stability, in priority order:
- * document frontmatter `id`, the stored index's id for the same path, the
- * stored index's id for the same contentHash (a pure move), then a filename
- * slug (de-collided with the parent directory).
+ * Generate the context index from the tree. Id stability priority: frontmatter
+ * `id`, stored id for the same path, stored id for the same contentHash (a pure
+ * move), then a filename slug (de-collided with the parent directory).
  */
 export function generateIndex(root: string, manifest: Manifest): IndexResult {
    const findings: Finding[] = [];
-   const docs = scanCategories(root, manifest);
+   const scan = scanCategories(root, manifest);
+   findings.push(...scan.findings);
+   const docs = scan.docs;
    const stored = loadStoredIndex(root, manifest);
    const storedByPath = new Map<string, IndexEntry>();
-   const storedByHash = new Map<string, IndexEntry>();
+   // Carry an id by content-hash only when the hash maps to exactly one stored entry:
+   // byte-identical documents share a hash, so a carry would misattribute an id.
+   const hashEntries = new Map<string, IndexEntry[]>();
    for (const entry of stored?.entries ?? []) {
       storedByPath.set(entry.path, entry);
-      if (entry.contentHash) storedByHash.set(entry.contentHash, entry);
+      if (entry.contentHash) {
+         const arr = hashEntries.get(entry.contentHash) ?? [];
+         arr.push(entry);
+         hashEntries.set(entry.contentHash, arr);
+      }
    }
+   const storedByHash = new Map<string, IndexEntry>();
+   for (const [h, arr] of hashEntries) if (arr.length === 1) storedByHash.set(h, arr[0]);
 
    const inGit = gitToplevel(root) !== null;
    const today = new Date().toISOString().slice(0, 10);
@@ -132,7 +161,14 @@ export function generateIndex(root: string, manifest: Manifest): IndexResult {
          path: doc.relPath,
          title: str(fm.title) ?? firstHeading(doc.body) ?? path.posix.basename(doc.relPath).replace(/\.md$/, ''),
          category: doc.category,
+         kind: doc.kind,
       };
+      if (doc.kind === 'record') {
+         // A record's date comes only from explicit, valid frontmatter; nothing
+         // is scraped from prose or filename conventions.
+         const d = str(fm.date);
+         if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) entry.date = d;
+      }
       const summary = str(fm.summary) ?? carried?.summary;
       if (summary) entry.summary = summary;
       const tags = strArray(fm.tags);
@@ -149,6 +185,34 @@ export function generateIndex(root: string, manifest: Manifest): IndexResult {
       entries.push(entry);
    }
 
+   // Id churn: a stored id whose path is gone and that didn't reappear has vanished
+   // (move + edit in one change set with no frontmatter `id` mints a fresh slug).
+   // Inbound references now dangle; warn. A frontmatter `id` makes ids move-proof.
+   const newIds = new Set(entries.map((e) => e.id));
+   const currentPaths = new Set(docs.map((d) => d.relPath));
+   for (const entry of stored?.entries ?? []) {
+      if (!currentPaths.has(entry.path) && !newIds.has(entry.id)) {
+         findings.push(
+            finding(
+               'id-vanished',
+               'warning',
+               `stored id "${entry.id}" (was ${entry.path}) did not reappear; references to it now dangle. Declare a frontmatter id to keep ids stable across moves.`,
+               entry.path,
+            ),
+         );
+      }
+   }
+
+   const mounts: IndexMount[] = (manifest.federation?.mounts ?? []).map((m) => {
+      const rec: IndexMount = { name: m.name, source: m.source, pin: m.pin, owner: m.owner };
+      if (m.trackingRef) rec.trackingRef = m.trackingRef;
+      if (m.role) rec.role = m.role;
+      if (m.categories && m.categories.length > 0) rec.categories = m.categories;
+      if (m.topics && m.topics.length > 0) rec.topics = m.topics;
+      if (m.requiredWhen && m.requiredWhen.length > 0) rec.requiredWhen = m.requiredWhen;
+      return rec;
+   });
+
    const index: ContextIndex = {
       $schema: 'https://leji.org/schemas/v1.0/context-index.schema.json',
       schemaVersion: '1.0',
@@ -157,6 +221,7 @@ export function generateIndex(root: string, manifest: Manifest): IndexResult {
       rootPath: manifest.rootPath,
       entries,
    };
+   if (mounts.length > 0) index.mounts = mounts;
    return { index, findings };
 }
 
@@ -179,9 +244,8 @@ export function stableStringify(value: unknown): string {
 }
 
 /**
- * Check the stored index against a regeneration. `generatedAt`, `generator`,
- * and `lastModified` are excluded from the comparison: content drift is what
- * `contentHash` catches deterministically.
+ * Check the stored index against a regeneration. `generatedAt`, `generator`, and
+ * `lastModified` are excluded; `contentHash` catches drift deterministically.
  */
 export function checkIndex(root: string, manifest: Manifest): IndexResult {
    const rel = effectiveIndexPath(manifest);
@@ -216,13 +280,22 @@ export function checkIndex(root: string, manifest: Manifest): IndexResult {
    if (findings.length > 0) return { index: stored, findings, stale: true };
 
    const regen = generateIndex(root, manifest);
+   // If regeneration itself errors, the tree can't be indexed cleanly, so the stored
+   // index can't be current: fail rather than compare a partial regen and falsely pass.
+   const regenErrors = regen.findings.filter((f) => f.severity === 'error');
+   if (regenErrors.length > 0) {
+      findings.push(...regenErrors);
+      return { index: stored, findings, stale: true };
+   }
    const want = stableStringify({
       rootPath: regen.index!.rootPath,
       entries: regen.index!.entries.map(comparable),
+      mounts: regen.index!.mounts ?? [],
    });
    const got = stableStringify({
       rootPath: stored.rootPath,
       entries: [...stored.entries].sort((a, b) => (a.path < b.path ? -1 : 1)).map(comparable),
+      mounts: stored.mounts ?? [],
    });
    if (want !== got) {
       const wantPaths = new Set(regen.index!.entries.map((e) => e.path));
@@ -240,10 +313,13 @@ export function checkIndex(root: string, manifest: Manifest): IndexResult {
    }
    return {
       index: stored,
-      findings: duplicateIdFindings(
-         stored.entries.map((e) => ({ id: e.id, relPath: e.path })),
-         'index',
-      ),
+      findings: [
+         ...regen.findings,
+         ...duplicateIdFindings(
+            stored.entries.map((e) => ({ id: e.id, relPath: e.path })),
+            'index',
+         ),
+      ],
       stale: false,
    };
 }
@@ -253,6 +329,8 @@ const ENTRY_KEY_ORDER: (keyof IndexEntry)[] = [
    'path',
    'title',
    'category',
+   'kind',
+   'date',
    'summary',
    'tags',
    'owners',
@@ -270,6 +348,33 @@ function orderedEntry(entry: IndexEntry): Record<string, unknown> {
    return out;
 }
 
+const MOUNT_KEY_ORDER: (keyof IndexMount)[] = [
+   'name',
+   'source',
+   'pin',
+   'trackingRef',
+   'owner',
+   'role',
+   'categories',
+   'topics',
+   'requiredWhen',
+];
+
+function orderedMount(m: IndexMount): Record<string, unknown> {
+   const out: Record<string, unknown> = {};
+   for (const key of MOUNT_KEY_ORDER) {
+      if (m[key] === undefined) continue;
+      if (key === 'owner') {
+         const o: Record<string, unknown> = { name: m.owner.name };
+         if (m.owner.contact !== undefined) o.contact = m.owner.contact;
+         out.owner = o;
+      } else {
+         out[key] = m[key];
+      }
+   }
+   return out;
+}
+
 /** Serialize an index with stable key order, 2-space indent, trailing newline. */
 export function serializeIndex(index: ContextIndex): string {
    const out: Record<string, unknown> = {
@@ -280,6 +385,7 @@ export function serializeIndex(index: ContextIndex): string {
       rootPath: index.rootPath,
       entries: index.entries.map(orderedEntry),
    };
+   if (index.mounts && index.mounts.length > 0) out.mounts = index.mounts.map(orderedMount);
    return JSON.stringify(out, null, 2) + '\n';
 }
 
@@ -287,11 +393,15 @@ export function serializeIndex(index: ContextIndex): string {
 export function writeIndex(root: string, manifest: Manifest): IndexResult {
    const rel = effectiveIndexPath(manifest);
    const result = generateIndex(root, manifest);
+   // Refuse to write when generation hit a hard error: persisting a half-correct
+   // index would be trusted by later reads.
+   if (result.findings.some((f) => f.severity === 'error')) {
+      return result;
+   }
    if (result.index) {
       const abs = path.join(root, rel);
-      // Contain before creating any directory: resolvedWithinRoot resolves the
-      // nearest existing ancestor, so a symlinked ancestor of this not-yet-existing
-      // target is caught before mkdir/write can escape the layer root.
+      // Contain before mkdir: resolvedWithinRoot resolves the nearest existing
+      // ancestor, catching a symlinked ancestor before write can escape the root.
       if (!resolvedWithinRoot(path.resolve(root), abs)) {
          return {
             index: result.index,

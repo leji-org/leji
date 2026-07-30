@@ -14,8 +14,8 @@ import (
 
 const changelogRel = "docs/context-changelog.json"
 
-// seedLayer writes a minimal indexed manifest plus a changelog carrying `count`
-// dated entries (e-01 .. e-NN, dated 2026-01-01 onward) and returns the root.
+// seedLayer writes a minimal indexed manifest plus a changelog of `count` dated
+// entries (e-01.., dated 2026-01-01 onward) and returns the root.
 func seedLayer(t *testing.T, count int) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -25,8 +25,8 @@ func seedLayer(t *testing.T, count int) string {
 		"rootPath":        "docs/",
 		"bootProfilePath": "docs/boot-profile.md",
 		"categories": map[string]any{
-			"domain":    map[string]any{"paths": []any{"docs/domain/"}},
-			"decisions": map[string]any{"paths": []any{"docs/decisions/"}},
+			"domain":    map[string]any{"indexes": []any{"docs/context/domain.md"}},
+			"decisions": map[string]any{"indexes": []any{"docs/context/decisions.md"}},
 		},
 		"owners": map[string]any{"primary": map[string]any{"name": "Fixture Owner"}},
 		"conformance": map[string]any{
@@ -307,8 +307,8 @@ func TestSeedChangelogIfMissing(t *testing.T) {
 		"rootPath":        "docs/",
 		"bootProfilePath": "docs/boot-profile.md",
 		"categories": map[string]any{
-			"domain":    map[string]any{"paths": []any{"docs/domain/"}},
-			"decisions": map[string]any{"paths": []any{"docs/decisions/"}},
+			"domain":    map[string]any{"indexes": []any{"docs/context/domain.md"}},
+			"decisions": map[string]any{"indexes": []any{"docs/context/decisions.md"}},
 		},
 		"owners": map[string]any{"primary": map[string]any{"name": "Fixture Owner"}},
 	}

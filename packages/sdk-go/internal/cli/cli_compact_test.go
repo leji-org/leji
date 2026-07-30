@@ -1,8 +1,8 @@
 package cli
 
-// CLI-level mirrors of the run.test.ts changes: effective foundational paths
-// (core layer writes the default index; changelog check resolves the default
-// path with no "not declared" message) and `changelog compact` dispatch.
+// CLI-level mirrors of run.test.ts: effective foundational paths (core layer
+// writes the default index; changelog check resolves the default path) and
+// `changelog compact` dispatch.
 
 import (
 	"encoding/json"
@@ -60,9 +60,8 @@ func TestCLICoreLayerWritesDefaultIndex(t *testing.T) {
 	}
 }
 
-// changelog check on a core layer resolves the default changelog path; the file
-// is simply absent, so the finding is the missing-file changelog-required, never
-// a "not declared" error.
+// changelog check on a core layer resolves the default path; the file is absent,
+// so the finding is changelog-required, never a "not declared" error.
 func TestCLICoreLayerChangelogResolvesDefault(t *testing.T) {
 	dir := fixture(t, "valid-minimal-core")
 	_, payload, _ := runJSON(t, []string{"changelog", "check", "--root", dir, "--json"})

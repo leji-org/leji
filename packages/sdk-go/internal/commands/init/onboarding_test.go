@@ -1,9 +1,12 @@
 package initcmd
 
 import (
+	"encoding/json"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -14,8 +17,8 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/writeplan"
 )
 
-// init --dry-run writes nothing and reports the plan, including the brief as a
-// create entry and an existing vendor file as wont-modify.
+// init --dry-run writes nothing; the plan creates the brief and marks an
+// existing vendor file wont-modify.
 func TestInitDryRunWritesNothing(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("some existing agent config\n"), 0o644); err != nil {
@@ -122,7 +125,6 @@ func TestValidateWithoutContentNoContentFindings(t *testing.T) {
 	}
 }
 
-// a populated layer passes the content lint clean.
 func TestPopulatedLayerPassesContentLint(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := InitLayer(Options{Dir: dir, Yes: true}); err != nil {
@@ -168,8 +170,8 @@ func TestPopulatedLayerPassesContentLint(t *testing.T) {
 	}
 }
 
-// init --agent no longer creates a vendor adapter; it scaffolds the layer (which
-// still validates clean) and never declares vendorAdapters.
+// init --agent scaffolds a clean layer without creating or declaring any vendor
+// adapter.
 func TestInitAgentWiresRedirect(t *testing.T) {
 	dir := t.TempDir()
 	res, err := InitLayer(Options{Dir: dir, Yes: true, Agent: "claude-code"})
@@ -237,17 +239,42 @@ func TestInitAgentNeverOverwrites(t *testing.T) {
 	}
 }
 
-// init --agent no longer resolves a vendor adapter, so a bogus --agent no longer
-// errors from adapter resolution: the layer scaffolds with no vendor file.
-func TestInitAgentRejectsUnknownHost(t *testing.T) {
+// --agent names the handoff host, so an unknown value is a usage error naming the
+// accepted set, the way --mode and --level reject theirs. It is checked before any
+// filesystem work, so the directory is left untouched.
+func TestInitAgentRejectsUnlaunchableHost(t *testing.T) {
 	dir := t.TempDir()
-	res, err := InitLayer(Options{Dir: dir, Yes: true, Agent: "frobnicate"})
+	_, err := InitLayer(Options{Dir: dir, Yes: true, Agent: "frobnicate"})
+	if err == nil {
+		t.Fatal("init --agent frobnicate should have errored")
+	}
+	want := `--agent must be a launchable host (claude-code, codex); got "frobnicate"`
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err.Error(), want)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "leji.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("nothing should have been written, stat err: %v", statErr)
+	}
+}
+
+// init writes the portable AGENTS.md pointer by default and validates clean.
+func TestInitWritesPortableAgentsPointer(t *testing.T) {
+	dir := t.TempDir()
+	res, err := InitLayer(Options{Dir: dir, Yes: true})
 	if err != nil {
-		t.Fatalf("init --agent should not error on a bogus agent, got: %v", err)
+		t.Fatalf("init: %v", err)
 	}
-	if !contains(res.Written, "leji.json") {
-		t.Fatalf("leji.json should still be written: %v", res.Written)
+	if !contains(res.Written, "AGENTS.md") {
+		t.Fatalf("written should include AGENTS.md, got %v", res.Written)
 	}
+	body, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "Read ./docs/boot-profile.md first. It is the canonical context entrypoint for this repository.\n" {
+		t.Fatalf("AGENTS.md content = %q", body)
+	}
+	// The pointer is the well-known portable adapter; no manifest declaration needed.
 	load := manifest.LoadManifest(dir)
 	if load.Manifest == nil {
 		t.Fatal("manifest did not load")
@@ -255,11 +282,68 @@ func TestInitAgentRejectsUnknownHost(t *testing.T) {
 	if len(load.Manifest.VendorAdapters) != 0 {
 		t.Fatalf("vendorAdapters should be empty, got %v", load.Manifest.VendorAdapters)
 	}
+	gitInit(t, dir)
+	v := validate.ValidateLayer(dir, false)
+	errCount := 0
+	for _, f := range v.Findings {
+		if f.Severity == findings.Error {
+			errCount++
+		}
+	}
+	if errCount != 0 {
+		t.Fatalf("expected no errors, got %d: %+v", errCount, v.Findings)
+	}
 }
 
-// init --agent cursor no longer creates a directory-style adapter; the layer
-// still scaffolds and validates clean with no vendor file.
-func TestInitAgentCursorWiresDirectoryAdapter(t *testing.T) {
+// init --no-agents skips the portable AGENTS.md pointer.
+func TestInitNoAgentsSkipsPortablePointer(t *testing.T) {
+	dir := t.TempDir()
+	res, err := InitLayer(Options{Dir: dir, Yes: true, NoAgents: true})
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if contains(res.Written, "AGENTS.md") {
+		t.Fatalf("AGENTS.md should not be written, got %v", res.Written)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "AGENTS.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("AGENTS.md should not exist, stat err: %v", statErr)
+	}
+}
+
+// init never touches an existing AGENTS.md (stays leave-as-is).
+func TestInitNeverTouchesExistingAgentsFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("my own instructions\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := InitLayer(Options{Dir: dir, Yes: true})
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if contains(res.Written, "AGENTS.md") {
+		t.Fatalf("AGENTS.md should not be written, got %v", res.Written)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "my own instructions\n" {
+		t.Fatalf("existing AGENTS.md was modified: %q", body)
+	}
+	var entry *writeplan.PlanEntry
+	for i := range res.Plan {
+		if res.Plan[i].Rel == "AGENTS.md" {
+			entry = &res.Plan[i]
+		}
+	}
+	if entry == nil || entry.Status != writeplan.WontModify {
+		t.Fatalf("existing AGENTS.md should be wont-modify in the plan, got %+v", entry)
+	}
+}
+
+// --agent selects the handoff host and nothing else: no vendor entrypoint file, no
+// `vendorAdapters` manifest key. Only the portable AGENTS.md pointer is written.
+func TestInitAgentCreatesNoVendorAdapter(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := exec.LookPath("git"); err == nil {
 		cmd := exec.Command("git", "init", "-q")
@@ -268,15 +352,15 @@ func TestInitAgentCursorWiresDirectoryAdapter(t *testing.T) {
 			t.Fatalf("git init: %v", err)
 		}
 	}
-	res, err := InitLayer(Options{Dir: dir, Yes: true, Agent: "cursor"})
+	res, err := InitLayer(Options{Dir: dir, Yes: true, Agent: "claude-code"})
 	if err != nil {
-		t.Fatalf("init --agent cursor: %v", err)
+		t.Fatalf("init --agent claude-code: %v", err)
 	}
-	if contains(res.Written, ".cursor/rules/leji.md") {
-		t.Fatalf("cursor adapter must not be created, written: %v", res.Written)
+	if contains(res.Written, "CLAUDE.md") {
+		t.Fatalf("vendor adapter must not be created, written: %v", res.Written)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, ".cursor", "rules", "leji.md")); !os.IsNotExist(statErr) {
-		t.Fatalf(".cursor/rules/leji.md should not exist, stat err: %v", statErr)
+	if _, statErr := os.Stat(filepath.Join(dir, "CLAUDE.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("CLAUDE.md should not exist, stat err: %v", statErr)
 	}
 	load := manifest.LoadManifest(dir)
 	if load.Manifest == nil {
@@ -322,8 +406,8 @@ func mustWrite(t *testing.T, abs, content string) {
 	}
 }
 
-// agent wires a named reviewer into an existing layer that validates clean: the
-// new agent's profile and its binding. It no longer creates any vendor adapter.
+// agent wires a named reviewer (profile + binding) into a clean layer, creating
+// no vendor adapter.
 func TestAgentWiresNamedReviewer(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := exec.LookPath("git"); err == nil {
@@ -354,8 +438,14 @@ func TestAgentWiresNamedReviewer(t *testing.T) {
 	if len(load.Manifest.VendorAdapters) != 0 {
 		t.Fatalf("agent must not create vendor adapters, got %v", load.Manifest.VendorAdapters)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, "AGENTS.md")); !os.IsNotExist(statErr) {
-		t.Fatalf("AGENTS.md should not exist, stat err: %v", statErr)
+	// The AGENTS.md on disk is init's portable pointer (default-on), not
+	// addAgent's work.
+	pointer, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(pointer) != "Read ./docs/boot-profile.md first. It is the canonical context entrypoint for this repository.\n" {
+		t.Fatalf("AGENTS.md should be init's portable pointer, got %q", pointer)
 	}
 	body, err := os.ReadFile(filepath.Join(dir, "docs", "agents", "reviewer.md"))
 	if err != nil {
@@ -377,8 +467,8 @@ func TestAgentWiresNamedReviewer(t *testing.T) {
 	}
 }
 
-// agent with no --host binds a host-agnostic resident agent: a profile with no
-// host: frontmatter line, bound in the agents map, and no vendor file created.
+// agent with no --host binds a resident agent: profile with no host: frontmatter
+// line, bound in the agents map, no vendor file.
 func TestAgentBindsResidentWithoutHost(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := exec.LookPath("git"); err == nil {
@@ -560,41 +650,6 @@ func TestBindAgentPrependsAndIdempotent(t *testing.T) {
 	}
 }
 
-// DeclareVendorAdapterInManifestText creates the array, prepends, and dedupes.
-func TestDeclareVendorAdapter(t *testing.T) {
-	created, changed, _ := manifest.DeclareVendorAdapterInManifestText(manifestNoAgents, "AGENTS.md")
-	if !changed {
-		t.Fatal("expected changed=true")
-	}
-	want := `{
-  "leji": "1.0",
-  "categories": {},
-  "vendorAdapters": [
-    "AGENTS.md"
-  ],
-  "owners": {
-    "primary": { "name": "x" }
-  }
-}
-`
-	if created != want {
-		t.Fatalf("mismatch:\n%s", created)
-	}
-	second, _, _ := manifest.DeclareVendorAdapterInManifestText(created, "CLAUDE.md")
-	if !strings.Contains(second, `"vendorAdapters": [`+"\n"+`    "CLAUDE.md",`+"\n"+`    "AGENTS.md"`+"\n"+`  ],`) {
-		t.Fatalf("second adapter not prepended:\n%s", second)
-	}
-	dupe, changedDupe, _ := manifest.DeclareVendorAdapterInManifestText(second, "AGENTS.md")
-	if changedDupe {
-		t.Fatal("expected changed=false on duplicate adapter")
-	}
-	if dupe != second {
-		t.Fatal("dedupe altered text")
-	}
-}
-
-// --- dirty-tree guard on init / adopt ---
-
 // init refuses on a dirty git working tree and writes nothing.
 func TestInitRefusesOnDirtyTree(t *testing.T) {
 	dir := t.TempDir()
@@ -659,6 +714,395 @@ func TestInitAllowedInNonGitDir(t *testing.T) {
 	}
 	if !contains(res.Written, "leji.json") {
 		t.Fatalf("leji.json not written: %v", res.Written)
+	}
+}
+
+// --- working mode (solo / team) ---
+
+// fileTree returns every file under dir (repo-relative POSIX, .git excluded),
+// with contents.
+func fileTree(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, rerr := filepath.Rel(dir, p)
+		if rerr != nil {
+			return rerr
+		}
+		b, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return rerr
+		}
+		out[filepath.ToSlash(rel)] = string(b)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", dir, err)
+	}
+	return out
+}
+
+// assertManifestCategoryOrder asserts leji.json maps exactly want, in order.
+func assertManifestCategoryOrder(t *testing.T, dir string, want []string) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "leji.json"))
+	if err != nil {
+		t.Fatalf("read leji.json: %v", err)
+	}
+	load := manifest.LoadManifest(dir)
+	if load.Manifest == nil {
+		t.Fatal("manifest did not load")
+	}
+	if len(load.Manifest.Categories) != len(want) {
+		t.Fatalf("categories = %v, want %v", load.Manifest.Categories, want)
+	}
+	last := -1
+	for _, c := range want {
+		if _, ok := load.Manifest.Categories[c]; !ok {
+			t.Fatalf("category %q missing, got %v", c, load.Manifest.Categories)
+		}
+		idx := strings.Index(string(b), "\""+c+"\":")
+		if idx < 0 {
+			t.Fatalf("category key %q not serialized:\n%s", c, b)
+		}
+		if idx <= last {
+			t.Fatalf("category %q out of canonical order:\n%s", c, b)
+		}
+		last = idx
+	}
+}
+
+// init --mode solo scaffolds the identity and writing-style starters.
+func TestInitModeSoloScaffoldsStarters(t *testing.T) {
+	dir := t.TempDir()
+	res, err := InitLayer(Options{Dir: dir, Yes: true, Mode: "solo"})
+	if err != nil {
+		t.Fatalf("init --mode solo: %v", err)
+	}
+	if res.Mode != "solo" {
+		t.Fatalf("mode = %q, want solo", res.Mode)
+	}
+	for _, rel := range []string{"docs/domain/identity.md", "docs/practice/writing-style.md"} {
+		if !contains(res.Written, rel) {
+			t.Fatalf("%s not written: %v", rel, res.Written)
+		}
+		b, rerr := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		if !strings.Contains(string(b), "## Source basis") {
+			t.Fatalf("%s missing the Source basis section:\n%s", rel, b)
+		}
+	}
+	// Solo forces domain + practice; canonical category order in the manifest.
+	assertManifestCategoryOrder(t, dir, []string{"domain", "system", "practice", "decisions"})
+}
+
+// The solo boot profile routes identity and writing work by task, never preloaded.
+func TestSoloBootProfileRoutesByTask(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitLayer(Options{Dir: dir, Yes: true, Mode: "solo"}); err != nil {
+		t.Fatalf("init --mode solo: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "docs", "boot-profile.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boot := string(b)
+	cut := strings.Index(boot, "Load by task type")
+	if cut < 0 {
+		t.Fatalf("boot profile missing the task-type section:\n%s", boot)
+	}
+	unconditional, routed := boot[:cut], boot[cut:]
+	if !strings.Contains(routed, "`docs/domain/identity.md`") {
+		t.Fatalf("identity not routed by task:\n%s", routed)
+	}
+	if !strings.Contains(routed, "`docs/practice/writing-style.md`") {
+		t.Fatalf("writing style not routed by task:\n%s", routed)
+	}
+	if strings.Contains(unconditional, "identity.md") {
+		t.Fatalf("identity in the unconditional set:\n%s", unconditional)
+	}
+	if strings.Contains(unconditional, "writing-style.md") {
+		t.Fatalf("writing style in the unconditional set:\n%s", unconditional)
+	}
+}
+
+// The solo brief is mode-stamped and carries the interview and artifact rules.
+func TestSoloBriefModeStampedWithArtifactRules(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitLayer(Options{Dir: dir, Yes: true, Mode: "solo"}); err != nil {
+		t.Fatalf("init --mode solo: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "docs", ".leji", "onboarding-brief.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief := string(b)
+	if !strings.Contains(brief, "**Working mode:** solo") {
+		t.Fatal("brief missing the solo mode stamp")
+	}
+	if !strings.Contains(brief, "docs/.leji/onboarding-inputs/") {
+		t.Fatal("drop-folder path not rewritten for the root")
+	}
+	if !strings.Contains(brief, "untrusted data") {
+		t.Fatal("artifact consent rules missing")
+	}
+	if strings.Contains(brief, "<mode>") {
+		t.Fatal("unreplaced mode marker")
+	}
+	if strings.Contains(brief, "<root>/") {
+		t.Fatal("unreplaced root marker")
+	}
+}
+
+// Omitted mode and explicit --mode team are byte-identical, with no solo starters.
+func TestOmittedModeAndExplicitTeamIdentical(t *testing.T) {
+	a := t.TempDir()
+	b := t.TempDir()
+	if _, err := InitLayer(Options{Dir: a, Yes: true, Name: "acme-context"}); err != nil {
+		t.Fatalf("init (omitted mode): %v", err)
+	}
+	res, err := InitLayer(Options{Dir: b, Yes: true, Name: "acme-context", Mode: "team"})
+	if err != nil {
+		t.Fatalf("init --mode team: %v", err)
+	}
+	if res.Mode != "team" {
+		t.Fatalf("mode = %q, want team", res.Mode)
+	}
+	treeA, treeB := fileTree(t, a), fileTree(t, b)
+	if len(treeA) != len(treeB) {
+		t.Fatalf("file sets differ: %d vs %d files", len(treeA), len(treeB))
+	}
+	// The scaffold now writes a context index at every level, and its `generatedAt`
+	// is wall-clock: two runs a millisecond apart differ there and nowhere else.
+	// Null it the way the cross-SDK parity harness does, so this stays a byte
+	// comparison of everything the two modes actually control.
+	generatedAt := regexp.MustCompile(`("generatedAt": ")[^"]*"`)
+	stable := func(rel, content string) string {
+		if strings.HasSuffix(rel, "context-index.json") {
+			return generatedAt.ReplaceAllString(content, `${1}<GENERATED_AT>"`)
+		}
+		return content
+	}
+	for rel, content := range treeA {
+		got, ok := treeB[rel]
+		if !ok {
+			t.Fatalf("%s missing from the explicit-team tree", rel)
+		}
+		if stable(rel, got) != stable(rel, content) {
+			t.Fatalf("%s differs between omitted and explicit team", rel)
+		}
+	}
+	if _, serr := os.Stat(filepath.Join(a, "docs", "domain", "identity.md")); !os.IsNotExist(serr) {
+		t.Fatalf("team scaffolds no identity starter, stat err: %v", serr)
+	}
+	brief, err := os.ReadFile(filepath.Join(a, "docs", ".leji", "onboarding-brief.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(brief), "**Working mode:** team") {
+		t.Fatal("team brief missing a concrete mode stamp")
+	}
+}
+
+// An invalid mode fails before any filesystem mutation.
+func TestInvalidModeFailsBeforeAnyWrite(t *testing.T) {
+	dir := t.TempDir()
+	// Direct SDK callers can pass arbitrary strings; validation happens pre-write.
+	_, err := InitLayer(Options{Dir: dir, Yes: true, Mode: "squad"})
+	if err == nil || !strings.Contains(err.Error(), "--mode must be solo or team") {
+		t.Fatalf("expected the mode validation error, got: %v", err)
+	}
+	entries, rerr := os.ReadDir(dir)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("nothing should be written, got %d entries", len(entries))
+	}
+}
+
+// init --mode solo --dry-run writes nothing and plans both starters.
+func TestInitSoloDryRunPlansStarters(t *testing.T) {
+	dir := t.TempDir()
+	res, err := InitLayer(Options{Dir: dir, Yes: true, Mode: "solo", DryRun: true})
+	if err != nil {
+		t.Fatalf("solo dry-run init: %v", err)
+	}
+	if !res.DryRun {
+		t.Fatal("result.DryRun should be true")
+	}
+	if res.Mode != "solo" {
+		t.Fatalf("mode = %q, want solo", res.Mode)
+	}
+	if len(res.Written) != 0 {
+		t.Fatalf("dry-run wrote files: %v", res.Written)
+	}
+	entries, rerr := os.ReadDir(dir)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("dry-run touches nothing, got %d entries", len(entries))
+	}
+	var creates []string
+	for _, e := range res.Plan {
+		if e.Status == writeplan.Create {
+			creates = append(creates, e.Rel)
+		}
+	}
+	if !contains(creates, "docs/domain/identity.md") || !contains(creates, "docs/practice/writing-style.md") {
+		t.Fatalf("plan should create both starters, got %v", creates)
+	}
+}
+
+// Indexed solo init seeds the changelog with the starters and no dot-paths.
+func TestIndexedSoloChangelogSeedsStartersNoDotPaths(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := InitLayer(Options{Dir: dir, Yes: true, Mode: "solo", Level: "indexed"}); err != nil {
+		t.Fatalf("indexed solo init: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "docs", "context-changelog.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var log struct {
+		Entries []struct {
+			Paths []string `json:"paths"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(b, &log); err != nil {
+		t.Fatalf("parse changelog: %v", err)
+	}
+	if len(log.Entries) == 0 {
+		t.Fatal("changelog has no entries")
+	}
+	paths := log.Entries[0].Paths
+	if !contains(paths, "docs/domain/identity.md") || !contains(paths, "docs/practice/writing-style.md") {
+		t.Fatalf("starters not seeded: %v", paths)
+	}
+	for _, p := range paths {
+		for _, seg := range strings.Split(p, "/") {
+			if strings.HasPrefix(seg, ".") {
+				t.Fatalf("dot-path %q must never seed the machine changelog", p)
+			}
+		}
+	}
+}
+
+// adopt --mode solo scaffolds the starters and maps practice.
+func TestAdoptModeSoloScaffoldsStarters(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "notes.md"), []byte("# Notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := AdoptLayer(AdoptOptions{Dir: dir, Yes: true, Mode: "solo"})
+	if err != nil {
+		t.Fatalf("adopt --mode solo: %v", err)
+	}
+	if res.Mode != "solo" {
+		t.Fatalf("mode = %q, want solo", res.Mode)
+	}
+	if !contains(res.Written, "docs/domain/identity.md") || !contains(res.Written, "docs/practice/writing-style.md") {
+		t.Fatalf("starters not written: %v", res.Written)
+	}
+	assertManifestCategoryOrder(t, dir, []string{"domain", "system", "practice", "decisions"})
+}
+
+// adopt --mode solo never overwrites an existing identity or writing-style doc.
+func TestAdoptSoloNeverOverwritesExistingStarter(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "docs", "domain", "identity.md"), "# Mine already\n")
+	res, err := AdoptLayer(AdoptOptions{Dir: dir, Yes: true, Mode: "solo"})
+	if err != nil {
+		t.Fatalf("adopt --mode solo: %v", err)
+	}
+	b, rerr := os.ReadFile(filepath.Join(dir, "docs", "domain", "identity.md"))
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if string(b) != "# Mine already\n" {
+		t.Fatalf("existing identity.md was overwritten: %q", b)
+	}
+	if contains(res.Written, "docs/domain/identity.md") {
+		t.Fatalf("existing file should be skipped, not written: %v", res.Written)
+	}
+	var planned *writeplan.PlanEntry
+	for i := range res.Plan {
+		if res.Plan[i].Rel == "docs/domain/identity.md" {
+			planned = &res.Plan[i]
+		}
+	}
+	if planned == nil || planned.Status != writeplan.SkipExists {
+		t.Fatalf("identity.md should plan as skip-exists, got %+v", planned)
+	}
+}
+
+// adopt --mode solo --dry-run writes nothing and plans the starters.
+func TestAdoptSoloDryRunPlansStarters(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "notes.md"), []byte("# Notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := AdoptLayer(AdoptOptions{Dir: dir, Yes: true, Mode: "solo", DryRun: true})
+	if err != nil {
+		t.Fatalf("solo dry-run adopt: %v", err)
+	}
+	if !res.DryRun {
+		t.Fatal("result.DryRun should be true")
+	}
+	if len(res.Written) != 0 {
+		t.Fatalf("dry-run wrote files: %v", res.Written)
+	}
+	if _, serr := os.Stat(filepath.Join(dir, "leji.json")); serr == nil {
+		t.Fatal("dry-run creates no manifest")
+	}
+	var creates []string
+	for _, e := range res.Plan {
+		if e.Status == writeplan.Create {
+			creates = append(creates, e.Rel)
+		}
+	}
+	if !contains(creates, "docs/domain/identity.md") || !contains(creates, "docs/practice/writing-style.md") {
+		t.Fatalf("plan should create both starters, got %v", creates)
+	}
+}
+
+// init refuses while files under .leji/ are tracked by git, leaving the tree untouched.
+func TestInitRefusesTrackedLejiWorkspace(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	gitInit(t, dir)
+	mustWrite(t, filepath.Join(dir, "docs", ".leji", "stale.md"), "tracked artifact\n")
+	gitCommitAll(t, dir)
+
+	_, err := InitLayer(Options{Dir: dir, Yes: true, Mode: "solo"})
+	if err == nil || !strings.Contains(err.Error(), "1 file(s) under docs/.leji/ are tracked by git") {
+		t.Fatalf("expected the tracked-workspace refusal, got: %v", err)
+	}
+	if _, serr := os.Stat(filepath.Join(dir, "leji.json")); serr == nil {
+		t.Fatal("no scaffold should be written")
+	}
+	if _, serr := os.Stat(filepath.Join(dir, ".gitignore")); serr == nil {
+		t.Fatal("not even the ignore file should be written")
 	}
 }
 

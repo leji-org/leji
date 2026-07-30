@@ -58,6 +58,36 @@ func TestYAML12Semantics(t *testing.T) {
 	}
 }
 
+// Parse slices the raw YAML block to the end of the fence's submatch 1, so that
+// submatch must open at the match start and span the whole line terminator ending
+// the block's last line. This is asserted on the regex rather than through Parse
+// because yaml.v3 normalizes a bare trailing `\r`: no Parse-level assertion can
+// fail when this regresses. The Node SDK's parser does not normalize it, and folds
+// the orphan CR into the last scalar's value, which is what the shared slicing
+// protects against here and in packages/sdk-py.
+func TestFenceSubmatchSpansTheWholeLineTerminator(t *testing.T) {
+	cases := []struct {
+		name  string
+		block string
+		want  string
+	}{
+		{"crlf", "\r\nrole: reviewer\r\n---\r\n", "\r\n"},
+		{"lf", "\nrole: reviewer\n---\n", "\n"},
+	}
+	for _, tc := range cases {
+		loc := fence.FindStringSubmatchIndex(tc.block)
+		if loc == nil {
+			t.Fatalf("%s: fence did not match %q", tc.name, tc.block)
+		}
+		if loc[2] != loc[0] {
+			t.Fatalf("%s: submatch 1 must open at the match start; Parse slices to its end", tc.name)
+		}
+		if got := tc.block[loc[2]:loc[3]]; got != tc.want {
+			t.Fatalf("%s: terminator submatch = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestDuplicateKeyIsError(t *testing.T) {
 	fm := Parse("---\nid: a\nid: b\n---\n\nbody\n")
 	if fm.Error == "" {

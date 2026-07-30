@@ -1,7 +1,6 @@
 // Package writeplan classifies and renders the files an operation intends to
-// write, mirroring lib/writeplan.ts. Leji writes only the files it owns and
-// never overwrites; the plan makes that contract visible before a single byte is
-// written (the preview / --dry-run surface).
+// write (mirroring lib/writeplan.ts). Leji writes only files it owns and never
+// overwrites; the plan surfaces that contract before any byte is written (--dry-run).
 package writeplan
 
 import (
@@ -21,9 +20,7 @@ const (
 	SkipExists PlanStatus = "skip-exists"
 	// WontModify marks a foreign file Leji detects but will never touch.
 	WontModify PlanStatus = "wont-modify"
-	// Overwrite marks a path the user has explicitly consented to overwrite
-	// (e.g. converting a vendor entrypoint to a redirect after migrating its
-	// content).
+	// Overwrite marks a path the user has explicitly consented to overwrite.
 	Overwrite PlanStatus = "overwrite"
 )
 
@@ -40,12 +37,8 @@ type PlanEntry struct {
 	Note   string
 }
 
-// Build classifies each intended write against the filesystem (Create when
-// absent, SkipExists when a path is already there and Leji refuses to
-// overwrite), records foreign files Leji explicitly will not touch
-// (WontModify), and marks the few paths the user has explicitly consented to
-// overwrite (Overwrite, e.g. converting a vendor entrypoint to a redirect after
-// migrating its content).
+// Build classifies each intended write against the filesystem into Create,
+// SkipExists, WontModify, or Overwrite entries.
 func Build(rootAbs string, writes []PlannedWrite, wontModify, overwrite []string) []PlanEntry {
 	allowOverwrite := map[string]bool{}
 	for _, rel := range overwrite {

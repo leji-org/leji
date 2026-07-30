@@ -1,0 +1,13 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": [
+      {
+        "rule": "boot-agents-default",
+        "severity": "warning",
+        "path": "leji.json",
+        "message": "agents.default is bound but never auto-loaded; a boot profile that unconditionally loads it should be one canonical boot document (fold the default profile in)"
+      }
+    ]
+  }
+}

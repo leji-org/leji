@@ -39,9 +39,9 @@ export interface CompactResult {
 }
 
 /**
- * Canonical changelog order (machine-readable-surface.md req 3): ascending by
- * `date`, then `id` as the tiebreak. `date` is UTC, so a lexical compare is
- * chronological; `id` is unique, so the pair is a total order.
+ * Canonical changelog order (machine-readable-surface.md req 3): ascending `date`,
+ * then `id` tiebreak. `date` is UTC so lexical compare is chronological; `id` is
+ * unique so the pair is a total order.
  */
 function compareByDateId(a: ChangelogEntry, b: ChangelogEntry): number {
    const ad = String(a.date ?? '');
@@ -98,12 +98,10 @@ function today(): string {
 }
 
 /**
- * Seed the machine changelog if the layer claims `indexed` (or higher) and the
- * file is missing. The changelog is an indexed-level surface, so `leji init` only
- * writes it at that level; this lets `leji index` complete the indexed surface for
- * a layer that claimed indexed after the fact (e.g. an upgrade from core). Returns
- * the seeded path, or null when nothing was written (not indexed, already present,
- * or a symlink would escape the root). Never overwrites an existing changelog.
+ * Seed the machine changelog if the layer claims `indexed`+ and the file is missing
+ * (lets `leji index` complete the indexed surface for a layer upgraded after init).
+ * Returns the seeded path, or null when nothing was written (not indexed, already
+ * present, or a symlink would escape the root). Never overwrites.
  */
 export function seedChangelogIfMissing(root: string, manifest: Manifest): string | null {
    if (!levelAtLeast(claimedLevel(manifest), 'indexed')) return null;
@@ -132,19 +130,18 @@ export function seedChangelogIfMissing(root: string, manifest: Manifest): string
 }
 
 /**
- * Compact the oldest entries of the changelog. An entry folds iff every ACTIVE
- * flag marks it foldable: `keep` ⇒ its canonical index is older than the newest
- * `keep` entries; `before` ⇒ its date is strictly before `before`. Inactive
- * flags are neutral. Because both predicates select a prefix of the canonical
- * (date, id) order, the folded set is always a contiguous run from the oldest
- * end, exactly what the append-only rule requires. The folded entries are
- * dropped and a single `compaction` entry is appended, recording the count and
- * the id range it removed. Surviving entries keep their original array order.
+ * Compact the oldest changelog entries. An entry folds iff every ACTIVE flag marks
+ * it foldable: `keep` ⇒ older than the newest `keep` entries; `before` ⇒ dated
+ * strictly before `before`; inactive flags are neutral. Both predicates select a
+ * prefix of canonical (date, id) order, so the folded set is a contiguous run from
+ * the oldest end, as the append-only rule requires. Folded entries are dropped and
+ * one `compaction` entry (count + removed id range) is appended; survivors keep
+ * their original array order.
  */
 export function compactChangelog(root: string, manifest: Manifest, opts: CompactOptions): CompactResult {
    const rel = effectiveChangelogPath(manifest);
-   // Validate options at the API level too (the CLI also checks --keep): SDK
-   // callers must not be able to fold with keep < 1 or a malformed `before` date.
+   // Validate at the API level too: SDK callers must not fold with keep < 1 or a
+   // malformed `before` date.
    if (opts.keep !== undefined && (!Number.isInteger(opts.keep) || opts.keep < 1)) {
       return {
          findings: [finding('invalid-argument', 'error', 'keep must be a positive integer', rel)],
@@ -176,8 +173,7 @@ export function compactChangelog(root: string, manifest: Manifest, opts: Compact
       ? log.entries.filter((e): e is ChangelogEntry => e !== null && typeof e === 'object')
       : [];
 
-   // Canonical order decides which entries are "oldest"; the index of each
-   // entry in that order drives the `keep` predicate.
+   // Canonical order decides which entries are "oldest" and drives `keep`.
    const canonical = [...original].sort(compareByDateId);
    const canonicalIndex = new Map<ChangelogEntry, number>();
    canonical.forEach((e, i) => canonicalIndex.set(e, i));

@@ -1,7 +1,6 @@
 package conformancetest
 
-// Go equivalents of the `changelog compact` units in units.test.ts: keep/before/
-// both/no-op/id-dedupe, and that the result still passes append-only discipline.
+// Go equivalents of the `changelog compact` units in units.test.ts.
 
 import (
 	"encoding/json"
@@ -20,7 +19,7 @@ import (
 const changelogRel = "docs/context-changelog.json"
 
 // seedWithEntries copies the example into a fresh git repo whose changelog
-// carries `count` dated entries, then commits it (so append-only has a baseline).
+// carries `count` dated entries and commits it (an append-only baseline).
 func seedWithEntries(t *testing.T, count int) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -127,12 +126,10 @@ func TestCompactKeepFoldsOldest(t *testing.T) {
 		}
 	}
 
-	// The compacted changelog passes append-only discipline against the baseline.
 	check := validate.CheckChangelogAppendOnly(dir, changelogRel, false)
 	if errs := errorFindings(check.Findings); len(errs) != 0 {
 		t.Fatalf("append-only errors after compact: %v", errs)
 	}
-	// And the whole layer still validates clean.
 	v := validate.ValidateLayer(dir, false)
 	if errs := errorFindings(v.Findings); len(errs) != 0 {
 		t.Fatalf("layer validate errors after compact: %v", errs)
@@ -216,7 +213,6 @@ func TestCompactDedupesID(t *testing.T) {
 	}
 }
 
-// jsonRoundTrip is a small guard that the serializer emits valid JSON.
 func TestCompactProducesValidJSON(t *testing.T) {
 	dir := seedWithEntries(t, 4)
 	m := loadM(t, dir)

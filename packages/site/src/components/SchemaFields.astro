@@ -56,7 +56,7 @@ const fields = Object.entries(schema.properties ?? {})
       fields.map((f) => (
          <>
             <dt id={f.name}>
-               <a class="anchor" href={`#${f.name}`} aria-label={`Link to ${f.name}`} tabindex="-1">
+               <a class="anchor" href={`#${f.name}`} aria-label={`Link to ${f.name}`}>
                   #
                </a>
                <code class="fname">{f.name}</code>
@@ -109,13 +109,11 @@ const fields = Object.entries(schema.properties ?? {})
 </dl>
 
 <style>
-   /* The field reference leans on spacing and indentation, not boxes or rules:
-      each field is set off by rhythm, nested fields by a step of indentation. */
+   /* Set off by spacing and indentation, not boxes or rules. */
    .field-list {
       margin: 1.8rem 0 0;
    }
 
-   /* ── top-level field entry ──────────────────────────── */
    .field-list dt {
       position: relative;
       margin-top: 2.5rem;
@@ -147,18 +145,27 @@ const fields = Object.entries(schema.properties ?? {})
       top: 0;
       font-family: var(--mono);
       font-weight: 600;
-      color: var(--gold);
+      /* Text-weight gold: the accent measures 1.53:1 on paper, and this is an
+         interactive control, not decoration. */
+      color: var(--gold-ink);
       text-decoration: none;
       opacity: 0;
       transition: opacity 0.15s;
    }
    .field-list dt:hover .anchor,
-   .anchor:focus {
+   .anchor:focus-visible {
       opacity: 1;
    }
+   /* Narrow screens hide it visually, but a keyboard user must still be able to
+      reach and see it, so it returns on focus rather than being display:none. */
    @media (max-width: 560px) {
       .anchor {
-         display: none;
+         opacity: 0;
+         pointer-events: none;
+      }
+      .anchor:focus-visible {
+         opacity: 1;
+         pointer-events: auto;
       }
    }
 
@@ -197,9 +204,7 @@ const fields = Object.entries(schema.properties ?? {})
       font-size: 0.82em;
    }
 
-   /* ── nesting: indentation plus a tightening rhythm ────── */
-   /* a child group hugs its parent; leaf fields in a group sit close; only
-      separate sub-objects get the air. depth tightens, it never loosens. */
+   /* nesting tightens with depth: leaf fields sit close, only sub-objects get air */
    .object-body {
       margin-top: 0.8rem;
       padding-left: 1.4rem;

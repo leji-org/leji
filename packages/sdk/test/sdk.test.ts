@@ -22,9 +22,30 @@ function tmpdir(): string {
    return fs.mkdtempSync(path.join(os.tmpdir(), 'leji-test-'));
 }
 
-function copyExample(): string {
+/** A temp dir that is a real git repository. Conformance evaluates the directory it
+ * is given, so a layer outside a repository fails `core`'s git requirement: any test
+ * asserting a verified level has to run somewhere git can answer. */
+function gitTmpdir(): string {
    const dir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+   execFileSync('git', ['config', 'user.name', 'Test'], { cwd: dir });
+   return dir;
+}
+
+/** Commit whatever is in the tree. A repository is not enough: an unborn repo has no
+ * committed state, so append-only discipline is unverifiable and `indexed` cannot
+ * verify. A fixture that only ran `git init` would assert a level it has not earned,
+ * which is the false positive this whole change removes. */
+function commitAll(dir: string): void {
+   execFileSync('git', ['add', '-A'], { cwd: dir });
+   execFileSync('git', ['commit', '-qm', 'baseline'], { cwd: dir });
+}
+
+function copyExample(): string {
+   const dir = gitTmpdir();
    fs.cpSync(exampleDir, dir, { recursive: true });
+   commitAll(dir);
    return dir;
 }
 
@@ -81,9 +102,12 @@ test('init --yes produces a layer that validates clean (core)', async () => {
    );
 });
 
-test('init --yes at indexed level verifies its claim immediately', async () => {
-   const dir = tmpdir();
+test('init --yes at indexed level verifies its claim once committed', async () => {
+   const dir = gitTmpdir();
    await initLayer({ dir, yes: true, level: 'indexed', name: 'acme-context' });
+   // Committed, because append-only discipline compares against HEAD: an uncommitted
+   // scaffold has no baseline and correctly reports `unknown` rather than verifying.
+   commitAll(dir);
    const validation = validateLayer(dir);
    // Not a git repo: append-only is unverifiable (warning); no errors allowed.
    assert.deepEqual(
@@ -107,8 +131,9 @@ test('init emits no machine block (core), the minimal manifest', async () => {
 });
 
 test('indexed init: no machine key, yet the index and changelog are written at the defaults', async () => {
-   const dir = tmpdir();
+   const dir = gitTmpdir();
    const result = await initLayer({ dir, yes: true, level: 'indexed', name: 'acme-context' });
+   commitAll(dir);
    assert.equal(result.manifest.machine, undefined, 'no machine key even at indexed level');
    const written = JSON.parse(fs.readFileSync(path.join(dir, 'leji.json'), 'utf8'));
    assert.equal('machine' in written, false, 'leji.json on disk has no machine key');
@@ -164,6 +189,39 @@ test('freshness reports expired horizons', () => {
    assert.equal(report.findings[0].severity, 'warning');
    const strict = freshnessReport(dir, manifest!, true);
    assert.equal(strict.findings[0].severity, 'error');
+});
+
+// Conformance evaluates the directory it is given. A copy outside a git repository
+// does not meet `core`'s first requirement, and saying so is the whole point: before
+// this, the git item reported `manual`, `manual` was excluded from scoring, and a
+// no-git copy was awarded `core` while `validate` was warning that it could not
+// claim conformance. `tmpdir()` is deliberate here: it is outside any repository,
+// which is exactly the condition under test.
+test('a copy outside git does not verify, and says which requirement failed', async () => {
+   const dir = tmpdir();
+   await initLayer({ dir, yes: true, level: 'indexed', name: 'acme-context' });
+
+   const result = conformanceReport(dir);
+   assert.equal(result.claimedLevel, 'indexed');
+   assert.equal(result.verifiedLevel, null, 'a copy that fails core verifies nothing');
+
+   const git = result.items.find((i) => i.id === 'git');
+   assert.equal(git?.status, 'fail', 'no repository is gathered evidence, not missing evidence');
+
+   // `manual` is reserved for the tagged process-attested items; nothing else uses it.
+   const manualIds = result.items
+      .filter((i) => i.status === 'manual')
+      .map((i) => i.id)
+      .sort();
+   assert.deepEqual(manualIds, ['ci-validates', 'consumed-externally', 'review-gate', 'stale-pin-reporting']);
+
+   // A conditional requirement that does not apply is its own outcome, not `manual`.
+   assert.equal(result.items.find((i) => i.id === 'sibling-mounts')?.status, 'not-applicable');
+
+   assert.ok(
+      result.findings.some((f) => f.rule === 'conformance-claim'),
+      'the claim is refuted, because the failure is definite',
+   );
 });
 
 test('conformance fails an over-claim', () => {

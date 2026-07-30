@@ -1,8 +1,7 @@
 package conformancetest
 
 // Shared-fixture conformance: the Go SDK must report exactly what the fixture
-// contract (and therefore the Node and Python SDKs) expects. Mirrors
-// packages/sdk/test/fixtures.test.ts and packages/sdk-py/tests/test_fixtures.py.
+// contract (and so the Node and Python SDKs) expects.
 
 import (
 	"encoding/json"
@@ -43,7 +42,6 @@ type expected struct {
 
 func fixturesDir(t *testing.T) string {
 	t.Helper()
-	// internal/commands -> sdk-go -> packages -> repo root.
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -115,8 +113,8 @@ func TestFixtureValidate(t *testing.T) {
 				t.Fatalf("findings mismatch for %s:\n got=%v\nwant=%v", name, got, want)
 			}
 
-			// When an expected finding carries a message, the actual finding
-			// with the same (path, rule, severity) triple must match it too.
+			// An expected message must match the actual finding sharing its
+			// (path, rule, severity) triple.
 			messagesByTriple := map[string][]string{}
 			for _, f := range result.Findings {
 				k := tripleFinding(f)
@@ -159,7 +157,10 @@ func TestFixtureConformance(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join(fd, name)
-			result := conformance.Report(dir)
+			result, err := conformance.Report(dir, false)
+			if err != nil {
+				t.Fatalf("conformance: %v", err)
+			}
 			claimed := result.ClaimedLevel
 			if claimed == "" {
 				claimed = "none"

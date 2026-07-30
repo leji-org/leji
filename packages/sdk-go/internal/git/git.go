@@ -5,6 +5,7 @@ package git
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -22,11 +23,29 @@ func run(root string, args ...string) (string, bool) {
 	defer cancel()
 	full := append([]string{"-C", root}, args...)
 	cmd := exec.CommandContext(ctx, "git", full...)
+	// `git status` refreshes and can rewrite `.git/index`, and a promisor clone can
+	// reach the network from a command documented as offline and non-mutating. The
+	// mounts resolver already sets both; these are the same guarantees everywhere else.
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1")
 	out, err := cmd.Output()
 	if err != nil {
 		return "", false
 	}
 	return string(out), true
+}
+
+// OriginURL returns the origin remote URL, or ("", false) when not in git or
+// no origin is configured.
+func OriginURL(root string) (string, bool) {
+	out, ok := run(root, "remote", "get-url", "origin")
+	if !ok {
+		return "", false
+	}
+	s := strings.TrimSpace(out)
+	if s == "" {
+		return "", false
+	}
+	return s, true
 }
 
 // Toplevel returns the absolute path of the git worktree containing root, or
@@ -61,11 +80,29 @@ func LastModified(root, relPath string) (string, bool) {
 	return date, true
 }
 
-// WorkingTreeClean reports the working-tree state for the init/adopt dirty-guard.
-// isRepo is false when root is not inside a git repository (no commit-backed undo
-// exists, so the guard does not apply) or git failed; when isRepo is true, clean
-// reports whether the tree has no uncommitted changes (staged, unstaged, or
-// untracked). Mirrors the Node SDK's workingTreeClean (null/true/false).
+// TrackedUnder returns the tracked files under a repository-relative path; ok
+// is false when root is not in git. Backs the onboarding-workspace preflight:
+// `.leji/` must hold no tracked files before private artifacts may land there.
+func TrackedUnder(root, rel string) (files []string, ok bool) {
+	if _, inGit := Toplevel(root); !inGit {
+		return nil, false
+	}
+	out, ran := run(root, "ls-files", "--", rel)
+	if !ran {
+		return nil, false
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, true
+}
+
+// WorkingTreeClean backs the init/adopt dirty-guard. isRepo is false outside git
+// or on failure (no commit-backed undo exists, so the guard does not apply);
+// when true, clean reports no uncommitted changes (staged, unstaged, untracked).
 func WorkingTreeClean(root string) (clean bool, isRepo bool) {
 	top, ok := Toplevel(root)
 	if !ok {
@@ -89,9 +126,18 @@ func ShowHead(root, relPath string) (string, bool) {
 	if err != nil {
 		resolvedTop = top
 	}
-	resolvedFile, err := filepath.EvalSymlinks(filepath.Join(root, relPath))
+	// Absolutize before resolving: Toplevel returns an absolute path, and
+	// EvalSymlinks on a relative input returns a relative result, so filepath.Rel
+	// below would fail on the default root of ".". That failure was invisible while
+	// an unreadable HEAD counted as verified, which meant the append-only check
+	// silently never ran with a relative root.
+	absRoot, err := filepath.Abs(root)
 	if err != nil {
-		resolvedFile = filepath.Join(root, relPath)
+		absRoot = root
+	}
+	resolvedFile, err := filepath.EvalSymlinks(filepath.Join(absRoot, relPath))
+	if err != nil {
+		resolvedFile = filepath.Join(absRoot, relPath)
 	}
 	rel, err := filepath.Rel(resolvedTop, resolvedFile)
 	if err != nil {

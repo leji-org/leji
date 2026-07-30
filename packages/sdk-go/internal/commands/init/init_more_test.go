@@ -15,11 +15,9 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 )
 
-// The default owner placeholder "<named owner>" (used when no git identity is
-// configured) must serialize literally in leji.json, matching Node's
-// JSON.stringify and Python's json.dumps. Go's encoding/json HTML-escapes <, >,
-// & by default; the ordered encoder disables that so the manifest is
-// byte-identical across SDKs.
+// The "<named owner>" placeholder must serialize literally in leji.json to stay
+// byte-identical across SDKs (Node JSON.stringify / Python json.dumps); the
+// ordered encoder disables Go's default HTML-escaping of <, >, &.
 func TestSerializeManifestDoesNotHTMLEscapeOwner(t *testing.T) {
 	a := defaultAnswers(t.TempDir(), Options{})
 	a.ownerName = "<named owner>"
@@ -29,8 +27,7 @@ func TestSerializeManifestDoesNotHTMLEscapeOwner(t *testing.T) {
 	if !bytes.Contains(out, []byte("<named owner>")) {
 		t.Fatalf("leji.json should contain the literal owner placeholder; got:\n%s", out)
 	}
-	// The manifest has no legitimate \u escapes, so any backslash-u proves a
-	// character (here <, >, or &) was HTML-escaped instead of emitted literally.
+	// No legitimate \u escapes exist, so any \u proves <, >, or & was HTML-escaped.
 	if bytes.Contains(out, []byte{'\\', 'u'}) {
 		t.Fatalf("leji.json must not contain \\u escapes (HTML escaping of <, >, &); got:\n%s", out)
 	}
@@ -59,8 +56,7 @@ func TestResolveUnderRoot(t *testing.T) {
 	}
 }
 
-// Interactive init with all-blank input: every prompt falls back to its default,
-// producing a core layer with domain+system+decisions mapped.
+// All-blank interactive input: every prompt falls back to default (core layer).
 func TestInitLayerInteractiveDefaults(t *testing.T) {
 	res, err := InitLayer(Options{Dir: t.TempDir(), In: strings.NewReader(strings.Repeat("\n", 12)), Out: io.Discard})
 	if err != nil {
@@ -79,9 +75,8 @@ func TestInitLayerInteractiveDefaults(t *testing.T) {
 	}
 }
 
-// Interactive init with explicit answers: the answers are honored (name, root,
-// the practice category from a `y`, the indexed level) and indexed writes the
-// machine index + changelog.
+// Explicit answers are honored (name, root, practice category, indexed level);
+// indexed writes the index + changelog.
 func TestInitLayerInteractiveAnswers(t *testing.T) {
 	answers := "acme\nA layer.\nctx\nJo\njo@example.com\ny\ny\ny\nn\ny\n"
 	res, err := InitLayer(Options{Dir: t.TempDir(), In: strings.NewReader(answers), Out: io.Discard})
@@ -114,7 +109,6 @@ func TestInitLayerInteractiveAnswers(t *testing.T) {
 	}
 }
 
-// hasMachineKey reports whether the on-disk leji.json carries a "machine" key.
 func hasMachineKey(t *testing.T, dir string) bool {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(dir, "leji.json"))
@@ -129,8 +123,8 @@ func hasMachineKey(t *testing.T, dir string) bool {
 	return ok
 }
 
-// init emits no machine block (core): the minimal manifest. Decisions and agents
-// still resolve to their defaults under rootPath.
+// Core init emits no machine block; decisions and agents still resolve to their
+// defaults under rootPath.
 func TestInitEmitsNoMachineBlockCore(t *testing.T) {
 	dir := t.TempDir()
 	res, err := InitLayer(Options{Dir: dir, Yes: true})
@@ -150,9 +144,8 @@ func TestInitEmitsNoMachineBlockCore(t *testing.T) {
 	}
 }
 
-// indexed init: no machine key, yet the index and changelog are written at the
-// defaults and the resolvers find them (validate has no errors, conformance
-// verifies indexed).
+// Indexed init: no machine key, yet index and changelog are written at the
+// defaults and the resolvers find them.
 func TestIndexedInitNoMachineKeyButFilesAtDefaults(t *testing.T) {
 	dir := t.TempDir()
 	res, err := InitLayer(Options{Dir: dir, Yes: true, Level: "indexed", Name: "acme-context"})
@@ -174,9 +167,11 @@ func TestIndexedInitNoMachineKeyButFilesAtDefaults(t *testing.T) {
 		t.Fatalf("written should include docs/context-index.json, got %v", res.Written)
 	}
 
-	// A git baseline lets conformance verify indexed (changelog append-only +
-	// git-required derive from it).
+	// Git baseline lets conformance verify indexed (changelog append-only +
+	// git-required derive from it). A repository alone is not enough: append-only
+	// compares against HEAD, so the tree has to be committed.
 	gitInit(t, dir)
+	gitCommitAll(t, dir)
 
 	validation := validate.ValidateLayer(dir, false)
 	for _, f := range validation.Findings {
@@ -184,13 +179,17 @@ func TestIndexedInitNoMachineKeyButFilesAtDefaults(t *testing.T) {
 			t.Fatalf("indexed init should validate without errors, got %v", validation.Findings)
 		}
 	}
-	if got := conformance.Report(dir).VerifiedLevel; got != "indexed" {
+	report, rerr := conformance.Report(dir, false)
+	if rerr != nil {
+		t.Fatalf("conformance: %v", rerr)
+	}
+	if got := report.VerifiedLevel; got != "indexed" {
 		t.Fatalf("conformance verifiedLevel = %q, want indexed", got)
 	}
 }
 
-// TestInitWritesGitignore checks that init writes a repo-root .gitignore containing
-// the exact line `.leji/`, idempotently and without adding it to the written list.
+// init writes `.leji/` to a repo-root .gitignore, idempotently and without
+// adding it to the written list.
 func TestInitWritesGitignore(t *testing.T) {
 	dir := t.TempDir()
 	res, err := InitLayer(Options{Dir: dir, Yes: true})

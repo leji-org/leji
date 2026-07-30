@@ -25,6 +25,8 @@ ENTRY_KEY_ORDER = [
     "path",
     "title",
     "category",
+    "kind",
+    "date",
     "summary",
     "tags",
     "owners",
@@ -33,6 +35,10 @@ ENTRY_KEY_ORDER = [
     "freshness",
     "links",
 ]
+
+MOUNT_KEY_ORDER = ["path", "name", "owner", "role", "categories", "topics", "requiredWhen"]
+
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 @dataclass
@@ -87,14 +93,22 @@ def generate_index(root: str, manifest: Manifest) -> IndexResult:
     parent directory).
     """
     findings: list[Finding] = []
-    docs = scan_categories(root, manifest)
+    scan = scan_categories(root, manifest)
+    findings.extend(scan.findings)
+    docs = scan.docs
     stored = load_stored_index(root, manifest)
     stored_by_path: dict[str, dict] = {}
-    stored_by_hash: dict[str, dict] = {}
+    # Carry an id by content-hash only when that hash maps to exactly one stored
+    # entry: two byte-identical documents share a hash, so a hash-carry there would
+    # misattribute one document's id to the other on a move.
+    hash_entries: dict[str, list[dict]] = {}
     for stored_entry in (stored or {}).get("entries", []):
         stored_by_path[stored_entry.get("path", "")] = stored_entry
         if stored_entry.get("contentHash"):
-            stored_by_hash[stored_entry["contentHash"]] = stored_entry
+            hash_entries.setdefault(stored_entry["contentHash"], []).append(stored_entry)
+    stored_by_hash: dict[str, dict] = {
+        h: arr[0] for h, arr in hash_entries.items() if len(arr) == 1
+    }
 
     in_git = git_toplevel(root) is not None
     today = dt.datetime.now(dt.timezone.utc).date().isoformat()
@@ -145,7 +159,14 @@ def generate_index(root: str, manifest: Manifest) -> IndexResult:
             or _first_heading(doc.body)
             or posixpath.basename(doc.rel_path).removesuffix(".md"),
             "category": doc.category,
+            "kind": doc.kind,
         }
+        if doc.kind == "record":
+            # A record's date comes only from explicit, valid frontmatter; nothing
+            # is scraped from prose or filename conventions.
+            date = _str(fm.get("date"))
+            if date and _DATE.fullmatch(date):
+                entry["date"] = date
         summary = _str(fm.get("summary")) or (carried or {}).get("summary")
         if summary:
             entry["summary"] = summary
@@ -166,6 +187,42 @@ def generate_index(root: str, manifest: Manifest) -> IndexResult:
             entry["links"] = links
         entries.append(entry)
 
+    # Id churn: a stored id whose path is gone and that did not reappear at a new path
+    # vanished (a document moved AND edited with no frontmatter id mints a fresh slug).
+    # Inbound references to the old id now dangle; warn so it is caught, not silent.
+    new_ids = {e["id"] for e in entries}
+    current_paths = {d.rel_path for d in docs}
+    for stored_entry in (stored or {}).get("entries", []):
+        p = stored_entry.get("path", "")
+        sid = stored_entry.get("id", "")
+        if p not in current_paths and sid not in new_ids:
+            findings.append(
+                Finding(
+                    "id-vanished",
+                    "warning",
+                    f'stored id "{sid}" (was {p}) did not reappear; references to it now dangle. '
+                    "Declare a frontmatter id to keep ids stable across moves.",
+                    p,
+                )
+            )
+
+    mounts: list[dict] = []
+    federation = manifest.get("federation") or {}
+    for mt in federation.get("mounts") or []:
+        rec: dict = {"name": mt["name"], "source": mt["source"], "pin": mt["pin"]}
+        if mt.get("trackingRef"):
+            rec["trackingRef"] = mt["trackingRef"]
+        rec["owner"] = mt["owner"]
+        if mt.get("role"):
+            rec["role"] = mt["role"]
+        if mt.get("categories"):
+            rec["categories"] = mt["categories"]
+        if mt.get("topics"):
+            rec["topics"] = mt["topics"]
+        if mt.get("requiredWhen"):
+            rec["requiredWhen"] = mt["requiredWhen"]
+        mounts.append(rec)
+
     index = {
         "$schema": "https://leji.org/schemas/v1.0/context-index.schema.json",
         "schemaVersion": "1.0",
@@ -174,6 +231,8 @@ def generate_index(root: str, manifest: Manifest) -> IndexResult:
         "rootPath": manifest["rootPath"],
         "entries": entries,
     }
+    if mounts:
+        index["mounts"] = mounts
     return IndexResult(index=index, findings=findings)
 
 
@@ -234,10 +293,19 @@ def check_index(root: str, manifest: Manifest) -> IndexResult:
 
     regen = generate_index(root, manifest)
     assert regen.index is not None  # generate_index always produces an index
+    # A regeneration that itself errors (missing/malformed index file, a
+    # category-conflict, a dangling entry) means the tree cannot be indexed
+    # cleanly, so the stored index cannot be current: fail rather than compare a
+    # partial regen against it and falsely pass.
+    regen_errors = [f for f in regen.findings if f.severity == "error"]
+    if regen_errors:
+        findings.extend(regen_errors)
+        return IndexResult(index=stored, findings=findings, stale=True)
     want = _stable_stringify(
         {
             "rootPath": regen.index["rootPath"],
             "entries": [_comparable(e) for e in regen.index["entries"]],
+            "mounts": regen.index.get("mounts", []),
         }
     )
     got = _stable_stringify(
@@ -247,6 +315,7 @@ def check_index(root: str, manifest: Manifest) -> IndexResult:
                 _comparable(e)
                 for e in sorted(stored.get("entries", []), key=lambda e: e.get("path", ""))
             ],
+            "mounts": stored.get("mounts", []),
         }
     )
     if want != got:
@@ -271,7 +340,23 @@ def check_index(root: str, manifest: Manifest) -> IndexResult:
     dup = duplicate_id_findings(
         [(e.get("id"), e.get("path", "")) for e in stored.get("entries", [])], "index"
     )
-    return IndexResult(index=stored, findings=dup, stale=False)
+    return IndexResult(index=stored, findings=[*regen.findings, *dup], stale=False)
+
+
+def _ordered_mount(m: dict) -> dict:
+    out: dict = {}
+    for key in MOUNT_KEY_ORDER:
+        if key not in m:
+            continue
+        if key == "owner":
+            owner = m["owner"]
+            owner_out = {"name": owner["name"]}
+            if owner.get("contact") is not None:
+                owner_out["contact"] = owner["contact"]
+            out["owner"] = owner_out
+        else:
+            out[key] = m[key]
+    return out
 
 
 def serialize_index(index: dict) -> str:
@@ -284,12 +369,19 @@ def serialize_index(index: dict) -> str:
         "rootPath": index["rootPath"],
         "entries": [{key: e[key] for key in ENTRY_KEY_ORDER if key in e} for e in index["entries"]],
     }
+    if index.get("mounts"):
+        out["mounts"] = [_ordered_mount(m) for m in index["mounts"]]
     return json.dumps(out, indent=2, ensure_ascii=False) + "\n"
 
 
 def write_index(root: str, manifest: Manifest) -> IndexResult:
     rel = effective_index_path(manifest)
     result = generate_index(root, manifest)
+    # Refuse to write a partial or incorrect index when generation hit a hard
+    # error (e.g. category-conflict, index-file-parse, a dangling entry): writing
+    # would persist a half-correct artifact that later reads trust.
+    if any(f.severity == "error" for f in result.findings):
+        return result
     if result.index is not None:
         abs_path = Path(root) / rel
         # Contain before creating any directory: resolved_within_root resolves the

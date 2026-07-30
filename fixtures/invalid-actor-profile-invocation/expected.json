@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "actor-profile-invocation",
+        "severity": "error",
+        "path": "docs/agents/reviewer.md"
+      }
+    ]
+  }
+}

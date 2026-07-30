@@ -1,0 +1,15 @@
+Vendored webfont licenses
+
+Source Sans Pro (source-sans-pro-*.woff2)
+  Copyright 2010, 2012 Adobe Systems Incorporated (http://www.adobe.com/),
+  with Reserved Font Name 'Source'. All Rights Reserved. Source is a
+  trademark of Adobe Systems Incorporated in the United States and/or
+  other countries.
+  Licensed under the SIL Open Font License, Version 1.1.
+  https://openfontlicense.org
+
+Roboto Mono (roboto-mono-*.woff2)
+  Copyright 2015 The Roboto Mono Project Authors
+  (https://github.com/googlefonts/robotomono)
+  Licensed under the Apache License, Version 2.0.
+  http://www.apache.org/licenses/LICENSE-2.0

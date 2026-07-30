@@ -6,11 +6,31 @@
   "rootPath": "docs/",
   "bootProfilePath": "docs/boot-profile.md",
   "categories": {
-    "domain": { "paths": ["docs/domain/"] },
-    "system": { "paths": ["docs/system/"] },
-    "practice": { "paths": ["docs/practice/"] },
-    "governance": { "paths": ["docs/governance/"] },
-    "decisions": { "paths": ["docs/decisions/"] }
+    "domain": {
+      "indexes": [
+        "docs/context/domain.md"
+      ]
+    },
+    "system": {
+      "indexes": [
+        "docs/context/system.md"
+      ]
+    },
+    "practice": {
+      "indexes": [
+        "docs/context/practice.md"
+      ]
+    },
+    "governance": {
+      "indexes": [
+        "docs/context/governance.md"
+      ]
+    },
+    "decisions": {
+      "indexes": [
+        "docs/context/decisions.md"
+      ]
+    }
   },
   "machine": {
     "indexPath": "docs/context-index.json",
@@ -23,8 +43,14 @@
     "reviewer": "docs/agents/reviewer.md"
   },
   "owners": {
-    "primary": { "name": "Sam Park", "contact": "sam@acme.example" },
-    "continuity": { "name": "Ada Okafor", "contact": "ada@acme.example" }
+    "primary": {
+      "name": "Sam Park",
+      "contact": "sam@acme.example"
+    },
+    "continuity": {
+      "name": "Ada Okafor",
+      "contact": "ada@acme.example"
+    }
   },
   "conformance": {
     "claimedLevel": "federated",
@@ -33,16 +59,45 @@
   "federation": {
     "mounts": [
       {
-        "path": "docs/product-context/",
         "name": "acme-product-context",
-        "owner": { "name": "Product team", "contact": "product@acme.example" },
+        "source": "https://github.com/acme/product-context",
+        "pin": "7d3f2a19c4e8b6a0d5f1c2e9b8a7f6d5c4b3a2e1",
+        "trackingRef": "refs/heads/main",
+        "owner": {
+          "name": "Product team",
+          "contact": "product@acme.example"
+        },
         "role": "product-side context, owned and curated by the product team",
-        "source": "https://github.com/acme/product-context"
+        "categories": [
+          "domain",
+          "decisions"
+        ],
+        "topics": [
+          "pricing",
+          "entitlements",
+          "billing plans"
+        ],
+        "requiredWhen": [
+          "a task changes how a plan, price, or entitlement is represented"
+        ]
       }
     ]
   },
-  "vendorAdapters": ["CLAUDE.md", "AGENTS.md"],
+  "vendorAdapters": [
+    "CLAUDE.md",
+    "AGENTS.md"
+  ],
   "viewer": {
-    "port": 5354
+    "port": 5354,
+    "title": "Acme Billing",
+    "logo": "assets/brand.svg",
+    "favicon": "assets/icon.svg",
+    "pins": [
+      "docs/dashboard.md",
+      "docs/TODO.md"
+    ],
+    "theme": {
+      "primary": "#223F93"
+    }
   }
 }

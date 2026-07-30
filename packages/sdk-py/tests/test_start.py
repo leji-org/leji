@@ -41,7 +41,12 @@ def fake_io(answer: str, result: LaunchResult | None = None):
     launches: list[tuple[str, str]] = []
     cwds: list[str | None] = []
 
-    def launch(bin_name: str, prompt_arg: str, cwd: str | None = None) -> LaunchResult:
+    def launch(
+        bin_name: str,
+        prompt_arg: str,
+        cwd: str | None = None,
+        host_args: list[str] | None = None,
+    ) -> LaunchResult:
         launches.append((bin_name, prompt_arg))
         cwds.append(cwd)
         return result if result is not None else LaunchResult(started=True)

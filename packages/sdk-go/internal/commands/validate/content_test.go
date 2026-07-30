@@ -41,26 +41,22 @@ func hasFinding(res validate.Result, rule, path string) bool {
 	return false
 }
 
-// The thin-category lint is precise at its boundary: a domain doc with exactly two
-// concrete bullets is still flagged content-thin for docs/domain/, but a third
-// concrete bullet clears the threshold. Mirrors the Node SDK boundary test.
+// content-thin boundary: two concrete bullets still flag, a third clears. Mirrors Node SDK.
 func TestContentThinCategoryBoundary(t *testing.T) {
 	two := initLayer(t)
 	writeFile(t, two, "docs/domain/glossary.md", "# Glossary\n\n- Real term one.\n- Real term two.\n")
-	if !hasFinding(validate.ValidateLayer(two, true), "content-thin", "docs/domain/") {
-		t.Fatal("two concrete bullets should still be content-thin for docs/domain/")
+	if !hasFinding(validate.ValidateLayer(two, true), "content-thin", "docs/context/domain.md") {
+		t.Fatal("two concrete bullets should still be content-thin for docs/context/domain.md")
 	}
 
 	three := initLayer(t)
 	writeFile(t, three, "docs/domain/glossary.md", "# Glossary\n\n- One.\n- Two.\n- Three.\n")
-	if hasFinding(validate.ValidateLayer(three, true), "content-thin", "docs/domain/") {
+	if hasFinding(validate.ValidateLayer(three, true), "content-thin", "docs/context/domain.md") {
 		t.Fatal("three concrete bullets should clear the content-thin threshold")
 	}
 }
 
-// The placeholder lint catches angle-bracket stubs, not only TODO: markers. A doc
-// whose only suspicious text is `<describe an invariant here>` still yields a
-// content-placeholder finding. Mirrors the Node SDK placeholder test.
+// content-placeholder catches angle-bracket stubs, not just TODO: markers. Mirrors Node SDK.
 func TestContentPlaceholderAngleBracket(t *testing.T) {
 	dir := initLayer(t)
 	writeFile(t, dir, "docs/system/invariants.md", "# Invariants\n\n- <describe an invariant here>\n")
@@ -69,10 +65,8 @@ func TestContentPlaceholderAngleBracket(t *testing.T) {
 	}
 }
 
-// The content lint flags owner-unconfirmed inferences: a TODO(confirm-…) marker in
-// a category document and a status: proposed decision both yield content-unconfirmed
-// findings, the layer stays warning-only (no errors), and the TODO(confirm-…) marker
-// does not also trip content-placeholder. Mirrors the Node SDK test.
+// content-unconfirmed flags TODO(confirm-…) markers and status: proposed decisions,
+// warning-only, and TODO(confirm-…) must not also trip content-placeholder. Mirrors Node SDK.
 func TestContentUnconfirmedInferencesAndProposedDecisions(t *testing.T) {
 	dir := initLayer(t)
 	// An agent-drafted, owner-unconfirmed invariant marker.

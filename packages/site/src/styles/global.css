@@ -1,6 +1,3 @@
-/* Leji: engraved monument meets terminal.
-   The name is "legible"; typography is the hero. */
-
 :root {
    /* The site is intentionally light; this keeps native UI consistent and
       stops Chrome auto-dark / dark-mode extensions from inverting the brand. */
@@ -11,6 +8,11 @@
    --blue: #223F93;
    --blue-soft: #3D56A0;
    --gold: #FFBD6E;
+   /* Text-weight gold for light surfaces. Bright gold is a decorative accent and
+      measures 1.53:1 on paper, far under the 4.5:1 bar; this is 4.82:1. Use --gold
+      for marks on the dark blue band, --gold-ink for text and interactive marks on
+      paper. */
+   --gold-ink: #8A663B;
    --gold-bright: #FFCD92;
    --paper: #faf6ef;
    --paper-edge: #efe7d9;
@@ -20,8 +22,7 @@
    --line-dark: rgba(255, 189, 110, 0.25);
    --white: #fdfcf9;
 
-   /* Text tones on the blue surfaces, from most to least present.
-      Centralized so the high-contrast override below reaches all of them. */
+   /* Text tones on the blue surfaces; centralized so the contrast override reaches all */
    --white-strong: rgba(253, 252, 249, 0.92);
    --white-soft: rgba(253, 252, 249, 0.84);
    --white-faint: rgba(253, 252, 249, 0.62);
@@ -35,8 +36,7 @@
    --code-fz: 0.78rem;
 }
 
-/* High-contrast preference: full-opacity text tones, darker secondary ink,
-   stronger hairlines. Same palette, nothing redesigned. */
+/* High-contrast preference: full-opacity tones, darker ink, stronger hairlines */
 @media (prefers-contrast: more) {
    :root {
       --white-strong: var(--white);
@@ -52,6 +52,30 @@
 
 html {
    scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+   html { scroll-behavior: auto; }
+}
+
+/* Keyboard entry into the page content, past the header. Visible only on focus. */
+.skip-link {
+   position: absolute;
+   left: 0.75rem;
+   top: -3.5rem;
+   z-index: 100;
+   padding: 0.6rem 1.1rem;
+   border-radius: 0 0 7px 7px;
+   background: var(--gold-bright);
+   color: var(--blue-deep);
+   font-family: var(--mono);
+   font-size: 0.78rem;
+   letter-spacing: 0.06em;
+   text-decoration: none;
+   transition: top 0.14s ease;
+}
+.skip-link:focus {
+   top: 0;
 }
 
 body {
@@ -75,16 +99,16 @@ code, pre, kbd {
 /* header styles live in components/SiteHeader.astro */
 
 .wrap {
-   max-width: 1080px;
+   max-width: 1280px;
    margin: 0 auto;
    padding: 0 clamp(1.2rem, 4vw, 2.5rem);
 }
 
-/* ── doc pages (the reading room) ────────────────────── */
-
 .doc-shell {
    display: grid;
-   grid-template-columns: 230px minmax(0, 1fr);
+   /* wide enough for the longest section labels ("Machine-readable surface",
+      "Overview & vocabulary") to sit on one line at the nav font size */
+   grid-template-columns: 260px minmax(0, 1fr);
    gap: clamp(2rem, 5vw, 4.5rem);
    padding: 2.5rem 0 6rem;
 }
@@ -134,8 +158,7 @@ code, pre, kbd {
    content: counter(docnav, decimal-leading-zero) ' ';
    font-family: var(--mono);
    font-size: 0.7rem;
-   color: var(--gold);
-   filter: brightness(0.72);
+   color: var(--gold-ink);
 }
 
 .doc-nav a {
@@ -158,12 +181,11 @@ code, pre, kbd {
    font-weight: 600;
 }
 
-/* section sidebars: a numbered list for the spec, plain bulleted lists for the
-   reference and adopt groups */
+/* numbered list for the spec, plain bulleted lists for the other groups */
 .doc-nav ol.plain { counter-reset: none; list-style: none; }
-.doc-nav ol.plain a::before { content: '·  '; color: var(--gold); filter: none; }
+.doc-nav ol.plain a::before { content: '·  '; color: var(--gold-ink); }
 
-/* collapsible groups: the summary is the group heading, with a chevron */
+/* collapsible groups */
 .doc-nav details {
    margin: 0;
 }
@@ -200,8 +222,6 @@ code, pre, kbd {
    transform: rotate(90deg);
 }
 
-/* prose */
-
 .prose h1 {
    font-family: var(--serif-display);
    font-size: clamp(2rem, 4.5vw, 2.9rem);
@@ -222,11 +242,11 @@ code, pre, kbd {
 
 .prose h3 { font-size: 1.08rem; margin: 1.8rem 0 0.4rem; }
 
-/* grabbable per-section permalink: faint, revealed on heading hover/focus */
+/* per-section permalink: faint, revealed on heading hover/focus */
 .prose h2, .prose h3, .prose h4 { scroll-margin-top: 1.5rem; }
 .prose a.heading-anchor {
    margin-left: 0.4rem;
-   color: var(--gold);
+   color: var(--gold-ink);
    font-weight: 400;
    text-decoration: none;
    opacity: 0;
@@ -235,15 +255,13 @@ code, pre, kbd {
 .prose h2:hover a.heading-anchor,
 .prose h3:hover a.heading-anchor,
 .prose h4:hover a.heading-anchor,
-.prose a.heading-anchor:focus { opacity: 0.65; }
+.prose a.heading-anchor:focus { opacity: 1; }
 .prose a.heading-anchor:hover { opacity: 1; }
 
 .prose p, .prose li { max-width: 70ch; }
 
-/* GFM task lists (the conformance checklist) read as requirement criteria, not
-   a to-do: drop the redundant bullet, hide the native checkbox, and mark each
-   item with a small gold square (a requirement indicator, not an empty checkbox
-   that implies "not done" nor a checkmark that implies "certified"). The `- [ ]`
+/* GFM task lists (the conformance checklist) read as requirement criteria: a gold
+   square, not a checkbox that implies "not done" / "certified". The `- [ ]`
    markdown stays, so GitHub still renders native checkboxes. */
 .prose .contains-task-list {
    list-style: none;

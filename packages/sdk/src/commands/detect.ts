@@ -22,6 +22,13 @@ export function renderDetect(hosts: DetectedHost[]): string {
       const adapter = h.adapter ? `adapter ${h.adapter}` : 'directory-style adapter (wiring deferred)';
       lines.push(`   ${h.strength.padEnd(16)} ${h.name} — ${signals}; ${adapter}`);
    }
-   lines.push('', 'Wire one into a fresh layer with: leji init --agent <name>');
+   // `--agent` names the host Leji launches, and only claude-code and codex accept
+   // an inline prompt; suggesting `--agent <name>` for every detected host offered
+   // a command the flag rejects.
+   lines.push(
+      '',
+      '--agent takes a launchable host, claude-code or codex: leji init --agent claude-code, leji start --agent codex.',
+      'Any other host above enters the layer through its vendor-file redirect.',
+   );
    return lines.join('\n');
 }

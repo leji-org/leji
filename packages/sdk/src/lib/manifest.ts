@@ -1,7 +1,8 @@
 import * as path from 'node:path';
 import { type Finding, finding } from './findings.js';
-import { exists, isFile, readTextWithin } from './fsx.js';
+import { exists, isFile, joinUnderRoot, readTextWithin } from './fsx.js';
 import { SUPPORTED_LINES, schemaErrors } from './schemas.js';
+import { isScalarString } from './text.js';
 
 export const CATEGORY_IDS = ['domain', 'system', 'practice', 'governance', 'decisions'] as const;
 /** A context category: `domain`, `system`, `practice`, `governance`, or `decisions`. */
@@ -24,7 +25,7 @@ export interface Manifest {
    description?: string;
    rootPath: string;
    bootProfilePath: string;
-   categories: Partial<Record<CategoryId, { paths: string[] }>>;
+   categories: Partial<Record<CategoryId, { indexes: string[] }>>;
    machine?: {
       indexPath?: string;
       changelogPath?: string;
@@ -32,16 +33,39 @@ export interface Manifest {
       decisionRecordsPath?: string;
    };
    agents?: Record<string, string>;
+   /** Optional actor registry. Keys are stable actor ids; each actor declares the
+    * roles it can fill and a command template per role, because one actor can need
+    * different invocations in different roles. */
+   actors?: Record<string, { roles: string[]; commands: Record<string, string> }>;
    viewer?: {
       port?: number;
       logo?: string;
+      title?: string;
+      agentsLabel?: string;
+      favicon?: string;
+      homepage?: string;
+      pins?: (string | { path: string; label?: string })[];
+      groupOrder?: string[];
       theme?: { primary?: string };
       mermaid?: boolean;
+      poweredBy?: boolean;
       categoryEmojis?: Partial<Record<CategoryId, string>>;
    };
    owners: { primary: Owner; continuity?: Owner };
    conformance?: { claimedLevel?: ConformanceLevel; claimedAt?: string };
-   federation?: { mounts?: { path: string; name: string; owner: Owner; role?: string; source?: string }[] };
+   federation?: {
+      mounts?: {
+         name: string;
+         source: string;
+         pin: string;
+         trackingRef?: string;
+         owner: Owner;
+         role?: string;
+         categories?: string[];
+         topics?: string[];
+         requiredWhen?: string[];
+      }[];
+   };
    vendorAdapters?: string[];
 }
 
@@ -53,9 +77,9 @@ export interface ManifestLoad {
 export const MANIFEST_FILENAME = 'leji.json';
 
 /**
- * Load and structurally validate leji.json at the repository root: existence,
- * JSON parse, declared spec line, manifest schema. Content-level checks
- * (paths existing, categories populated) live in the validate command.
+ * Load and structurally validate leji.json: existence, JSON parse, declared spec
+ * line, manifest schema. Content-level checks (paths exist, categories populated)
+ * live in the validate command.
  */
 export function loadManifest(root: string): ManifestLoad {
    const abs = path.join(root, MANIFEST_FILENAME);
@@ -67,8 +91,8 @@ export function loadManifest(root: string): ManifestLoad {
          ],
       };
    }
-   // Confine the read: a symlinked leji.json that resolves outside the layer
-   // root must not be read (an MCP exposes this read to an agent).
+   // Confine the read: a symlinked leji.json resolving outside the layer root
+   // must not be read (an MCP exposes this read to an agent).
    const raw = readTextWithin(path.resolve(root), abs);
    if (raw === null) {
       return {
@@ -95,14 +119,50 @@ export function loadManifest(root: string): ManifestLoad {
    return validateManifestObject(data);
 }
 
+/** Every string in a parsed JSON value, object keys included, is a well-formed
+ * Unicode scalar sequence. */
+export function allStringsScalar(v: unknown): boolean {
+   if (typeof v === 'string') return isScalarString(v);
+   if (Array.isArray(v)) return v.every(allStringsScalar);
+   if (typeof v === 'object' && v !== null) {
+      return Object.entries(v).every(([k, val]) => isScalarString(k) && allStringsScalar(val));
+   }
+   return true;
+}
+
+/** True when any category maps to an object carrying the removed 1.2 `paths` key. */
+function declaresCategoryPaths(data: unknown): boolean {
+   const cats = (data as { categories?: unknown })?.categories;
+   if (typeof cats !== 'object' || cats === null || Array.isArray(cats)) return false;
+   return Object.values(cats).some(
+      (v) => typeof v === 'object' && v !== null && !Array.isArray(v) && 'paths' in (v as object),
+   );
+}
+
 /**
- * Validate an already-parsed manifest object: supported spec line, then manifest
- * schema. Filesystem-independent, so a caller that holds the object directly (an
- * MCP validating a manifest supplied inline, say) can validate it without
- * writing it to disk. `loadManifest` calls this after read + parse.
+ * Validate an already-parsed manifest object: supported spec line, then schema.
+ * Filesystem-independent, so a caller holding the object inline (e.g. an MCP) can
+ * validate without writing to disk. `loadManifest` calls this after read + parse.
  */
 export function validateManifestObject(data: unknown): ManifestLoad {
    const findings: Finding[] = [];
+   // Before anything reads a value: a manifest string that is not a well-formed
+   // Unicode scalar sequence is refused whole, never carried into a hash, a sort,
+   // or output. The message quotes nothing back — echoing the offending text is
+   // exactly the outcome the check exists to prevent.
+   if (!allStringsScalar(data)) {
+      return {
+         manifest: null,
+         findings: [
+            finding(
+               'manifest-not-scalar',
+               'error',
+               `${MANIFEST_FILENAME} carries a string that is not a well-formed Unicode scalar sequence (an unpaired surrogate)`,
+               MANIFEST_FILENAME,
+            ),
+         ],
+      };
+   }
    const line = (data as { leji?: unknown })?.leji;
    if (typeof line === 'string' && /^\d+\.\d+$/.test(line) && !SUPPORTED_LINES.includes(line)) {
       findings.push(
@@ -119,6 +179,19 @@ export function validateManifestObject(data: unknown): ManifestLoad {
       findings.push(finding('manifest-schema', 'error', err, MANIFEST_FILENAME));
    }
    if (findings.some((f) => f.rule === 'manifest-schema')) {
+      // The 1.2 category shape fails as a pile of raw schema text ("must NOT have
+      // additional properties"), which never names the thing to change. One sentence
+      // turns that into an actionable read.
+      if (declaresCategoryPaths(data)) {
+         findings.push(
+            finding(
+               'manifest-schema',
+               'error',
+               'a category declares "paths", the 1.2 form: 1.3 categories declare "indexes" instead (see "Migrating a 1.2 manifest" in the changelog)',
+               MANIFEST_FILENAME,
+            ),
+         );
+      }
       return { manifest: null, findings };
    }
    return { manifest: data as Manifest, findings };
@@ -133,38 +206,33 @@ export function levelAtLeast(level: ConformanceLevel, threshold: ConformanceLeve
    return CONFORMANCE_LEVELS.indexOf(level) >= CONFORMANCE_LEVELS.indexOf(threshold);
 }
 
-// Effective foundational-path resolvers. The spec (machine-readable-surface.md)
-// defines default locations under rootPath for the machine surface, so tooling
-// resolves an undeclared path to its default rather than failing: leji.json
-// lives at the repository root; everything else defaults under rootPath/.
+// Effective foundational-path resolvers. Per machine-readable-surface.md, an
+// undeclared path resolves to its default location under rootPath/.
 export function effectiveIndexPath(manifest: Manifest): string {
-   return manifest.machine?.indexPath ?? `${manifest.rootPath}context-index.json`;
+   return manifest.machine?.indexPath ?? joinUnderRoot(manifest.rootPath, 'context-index.json');
 }
 export function effectiveChangelogPath(manifest: Manifest): string {
-   return manifest.machine?.changelogPath ?? `${manifest.rootPath}context-changelog.json`;
+   return manifest.machine?.changelogPath ?? joinUnderRoot(manifest.rootPath, 'context-changelog.json');
 }
 export function effectiveAgentProfilesPath(manifest: Manifest): string {
-   return manifest.machine?.agentProfilesPath ?? `${manifest.rootPath}agents/`;
+   return manifest.machine?.agentProfilesPath ?? joinUnderRoot(manifest.rootPath, 'agents/');
 }
 export function effectiveDecisionRecordsPath(manifest: Manifest): string {
-   return manifest.machine?.decisionRecordsPath ?? `${manifest.rootPath}decisions/`;
+   return manifest.machine?.decisionRecordsPath ?? joinUnderRoot(manifest.rootPath, 'decisions/');
 }
 
 // --- In-place manifest text edits ---------------------------------------------
 //
-// `leji agent` (and any future post-init command that touches leji.json) edits
-// the raw manifest text rather than parsing and re-serializing the whole object.
-// This is deliberate: it preserves the user's field order, formatting, and any
-// keys this SDK does not model, and it is the only way the three reference SDKs
-// can produce byte-identical output (a generic parse + re-serialize diverges,
-// e.g. Go alphabetizes map keys). The edits below assume the canonical two-space
-// layout every SDK emits, and `owners` (a required key) as a stable anchor for
-// inserting a new top-level key in schema position (right after `agents` would
-// sit, before `owners`).
+// `leji agent` edits the raw manifest text rather than parse + re-serialize, to
+// preserve the user's field order, formatting, and unmodeled keys, and so all
+// three reference SDKs produce byte-identical output (a generic re-serialize
+// diverges, e.g. Go alphabetizes map keys). The edits assume the canonical
+// two-space layout, and use `owners` (required) as the anchor for inserting a new
+// top-level key in schema position (before `owners`).
 
-/** Insert `line` (already indented) as the first member directly after the line
- * that opens `marker` (e.g. `"agents": {` or `"vendorAdapters": [`). Prepending
- * sidesteps fixing up the previous last member's trailing comma. */
+/** Insert `line` (already indented) as the first member after the line opening
+ * `marker` (e.g. `"agents": {`). Prepending sidesteps the previous member's
+ * trailing comma. */
 function insertAfterMarkerLine(text: string, marker: string, line: string): string {
    const at = text.indexOf(marker);
    if (at < 0) throw new Error(`leji.json: cannot locate ${JSON.stringify(marker)} to anchor the edit`);
@@ -174,7 +242,7 @@ function insertAfterMarkerLine(text: string, marker: string, line: string): stri
 }
 
 /** Insert a multi-line top-level block immediately before the `owners` key, so a
- * newly created `agents` / `vendorAdapters` key lands in schema position. */
+ * newly created `agents` key lands in schema position. */
 function insertBeforeOwners(text: string, lines: string[]): string {
    const anchor = '\n  "owners":';
    const at = text.indexOf(anchor);
@@ -183,9 +251,9 @@ function insertBeforeOwners(text: string, lines: string[]): string {
 }
 
 /**
- * Bind a named agent to its profile path in the manifest's `agents` map. Creates
- * the map (before `owners`) when absent, otherwise prepends the entry. Idempotent:
- * an already-bound name leaves the text untouched.
+ * Bind a named agent to its profile path in the `agents` map. Creates the map
+ * (before `owners`) when absent, else prepends. Idempotent: an already-bound name
+ * leaves the text untouched.
  */
 export function bindAgentInManifestText(
    text: string,
@@ -199,19 +267,4 @@ export function bindAgentInManifestText(
       return { text: insertBeforeOwners(text, ['  "agents": {', `    ${entry}`, '  },']), changed: true };
    }
    return { text: insertAfterMarkerLine(text, '"agents": {', `    ${entry},`), changed: true };
-}
-
-/**
- * Declare a vendor adapter path in the manifest's `vendorAdapters` array. Creates
- * the array (before `owners`) when absent, otherwise prepends the entry.
- * Idempotent: an already-declared path leaves the text untouched.
- */
-export function declareVendorAdapterInManifestText(text: string, adapter: string): { text: string; changed: boolean } {
-   const arr = (JSON.parse(text) as { vendorAdapters?: unknown[] }).vendorAdapters;
-   if (Array.isArray(arr) && arr.includes(adapter)) return { text, changed: false };
-   const entry = `"${adapter}"`;
-   if (!Array.isArray(arr)) {
-      return { text: insertBeforeOwners(text, ['  "vendorAdapters": [', `    ${entry}`, '  ],']), changed: true };
-   }
-   return { text: insertAfterMarkerLine(text, '"vendorAdapters": [', `    ${entry},`), changed: true };
 }

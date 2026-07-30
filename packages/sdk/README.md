@@ -12,13 +12,21 @@ leji index --check      # fail when the index is stale
 leji changelog check    # append-only discipline
 leji freshness          # review-horizon report
 leji conformance        # score the layer against its claimed level
+leji status             # unindexed, dangling, and stale documents
+leji route              # the governed context a task's scope routes to
 leji viewer             # generate the static viewer for the context layer
+leji viewer serve       # generate and serve it locally
+leji viewer build       # export a self-contained static viewer folder
 leji view               # generate, serve, and open it in your browser
 leji detect             # find installed agent hosts
 leji start              # open the layer in a detected agent host
 leji adopt              # map an existing entrypoint into a context layer
 leji ci                 # add a validate workflow (--provider github|gitlab|circleci|azure)
 leji agent --name <n>   # bind an additional named agent into the layer
+leji mounts hydrate     # materialize declared federation mounts into the resolver cache
+leji mounts status      # each mount's availability, integrity, and pin ancestry
+leji mounts locate      # resolver state for one mount: projection path, pin, verification
+leji changelog compact  # fold the oldest changelog entries into one compaction entry
 ```
 
 See the full command reference (flags, exit codes, examples) at

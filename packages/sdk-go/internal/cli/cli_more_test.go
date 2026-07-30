@@ -68,10 +68,79 @@ func TestCLIParseFlagsMoreErrors(t *testing.T) {
 	}
 }
 
-// Read-only commands against the example layer (which is inside the repo's git
-// tree, so changelog/index checks resolve). Covers the Run dispatch for
-// conformance, freshness, index --check, changelog check, plus the text/JSON
-// rendering helpers (freshItems, checklistItems) and the commands/* packages.
+// `--` is declared on `start` only. It used to be accepted everywhere and silently
+// swallowed what followed, so `leji validate -- --bogus` exited 0: a typo'd flag
+// passed as a clean validate.
+func TestCLISeparatorOnlyValidOnStart(t *testing.T) {
+	ex := example(t)
+	for _, argv := range [][]string{
+		{"validate", "--", "--bogus", "--root", ex},
+		{"index", "--", "--bogus", "--root", ex},
+		{"conformance", "--", "--bogus", "--root", ex},
+		{"view", "--", "--bogus", "--root", ex},
+	} {
+		code, _, errs := captureRun(t, argv)
+		if code != 2 {
+			t.Fatalf("%v expected exit 2, got %d", argv, code)
+		}
+		if !strings.Contains(errs, "-- is not valid for") {
+			t.Fatalf("%v: unexpected stderr %q", argv, errs)
+		}
+	}
+	// start declares it (`-- <host flags…>`), so the pass-through still parses.
+	if code, _, _ := captureRun(t, []string{"start", "--root", t.TempDir(), "--", "--chrome"}); code == 2 {
+		t.Fatal("start -- --chrome should not be a usage error")
+	}
+}
+
+// A numeric flag takes a plain decimal integer in range. Node's Number() also
+// accepts 0x10, 1e3, and " 8 ", and Python's int() accepts " 8 ", "1_0", and
+// non-ASCII digits; every spelling below is a usage error in all three.
+func TestCLINumericFlagsTakeDecimalIntegersInRange(t *testing.T) {
+	for _, raw := range []string{"abc", "1.5", "0x10", "1e3", " 8 ", "1_0", "65536", "70000", "999999999999999999999"} {
+		if code, _, _ := captureRun(t, []string{"view", "--port", raw}); code != 2 {
+			t.Fatalf("--port %q expected exit 2", raw)
+		}
+	}
+	for _, raw := range []string{"abc", "0", "1.5", "0x10", "1e3", " 8 ", "1_0", "2147483648", "999999999999999999999"} {
+		if code, _, _ := captureRun(t, []string{"changelog", "compact", "--keep", raw}); code != 2 {
+			t.Fatalf("--keep %q expected exit 2", raw)
+		}
+	}
+	// The spellings all three accept: bare digits, a leading +, a leading zero.
+	for _, argv := range [][]string{
+		{"--port", "0", "--keep", "08", "version"},
+		{"--port", "+7", "--keep", "2147483647", "version"},
+	} {
+		if code, _, _ := captureRun(t, argv); code != 0 {
+			t.Fatalf("%v expected exit 0", argv)
+		}
+	}
+}
+
+// stdinIsTTY asks the terminal ioctl, not os.Stdin.Stat(): a character-device test
+// also answers true for /dev/null, /dev/zero, and /dev/urandom, so `leji start`
+// prompted under those and then blocked forever on a line that never arrives.
+func TestStdinIsTTYRejectsNonTerminalCharacterDevices(t *testing.T) {
+	for _, name := range []string{os.DevNull, "/dev/zero", "/dev/urandom"} {
+		f, err := os.Open(name)
+		if err != nil {
+			continue // not present on this platform
+		}
+		saved := os.Stdin
+		os.Stdin = f
+		got := stdinIsTTY()
+		os.Stdin = saved
+		f.Close()
+		if got {
+			t.Fatalf("stdinIsTTY() = true for %s", name)
+		}
+	}
+}
+
+// Read-only commands against the example layer (inside the repo's git tree, so
+// changelog/index checks resolve). Covers Run dispatch plus the text/JSON
+// rendering helpers (freshItems, checklistItems).
 func TestCLIReadCommandsOnExample(t *testing.T) {
 	ex := example(t)
 	for _, argv := range [][]string{
@@ -110,8 +179,11 @@ func TestCLIViewerServeHint(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("viewer exit %d (%s)", code, errs)
 	}
-	if !strings.Contains(out, "serve locally: leji view") {
+	if !strings.Contains(out, "serve: leji view") {
 		t.Fatalf("expected serve hint, got: %s", out)
+	}
+	if !strings.Contains(out, "viewer ready (3 entries) → docs/.leji/viewer/") {
+		t.Fatalf("expected the terse viewer-ready line, got: %s", out)
 	}
 }
 

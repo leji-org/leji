@@ -72,6 +72,204 @@
       ],
       "proposedBy": "agent:claude",
       "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "category-index-migration",
+      "date": "2026-07-01",
+      "type": "changed",
+      "summary": "Migrated this layer to the 1.3 content model (categories map to curated index files; recorded in decision 0003): leji.json moved from categories.<id>.paths to categories.<id>.indexes, four category index files added under docs/context/, boot profile updated, and the context index regenerated. This entry was appended on 2026-07-01 to repair coverage for the 2026-06-27 pre-release change set, which landed without one.",
+      "paths": [
+        "leji.json",
+        "docs/boot-profile.md",
+        "docs/context/domain.md",
+        "docs/context/system.md",
+        "docs/context/practice.md",
+        "docs/context/decisions.md",
+        "docs/decisions/0003-category-index-files.md",
+        "docs/context-index.json"
+      ],
+      "categories": [
+        "domain",
+        "system",
+        "practice",
+        "decisions"
+      ],
+      "decisionRefs": [
+        "category-index-files"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "spec-1-0-ga",
+      "date": "2026-07-01",
+      "type": "governance",
+      "summary": "Declared spec 1.0 GA and frozen (decision 0004), restored the boot profile's maintenance duties (changelog append + index regeneration, whose absence caused the missed entry above), and regenerated the context index and overview map.",
+      "paths": [
+        "docs/decisions/0004-declare-spec-1-0-ga.md",
+        "docs/boot-profile.md",
+        "docs/context-changelog.json",
+        "docs/context-index.json",
+        "docs/overview.md"
+      ],
+      "categories": [
+        "decisions"
+      ],
+      "decisionRefs": [
+        "declare-spec-1-0-ga"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "solo-working-mode",
+      "date": "2026-07-16",
+      "type": "added",
+      "summary": "Added the solo working mode decision (owner interview + artifact-drop onboarding; --mode on init/adopt; .leji workspace privacy hardening) and regenerated the context index.",
+      "paths": [
+        "docs/decisions/0005-solo-working-mode.md",
+        "docs/context-index.json",
+        "docs/overview.md"
+      ],
+      "categories": [
+        "decisions"
+      ],
+      "decisionRefs": [
+        "solo-working-mode"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "agents-md-discovery-adapter",
+      "date": "2026-07-17",
+      "type": "added",
+      "summary": "Decision 0006: AGENTS.md recognized as the portable discovery adapter; init/adopt write a pointer-only AGENTS.md by default (--no-agents skips); adoption guide reframed around discovery adapters.",
+      "paths": [
+        "docs/decisions/0006-agents-md-discovery-adapter.md"
+      ],
+      "categories": [
+        "decisions"
+      ],
+      "decisionRefs": [
+        "agents-md-discovery-adapter"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "shorten-category-index-titles",
+      "date": "2026-07-20",
+      "type": "changed",
+      "summary": "Category index H1s drop the ' context' tail (Domain, System, Practice); matches the shortened scaffold defaults.",
+      "paths": [
+        "docs/context/domain.md",
+        "docs/context/system.md",
+        "docs/context/practice.md"
+      ],
+      "categories": [
+        "domain",
+        "system",
+        "practice"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "codify-cli-testing-channels",
+      "date": "2026-07-21",
+      "type": "added",
+      "summary": "Codified the LIVE/PACKED CLI evidence channels: practice doc, cli:* mode scripts with fingerprint sidecar, CONTRIBUTING and RELEASING pointers, boot-profile routing.",
+      "paths": [
+        "docs/practice/testing-cli-adoptions.md",
+        "scripts/cli-mode.ts",
+        "package.json",
+        "CONTRIBUTING.md",
+        "RELEASING.md",
+        "docs/boot-profile.md"
+      ],
+      "categories": [
+        "practice"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "curate-own-sidebar-labels",
+      "date": "2026-07-21",
+      "type": "changed",
+      "summary": "Own-layer curation pass: emoji on category index H1s, frontmatter titles on practice docs, proper-cased agent profile names; example layers matched to the scaffold look.",
+      "paths": [
+        "docs/context/",
+        "docs/practice/",
+        "docs/agents/porter.md",
+        "docs/agents/reviewer.md"
+      ],
+      "categories": [
+        "practice",
+        "governance"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "em-dash-sweep-coverage",
+      "date": "2026-07-26",
+      "type": "changed",
+      "summary": "Em dashes swept out of the CLI-adoption testing practice doc; coverage entry the sweep commit omitted.",
+      "paths": [
+        "docs/practice/testing-cli-adoptions.md"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "ga-freeze-date-free",
+      "date": "2026-07-27",
+      "type": "changed",
+      "summary": "Spec-freeze wording names the v1.3.0 release instead of a calendar date, so no location needs restamping.",
+      "paths": [
+        "docs/boot-profile.md",
+        "docs/decisions/0004-declare-spec-1-0-ga.md"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "ga-truth-pass",
+      "date": "2026-07-27",
+      "type": "changed",
+      "summary": "Network and service claims corrected: the federation commands reach the network and the viewer serves locally.",
+      "paths": [
+        "docs/system/invariants.md",
+        "docs/decisions/0006-agents-md-discovery-adapter.md"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "conformance-outcome-taxonomy",
+      "date": "2026-07-27",
+      "type": "changed",
+      "summary": "Conformance outcomes split four ways; a copy outside git now fails core instead of being awarded it.",
+      "paths": [
+        "spec/conformance.md"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "actors-registry",
+      "date": "2026-07-27",
+      "type": "added",
+      "summary": "Optional manifest actors: roles a participant can fill, with a command template per role.",
+      "paths": [
+        "spec/context-layer.md",
+        "spec/boot-profile.md",
+        "schemas/context-manifest.schema.json"
+      ],
+      "proposedBy": "agent:claude",
+      "approvedBy": "Vuong Nguyen"
     }
   ]
 }

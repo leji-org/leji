@@ -7,9 +7,7 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/detect"
 )
 
-// RenderDetect handles the empty case and a ranked, non-empty case, mirroring the
-// Node SDK's renderDetect test. RenderDetect was previously exercised only via CLI
-// dispatch.
+// RenderDetect handles the empty case and a ranked, non-empty case.
 func TestRenderDetectEmptyAndRanked(t *testing.T) {
 	empty := RenderDetect(nil)
 	if !regexp.MustCompile(`No coding-agent hosts detected`).MatchString(empty) {
@@ -45,6 +43,5 @@ func TestRenderDetectEmptyAndRanked(t *testing.T) {
 	}
 	// Strength, name, the PATH signal, and the adapter all appear, in order.
 	mustMatch(`confirmed.*Claude Code.*binary on PATH.*CLAUDE\.md`)
-	// The init hint guides toward wiring a host into a fresh layer.
 	mustMatch(`leji init --agent`)
 }

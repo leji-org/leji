@@ -7,18 +7,18 @@
   "bootProfilePath": "docs/boot-profile.md",
   "categories": {
     "domain": {
-      "paths": [
-        "docs/domain/"
+      "indexes": [
+        "docs/context/domain.md"
       ]
     },
     "system": {
-      "paths": [
-        "docs/system/"
+      "indexes": [
+        "docs/context/system.md"
       ]
     },
     "decisions": {
-      "paths": [
-        "docs/decisions/"
+      "indexes": [
+        "docs/context/decisions.md"
       ]
     }
   },

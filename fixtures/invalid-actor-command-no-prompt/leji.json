@@ -1,0 +1,36 @@
+{
+  "leji": "1.0",
+  "name": "fixture",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {
+    "domain": {
+      "indexes": [
+        "docs/context/domain.md"
+      ]
+    },
+    "decisions": {
+      "indexes": [
+        "docs/context/decisions.md"
+      ]
+    }
+  },
+  "owners": {
+    "primary": {
+      "name": "Fixture Owner"
+    }
+  },
+  "agents": {
+    "reviewer": "docs/agents/reviewer.md"
+  },
+  "actors": {
+    "actor-one": {
+      "roles": [
+        "reviewer"
+      ],
+      "commands": {
+        "reviewer": "tool --no-placeholder"
+      }
+    }
+  }
+}

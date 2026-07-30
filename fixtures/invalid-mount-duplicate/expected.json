@@ -2,7 +2,11 @@
   "validate": {
     "exit": 1,
     "findings": [
-      { "rule": "mount-duplicate", "severity": "error", "path": "context/product2/" }
+      {
+        "rule": "mount-duplicate",
+        "severity": "error",
+        "path": "other-context"
+      }
     ]
   }
 }

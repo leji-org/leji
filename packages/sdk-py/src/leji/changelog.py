@@ -77,13 +77,10 @@ def _today() -> str:
 
 
 def seed_changelog_if_missing(root: str, manifest: Manifest) -> Optional[str]:
-    """Seed the machine changelog if the layer claims ``indexed`` (or higher) and
-    the file is missing. The changelog is an indexed-level surface, so ``leji init``
-    only writes it at that level; this lets ``leji index`` complete the indexed
-    surface for a layer that claimed indexed after the fact (e.g. an upgrade from
-    core). Returns the seeded path, or ``None`` when nothing was written (not
-    indexed, already present, or a symlink would escape the root). Never
-    overwrites an existing changelog."""
+    """Seed the machine changelog when the layer claims ``indexed``+ and the file is
+    missing (lets ``leji index`` complete the indexed surface for a layer upgraded
+    from core). Returns the seeded path, or ``None`` when nothing was written (not
+    indexed, already present, or a symlink escapes the root). Never overwrites."""
     if not level_at_least(claimed_level(manifest), "indexed"):
         return None
     rel = effective_changelog_path(manifest)

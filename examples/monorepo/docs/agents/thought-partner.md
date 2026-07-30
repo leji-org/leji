@@ -5,7 +5,7 @@ role: thought-partner
 purpose: Independent second opinion on copy, design calls, and judgment questions.
 host: codex
 invocation:
-  command: codex exec --skip-git-repo-check "<prompt>"
+  command: codex exec --skip-git-repo-check <prompt>
   constraints:
     - keep prompts compact; very long prompts stall the CLI
     - non-interactive; one prompt in, one reply out, no session state

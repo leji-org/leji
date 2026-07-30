@@ -6,18 +6,24 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Mapping, Optional, cast
 
 from .findings import Finding, sort_findings
 from .frontmatter import parse_frontmatter
-from .fsx import resolved_within_root, under_path, walk_md
+from .fsx import resolved_within_root, under_path
 from .gitutil import git_show_head, git_toplevel
 from .indexgen import check_index
+from .mounts import read_text_within
 from .layer import (
+    ScannedProfile,
     duplicate_id_findings,
+    finding_key,
+    profile_inheritance_findings,
     read_json_artifact,
     scan_agent_profiles,
+    scan_categories,
     scan_decision_records,
+    scan_profile_set,
 )
 from .manifest import (
     CATEGORY_IDS,
@@ -30,6 +36,8 @@ from .manifest import (
     level_at_least,
     load_manifest,
 )
+from .mountblock import parse_mount_blocks, value_representation_error
+from .mounts import cache_key_for, normalize_source, valid_tracking_ref
 from .schemas import SUPPORTED_LINES, schema_errors
 
 KNOWN_VENDOR_FILES = [
@@ -128,34 +136,74 @@ def _check_categories(root: str, manifest: Manifest, findings: list[Finding]) ->
             )
         )
     for category in mapped:
-        for declared in manifest["categories"][category]["paths"]:
-            if not (Path(root) / declared).exists():
+        for index_rel in manifest["categories"][category]["indexes"]:
+            if not (Path(root) / index_rel).is_file():
                 findings.append(
                     Finding(
-                        "category-path-missing",
+                        "category-index-missing",
                         "error",
-                        f"{category} path does not exist",
-                        declared,
+                        f"{category} index file does not exist",
+                        index_rel,
                     )
                 )
-            elif not walk_md(root, declared):
-                findings.append(
-                    Finding(
-                        "category-empty",
-                        "error",
-                        f"{category} path has no markdown content; an empty category must not be mapped",
-                        declared,
-                    )
-                )
-            if not under_path(declared, manifest["rootPath"]):
+            elif not under_path(index_rel, manifest["rootPath"]):
                 findings.append(
                     Finding(
                         "paths-outside-root",
                         "warning",
-                        f"{category} path falls outside rootPath {manifest['rootPath']}",
-                        declared,
+                        f"{category} index file falls outside rootPath {manifest['rootPath']}",
+                        index_rel,
                     )
                 )
+    # Surface index parse/resolution/conflict findings, and enforce every mapped
+    # category resolves to >=1 governed document (an empty or unresolving index
+    # block is not a populated category).
+    scan = scan_categories(root, manifest)
+    findings.extend(scan.findings)
+    populated = {d.category for d in scan.docs}
+    for category in mapped:
+        if category not in populated:
+            findings.append(
+                Finding(
+                    "category-empty",
+                    "error",
+                    f"{category} resolves to no governed documents; map index entries that "
+                    "exist, or remove the category",
+                    manifest["categories"][category]["indexes"][0],
+                )
+            )
+    # The domain/system minimum needs at least one intent document: a layer of
+    # records alone preserves history but carries no operating context.
+    minimum_mapped = [c for c in mapped if c in ("domain", "system")]
+    minimum_populated = any(c in populated for c in minimum_mapped)
+    if minimum_populated and not any(
+        d.category in ("domain", "system") and d.kind == "intent" for d in scan.docs
+    ):
+        findings.append(
+            Finding(
+                "categories-intent-minimum",
+                "error",
+                "domain/system must include at least one intent document; "
+                "records alone carry no operating context",
+                "leji.json",
+            )
+        )
+    # Freshness horizons are an intent mechanism; on a record they promise a
+    # currency the document cannot have.
+    for doc in scan.docs:
+        if doc.kind != "record":
+            continue
+        fresh = (doc.frontmatter or {}).get("freshness")
+        if isinstance(fresh, dict) and "reviewAfter" in fresh:
+            findings.append(
+                Finding(
+                    "freshness-on-record",
+                    "error",
+                    "a record carries no review horizon (its date is its currency); "
+                    "remove freshness.reviewAfter or reclassify the document as intent",
+                    doc.rel_path,
+                )
+            )
     for key, rel in (manifest.get("machine") or {}).items():
         if isinstance(rel, str) and not under_path(rel, manifest["rootPath"]):
             findings.append(
@@ -208,6 +256,67 @@ def _check_owners(manifest: Manifest, findings: list[Finding]) -> None:
         )
 
 
+def _check_actors(root: str, manifest: Manifest, findings: list[Finding]) -> None:
+    """Semantic checks the manifest schema cannot express: the cross-field relation
+    between an actor's declared roles and its per-role commands, and the collision
+    between an actor-role command and a bound profile's own invocation. Both are
+    structural contradictions, not policy: nothing here judges how many actors a role
+    should have or whether it needs a profile."""
+    actors = manifest.get("actors")
+    if not actors:
+        return
+    actor_backed: set[str] = set()
+    # Sorted, not insertion order: Go's map iteration is random so it must sort, and
+    # raw SDK finding order is part of what the three implementations agree on.
+    for actor_id in sorted(actors):
+        actor = actors[actor_id]
+        roles = actor.get("roles") or []
+        command_roles = sorted((actor.get("commands") or {}).keys())
+        actor_backed.update(roles)
+        for role in roles:
+            if role not in command_roles:
+                findings.append(
+                    Finding(
+                        "actor-command-missing",
+                        "error",
+                        f'actor "{actor_id}" declares role "{role}" with no command for it',
+                        "leji.json",
+                    )
+                )
+        for role in command_roles:
+            if role not in roles:
+                findings.append(
+                    Finding(
+                        "actor-command-unclaimed",
+                        "error",
+                        f'actor "{actor_id}" has a command for role "{role}", which it does '
+                        "not declare in roles",
+                        "leji.json",
+                    )
+                )
+    for role, rel in (manifest.get("agents") or {}).items():
+        if role not in actor_backed:
+            continue
+        abs_path = Path(root) / rel
+        if not abs_path.is_file():
+            continue
+        text = read_text_within(str(Path(root).resolve()), abs_path)
+        if text is None:
+            continue
+        fm = parse_frontmatter(text)
+        data = fm.data
+        if isinstance(data, dict) and "invocation" in data:
+            findings.append(
+                Finding(
+                    "actor-profile-invocation",
+                    "error",
+                    f'role "{role}" is actor-backed, but its profile also declares '
+                    "invocation; declare the command in one place",
+                    rel,
+                )
+            )
+
+
 def _check_agents_map(root: str, manifest: Manifest, findings: list[Finding]) -> None:
     profiles_dir = effective_agent_profiles_path(manifest)
     for role, rel in (manifest.get("agents") or {}).items():
@@ -240,33 +349,51 @@ def _check_agents_map(root: str, manifest: Manifest, findings: list[Finding]) ->
                 findings.append(Finding("profile-frontmatter", "error", err, rel))
 
 
+def _check_boot_agents_default(root: str, manifest: Manifest, findings: list[Finding]) -> None:
+    """Warn when agents.default is bound AND the boot profile references that profile's
+    declared path. Binding a profile at the "default" key never causes it to load (only
+    the boot profile's own instructions do), so a boot profile that unconditionally
+    loads it is indirection, not routing: the two should be one canonical boot document."""
+    default_rel = (manifest.get("agents") or {}).get("default")
+    if not default_rel:
+        return
+    boot_abs = Path(root) / manifest["bootProfilePath"]
+    if not boot_abs.is_file() or not resolved_within_root(root, boot_abs):
+        return
+    if default_rel not in boot_abs.read_text(encoding="utf-8"):
+        return
+    findings.append(
+        Finding(
+            "boot-agents-default",
+            "warning",
+            "agents.default is bound but never auto-loaded; a boot profile that "
+            "unconditionally loads it should be one canonical boot document (fold the "
+            "default profile in)",
+            "leji.json",
+        )
+    )
+
+
 def _check_federation_mounts(root: str, manifest: Manifest, findings: list[Finding]) -> None:
     mounts = (manifest.get("federation") or {}).get("mounts") or []
-    # Identity rules (distribution.md pattern 3): paths and names unique within
-    # the manifest; a mount never reuses the host layer's own name.
-    seen_paths: set[str] = set()
+    # Three separated concerns (distribution.md pattern 3): declaration validity is
+    # an error (the manifest lies); local availability is a warning (degraded
+    # knowledge, never the build); materialization integrity belongs to
+    # `mounts status`, not ordinary validation. Schema requiredness already
+    # guarantees name/source/pin on every declared mount.
     seen_names: set[str] = set()
+    bad_names: set[str] = set()
     for mount in mounts:
-        if mount["path"] in seen_paths:
-            findings.append(
-                Finding(
-                    "mount-duplicate",
-                    "error",
-                    f'two mounts declare the same path "{mount["path"]}"',
-                    mount["path"],
-                )
-            )
-        else:
-            seen_paths.add(mount["path"])
         if mount["name"] in seen_names:
             findings.append(
                 Finding(
                     "mount-duplicate",
                     "error",
                     f'two mounts declare the same name "{mount["name"]}"',
-                    mount["path"],
+                    mount["name"],
                 )
             )
+            bad_names.add(mount["name"])
         else:
             seen_names.add(mount["name"])
         if mount["name"] == manifest["name"]:
@@ -275,87 +402,265 @@ def _check_federation_mounts(root: str, manifest: Manifest, findings: list[Findi
                     "mount-self",
                     "error",
                     f'mount "{mount["name"]}" reuses the host layer\'s own name',
-                    mount["path"],
+                    mount["name"],
                 )
             )
-    for mount in mounts:
-        abs_path = Path(root) / mount["path"]
-        if not abs_path.exists():
+            bad_names.add(mount["name"])
+        # The resolver's own predicates, not a second reading of them: a source the
+        # resolver cannot normalize and a trackingRef it will not follow are exactly
+        # the "malformed source or pin" distribution.md calls a manifest error. Left
+        # as availability, an unnormalizable source read as a mount that merely is
+        # not hydrated here, which is a warning, and the lie went out as degraded
+        # weather.
+        source = mount.get("source")
+        if not isinstance(source, str) or normalize_source(source) is None:
             findings.append(
                 Finding(
-                    "missing-declared-file",
+                    "mount-source",
                     "error",
-                    f'federation mount "{mount["name"]}" declared in leji.json does not exist',
-                    mount["path"],
+                    f'mount "{mount["name"]}" declares a source that is not a normalizable '
+                    "locator; use an https://, ssh://, or SCP-style remote URL",
+                    mount["name"],
                 )
             )
-            continue
-        sibling_manifest = abs_path / "leji.json"
-        if not sibling_manifest.is_file():
+            bad_names.add(mount["name"])
+        tracking_ref = mount.get("trackingRef")
+        if tracking_ref is not None and not valid_tracking_ref(str(tracking_ref)):
             findings.append(
                 Finding(
-                    "mount-not-a-layer",
-                    "warning",
-                    "mounted path carries no leji.json; a sibling layer brings its own manifest",
-                    mount["path"],
+                    "mount-tracking-ref",
+                    "error",
+                    f'mount "{mount["name"]}" declares a trackingRef that is not a fully '
+                    "qualified branch or tag (refs/heads/... or refs/tags/...)",
+                    mount["name"],
                 )
             )
+            bad_names.add(mount["name"])
+    # Availability is reported only for cleanly declared mounts (never for a name
+    # the manifest lies about), once per name.
+    warned: set[str] = set()
+    for mount in mounts:
+        if mount["name"] in bad_names or mount["name"] in warned:
             continue
-        if not resolved_within_root(root, sibling_manifest):
+        warned.add(mount["name"])
+        if mount_projection_dir(root, mount) is None:
             findings.append(
                 Finding(
-                    "mount-not-a-layer",
+                    "mount-unavailable",
                     "warning",
-                    "mounted leji.json resolves outside the layer root",
-                    mount["path"],
+                    f'mount "{mount["name"]}" is not hydrated here; sibling knowledge is degraded, '
+                    "never the build. Run `leji mounts hydrate`.",
+                    mount["name"],
+                )
+            )
+
+
+def _mount_owner_name(mount: Mapping[str, object]) -> object:
+    """A mount's declared ``owner.name``, or None when the declaration has none."""
+    owner = mount.get("owner")
+    return owner.get("name") if isinstance(owner, dict) else None
+
+
+def mount_surfacing_findings(root: str, manifest: Manifest) -> list[Finding]:
+    """Mount surfacing (boot-profile.md requirement 9): a host that declares
+    ``federation.mounts`` surfaces each sibling in its boot profile through a
+    ``leji-mounts`` block, so an agent discovers siblings in the task-language
+    entrypoint without reading the manifest. Every condition below is an error, and
+    findings accumulate; nothing stops at the first.
+
+    | Condition | Code |
+    |---|---|
+    | mounts declared, boot profile carries no ``leji-mounts`` block | ``mount-surfacing-block`` |
+    | no mounts declared, any ``leji-mounts`` block (an empty one included) | ``mount-surfacing-block`` |
+    | malformed line, unknown/duplicate/missing field, empty or padded value | ``mount-surfacing-syntax`` |
+    | an entry naming a mount the manifest does not declare | ``mount-surfacing-unknown`` |
+    | more than one entry for one declared mount | ``mount-surfacing-duplicate`` |
+    | a declared mount with no entry | ``mount-surfacing-missing`` |
+    | an entry whose ``owner`` differs from the declared ``owner.name`` | ``mount-surfacing-owner`` |
+    | a declared ``name`` no block value could carry | ``mount-name-line`` |
+    | a declared ``owner.name`` no block value could carry | ``mount-owner-name-line`` |
+
+    Order is deterministic and independent of the finding sort applied downstream:
+    the block finding, then syntax findings in document order, then entry findings
+    in document order, then missing/owner findings in declared-mount order, then the
+    manifest-side identity findings in declared-mount order, ``mount-name-line``
+    before ``mount-owner-name-line`` for the same mount. ``conformance`` reports the
+    first of them.
+
+    What is deliberately not checked: whether ``carries`` and ``read-when``
+    faithfully describe the sibling. That is authored task language; presence is
+    machine-checked and fidelity is the team's to attest."""
+    mounts = (manifest.get("federation") or {}).get("mounts") or []
+    rel = manifest["bootProfilePath"]
+    findings: list[Finding] = []
+    text = read_text_within(root, Path(root) / rel)
+    if text is None:
+        # The structural pass already reports the missing or escaping boot profile;
+        # with mounts declared it is also a surfacing failure, which conformance reads.
+        if mounts:
+            findings.append(
+                Finding(
+                    "mount-surfacing-block",
+                    "error",
+                    "boot profile is missing or unreadable, so it surfaces none of "
+                    "the declared mounts",
+                    rel,
+                )
+            )
+        return findings
+
+    parsed = parse_mount_blocks(text)
+    if not mounts:
+        if parsed.saw_block:
+            findings.append(
+                Finding(
+                    "mount-surfacing-block",
+                    "error",
+                    "this layer declares no federation.mounts; remove the leji-mounts block",
+                    rel,
+                )
+            )
+        return findings
+
+    # Declared order, first occurrence per name: a repeated name is `mount-duplicate`
+    # in the manifest check, and must not also cascade through surfacing.
+    declared: list[Mapping[str, object]] = []
+    declared_names: set[str] = set()
+    for mount in mounts:
+        if mount["name"] in declared_names:
+            continue
+        declared_names.add(mount["name"])
+        declared.append(mount)
+
+    if not parsed.saw_block:
+        findings.append(
+            Finding(
+                "mount-surfacing-block",
+                "error",
+                f"{len(declared)} mount(s) declared but the boot profile carries no "
+                "leji-mounts block; surface each sibling there",
+                rel,
+            )
+        )
+    for err in parsed.errors:
+        findings.append(
+            Finding("mount-surfacing-syntax", "error", f"line {err.line}: {err.message}", rel)
+        )
+
+    surfaced: dict[str, str] = {}  # mount name -> the owner its first entry names
+    for entry in parsed.entries:
+        if entry.mount not in declared_names:
+            findings.append(
+                Finding(
+                    "mount-surfacing-unknown",
+                    "error",
+                    f'line {entry.line}: entry names "{entry.mount}", which this layer '
+                    "does not declare as a mount",
+                    rel,
                 )
             )
             continue
-        try:
-            sibling = json.loads(sibling_manifest.read_text(encoding="utf-8"))
-            name = sibling.get("name") if isinstance(sibling, dict) else None
-            if isinstance(name, str) and name != mount["name"]:
+        if entry.mount in surfaced:
+            findings.append(
+                Finding(
+                    "mount-surfacing-duplicate",
+                    "error",
+                    f'line {entry.line}: mount "{entry.mount}" is surfaced more than '
+                    "once; each declared mount gets exactly one entry",
+                    rel,
+                )
+            )
+            continue
+        surfaced[entry.mount] = entry.owner
+
+    for mount in declared:
+        name = cast("str", mount["name"])
+        declared_owner = _mount_owner_name(mount)
+        owner = surfaced.get(name)
+        if owner is None:
+            if parsed.saw_block:
                 findings.append(
                     Finding(
-                        "mount-name-mismatch",
-                        "warning",
-                        f'mount declares name "{mount["name"]}" but the sibling manifest says "{name}"',
-                        mount["path"],
+                        "mount-surfacing-missing",
+                        "error",
+                        f'declared mount "{name}" has no entry in the leji-mounts block',
+                        rel,
                     )
                 )
-        except json.JSONDecodeError:
+        elif owner != declared_owner:
             findings.append(
                 Finding(
-                    "mount-not-a-layer",
-                    "warning",
-                    "mounted leji.json is not valid JSON",
-                    mount["path"],
+                    "mount-surfacing-owner",
+                    "error",
+                    f'mount "{name}" is surfaced with owner "{owner}" but is declared '
+                    f'with owner "{declared_owner if declared_owner is not None else ""}"',
+                    rel,
                 )
             )
+
+    # An identity the block could never carry: the declaration itself is at fault, so
+    # the finding points at the manifest rather than at the boot profile. Both
+    # identity fields are free strings in the schema (`name` and `owner.name` carry
+    # only minLength), so both are checked, name first for the same mount.
+    for mount in declared:
+        name = cast("str", mount["name"])
+        bad_name = value_representation_error(name)
+        if bad_name:
+            findings.append(
+                Finding(
+                    "mount-name-line",
+                    "error",
+                    f'mount "{name}" declares a name no leji-mounts entry could carry: {bad_name}',
+                    "leji.json",
+                )
+            )
+        declared_owner = _mount_owner_name(mount)
+        bad_owner = value_representation_error(
+            cast("str", declared_owner) if declared_owner is not None else ""
+        )
+        if bad_owner:
+            findings.append(
+                Finding(
+                    "mount-owner-name-line",
+                    "error",
+                    f'mount "{name}" declares an owner name no leji-mounts entry could '
+                    f"carry: {bad_owner}",
+                    "leji.json",
+                )
+            )
+    return findings
+
+
+def mount_projection_dir(root: str, mount: Mapping[str, object]) -> str | None:
+    """Resolve a mount's hydrated projection directory, or None when it is not
+    materialized here. The cache key is derived from the declaration itself, so
+    there is no state file to read and nothing to fall out of step with the
+    manifest; a projection counts only when it carries its completion marker, since
+    a directory without one is an entry that was never published."""
+    source, pin = mount.get("source"), mount.get("pin")
+    if not isinstance(source, str) or not isinstance(pin, str):
+        return None
+    identity = normalize_source(source)
+    if identity is None:
+        return None
+    key = cache_key_for(identity, pin)
+    projection = Path(root) / ".leji" / "mounts" / "cache" / key / "projection"
+    return str(projection) if (projection / "complete").is_file() else None
 
 
 def _check_profiles_and_decisions(root: str, manifest: Manifest, findings: list[Finding]) -> None:
     profiles = scan_agent_profiles(root, manifest)
     ids: list[tuple[object, str]] = []
-    known_ids: set[str] = set()
     for p in profiles:
         findings.extend(p.findings)
-        fm = p.frontmatter or {}
-        ids.append((fm.get("id"), p.rel_path))
-        if isinstance(fm.get("id"), str):
-            known_ids.add(fm["id"])
+        ids.append(((p.frontmatter or {}).get("id"), p.rel_path))
     findings.extend(duplicate_id_findings(ids, "agent profile"))
-    for p in profiles:
-        inherits = (p.frontmatter or {}).get("inherits")
-        if isinstance(inherits, str) and inherits not in known_ids:
-            findings.append(
-                Finding(
-                    "inherits-unknown",
-                    "warning",
-                    f'inherits "{inherits}" but no profile declares that id',
-                    p.rel_path,
-                )
-            )
+    # Authored frontmatter validates against the schema above; `inherits` is
+    # operative, so every profile that declares one is also resolved, and a
+    # resolution that cannot complete is an error (the derived file alone is not
+    # the profile). Resolved against the whole roster, bound out-of-directory
+    # profiles included.
+    findings.extend(profile_inheritance_findings(scan_profile_set(root, manifest)))
 
     decisions = scan_decision_records(root, manifest)
     decision_ids: list[tuple[object, str]] = []
@@ -363,6 +668,7 @@ def _check_profiles_and_decisions(root: str, manifest: Manifest, findings: list[
         findings.extend(d.findings)
         decision_ids.append(((d.frontmatter or {}).get("id"), d.rel_path))
     findings.extend(duplicate_id_findings(decision_ids, "decision record"))
+    _check_supersession(decisions, findings)
 
     if not [d for d in decisions if not d.findings]:
         where = effective_decision_records_path(manifest)
@@ -376,6 +682,108 @@ def _check_profiles_and_decisions(root: str, manifest: Manifest, findings: list[
         )
 
 
+def _check_supersession(decisions: list[ScannedProfile], findings: list[Finding]) -> None:
+    """Across-record supersession integrity (decisions.md); the schema covers the
+    within-record half. "B supersedes A": A must exist, be superseded, and point
+    supersededBy back at B. A superseded record's supersededBy: B must exist and
+    declare supersedes back. supersededBy on a non-superseded record is rejected;
+    cycles are reported. Without this both A and B route as live."""
+
+    @dataclass
+    class _Rec:
+        id: str
+        status: str
+        supersedes: Optional[str]
+        superseded_by: Optional[str]
+        rel_path: str
+
+    recs: list[_Rec] = []
+    by_id: dict[str, _Rec] = {}
+    for d in decisions:
+        fm = d.frontmatter
+        if not fm or not isinstance(fm.get("id"), str):
+            continue
+        sup = fm.get("supersedes")
+        supby = fm.get("supersededBy")
+        status = fm.get("status")
+        rec = _Rec(
+            id=fm["id"],
+            status=status if isinstance(status, str) else "",
+            supersedes=sup if isinstance(sup, str) else None,
+            superseded_by=supby if isinstance(supby, str) else None,
+            rel_path=d.rel_path,
+        )
+        recs.append(rec)
+        by_id.setdefault(rec.id, rec)
+
+    def emit(msg: str, rel_path: str) -> None:
+        findings.append(Finding("decision-supersession", "error", msg, rel_path))
+
+    def status_or(s: str) -> str:
+        return s if s else "unset"
+
+    for r in recs:
+        if r.superseded_by is not None and r.status != "superseded":
+            emit(
+                f'supersededBy is set but status is "{status_or(r.status)}", not "superseded"',
+                r.rel_path,
+            )
+        if r.supersedes is not None:
+            target = by_id.get(r.supersedes)
+            if target is None:
+                emit(f'supersedes "{r.supersedes}" but no decision record has that id', r.rel_path)
+            else:
+                if target.status != "superseded":
+                    emit(
+                        f'is superseded by "{r.id}", so its status must be "superseded" '
+                        f'but is "{status_or(target.status)}"',
+                        target.rel_path,
+                    )
+                if target.superseded_by != r.id:
+                    emit(
+                        f'is superseded by "{r.id}", but its supersededBy does not point back to "{r.id}"',
+                        target.rel_path,
+                    )
+        if r.superseded_by is not None:
+            successor = by_id.get(r.superseded_by)
+            if successor is None:
+                emit(
+                    f'supersededBy "{r.superseded_by}" but no decision record has that id',
+                    r.rel_path,
+                )
+            elif successor.supersedes != r.id:
+                emit(
+                    f'supersededBy "{r.superseded_by}", but that record does not declare supersedes "{r.id}"',
+                    r.rel_path,
+                )
+
+    # Cycle detection over supersedes edges (id -> the id it supersedes).
+    color: dict[str, int] = {}  # 0 unvisited, 1 in-progress, 2 done
+    on_cycle: set[str] = set()
+
+    def visit(node_id: str, stack: list[str]) -> None:
+        c = color.get(node_id, 0)
+        if c == 2:
+            return
+        if c == 1:
+            for sid in reversed(stack):
+                on_cycle.add(sid)
+                if sid == node_id:
+                    break
+            return
+        color[node_id] = 1
+        r = by_id.get(node_id)
+        if r is not None and r.supersedes is not None and r.supersedes in by_id:
+            visit(r.supersedes, stack + [node_id])
+        color[node_id] = 2
+
+    for r in recs:
+        visit(r.id, [])
+    for r in recs:
+        if r.id in on_cycle:
+            emit(f'decision "{r.id}" is part of a supersession cycle', r.rel_path)
+
+
 def _check_schema_version(rel: str, data: object, findings: list[Finding]) -> None:
     v = data.get("schemaVersion") if isinstance(data, dict) else None
     if isinstance(v, str) and v not in SUPPORTED_LINES:
@@ -387,10 +795,9 @@ def _check_schema_version(rel: str, data: object, findings: list[Finding]) -> No
 
 
 def _date_id_key(entry: dict) -> tuple[str, str]:
-    """Canonical changelog order (machine-readable-surface.md req 3): ascending
-    by ``date``, then ``id`` as the tiebreak. ``date`` is UTC, so a lexical
-    compare of the string is chronological; ``id`` is unique, so the pair is a
-    total order. Mirrors the TS ``compareByDateId`` comparator."""
+    """Canonical changelog order (machine-readable-surface.md req 3): ascending by
+    ``date``, then ``id``. ``date`` is UTC so lexical compare is chronological; ``id``
+    is unique, so the pair is a total order. Mirrors TS ``compareByDateId``."""
     return (str(entry.get("date") or ""), str(entry.get("id") or ""))
 
 
@@ -455,14 +862,17 @@ def check_changelog_append_only(root: str, rel: str, strict: bool = False) -> Ch
         return ChangelogCheckResult(findings=findings, verified=False)
     head_text = git_show_head(root, rel)
     if head_text is None:
-        return ChangelogCheckResult(findings=findings, verified=True)
+        # No committed state to compare against: an unborn repository, or a changelog
+        # not yet in HEAD. Append-only discipline is unverifiable here, not satisfied.
+        return ChangelogCheckResult(findings=findings, verified=False)
     try:
         raw_head = json.loads(head_text).get("entries")
         head_entries = (
             [e for e in raw_head if isinstance(e, dict)] if isinstance(raw_head, list) else []
         )
     except (json.JSONDecodeError, AttributeError):
-        return ChangelogCheckResult(findings=findings, verified=True)
+        # The HEAD blob is unparseable, so it yields no baseline to compare against.
+        return ChangelogCheckResult(findings=findings, verified=False)
     # Discipline is set-keyed by `id` (machine-readable-surface.md req 3): order
     # is derived from (date, id), not array position, so reordering is fine.
     # Every entry present at HEAD must survive unchanged unless it was compacted
@@ -517,9 +927,11 @@ def check_changelog_append_only(root: str, rel: str, strict: bool = False) -> Ch
                 )
             )
             return ChangelogCheckResult(findings=findings, verified=True)
-        appended = [e for e in entries if e.get("id") not in head_by_id]
-        if not any(e.get("type") == "compaction" for e in appended):
-            n = len(dropped_ids)
+        n = len(dropped_ids)
+        appended_compactions = [
+            e for e in entries if e.get("id") not in head_by_id and e.get("type") == "compaction"
+        ]
+        if not appended_compactions:
             findings.append(
                 Finding(
                     "changelog-append-only",
@@ -529,15 +941,43 @@ def check_changelog_append_only(root: str, rel: str, strict: bool = False) -> Ch
                     rel,
                 )
             )
+        elif len(appended_compactions) > 1:
+            findings.append(
+                Finding(
+                    "changelog-append-only",
+                    "error",
+                    f"{len(appended_compactions)} compaction entries were appended for one drop; "
+                    "a drop records exactly one",
+                    rel,
+                )
+            )
+        else:
+            # The single appended compaction must accurately record the dropped run.
+            c = appended_compactions[0].get("compacted")
+            c = c if isinstance(c, dict) else {}
+            c_entries = str(c["entries"]) if isinstance(c.get("entries"), int) else "?"
+            c_first = c["firstId"] if isinstance(c.get("firstId"), str) else "?"
+            c_last = c["lastId"] if isinstance(c.get("lastId"), str) else "?"
+            first_dropped, last_dropped = dropped_ids[0], dropped_ids[n - 1]
+            if c_entries != str(n) or c_first != first_dropped or c_last != last_dropped:
+                findings.append(
+                    Finding(
+                        "changelog-append-only",
+                        "error",
+                        f"compaction entry records {c_entries} entries ({c_first}..{c_last}) "
+                        f"but {n} were dropped ({first_dropped}..{last_dropped})",
+                        rel,
+                    )
+                )
     return ChangelogCheckResult(findings=findings, verified=True)
 
 
-# Placeholder markers a freshly scaffolded layer carries until it is populated:
-# the `TODO:` lines init seeds, or any `<…>` angle-bracket stub.
+# Placeholder markers a scaffolded layer carries until populated: init's `TODO:`
+# seeds, or any `<…>` angle-bracket stub.
 _PLACEHOLDER_RE = re.compile(r"\bTODO:|<[A-Za-z][^>\n]*>")
-# High-stakes inferences an agent drafted but the owner has not confirmed yet:
-# `TODO(confirm-invariant|gate|owner): …` markers, or `UNCONFIRMED:` lines. The
-# `TODO(confirm-…)` form deliberately does not match _PLACEHOLDER_RE's `TODO:`.
+# Inferences an agent drafted but the owner hasn't confirmed: `TODO(confirm-…): …`
+# or `UNCONFIRMED:`. The `TODO(confirm-…)` form deliberately does not match
+# _PLACEHOLDER_RE's `TODO:`.
 _UNCONFIRMED_RE = re.compile(r"TODO\(confirm[-:][^)\n]*\)|UNCONFIRMED:")
 # The generic identity init writes by default; real layers replace it.
 _GENERIC_IDENTITY = "Shared context layer for this repository."
@@ -564,10 +1004,10 @@ def _section_body(text: str, heading: str) -> str:
 
 
 def content_findings(root: str, manifest: Manifest) -> list[Finding]:
-    """Opt-in content lint (``validate --content``): warning-only signals that a
-    layer is still a scaffold rather than real context: placeholder text, a
-    generic boot identity, thin domain/system categories. Never errors and never
-    affects a conformance level; this is guidance toward a layer worth reading."""
+    """Opt-in content lint (``validate --content``): warning-only signals a layer is
+    still a scaffold rather than real context — placeholder text, generic boot
+    identity, thin domain/system categories. Never errors, never affects a conformance
+    level; guidance toward a layer worth reading."""
     out: list[Finding] = []
     boot_rel = manifest["bootProfilePath"]
     boot_abs = Path(root) / boot_rel
@@ -604,35 +1044,38 @@ def content_findings(root: str, manifest: Manifest) -> list[Finding]:
                     boot_rel,
                 )
             )
+    docs_by_cat: dict[str, list[tuple[str, str]]] = {}
+    for doc in scan_categories(root, manifest).docs:
+        docs_by_cat.setdefault(doc.category, []).append(
+            (doc.rel_path, (Path(root) / doc.rel_path).read_text(encoding="utf-8"))
+        )
     for cat in ("domain", "system", "practice", "governance"):
         mapping = manifest["categories"].get(cat)
         if not mapping:
             continue
         concrete = 0
-        for declared in mapping["paths"]:
-            for rel in walk_md(root, declared):
-                text = (Path(root) / rel).read_text(encoding="utf-8")
-                if _PLACEHOLDER_RE.search(text):
-                    out.append(
-                        Finding(
-                            "content-placeholder",
-                            "warning",
-                            f"{cat} document still contains placeholder text",
-                            rel,
-                        )
+        for rel, text in docs_by_cat.get(cat, []):
+            if _PLACEHOLDER_RE.search(text):
+                out.append(
+                    Finding(
+                        "content-placeholder",
+                        "warning",
+                        f"{cat} document still contains placeholder text",
+                        rel,
                     )
-                if _UNCONFIRMED_RE.search(text):
-                    out.append(
-                        Finding(
-                            "content-unconfirmed",
-                            "warning",
-                            f"{cat} document has inferences awaiting owner confirmation",
-                            rel,
-                        )
+                )
+            if _UNCONFIRMED_RE.search(text):
+                out.append(
+                    Finding(
+                        "content-unconfirmed",
+                        "warning",
+                        f"{cat} document has inferences awaiting owner confirmation",
+                        rel,
                     )
-                for line in text.split("\n"):
-                    if _BULLET_RE.search(line) and not _PLACEHOLDER_RE.search(line):
-                        concrete += 1
+                )
+            for line in text.split("\n"):
+                if _BULLET_RE.search(line) and not _PLACEHOLDER_RE.search(line):
+                    concrete += 1
         if cat in ("domain", "system") and concrete < 3:
             plural = "" if concrete == 1 else "s"
             out.append(
@@ -641,7 +1084,7 @@ def content_findings(root: str, manifest: Manifest) -> list[Finding]:
                     "warning",
                     f"{cat} has {concrete} concrete bullet{plural}; "
                     "aim for at least 3 repository-specific ones",
-                    mapping["paths"][0],
+                    mapping["indexes"][0],
                 )
             )
     # Decisions an agent proposed but the owner has not yet accepted.
@@ -693,7 +1136,10 @@ def validate_layer(root: str, content: bool = False) -> ValidateResult:
     _check_vendor_adapters(root, manifest, findings)
     _check_owners(manifest, findings)
     _check_agents_map(root, manifest, findings)
+    _check_actors(root, manifest, findings)
+    _check_boot_agents_default(root, manifest, findings)
     _check_federation_mounts(root, manifest, findings)
+    findings.extend(mount_surfacing_findings(root, manifest))
     _check_profiles_and_decisions(root, manifest, findings)
 
     index_rel = effective_index_path(manifest)
@@ -708,8 +1154,17 @@ def validate_layer(root: str, content: bool = False) -> ValidateResult:
                     findings.append(Finding("artifact-schema", "error", err, index_rel))
                 _check_schema_version(index_rel, data, findings)
         else:
-            # check_index covers schema, schemaVersion, and currency.
-            findings.extend(check_index(root, manifest).findings)
+            # check_index covers schema, schemaVersion, and currency. It re-runs the
+            # category scan to generate the expected index, so every parse, conflict
+            # and resolution finding the scan above already contributed comes back a
+            # second time; one bad index-file line was reported twice. Deduplicated by
+            # the same identity relation resolution uses, because two findings with
+            # the same rule, severity, message and path are the same finding to every
+            # reader.
+            already_reported = {finding_key(f) for f in findings}
+            for f in check_index(root, manifest).findings:
+                if finding_key(f) not in already_reported:
+                    findings.append(f)
 
     changelog_rel = effective_changelog_path(manifest)
     changelog_exists = (Path(root) / changelog_rel).is_file()

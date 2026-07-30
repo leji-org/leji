@@ -20,8 +20,7 @@ func repoRoot2(t *testing.T) string {
 	return filepath.Join(wd, "..", "..", "..", "..", "..")
 }
 
-// gitSeedExample copies the indexed example into a fresh git repo and commits it,
-// giving CheckChangelogAppendOnly a HEAD baseline to diff against.
+// gitSeedExample commits the example into a fresh git repo so CheckChangelogAppendOnly has a HEAD baseline.
 func gitSeedExample(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -144,8 +143,7 @@ func TestChangelogAppendOnlyRemovalFromWrongEnd(t *testing.T) {
 	dir := gitSeedExample(t)
 	m := readCL(t, dir)
 	es := entriesSlice(m)
-	// Drop the newest entry instead of the oldest: not a compaction from the
-	// oldest end.
+	// Drop the newest, not the oldest: not a compaction from the oldest end.
 	m["entries"] = es[:len(es)-1]
 	writeCL(t, dir, m)
 	res := validate.CheckChangelogAppendOnly(dir, clRel, false)

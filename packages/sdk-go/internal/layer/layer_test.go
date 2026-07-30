@@ -8,7 +8,6 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 )
 
-// writeFile creates a file (and parents) under root using a POSIX-style rel path.
 func writeFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	abs := filepath.Join(root, filepath.FromSlash(rel))
@@ -20,12 +19,18 @@ func writeFile(t *testing.T, root, rel, content string) {
 	}
 }
 
+// writeIndexFile writes an index file with one leji-index block listing one entry.
+func writeIndexFile(t *testing.T, root, rel, entry string) {
+	t.Helper()
+	writeFile(t, root, rel, "# Index\n\n```leji-index\n- path: "+entry+"\n```\n")
+}
+
 func newManifest() *manifest.Manifest {
 	return &manifest.Manifest{
 		BootProfilePath: "docs/boot-profile.md",
 		Categories: map[string]manifest.CategoryMapping{
-			"domain": {Paths: []string{"docs/domain/"}},
-			"system": {Paths: []string{"docs/system/"}},
+			"domain": {Indexes: []string{"docs/context/domain.md"}},
+			"system": {Indexes: []string{"docs/context/system.md"}},
 		},
 		Machine: &manifest.Machine{
 			AgentProfilesPath:   "docs/agents/",
@@ -45,6 +50,8 @@ func docPaths(docs []ScannedDoc) []string {
 func TestScanCategoriesExclusionsAndSort(t *testing.T) {
 	root := t.TempDir()
 	m := newManifest()
+	writeIndexFile(t, root, "docs/context/domain.md", "docs/domain/")
+	writeIndexFile(t, root, "docs/context/system.md", "docs/system/")
 	writeFile(t, root, "docs/domain/glossary.md", "---\nid: g\n---\n\nbody")
 	writeFile(t, root, "docs/domain/README.md", "# readme is excluded")
 	writeFile(t, root, "docs/system/arch.md", "# arch")
@@ -53,7 +60,8 @@ func TestScanCategoriesExclusionsAndSort(t *testing.T) {
 	// agent profile dir overlaps nothing here but is excluded by predicate
 	writeFile(t, root, "docs/agents/tp.md", "---\nid: tp\n---\n")
 
-	docs := ScanCategories(root, m)
+	scan := ScanCategories(root, m)
+	docs := scan.Docs
 	got := docPaths(docs)
 	want := []string{"docs/domain/glossary.md", "docs/system/arch.md"}
 	if len(got) != len(want) {
@@ -77,23 +85,30 @@ func TestScanCategoriesExclusionsAndSort(t *testing.T) {
 	}
 }
 
-func TestScanCategoriesLongestDeclaredWins(t *testing.T) {
+// TestScanCategoriesConflictIsError mirrors the new content model: the same path
+// listed under two categories is a hard error, since the inclusion gate must be
+// unambiguous.
+func TestScanCategoriesConflictIsError(t *testing.T) {
 	root := t.TempDir()
 	m := &manifest.Manifest{
 		BootProfilePath: "docs/boot-profile.md",
 		Categories: map[string]manifest.CategoryMapping{
-			// domain claims everything under docs/, system claims the deeper path.
-			"domain": {Paths: []string{"docs/"}},
-			"system": {Paths: []string{"docs/system/"}},
+			"domain": {Indexes: []string{"docs/context/domain.md"}},
+			"system": {Indexes: []string{"docs/context/system.md"}},
 		},
 	}
-	writeFile(t, root, "docs/system/arch.md", "# arch")
-	docs := ScanCategories(root, m)
-	if len(docs) != 1 {
-		t.Fatalf("expected 1 doc, got %v", docPaths(docs))
+	writeIndexFile(t, root, "docs/context/domain.md", "docs/shared.md")
+	writeIndexFile(t, root, "docs/context/system.md", "docs/shared.md")
+	writeFile(t, root, "docs/shared.md", "# shared")
+	scan := ScanCategories(root, m)
+	var sawConflict bool
+	for _, f := range scan.Findings {
+		if f.Rule == "category-conflict" && f.Path == "docs/shared.md" {
+			sawConflict = true
+		}
 	}
-	if docs[0].Category != "system" {
-		t.Fatalf("longest declared path should win: got category %q", docs[0].Category)
+	if !sawConflict {
+		t.Fatalf("expected a category-conflict finding for docs/shared.md, got %#v", scan.Findings)
 	}
 }
 
@@ -134,24 +149,24 @@ func TestScanAgentProfilesNilWhenNoDefaultDir(t *testing.T) {
 	}
 }
 
-// TestNoMachineBlockResolvesDefaults mirrors the Node units test: a manifest
-// with no machine block resolves agents/decisions to docs/agents/ and
-// docs/decisions/. A profile dropped at the default location is scanned (and
-// valid), and docs/agents/ is excluded from category content even though it is
-// undeclared.
+// TestNoMachineBlockResolvesDefaults: with no machine block, agents/decisions
+// resolve to docs/agents/ and docs/decisions/; a profile at the default location
+// is scanned and excluded from category content even though undeclared.
 func TestNoMachineBlockResolvesDefaults(t *testing.T) {
 	root := t.TempDir()
 	m := &manifest.Manifest{
 		RootPath:        "docs/",
 		BootProfilePath: "docs/boot-profile.md",
 		Categories: map[string]manifest.CategoryMapping{
-			"domain":    {Paths: []string{"docs/domain/"}},
-			"decisions": {Paths: []string{"docs/decisions/"}},
+			"domain":    {Indexes: []string{"docs/context/domain.md"}},
+			"decisions": {Indexes: []string{"docs/context/decisions.md"}},
 		},
 	}
 	if m.Machine != nil {
 		t.Fatalf("manifest unexpectedly has a machine block")
 	}
+	writeIndexFile(t, root, "docs/context/domain.md", "docs/domain/")
+	writeIndexFile(t, root, "docs/context/decisions.md", "docs/decisions/")
 
 	// A valid agent profile at the default profiles location (docs/agents/).
 	profile := "---\n" +
@@ -183,8 +198,7 @@ func TestNoMachineBlockResolvesDefaults(t *testing.T) {
 	if !excluded("docs/agents/core.md") {
 		t.Fatalf("docs/agents/ should be excluded from categories")
 	}
-	docs := ScanCategories(root, m)
-	for _, d := range docs {
+	for _, d := range ScanCategories(root, m).Docs {
 		if d.RelPath == "docs/agents/core.md" {
 			t.Fatalf("agent profile must not be treated as category content")
 		}
@@ -203,9 +217,10 @@ func TestScanDecisionRecordsDedupesAcrossDirs(t *testing.T) {
 	m := &manifest.Manifest{
 		Machine: &manifest.Machine{DecisionRecordsPath: "docs/decisions/"},
 		Categories: map[string]manifest.CategoryMapping{
-			"decisions": {Paths: []string{"docs/decisions/"}},
+			"decisions": {Indexes: []string{"docs/context/decisions.md"}},
 		},
 	}
+	writeIndexFile(t, root, "docs/context/decisions.md", "docs/decisions/")
 	writeFile(t, root, "docs/decisions/0001-pick-db.md", "# no frontmatter\n")
 	got := ScanDecisionRecords(root, m)
 	if len(got) != 1 {

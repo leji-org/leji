@@ -6,9 +6,8 @@ import (
 	"testing"
 )
 
-// Render labels every plan status and summarizes the counts, mirroring the Node
-// SDK's renderWritePlan test. These render helpers were previously exercised only
-// via CLI dispatch.
+// Render labels every plan status and summarizes the counts (mirrors the Node
+// SDK's renderWritePlan test).
 func TestRenderLabelsEveryStatusAndSummarizesCounts(t *testing.T) {
 	out := Render([]PlanEntry{
 		{Rel: "leji.json", Status: Create},

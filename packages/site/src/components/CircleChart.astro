@@ -1,6 +1,5 @@
 ---
-// The circle: people and agents read one shared context layer, propose changes,
-// and people approve. A single SVG panel, styled for the light page.
+// The circle diagram: a single SVG panel styled for the light page.
 ---
 
 <div class="circle-chart">
@@ -151,8 +150,7 @@
       stroke-dasharray: 5 6;
       animation: cc-ring 4.5s linear infinite;
    }
-   /* spokes stay solid (an unbroken connection); gold particles drift along
-      them, fading in and out, each at its own tempo so nothing pulses in lockstep */
+   /* gold particles drift along the solid spokes, each at its own tempo */
    .spoke-dot {
       fill: var(--gold);
       animation: cc-dot 3s ease-in-out infinite;

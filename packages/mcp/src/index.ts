@@ -11,9 +11,8 @@ const { version } = require('../package.json') as { version: string };
 export const VERSION: string = version;
 
 /**
- * Start the Leji MCP server over stdio. JSON-RPC is the only thing written to
- * stdout (the transport owns it); everything else goes to stderr, so the server
- * stays a clean stdio peer for any MCP client.
+ * Start the Leji MCP server over stdio. The transport owns stdout (JSON-RPC only);
+ * everything else goes to stderr, keeping the server a clean stdio peer.
  */
 export async function main(): Promise<void> {
    const server = createServer(version);
