@@ -1,10 +1,10 @@
 {
   "$schema": "https://leji.org/schemas/v1.0/context-index.schema.json",
   "schemaVersion": "1.0",
-  "generatedAt": "2026-07-28T17:03:34.033Z",
+  "generatedAt": "2026-07-31T12:23:28.176Z",
   "generator": {
     "name": "leji",
-    "version": "1.3.0"
+    "version": "1.3.1"
   },
   "rootPath": "docs/",
   "entries": [
@@ -38,7 +38,7 @@
       "category": "decisions",
       "kind": "record",
       "date": "2026-06-23",
-      "lastModified": "2026-07-28",
+      "lastModified": "2026-07-30",
       "contentHash": "sha256:5d955913ad1b6c64",
       "links": [
         "0001-adopt-leji.md"
@@ -51,7 +51,7 @@
       "category": "decisions",
       "kind": "record",
       "date": "2026-07-01",
-      "lastModified": "2026-07-28",
+      "lastModified": "2026-07-30",
       "contentHash": "sha256:72e1f9877a963ad0",
       "links": [
         "0003-category-index-files.md"
@@ -64,7 +64,7 @@
       "category": "decisions",
       "kind": "record",
       "date": "2026-07-16",
-      "lastModified": "2026-07-18",
+      "lastModified": "2026-07-30",
       "contentHash": "sha256:b848301549ed3708"
     },
     {
@@ -74,7 +74,7 @@
       "category": "decisions",
       "kind": "record",
       "date": "2026-07-17",
-      "lastModified": "2026-07-27",
+      "lastModified": "2026-07-30",
       "contentHash": "sha256:a233a436f4d7a9d6"
     },
     {
@@ -97,7 +97,7 @@
       "category": "practice",
       "kind": "intent",
       "summary": "How to port a change from the TypeScript reference SDK to the Go and Python SDKs without breaking parity.",
-      "lastModified": "2026-07-21",
+      "lastModified": "2026-07-30",
       "contentHash": "sha256:6e8615c1dcd8e8aa",
       "freshness": {
         "reviewAfter": "2026-12-21"
@@ -110,7 +110,7 @@
       "category": "practice",
       "kind": "intent",
       "summary": "The two evidence channels for testing the leji CLI against real repositories, LIVE (linked source) and PACKED (installed artifact), and the discipline for using them.",
-      "lastModified": "2026-07-26",
+      "lastModified": "2026-07-30",
       "contentHash": "sha256:aefb8ec2bfdb7548",
       "freshness": {
         "reviewAfter": "2026-12-21"
@@ -123,7 +123,7 @@
       "category": "system",
       "kind": "intent",
       "summary": "The constraints every change to this repository lives with.",
-      "lastModified": "2026-07-27",
+      "lastModified": "2026-07-30",
       "contentHash": "sha256:fac416a0197fe79b",
       "freshness": {
         "reviewAfter": "2027-06-21"
