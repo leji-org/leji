@@ -18,7 +18,20 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
       <nav id="site-nav" aria-label="Primary">
          <a href="/quickstart/" aria-current={active('/quickstart/')}>Quickstart</a>
          <a href="/spec/" aria-current={active('/spec/')}>Spec</a>
-         <a href="/adoption/" aria-current={active('/adoption/')}>Adopt</a>
+         <div class="nav-group">
+            <a
+               href="/adoption/"
+               class="nav-trigger"
+               aria-haspopup="true"
+               aria-current={active('/adoption/', '/federation/')}
+            >
+               Adopt <span class="caret" aria-hidden="true">›</span>
+            </a>
+            <div class="nav-menu">
+               <a href="/adoption/">Adoption guide</a>
+               <a href="/federation/">Federation</a>
+            </div>
+         </div>
          <div class="nav-group">
             <a
                href="/manifest/"
@@ -271,14 +284,18 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
       nav[data-open] {
          display: flex;
       }
+      /* No rules between rows: the stack reads as one menu, and a per-row border
+         collides with the hover underline nav a already carries. */
       nav > a,
       .nav-trigger {
          width: 100%;
          padding: 0.75rem 0;
-         border-bottom: 1px solid rgba(255, 189, 110, 0.12);
       }
-      .source-link {
-         border-bottom: none;
+      /* Colour alone carries the state here. The desktop hover underline spans the
+         full row once the link is full-width, which reads as a divider rather than
+         an underline, and touch leaves it stuck on after a tap. */
+      nav a:hover {
+         border-color: transparent;
       }
       .nav-group {
          display: block;
@@ -308,6 +325,13 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
       .nav-menu a:hover {
          color: var(--gold-bright);
          background: transparent;
+      }
+      /* The flush header borrows the monument's background, but the band only
+         reserves --header-h behind it: one collapsed row. An open menu is several
+         times that, so the overflow would fall on the page background and the
+         white-soft links would sit on cream, unreadable. Paint our own while open. */
+      .site-header-band.flush:has(nav[data-open]) {
+         background: var(--blue-deep);
       }
    }
 </style>

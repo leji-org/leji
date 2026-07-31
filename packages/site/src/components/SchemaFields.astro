@@ -19,7 +19,8 @@ function typeOf(prop: any): string {
       const items = resolve(prop.items ?? {});
       if (items.enum) return `array of ${items.enum.map((v: string) => `"${v}"`).join(' · ')}`;
       if (items.properties || items.type === 'object') return 'array of objects';
-      return `array of ${items.type ?? 'items'}s`;
+      // The fallback is already plural; pluralizing it again rendered "itemss".
+      return items.type ? `array of ${items.type}s` : 'array of items';
    }
    if (prop.patternProperties) return 'map';
    return prop.type ?? 'value';
@@ -34,8 +35,26 @@ function childrenOf(prop: any, depth: number): any[] {
       type: typeOf(sub),
       description: sub.description ?? '',
       required: req.has(name),
+      // Which shared definition this entry points at, so siblings that all reuse
+      // one $def can render its shape once instead of once each.
+      ref: sub.$ref ?? null,
       children: childrenOf(sub, depth - 1),
    }));
+}
+
+/**
+ * Siblings that all resolve to the same `$def` describe one shape, not several.
+ * Rendering each in full repeats that shape verbatim per sibling: the five
+ * category entries all point at `categoryMapping`, so its `indexes` description
+ * was emitted five times. Hoist the shared shape and keep each sibling's own
+ * description, which is the part that actually differs.
+ */
+function hoistSharedShape(sub: any[]): { sub: any[]; shared: any[] | null } {
+   const refs = sub.map((s) => s.ref);
+   const allSame = sub.length > 1 && refs[0] && refs.every((r) => r === refs[0]);
+   const haveChildren = sub.every((s) => s.children.length > 0);
+   if (!allSame || !haveChildren) return { sub, shared: null };
+   return { sub: sub.map((s) => ({ ...s, children: [] })), shared: sub[0].children };
 }
 
 const required = new Set(schema.required ?? []);
@@ -47,7 +66,7 @@ const fields = Object.entries(schema.properties ?? {})
       type: typeOf(prop),
       description: prop.description ?? '',
       pattern: prop.pattern,
-      sub: childrenOf(prop, 2),
+      ...hoistSharedShape(childrenOf(prop, 2)),
    }));
 ---
 
@@ -73,6 +92,21 @@ const fields = Object.entries(schema.properties ?? {})
                   <p class="pattern">
                      Pattern <code>{f.pattern}</code>
                   </p>
+               )}
+               {f.shared && (
+                  <div class="object-body shared-shape">
+                     <p class="shared-note">Each key below takes the same shape:</p>
+                     {f.shared.map((c: any) => (
+                        <div class="subfield">
+                           <div class="subfield-head">
+                              <code class="fname">{c.name}</code>
+                              <span class="ftype">{c.type}</span>
+                              {c.required && <span class="req">required</span>}
+                           </div>
+                           {c.description && <p class="subdesc">{c.description}</p>}
+                        </div>
+                     ))}
+                  </div>
                )}
                {f.sub.length > 0 && (
                   <div class="object-body">
@@ -175,6 +209,14 @@ const fields = Object.entries(schema.properties ?? {})
       color: var(--ink-soft);
       white-space: nowrap;
    }
+   /* An enum type reads best on one line, but the longest of them is 484px wide
+      and nowrap made the whole page scroll sideways on a phone. Below the point
+      where it stops fitting, let it wrap instead. */
+   @media (max-width: 640px) {
+      .ftype {
+         white-space: normal;
+      }
+   }
 
    .req {
       font-family: var(--mono);
@@ -193,7 +235,7 @@ const fields = Object.entries(schema.properties ?? {})
    }
    .fdesc {
       margin: 0;
-      max-width: 64ch;
+      max-width: var(--measure);
    }
    .pattern {
       font-size: 0.85rem;
@@ -222,6 +264,14 @@ const fields = Object.entries(schema.properties ?? {})
    .object-body.nested > .subfield:first-child {
       margin-top: 0;
    }
+   .shared-note {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+      margin: 0 0 0.6rem;
+   }
    .subfield-head {
       display: flex;
       align-items: baseline;
@@ -240,7 +290,6 @@ const fields = Object.entries(schema.properties ?? {})
    .subdesc {
       margin: 0.3rem 0 0;
       color: var(--ink-soft);
-      font-size: 0.9rem;
-      max-width: 62ch;
+      max-width: var(--measure);
    }
 </style>

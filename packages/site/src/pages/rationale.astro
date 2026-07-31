@@ -20,12 +20,17 @@ const afterHtml = after ? (await processor.render(after)).code : '';
 ---
 
 <Doc
+   kind="background"
    title="Rationale · Leji"
    description="Why Leji is built this way: durable intent over per-vendor instructions, a circle of people and agents rather than a tier, intent and records, and why it is not a wiki."
 >
    <Fragment set:html={beforeHtml} />
-   <figure class="rationale-figure" aria-label="Leji: a circle">
+   <figure class="rationale-figure">
       <CircleChart />
+      <figcaption class="figure-note">
+         <span class="flows">human-to-human · human-to-AI · human-to-AI-to-human</span>
+         Everyone reads. Anyone proposes. People approve. Stale context is never silently treated as current.
+      </figcaption>
    </figure>
    <Fragment set:html={afterHtml} />
 </Doc>
@@ -33,5 +38,22 @@ const afterHtml = after ? (await processor.render(after)).code : '';
 <style>
    .rationale-figure {
       margin: 1.5rem 0 2.4rem;
+   }
+   /* The figure's reading, as page text rather than baked into the SVG, so it
+      reflows, stays selectable, and is quotable by an answer engine. */
+   /* Reads as body copy, not as a caption: it is the figure's argument, and the
+      surrounding prose is where the reader already is. Inherits size, colour and
+      leading from the page. */
+   .figure-note {
+      max-width: var(--measure);
+      margin: 1rem 0 0;
+   }
+   .figure-note .flows {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--blue);
+      margin-bottom: 0.3rem;
    }
 </style>

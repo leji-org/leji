@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as http from 'node:http';
 import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -19,9 +20,11 @@ import {
    freshnessReport,
    generateViewer,
    loadManifest,
+   pickDocsRoot,
    seedChangelogIfMissing,
    serializeChangelog,
    statusReport,
+   urlPathToRel,
    validateLayer,
    writeIndex,
 } from '../dist/index.js';
@@ -2276,4 +2279,175 @@ test('mounts: a hydrate declaration error never echoes the declaration back into
       ],
    );
    assert.ok(!JSON.stringify(r.outcomes).includes('/Users/'), 'no filesystem path reaches canonical output');
+});
+
+// --- viewer route keys are separator-agnostic ---
+// The server matches routes against a forward-slashed prefix. Deriving the key
+// with the platform's `path.normalize` produced backslashes on Windows, so every
+// `/content/*` request missed its branch and fell through to the chrome mount as
+// a 404. These pin the contract on any platform: the key is always forward-slashed,
+// and traversal collapses whichever separator the request used.
+test('urlPathToRel yields forward-slashed route keys and collapses traversal', () => {
+   assert.equal(urlPathToRel('/content/boot-profile.md'), 'content/boot-profile.md');
+   assert.equal(urlPathToRel('/content/agents/core.md'), 'content/agents/core.md');
+   assert.equal(urlPathToRel('/content/_sidebar.md'), 'content/_sidebar.md');
+   assert.equal(urlPathToRel('/'), '');
+   assert.equal(urlPathToRel('/assets/app.js'), 'assets/app.js');
+   // One request path, one route key, whichever separator it used. Containment is
+   // enforced separately in serveFrom and does not depend on this.
+   assert.equal(urlPathToRel('/content/..\\..\\etc\\passwd'), 'etc/passwd');
+   assert.equal(urlPathToRel('/content/../../etc/passwd'), 'etc/passwd');
+   assert.equal(urlPathToRel('/content\\agents\\core.md'), 'content/agents/core.md');
+   // One key per request, so trailing and repeated separators cannot produce a
+   // second spelling. All three SDKs are pinned to this same table.
+   assert.equal(urlPathToRel(''), '');
+   assert.equal(urlPathToRel('.'), '');
+   assert.equal(urlPathToRel('/content'), 'content');
+   assert.equal(urlPathToRel('/content/'), 'content');
+   assert.equal(urlPathToRel('//content//core.md'), 'content/core.md');
+   assert.equal(urlPathToRel('../../x'), 'x');
+   // Every key a route test compares against is forward-slashed.
+   for (const u of ['/content/a.md', '/content\\a.md', '/content/sub\\a.md']) {
+      assert.ok(!urlPathToRel(u).includes('\\'), `no backslash survives in ${u}`);
+      assert.ok(urlPathToRel(u).startsWith('content/'), `content prefix matches for ${u}`);
+   }
+});
+
+// --- adoption records the docs root as it is named on disk ---
+// Detection tested `isDir(root/'docs')`, which succeeds on a case-insensitive
+// filesystem when the directory is `Docs`, and then recorded the candidate string
+// rather than the entry, so the manifest carried a path that does not match disk.
+// On a case-sensitive filesystem the same test missed and adoption scaffolded a
+// second directory beside the existing one.
+test('adopt detects an existing docs root by its real name, whatever its case', () => {
+   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-case-'));
+   try {
+      fs.mkdirSync(path.join(dir, 'Docs'));
+      fs.writeFileSync(path.join(dir, 'Docs', 'note.md'), '# note\n');
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+      execFileSync('git', ['add', '-A'], { cwd: dir });
+      execFileSync('git', ['-c', 'user.email=t@e', '-c', 'user.name=t', 'commit', '-qm', 'init'], { cwd: dir });
+      const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
+      const out = execFileSync(process.execPath, [cli, 'adopt', '--dry-run', '--yes'], {
+         cwd: dir,
+         encoding: 'utf8',
+      });
+      assert.ok(out.includes('Docs/'), 'the write plan uses the real directory name');
+      assert.ok(!/(^|[^A-Za-z])docs\//.test(out), 'no lowercase docs/ path is planned');
+   } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+   }
+});
+
+// A case-sensitive filesystem can carry both spellings; the exact match wins so
+// detection does not depend on directory-entry order.
+test('adopt prefers an exact docs-root match over a case-insensitive one', (t) => {
+   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-case2-'));
+   try {
+      fs.mkdirSync(path.join(dir, 'Docs'));
+      try {
+         fs.mkdirSync(path.join(dir, 'docs'));
+      } catch {
+         t.skip('case-insensitive filesystem: both spellings cannot exist at once');
+         return;
+      }
+      fs.writeFileSync(path.join(dir, 'docs', 'note.md'), '# note\n');
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+      execFileSync('git', ['add', '-A'], { cwd: dir });
+      execFileSync('git', ['-c', 'user.email=t@e', '-c', 'user.name=t', 'commit', '-qm', 'init'], { cwd: dir });
+      const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
+      const out = execFileSync(process.execPath, [cli, 'adopt', '--dry-run', '--yes'], { cwd: dir, encoding: 'utf8' });
+      assert.ok(/(^|[^A-Za-z])docs\//m.test(out), 'the exact-case candidate wins when both exist');
+   } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+   }
+});
+
+// The helper test above guards the helper; this guards that the server routes
+// through it, which is the defect a unit test on a pure function cannot see.
+test('serveViewer routes a backslash-separated request to the content mount', async () => {
+   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-route-'));
+   try {
+      fs.mkdirSync(path.join(dir, 'docs'));
+      fs.writeFileSync(path.join(dir, 'docs', 'note.md'), '# note\n');
+      const { serveViewer } = await import('../dist/index.js');
+      const server = await serveViewer(dir, 0, 'docs/');
+      const port = (server.address() as { port: number }).port;
+      const get = (p: string): Promise<{ status: number; body: string }> =>
+         new Promise((res, rej) => {
+            const req = http.get({ host: '127.0.0.1', port, path: p }, (r: any) => {
+               let b = '';
+               r.on('data', (c: Buffer) => (b += c));
+               r.on('end', () => res({ status: r.statusCode ?? 0, body: b }));
+            });
+            req.on('error', rej);
+         });
+      try {
+         const fwd = await get('/content/note.md');
+         assert.equal(fwd.status, 200, 'forward-slashed content path is served');
+         assert.match(fwd.body, /# note/);
+         // Percent-encoded backslash: the same document, through the same mount.
+         const back = await get('/content%5Cnote.md');
+         assert.equal(back.status, 200, 'backslash-separated content path reaches the same mount');
+         assert.match(back.body, /# note/);
+         // Containment still refuses an escape, whichever separator is used.
+         assert.equal((await get('/content/..%5C..%5Cetc%5Cpasswd')).status, 404);
+         // A "//"-leading target is a path, not a protocol-relative URL: parsing it
+         // against a base would move "content" into the host and lose the segment.
+         const dbl = await get('//content//note.md');
+         assert.equal(dbl.status, 200, 'repeated separators reach the same mount');
+         assert.match(dbl.body, /# note/);
+      } finally {
+         server.close();
+      }
+   } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+   }
+});
+
+// Directory-entry order is unspecified, so the choice must be a function of the
+// set and not of the order it arrives in. Injected rather than read from a
+// filesystem: two readdir calls return the same order, so a filesystem-backed
+// test would pass with the ordering rule reverted.
+test('pickDocsRoot chooses the same root whatever order the names arrive in', () => {
+   assert.equal(pickDocsRoot(['Docs', 'DOCS']), 'DOCS/');
+   assert.equal(pickDocsRoot(['DOCS', 'Docs']), 'DOCS/');
+   assert.equal(pickDocsRoot(['Docs', 'docs', 'DOCS']), 'docs/', 'exact spelling wins over any variant');
+   assert.equal(pickDocsRoot(['docs', 'Docs']), 'docs/');
+   // Candidate precedence is unchanged: docs before doc before documentation.
+   assert.equal(pickDocsRoot(['documentation', 'doc', 'docs']), 'docs/');
+   assert.equal(pickDocsRoot(['documentation', 'DOC']), 'DOC/');
+   assert.equal(pickDocsRoot([]), null);
+   assert.equal(pickDocsRoot(['src', 'lib']), null);
+   // Unicode folding would match this onto 'docs'; plain lowercasing must not.
+   assert.equal(pickDocsRoot(['docſ']), null);
+});
+
+// A documentation root may be a directory symlink; detection follows it, as it
+// did before entry types were read directly.
+test('adopt detects a symlinked docs root', (t) => {
+   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-symlink-'));
+   try {
+      fs.mkdirSync(path.join(dir, 'shared'));
+      fs.writeFileSync(path.join(dir, 'shared', 'note.md'), '# note\n');
+      fs.mkdirSync(path.join(dir, 'repo'));
+      try {
+         fs.symlinkSync(path.join(dir, 'shared'), path.join(dir, 'repo', 'documentation'), 'dir');
+      } catch {
+         t.skip('symlinks unavailable on this platform');
+         return;
+      }
+      const repo = path.join(dir, 'repo');
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      execFileSync('git', ['add', '-A'], { cwd: repo });
+      execFileSync('git', ['-c', 'user.email=t@e', '-c', 'user.name=t', 'commit', '-qm', 'init'], { cwd: repo });
+      const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
+      const out = execFileSync(process.execPath, [cli, 'adopt', '--dry-run', '--yes'], { cwd: repo, encoding: 'utf8' });
+      // A non-default spelling on purpose: with `docs` the fallback is also `docs/`,
+      // so the assertion could not tell detection from the default.
+      assert.ok(/documentation\//.test(out), 'the symlinked root is detected');
+      assert.ok(!/(^|[^A-Za-z])docs\//m.test(out), 'no second tree is scaffolded at the default path');
+   } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+   }
 });

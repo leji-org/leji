@@ -1570,6 +1570,17 @@ CONTENT_TYPES = {
 }
 
 
+def _url_path_to_rel(url_path: str) -> str:
+    """A request URL path as a clean relative route key.
+
+    Separators fold to "/" and the path is cleaned against a root, so one request
+    has one route key on any platform — os.path.normpath follows the host and
+    answered differently on Windows, missing every "content/" route test.
+    Canonicalization only; the mount enforces containment.
+    """
+    return posixpath.normpath("/" + url_path.replace("\\", "/")).lstrip("/")
+
+
 class _SafeViewerHandler(BaseHTTPRequestHandler):
     """Virtual-mount handler, no symlinks: the contained viewer chrome
     (rootPath/.leji/viewer/) is served at `/`, and the layer's markdown
@@ -1771,11 +1782,7 @@ class _SafeViewerHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self._write_body(b"bad request")
             return
-        # Mirror Node's path.normalize + strip leading slashes/backslashes.
-        rel = os.path.normpath(url_path).replace(os.sep, "/")
-        rel = re.sub(r"^[/\\]+", "", rel)
-        if rel == ".":
-            rel = ""
+        rel = _url_path_to_rel(url_path)
         # The content mount serves the layer's own files; they get the inert policy.
         if rel == "content" or rel.startswith("content/"):
             self._csp = CSP_CONTENT

@@ -1526,6 +1526,51 @@ def init_layer(
 DOCS_CANDIDATES = ["docs/", "doc/", "documentation/"]
 
 
+def pick_docs_root(dir_names: "list[str]") -> "str | None":
+    """Choose the docs root from a set of directory names, as a pure function of it.
+
+    Exact spelling first, then the lowest remaining name. Both halves are needed: a
+    case-sensitive filesystem may hold several variants at once, and directory-entry
+    order is not guaranteed, so taking the first match found would make the recorded
+    rootPath depend on the order a read happened to return. Kept separate from the
+    filesystem so the ordering rule is testable against an injected set.
+    """
+    for candidate in DOCS_CANDIDATES:
+        want = candidate.rstrip("/")
+        matches = sorted(n for n in dir_names if n.lower() == want.lower())
+        if not matches:
+            continue
+        hit = next((n for n in matches if n == want), matches[0])
+        return f"{hit}/"
+    return None
+
+
+def _detect_docs_root(root: Path) -> "str | None":
+    """The existing docs directory named as it is on disk, or None.
+
+    Matching is case-insensitive and the answer is the real entry, which are two
+    halves of one defect: testing ``(root / "docs").is_dir()`` succeeds on a
+    case-insensitive filesystem when the directory is actually ``Docs``, and
+    returning the candidate rather than the entry then recorded a rootPath that does
+    not match disk. ``is_dir()`` follows symlinks, because a documentation root is
+    allowed to be a directory symlink. Each entry is guarded separately because
+    ``is_dir()`` propagates a permission error, which would abort detection where
+    the other SDKs skip the entry.
+    """
+
+    def _is_dir(p: Path) -> bool:
+        try:
+            return p.is_dir()
+        except OSError:
+            return False
+
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return None
+    return pick_docs_root([e.name for e in entries if _is_dir(e)])
+
+
 def _read_text(path: Path) -> str:
     """Vendor-file contents, or empty string when the file cannot be read."""
     try:
@@ -1635,7 +1680,7 @@ def adopt_layer(
     if not dry_run:
         _assert_clean_working_tree(str(root))
     detected = detect_hosts(str(root))
-    detected_root = next((d for d in DOCS_CANDIDATES if (root / d).is_dir()), "docs/")
+    detected_root = _detect_docs_root(root) or "docs/"
     _reject_unsafe_rel(detected_root, "context root")
 
     boot_rel = f"{detected_root}boot-profile.md"

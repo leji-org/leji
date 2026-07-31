@@ -1,0 +1,131 @@
+---
+import { Code } from 'astro:components';
+import Doc from '../layouts/Doc.astro';
+
+const mounts = `"federation": {
+   "mounts": [
+      {
+         "name": "product-context",
+         "source": "https://github.com/acme/product-context",
+         "pin": "7d3f2a19c4e8b6a0d5f1c2e9b8a7f6d5c4b3a2e1", // full commit id: the version of record
+         "trackingRef": "refs/heads/main",                    // staleness is judged against this
+         "owner": { "name": "Product team", "contact": "product@acme.example" },
+         "role": "product-side context, owned by the product team",
+         // routing: when this mount is relevant to a task
+         "categories": ["domain", "decisions"],
+         "requiredWhen": ["a task changes how a plan or entitlement is represented"]
+      }
+   ]
+}`;
+
+const commands = `leji mounts hydrate --fetch   # materialize each sibling's layer projection at its pin
+leji mounts status            # availability, integrity, and how far each pin is behind
+leji mounts locate <name>     # where a reader should read the sibling from`;
+---
+
+<Doc
+   kind="guide"
+   title="Federation · Leji"
+   description="Compose separately owned Leji context layers as pinned sibling mounts, while each team keeps its repository, ownership, and review workflow."
+>
+   <h1>Federation</h1>
+   <p class="sp-lede">
+      Federation lets teams read separately owned context layers together without merging them or transferring
+      responsibility for keeping them current.
+   </p>
+
+   <h2>Why compose instead of centralize</h2>
+   <p>
+      A context layer stays current because its owners read and correct it while they work. Centralizing another team's
+      content separates it from the people accountable for it. Federation keeps each repository, owner, and review
+      workflow intact. The <a href="/rationale/">rationale</a> argues it fully.
+   </p>
+
+   <h2>What a sibling mount is</h2>
+   <p>
+      A sibling is another team's context layer, declared by the host in <code>federation.mounts</code>. The declaration
+      pins the full immutable commit the host reads and records ownership and task routing. Tooling reads the sibling's
+      manifest-defined layer projection at that pin into an ignored cache. It never copies sibling content into the
+      host.
+   </p>
+   <p>
+      The projection is the union of what the sibling's own manifest makes readable at the pin: its <code
+         >leji.json</code
+      >, its context root, its boot profile, its category index files, the profiles its <code>agents</code> bindings name,
+      its agent-profile and decision-record trees, its machine index and changelog, and every governed path its generated
+      index lists, wherever those live.
+   </p>
+   <p>
+      A sibling usually sits inside a larger product repository, so that boundary is what stops a mount vendoring the
+      product to read its context.
+   </p>
+   <p>
+      A mount is a reference, not a fork or an access grant. The sibling stays authoritative and its version control
+      still decides who may read it. Mounting makes the relationship and its chosen revision legible to those who
+      already have access.
+   </p>
+   <div class="federation-code"><Code code={mounts} lang="jsonc" theme="night-owl" wrap /></div>
+   <p>
+      Pin updates are reviewed changes to <code>leji.json</code>. The host declares the relationship; the sibling keeps
+      its own repository, owner, review gate, changelog, and conformance claim.
+   </p>
+
+   <h2>Working the mounts</h2>
+   <div class="federation-code"><Code code={commands} lang="bash" theme="night-owl" wrap /></div>
+   <p>
+      Use <code>hydrate --fetch</code> to materialize every projection at its pin, with an explicit network fetch. Use
+      <code>status</code> to inspect availability, integrity, and pin staleness. Use <code>locate</code> to get the resolver-managed
+      path where a reader should open one sibling.
+   </p>
+   <p>
+      Hydration publishes no partial projection. The cache sits under <code>.leji/mounts/</code>, which <code>init</code
+      > adds to the root <code>.gitignore</code>. Treat that path as an implementation detail: <code>locate</code> reports
+      where to read a sibling, and hardcoding a cache path breaks when publication changes.
+   </p>
+   <p>
+      The viewer shows the same state without a terminal. <code>leji viewer</code> generates a Manifest page graphing the
+      host and its siblings, then a row per mount: availability, drift, owner, pin, and source. Regenerate it after hydrating.
+   </p>
+
+   <h2>Claiming <code>federated</code></h2>
+   <p>
+      An unhydrated mount is a warning, never a build failure. CI can opt into availability enforcement with <code
+         >leji validate --federation=available|required</code
+      >. Ordinary validation does not fetch or require every mount.
+   </p>
+   <p>
+      Local availability is not conformance. The pin must be reachable from an advertised ref of <code>source</code>,
+      which requires the network. Run <code>leji conformance --federation=verify</code> for that check. If the check cannot
+      reach the source, it reports <code>unknown</code>; <code>unknown</code> never awards the level.
+   </p>
+   <p>
+      Verification is necessary, not sufficient. <code>federated</code> also requires that this context layer is itself consumed
+      by another repository as a pinned mount, that stale-pin reporting is in place, and that the boot profile and generated
+      index surface every sibling.
+   </p>
+   <p>
+      The first two are process-attested, so <code>verifiedLevel</code> never asserts them on your behalf. Materializing on
+      one machine is not a conformance input.
+   </p>
+
+   <h2>Choose the distribution pattern first</h2>
+   <p>
+      A docs-only git submodule lets many repositories consume one context layer. Federation connects several teams that
+      each already own one. These patterns answer different questions, so federation does not supersede the submodule.
+      The <a href="/adoption/#where-it-lives">adoption guide</a> keeps the full submodule procedure.
+   </p>
+   <p>
+      Read <a href="/spec/distribution/">distribution</a> for the normative projection closure, failure boundary, and complete
+      federation rules.
+   </p>
+</Doc>
+
+<style>
+   .federation-code :global(.astro-code) {
+      background: var(--blue-deep) !important;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+   }
+</style>

@@ -3,8 +3,11 @@ import Base from './Base.astro';
 import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
 import SectionNav from '../components/SectionNav.astro';
+import PageHeader from '../components/PageHeader.astro';
 
-const { title, description, alternate } = Astro.props;
+// `kind` classifies the page (see PageHeader). `heading` is optional: pages whose
+// markdown already supplies an h1 pass only `kind`, and get the eyebrow above it.
+const { title, description, alternate, kind, heading } = Astro.props;
 const current = Astro.url.pathname;
 ---
 
@@ -14,6 +17,7 @@ const current = Astro.url.pathname;
       <div class="doc-shell">
          <SectionNav current={current} />
          <main id="content" class="prose">
+            {kind && <PageHeader kind={kind} title={heading} />}
             <slot />
          </main>
       </div>

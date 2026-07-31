@@ -27,6 +27,7 @@ import {
    enteringViaBoot,
    handoffOffer,
    ciProviderFromRemote,
+   pickDocsRoot,
    ensureApprovalGuard,
    ensureLocalHook,
    offerApprovalGuard,
@@ -55,6 +56,7 @@ export {
    resolveViewerPort,
    resolvedProfilePage,
    serveViewer,
+   urlPathToRel,
 } from './commands/viewer.js';
 export { profileInheritanceFindings, resolveAgentProfile, scanProfileSet } from './lib/layer.js';
 export type { ResolvedProfile, ScannedProfile } from './lib/layer.js';
@@ -66,6 +68,7 @@ export {
    addAgent,
    handoffOffer,
    ciProviderFromRemote,
+   pickDocsRoot,
    ensureApprovalGuard,
    ensureLocalHook,
    offerApprovalGuard,

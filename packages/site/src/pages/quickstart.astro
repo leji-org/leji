@@ -5,13 +5,14 @@ import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
 import SectionNav from '../components/SectionNav.astro';
 import SupportedRuntimes from '../components/SupportedRuntimes.astro';
+import PageHeader from '../components/PageHeader.astro';
 import InstallTabs from '../components/InstallTabs.astro';
 
 const initCode = `leji adopt --dry-run    # the exact write plan; nothing is written
 leji adopt              # adopt an existing repo (leji init for a new one)
-                        # then it offers to open Claude Code or Codex on the brief
+                        # then offers to open Claude Code or Codex
 
-leji adopt --wire-adapters  # finish an adoption over an existing CLAUDE.md / AGENTS.md`;
+leji adopt --wire-adapters  # adopt over an existing CLAUDE.md / AGENTS.md`;
 
 const validateCode = `leji validate           # schemas + lint rules
 leji validate --content # + placeholder / thin-content warnings
@@ -22,7 +23,7 @@ const conformanceCode = `leji conformance        # score the claim`;
 const viewCode = `leji view               # open the human-readable viewer in your browser
 leji viewer build       # export a static folder to host behind internal auth`;
 
-const ciCode = `leji ci                 # generate the workflow; --provider <github|gitlab|circleci|azure>
+const ciCode = `leji ci                 # generate the workflow
 leji ci --hooks         # the same gates as a local pre-commit
 
 # what the generated job runs:
@@ -81,17 +82,6 @@ const sdkLd = {
          license: 'https://www.apache.org/licenses/LICENSE-2.0',
          url: 'https://pkg.go.dev/github.com/leji-org/leji/packages/sdk-go',
       },
-      {
-         '@type': 'SoftwareSourceCode',
-         name: 'create-leji',
-         description:
-            'Bootstrap a Leji context layer: npm create leji runs leji init for the shared context layer of AI-native teams.',
-         codeRepository: repo,
-         programmingLanguage: 'JavaScript',
-         runtimePlatform: 'Node.js',
-         license: 'https://www.apache.org/licenses/LICENSE-2.0',
-         url: 'https://www.npmjs.com/package/create-leji',
-      },
    ],
 };
 ---
@@ -104,15 +94,16 @@ const sdkLd = {
    <div class="wrap">
       <div class="doc-shell">
          <SectionNav current={Astro.url.pathname} />
-         <main id="content" class="adopt-main">
+         <main id="content" class="adopt-main measured">
             <section class="gs-hero">
-               <p class="eyebrow">Quickstart&ensp;·&ensp;spec 1.0</p>
+               <PageHeader kind="guide" />
                <h1>Build a context layer, check it conforms.</h1>
+               {
+                  /* The steps below already name what the CLI does. The only thing this
+                   line can add is what they cannot show: how long, and that it is offline. */
+               }
                <p class="lede">
-                  The reference CLI does the mechanical work: bootstrap or adopt a context layer, launch your agent
-                  hosts into it, validate the machine-readable artifacts and frontmatter against the schemas, then run
-                  structural and lint checks over the rest, and score it against the conformance level it claims.
-                  Schemas and templates ship inside the package, so no network access is needed.
+                  Five commands, install to conformance. Everything ships in the package, so it runs offline.
                </p>
             </section>
 
@@ -123,13 +114,12 @@ const sdkLd = {
                   <div class="step-text">
                      <h2><span class="step-num">01</span>Install the tooling</h2>
                      <p>
-                        The <code>leji</code> CLI is implemented in 3 languages: Node/TypeScript, Python, and Go. All three
-                        are tested against the same fixture suite, so commands, flags, JSON findings, and exit codes stay
-                        identical no matter which one your toolchain or CI installs.
+                        All three pass the same fixture suite, so flags, JSON output and exit codes are identical
+                        whichever one your CI installs.
                      </p>
                      <p>
-                        For a Node repository, add it as a devDependency (<code>npm i -D @leji-org/leji</code>) so CI,
-                        the git hook, and every contributor run the lockfile-pinned version.
+                        In a Node repository, add it as a devDependency (<code>npm i -D @leji-org/leji</code>) so CI,
+                        the hook and every contributor run the pinned version.
                      </p>
                   </div>
                   <div class="step-install"><InstallTabs /></div>
@@ -139,38 +129,25 @@ const sdkLd = {
                   <div class="step-text">
                      <h2><span class="step-num">02</span>Bootstrap a new context layer, or adopt an existing repo</h2>
                      <p>
-                        <code>leji init</code> scaffolds a new context layer: a <code>leji.json</code> manifest at the repository
-                        root, a boot profile, seeded category documents, a first decision record, and an agent onboarding
-                        brief. <code>--dry-run</code> prints the complete write plan and touches nothing, and every step through
-                        validation and conformance runs without handing anything to an agent.
+                        You get a <code>leji.json</code> manifest at the repository root, a boot profile, seeded category
+                        documents, a first decision record, and an onboarding brief. None of it requires an agent.
                      </p>
                      <p>
-                        You do not have to wire the agent up yourself. The scaffold starts as placeholder, and when the
-                        run finishes, if Claude Code or Codex is on your <code>PATH</code>, <code>init</code> and{' '}
-                        <code>adopt</code> offer to open it on the onboarding brief for you. Accept, and the agent reads your
-                        repository and fills the layer in; it deletes the brief when it is done, because the brief is scaffolding
-                        rather than context. Decline, and you get the command to run later, or you can edit the seeded documents
-                        yourself. A <code>--yes</code> run skips the offer, so scripted and CI runs stay unattended.
+                        The scaffold starts as placeholder. Accept the offer and the agent reads your repository,
+                        proposes the mapping for you to approve, then deletes the brief. Decline and you get the command
+                        to run later; <code>--yes</code> skips it, so CI stays unattended.
                      </p>
                      <p>
-                        Working alone? <code>leji init --mode solo</code> also seeds identity and writing-style starters and
-                        points the onboarding brief at an owner interview: your agent asks who you are, who you serve, and
-                        how you write, and every question takes a typed answer, attached files, pasted file paths, or a drop
-                        folder. Only the synthesis you approve becomes context. Your raw files never enter git:{' '}
-                        <code>init</code> and <code>adopt</code> refuse to run while anything under <code>.leji/</code> is
-                        tracked, and write the ignore rule before the first transient file. The onboarding brief then has
-                        your agent delete the raw artifacts as its last step, once the context layer is populated.
+                        Working alone? <code>--mode solo</code> seeds identity and writing-style starters and points the brief
+                        at an owner interview; answers can be typed, attached, or dropped in a folder. Only the synthesis
+                        you approve becomes context, and your raw files never enter git: <code>init</code> and{' '}
+                        <code>adopt</code> refuse to run while anything under <code>&lt;rootPath&gt;/.leji/</code> is tracked,
+                        and the agent deletes the artifacts once the context layer is populated.
                      </p>
                      <aside class="map-note">
                         <strong>Already have a <code>docs/</code> tree?</strong>
-                        <code>leji adopt</code> reuses it: it scaffolds the category index files alongside your existing docs,
-                        moves nothing, and migrates any vendor entrypoint (<code>CLAUDE.md</code>,{' '}
-                        <code>AGENTS.md</code>) into the context layer without touching the originals. Hand the
-                        onboarding brief to your agent to populate those index files from the real tree.{' '}
-                        <code>leji detect</code> finds your installed agent hosts, and <code>leji start</code> opens one in
-                        the context layer. Because the originals are deliberately untouched, the old entrypoint does not yet
-                        redirect to the boot profile, so what you have is an adoption draft rather than a conformant context
-                        layer. <code>leji adopt --wire-adapters</code> finishes it.
+                        <code>adopt</code> scaffolds alongside it and moves nothing. Your existing entrypoint is left untouched,
+                        so until <code>--wire-adapters</code> runs you have an adoption draft rather than a conformant layer.
                      </aside>
                   </div>
                   <div class="step-code"><Code code={initCode} lang="bash" theme="night-owl" wrap /></div>
@@ -179,18 +156,21 @@ const sdkLd = {
                <article class="step">
                   <div class="step-text">
                      <h2><span class="step-num">03</span>Validate</h2>
-                     <p>
-                        The machine-readable artifacts check against the v1.0 schemas: the manifest, the index, the
-                        changelog, agent-profile and decision-record frontmatter. Boot profiles, index files and
-                        ordinary documents have no schema and get structural and lint checks instead: declared files
-                        must exist, the changelog is append-only against the current <code>HEAD</code> (a committed rewrite
-                        is caught in review, not here), and at <code>indexed</code> and above a stale index is a hard failure
-                        (<code>leji index --check</code> checks currency at any level). After a plain{' '}
-                        <code>leji adopt</code> over an existing <code>CLAUDE.md</code> or <code>AGENTS.md</code>,
-                        expect one failure here, <code>vendor-adapter-redirect</code>, until <code
-                           >leji adopt --wire-adapters</code
-                        >{' '}
-                        runs. That is the adoption draft the CLI announces when <code>adopt</code> finishes.
+                     <ul class="checks">
+                        <li>
+                           <strong>Schema-checked:</strong> the manifest, the index, the changelog, and agent-profile and
+                           decision-record frontmatter.
+                        </li>
+                        <li>
+                           <strong>Structure and lint:</strong> boot profiles, index files and ordinary documents have no
+                           schema. Declared files must exist, and the changelog is append-only against{' '}
+                           <code>HEAD</code>. At <code>indexed</code> and above, a stale index fails hard.
+                        </li>
+                     </ul>
+                     <p class="fine">
+                        After a plain <code>adopt</code> over an existing <code>CLAUDE.md</code> or <code
+                           >AGENTS.md</code
+                        >, expect one failure, <code>vendor-adapter-redirect</code>, until <code>--wire-adapters</code> runs.
                      </p>
                   </div>
                   <div class="step-code"><Code code={validateCode} lang="bash" theme="night-owl" wrap /></div>
@@ -217,12 +197,7 @@ const sdkLd = {
                <article class="step">
                   <div class="step-text">
                      <h2><span class="step-num">05</span>See your context layer</h2>
-                     <p>
-                        <code>leji view</code> opens the human-readable viewer in your browser: the reviewed context layer
-                        rendered for people to read, not just for agents to parse. To host it for the team,{' '}
-                        <code>leji viewer build</code> exports a self-contained static folder you can put behind internal
-                        auth.
-                     </p>
+                     <p>The same layer your agents read, rendered for people.</p>
                   </div>
                   <div class="step-code"><Code code={viewCode} lang="bash" theme="night-owl" wrap /></div>
                </article>
@@ -232,11 +207,8 @@ const sdkLd = {
                <div class="duo-cell">
                   <h2>Keep it honest in CI</h2>
                   <p>
-                     <code>leji ci</code> adds a CI job that runs <code>leji validate</code> and{' '}
-                     <code>leji index --check</code> on every change, so a drifted index fails the build. It infers the provider
-                     from your <code>origin</code> remote and falls back to GitHub when the remote names none;{' '}
-                     <code>--provider gitlab</code> / <code>circleci</code> / <code>azure</code> overrides it.{' '}
-                     <code>--hooks</code> mirrors the same two gates as a local pre-commit.
+                     The provider is inferred from your <code>origin</code> remote, falling back to GitHub when the remote
+                     names none.
                   </p>
                   <Code code={ciCode} lang="bash" theme="night-owl" wrap />
                   <p class="fine">
@@ -245,16 +217,13 @@ const sdkLd = {
                </div>
                <div class="duo-cell">
                   <h2>Enter the context layer</h2>
-                  <p>
-                     <code>leji start</code> auto-detects an installed agent host and opens it booted from the boot profile,
-                     so the context layer is the agent's first context with zero hops.
-                  </p>
+                  <p>The layer becomes the agent's first context, with no vendor file in between.</p>
                   <Code code={startCode} lang="bash" theme="night-owl" wrap />
                   <p class="fine">
                      Several hosts detected? It asks. None detected, or a scripted / CI run? It prints the command to
                      run instead of guessing. The{' '}
-                     <a href="/adoption/#entering-the-context-layer">adoption guide</a> covers host pass-through flags and
-                     the vendor-file fallback table.
+                     <a href="/adoption/#put-it-to-work">adoption guide</a> covers host pass-through flags and the vendor-file
+                     fallback table.
                   </p>
                </div>
             </section>
@@ -262,21 +231,16 @@ const sdkLd = {
             <section class="mcp-block">
                <h2>Give your agent the tools, not just the context</h2>
                <p>
-                  Entering a context layer gives your agent the context. The <a href="/mcp/">MCP server</a> gives it the Leji
-                  tooling: a local, read-only server that serves the spec and schemas and runs validation and conformance
-                  against the context layer on disk, so the agent can learn the spec and check a context layer without a shell.
-                  It reads and reports; it never writes. Add it once and the <code>leji</code> tools are available in every
-                  session its configured scope covers.
+                  Entering the context layer gives your agent the context. The <a href="/mcp/">MCP server</a> gives it the
+                  tooling: a local, read-only server that runs validation and conformance against the context layer on disk,
+                  so the agent never needs a shell. It reads and reports; it never writes.
                </p>
                <Code code={mcpCode} lang="bash" theme="night-owl" wrap />
                <p class="fine">
-                  <code>leji init</code> and <code>leji adopt</code> now offer to register the server for you before the handoff:
-                  for Claude Code it's project-scoped (a committed <code>.mcp.json</code> your team shares), for Codex it's
-                  user-level. The commands above are for anyone who skips that prompt or wants to set it up by hand.
-               </p>
-               <p class="fine">
-                  Works in any MCP client; the <a href="/mcp/">MCP server</a> page has the full tool list and the config for
-                  Claude Desktop, Cursor, and others.
+                  <code>init</code> and <code>adopt</code> offer to register it for you: project-scoped for Claude Code, user-level
+                  for Codex. The commands above are for anyone who skipped that prompt. Any MCP client works; the <a
+                     href="/mcp/">MCP server</a
+                  > page has the full tool list.
                </p>
             </section>
 
@@ -285,22 +249,21 @@ const sdkLd = {
                <table class="shape-table">
                   <tbody>
                      <tr>
-                        <th scope="row"><a href="/adoption/#monorepo">Monorepo</a></th>
-                        <td>1 repository, 1 context layer, initialized once at the repository root.</td>
+                        <th scope="row"><a href="/adoption/#where-it-lives">Monorepo</a></th>
+                        <td>One repository, one context layer, initialized once at the repository root.</td>
                      </tr>
                      <tr>
-                        <th scope="row"><a href="/adoption/#multi-repo">Multi-repo</a></th>
+                        <th scope="row"><a href="/adoption/#where-it-lives">Many repos, one layer</a></th>
                         <td>
                            A dedicated context repository, mounted docs-only in each consuming repo, pinned per
                            repository.
                         </td>
                      </tr>
                      <tr>
-                        <th scope="row">
-                           <a href="/adoption/#teams-that-already-have-a-context-repo">Existing context repo</a>
-                        </th>
+                        <th scope="row"><a href="/federation/">Several owned layers</a></th>
                         <td
-                           >Don't merge it. Mount it as a sibling context layer; ownership and workflow stay unchanged.</td
+                           >Teams that each already own a context layer. Mount each as a sibling; ownership and workflow
+                           stay unchanged.</td
                         >
                      </tr>
                   </tbody>
@@ -311,18 +274,20 @@ const sdkLd = {
                <div class="peek-text">
                   <h2>From a script</h2>
                   <p>
-                     The validation, indexing, conformance, routing, viewer, and onboarding APIs are exported as a
-                     library, for hooks, bots, and build steps. Source lives at <a
+                     Every command is also a library call, for hooks, bots and build steps. Source at <a
                         href="https://github.com/leji-org/leji"
                         target="_blank"
                         rel="noopener">leji-org/leji</a
-                     >{' '}
-                     under <code>packages/sdk</code>, Apache-2.0. For AI agents, the spec, schemas, and validation ship
-                     as an <a href="/mcp/">MCP server</a>.
+                     >, Apache-2.0.
                   </p>
                </div>
                <div class="peek-code"><Code code={apiCode} lang="js" theme="night-owl" wrap /></div>
             </section>
+
+            <p class="next-step">
+               Next: the <a href="/adoption/">adoption guide</a> for an existing repository, or{' '}
+               <a href="/federation/">federation</a> when several teams each own a context layer.
+            </p>
          </main>
       </div>
    </div>
@@ -332,31 +297,20 @@ const sdkLd = {
 
 <style>
    .gs-hero {
-      padding: clamp(2.5rem, 6vh, 4.5rem) 0 1rem;
+      /* No top padding: .doc-shell already sets the 2.5rem above the first line,
+         and every Doc page starts its h1 there. This section used to add another
+         2.5-4.5rem, which is why this page's header sat lower than the rest. */
+      padding: 0 0 1rem;
       max-width: 760px;
    }
-   .eyebrow {
-      font-family: var(--mono);
-      font-size: 0.78rem;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
-      color: var(--blue);
-      margin: 0 0 1rem;
-   }
-   h1 {
-      font-family: var(--serif-display);
-      font-size: clamp(2.3rem, 5.5vw, 3.6rem);
-      font-weight: 500;
-      line-height: 1.06;
-      letter-spacing: -0.012em;
-      color: var(--blue-deep);
-      margin: 0 0 1.2rem;
-   }
+   /* .eyebrow now comes from global.css via PageHeader; the local copy is gone so
+      the classification cannot drift from the rest of the site. */
+   /* h1 comes from the shared .measured/.prose display scale in global.css. */
    .lede {
-      font-size: clamp(1rem, 1.5vw, 1.12rem);
+      font-size: var(--text-lede);
       line-height: 1.7;
       color: var(--ink-soft);
-      max-width: 58ch;
+      max-width: var(--measure-fine);
       margin: 0;
    }
 
@@ -378,17 +332,6 @@ const sdkLd = {
    .step {
       display: grid;
       gap: 0.9rem;
-   }
-   .step-num {
-      font-family: var(--serif-display);
-      font-weight: 620;
-      font-size: 0.95rem;
-      color: var(--blue-deep);
-      background: var(--gold);
-      padding: 0.1rem 0.6rem;
-      border-radius: 999px;
-      margin-right: 0.8rem;
-      vertical-align: 0.18em;
    }
    .step-text p {
       color: var(--ink-soft);
@@ -412,6 +355,18 @@ const sdkLd = {
    }
    .map-note strong {
       color: var(--blue-deep);
+   }
+   .checks {
+      margin: 0.6rem 0 1rem;
+      padding-left: 1.1rem;
+      color: var(--ink-soft);
+   }
+   .checks li {
+      margin: 0.4rem 0;
+   }
+   .checks strong {
+      color: var(--blue-deep);
+      font-weight: 600;
    }
    .ladder-line {
       font-size: 0.92rem;
@@ -450,7 +405,6 @@ const sdkLd = {
       margin: 0 0 1.1rem;
    }
    .duo-cell .fine {
-      font-size: 0.88rem;
       margin: 1rem 0 0;
    }
    .duo-cell .fine a {
@@ -552,8 +506,10 @@ const sdkLd = {
       font-size: 0.85em;
       color: var(--blue-deep);
    }
+   /* Continuation prose, not marginalia: what leji init does, and where the full
+      tool list lives. Same size and measure as the paragraph above the snippet;
+      the smaller setting was the only thing making them read as a footnote. */
    .mcp-block .fine {
-      font-size: 0.88rem;
       margin: 1rem 0 0;
    }
    .mcp-block .fine a {

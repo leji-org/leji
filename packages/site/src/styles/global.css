@@ -5,15 +5,15 @@
 
    /* Brand: blue #223F93, gold #FFBD6E. Deep/soft/bright are derived shades of the two. */
    --blue-deep: #162960;
-   --blue: #223F93;
-   --blue-soft: #3D56A0;
-   --gold: #FFBD6E;
+   --blue: #223f93;
+   --blue-soft: #3d56a0;
+   --gold: #ffbd6e;
    /* Text-weight gold for light surfaces. Bright gold is a decorative accent and
       measures 1.53:1 on paper, far under the 4.5:1 bar; this is 4.82:1. Use --gold
       for marks on the dark blue band, --gold-ink for text and interactive marks on
       paper. */
-   --gold-ink: #8A663B;
-   --gold-bright: #FFCD92;
+   --gold-ink: #8a663b;
+   --gold-bright: #ffcd92;
    --paper: #faf6ef;
    --paper-edge: #efe7d9;
    --ink: #20242f;
@@ -26,6 +26,33 @@
    --white-strong: rgba(253, 252, 249, 0.92);
    --white-soft: rgba(253, 252, 249, 0.84);
    --white-faint: rgba(253, 252, 249, 0.62);
+
+   /* The column: ~70 characters at the body serif, in rem rather than ch.
+      Both units are in use here and the split is deliberate, not drift:
+        rem (this token) — a SHARED column that different elements must all land
+          in. `ch` cannot do this job: it is font-relative, so 70ch on a 12.5px
+          mono <pre> is ~524px while 70ch on 17px serif prose is ~630px, and the
+          same token would silently produce two different columns.
+        ch (headings, the hero lede, the footer tagline) — a PER-ELEMENT character
+          count that has to track that element's own size. rem cannot do this job:
+          a fixed rem cap on a clamp()-sized h1 crushes it as the viewport grows.
+      Rule of thumb: several elements sharing one edge, use the token; one element
+      holding its own line length, use ch. */
+   --measure: 39.5rem;
+   /* Narrower, for a lede opening a page. Not for anything stacked mid-column:
+      there it reads as a third width rather than emphasis. */
+   --measure-fine: 34rem;
+
+   /* Display scale for every page below the landing page. */
+   --h1-doc: clamp(2rem, 4.5vw, 2.9rem);
+
+   /* Running prose is one size on every page: the body size, inherited. A page
+      that shrinks its own body text makes the reader feel a jump moving between
+      pages, and it quietly changes the measure too, since the same column holds
+      more characters at a smaller size.
+      One step above body, for a paragraph that opens a page or a section. The
+      landing hero is the deliberate exception and sets its own. */
+   --text-lede: 1.12rem;
 
    --serif-display: 'Fraunces Variable', 'Fraunces', georgia, serif;
    --serif-text: 'Source Serif 4 Variable', 'Source Serif 4', georgia, serif;
@@ -48,14 +75,18 @@
    }
 }
 
-* { box-sizing: border-box; }
+* {
+   box-sizing: border-box;
+}
 
 html {
    scroll-behavior: smooth;
 }
 
 @media (prefers-reduced-motion: reduce) {
-   html { scroll-behavior: auto; }
+   html {
+      scroll-behavior: auto;
+   }
 }
 
 /* Keyboard entry into the page content, past the header. Visible only on focus. */
@@ -88,11 +119,18 @@ body {
    -webkit-font-smoothing: antialiased;
 }
 
-::selection { background: var(--gold); color: var(--blue-deep); }
+::selection {
+   background: var(--gold);
+   color: var(--blue-deep);
+}
 
-a { color: inherit; }
+a {
+   color: inherit;
+}
 
-code, pre, kbd {
+code,
+pre,
+kbd {
    font-family: var(--mono);
 }
 
@@ -114,10 +152,14 @@ code, pre, kbd {
 }
 /* let either column shrink below its content's intrinsic width so an
    over-wide child (a table, a long token) never widens the whole page */
-.doc-shell > * { min-width: 0; }
+.doc-shell > * {
+   min-width: 0;
+}
 
 @media (max-width: 800px) {
-   .doc-shell { grid-template-columns: minmax(0, 1fr); }
+   .doc-shell {
+      grid-template-columns: minmax(0, 1fr);
+   }
 }
 
 .doc-nav {
@@ -152,7 +194,9 @@ code, pre, kbd {
    counter-reset: docnav;
 }
 
-.doc-nav ol li { counter-increment: docnav; }
+.doc-nav ol li {
+   counter-increment: docnav;
+}
 
 .doc-nav ol a::before {
    content: counter(docnav, decimal-leading-zero) ' ';
@@ -169,10 +213,15 @@ code, pre, kbd {
    color: var(--ink-soft);
    border-left: 2px solid transparent;
    border-radius: 0 4px 4px 0;
-   transition: color 0.15s, background 0.15s;
+   transition:
+      color 0.15s,
+      background 0.15s;
 }
 
-.doc-nav a:hover { color: var(--ink); background: rgba(34, 63, 147, 0.05); }
+.doc-nav a:hover {
+   color: var(--ink);
+   background: rgba(34, 63, 147, 0.05);
+}
 
 .doc-nav a[aria-current='page'] {
    color: var(--blue);
@@ -182,8 +231,14 @@ code, pre, kbd {
 }
 
 /* numbered list for the spec, plain bulleted lists for the other groups */
-.doc-nav ol.plain { counter-reset: none; list-style: none; }
-.doc-nav ol.plain a::before { content: '·  '; color: var(--gold-ink); }
+.doc-nav ol.plain {
+   counter-reset: none;
+   list-style: none;
+}
+.doc-nav ol.plain a::before {
+   content: '·  ';
+   color: var(--gold-ink);
+}
 
 /* collapsible groups */
 .doc-nav details {
@@ -222,9 +277,14 @@ code, pre, kbd {
    transform: rotate(90deg);
 }
 
-.prose h1 {
+/* One display scale below the landing page. The landing hero keeps its own,
+   larger setting because it is the only page whose job is the first impression;
+   every page under it reads as the same document set. A page that needs a
+   different h1 needs a reason, not an override. */
+.prose h1,
+.measured h1 {
    font-family: var(--serif-display);
-   font-size: clamp(2rem, 4.5vw, 2.9rem);
+   font-size: var(--h1-doc);
    font-weight: 560;
    line-height: 1.12;
    letter-spacing: -0.01em;
@@ -240,10 +300,17 @@ code, pre, kbd {
    margin: 2.6rem 0 0.7rem;
 }
 
-.prose h3 { font-size: 1.08rem; margin: 1.8rem 0 0.4rem; }
+.prose h3 {
+   font-size: 1.08rem;
+   margin: 1.8rem 0 0.4rem;
+}
 
 /* per-section permalink: faint, revealed on heading hover/focus */
-.prose h2, .prose h3, .prose h4 { scroll-margin-top: 1.5rem; }
+.prose h2,
+.prose h3,
+.prose h4 {
+   scroll-margin-top: 1.5rem;
+}
 .prose a.heading-anchor {
    margin-left: 0.4rem;
    color: var(--gold-ink);
@@ -255,10 +322,82 @@ code, pre, kbd {
 .prose h2:hover a.heading-anchor,
 .prose h3:hover a.heading-anchor,
 .prose h4:hover a.heading-anchor,
-.prose a.heading-anchor:focus { opacity: 1; }
-.prose a.heading-anchor:hover { opacity: 1; }
+.prose a.heading-anchor:focus {
+   opacity: 1;
+}
+.prose a.heading-anchor:hover {
+   opacity: 1;
+}
 
-.prose p, .prose li { max-width: 70ch; }
+.prose p,
+.prose li {
+   max-width: var(--measure);
+}
+
+/* Both document mains carry the column on the container, so every block inside,
+   prose, snippet, table, card or component, shares one left and right edge by
+   construction. Capping per element instead leaves the elements a rule cannot
+   reach at full width: a component's own scoped style outranks a global one on
+   source order, so `.prose .it` lost to the install-tabs' own `max-width: 100%`
+   and it alone kept spanning the full shell. */
+.prose,
+.measured {
+   max-width: var(--measure);
+}
+/* Only the lede takes the narrower measure, and only because it opens the page
+   alone. Anything stacked mid-column keeps the prose measure, or it reads as a
+   third width rather than emphasis. */
+.measured .lede {
+   max-width: var(--measure-fine);
+}
+
+/* Wide content scrolls inside its own box; the page body never scrolls sideways.
+   A table has a minimum width its columns cannot go below, so on a narrow screen
+   it is the table that scrolls, not the page. */
+.prose table,
+.measured table {
+   display: block;
+   width: max-content;
+   max-width: 100%;
+   overflow-x: auto;
+}
+
+/* A snippet wider than the prose it explains reads as a second column. Inside a
+   .measured main the container already carries the cap, so the <pre> just fills
+   it; .prose mains are wider than the column, so the snippet takes it directly. */
+.prose pre,
+.measured pre {
+   max-width: 100%;
+}
+
+/* The eyebrow, defined once. Two uses, and they are different instruments:
+   .eyebrow classifies a page (what governs it, set by PageHeader), while
+   .eyebrow.is-kicker introduces a section's argument on the landing page and
+   earns the gold rule. Anything else is decoration; leave it off. */
+.eyebrow {
+   font-family: var(--mono);
+   font-size: 0.76rem;
+   letter-spacing: 0.22em;
+   text-transform: uppercase;
+   color: var(--blue);
+   margin: 0 0 1rem;
+}
+.eyebrow.is-kicker {
+   display: inline-flex;
+   align-items: center;
+   gap: 0.6rem;
+   margin-bottom: 0.9rem;
+}
+.eyebrow.is-kicker::before {
+   content: '';
+   width: 1.6rem;
+   height: 2px;
+   background: var(--gold);
+}
+/* On the dark band the blue disappears; gold carries it instead. */
+.eyebrow.on-dark {
+   color: var(--gold-bright);
+}
 
 /* GFM task lists (the conformance checklist) read as requirement criteria: a gold
    square, not a checkbox that implies "not done" / "certified". The `- [ ]`
@@ -289,8 +428,14 @@ code, pre, kbd {
    box-shadow: 0 0 0 1px rgba(34, 63, 147, 0.22);
 }
 
-.prose a { color: var(--blue); text-decoration-color: var(--gold); text-underline-offset: 3px; }
-.prose a:hover { color: var(--blue-soft); }
+.prose a {
+   color: var(--blue);
+   text-decoration-color: var(--gold);
+   text-underline-offset: 3px;
+}
+.prose a:hover {
+   color: var(--blue-soft);
+}
 
 .prose code {
    font-size: 0.84em;
@@ -316,7 +461,10 @@ code, pre, kbd {
    line-height: 1.6;
 }
 
-.prose pre code { background: none; padding: 0; }
+.prose pre code {
+   background: none;
+   padding: 0;
+}
 
 /* a table wider than the column scrolls inside this box, not the page */
 .prose .table-scroll {
@@ -371,6 +519,173 @@ code, pre, kbd {
 /* RFC 2119 keywords get the engraved treatment */
 .prose strong {
    color: var(--blue-deep);
+}
+
+/* Step number for a staged guide. Shared by the quickstart and the adoption
+   guide so a numbered step looks the same wherever a reader meets one, whether
+   the page is .astro or markdown. */
+.step-num {
+   font-family: var(--serif-display);
+   font-weight: 620;
+   font-size: 0.95rem;
+   color: var(--blue-deep);
+   background: var(--gold);
+   padding: 0.1rem 0.6rem;
+   border-radius: 999px;
+   margin-right: 0.8rem;
+   vertical-align: 0.18em;
+}
+
+/* Progressive disclosure for secondary matter: an FAQ answer, an edge case a
+   reader only wants if it is theirs. Collapsed content stays in the DOM, which is
+   what keeps FAQPage structured data valid and keeps the text findable in-page.
+   Body rules select "everything after the summary" rather than a wrapper, so a
+   markdown file can write the CommonMark form (blank line under <summary>) and an
+   .astro file can wrap the body in a div, and both land the same. */
+details.fold + details.fold {
+   margin-top: 0.2rem;
+}
+
+details.fold > summary {
+   display: flex;
+   align-items: baseline;
+   gap: 0.5rem;
+   padding: 0.45rem 0;
+   cursor: pointer;
+   list-style: none;
+   font-family: var(--serif-text);
+   font-size: 1.02rem;
+   font-weight: 600;
+   line-height: 1.45;
+   color: var(--ink);
+   transition: color 140ms ease;
+}
+details.fold > summary::-webkit-details-marker {
+   display: none;
+}
+details.fold > summary:hover,
+details.fold[open] > summary {
+   color: var(--blue);
+}
+details.fold > summary:focus-visible {
+   outline: 2px solid var(--gold-ink);
+   outline-offset: 3px;
+   border-radius: 2px;
+}
+
+/* A heading inside the summary keeps the document outline without taking over
+   the type: it inherits everything the summary already sets. */
+details.fold > summary :is(h2, h3, h4) {
+   font: inherit;
+   color: inherit;
+   margin: 0;
+}
+
+/* The section nav's chevron, at its rotation but smaller and fainter: this is
+   secondary matter and the mark should not announce itself. Fixed width so every
+   summary starts on one left edge. */
+details.fold > summary::before {
+   content: '›';
+   flex: none;
+   width: 0.5rem;
+   font-size: 0.82em;
+   line-height: 1.4;
+   color: var(--ink-soft);
+   opacity: 0.5;
+   transition:
+      transform 0.15s,
+      opacity 0.15s;
+}
+details.fold > summary:hover::before {
+   color: var(--blue);
+   opacity: 0.9;
+}
+details.fold[open] > summary::before {
+   transform: rotate(90deg);
+}
+
+/* Body: indented clear of the chevron so it hangs under the summary text. */
+details.fold > summary ~ * {
+   margin-left: 1rem;
+   color: var(--ink-soft);
+}
+details.fold > summary + * {
+   margin-top: 0.1rem;
+}
+details.fold[open] > summary ~ :last-child {
+   margin-bottom: 1.2rem;
+}
+
+/* The hero's carved rule, reused: the chevron marks the state, this marks where
+   the answer begins. */
+details.fold > summary + *::before {
+   content: '';
+   display: block;
+   width: 62px;
+   height: 2px;
+   margin: 0.15rem 0 0.8rem;
+   border-radius: 2px;
+   background: linear-gradient(90deg, var(--gold), rgba(255, 189, 110, 0.06));
+}
+
+@media (prefers-reduced-motion: reduce) {
+   details.fold > summary,
+   details.fold > summary::before {
+      transition: none;
+   }
+}
+
+/* Sequential navigation for the specification, which reads in order. Two cells so
+   a lone Next sits right; the label rides above the title in the utility face. */
+.doc-seq {
+   display: grid;
+   grid-template-columns: 1fr 1fr;
+   gap: 1.5rem;
+   margin: 3.5rem 0 0;
+   padding-top: 1.6rem;
+   border-top: 1px solid var(--line);
+}
+.doc-seq a {
+   display: flex;
+   flex-direction: column;
+   gap: 0.25rem;
+   text-decoration: none;
+   color: var(--blue);
+   font-family: var(--serif-text);
+   font-size: 1.02rem;
+   line-height: 1.4;
+}
+.doc-seq-next {
+   grid-column: 2;
+   text-align: right;
+}
+.doc-seq a span {
+   font-family: var(--mono);
+   font-size: 0.7rem;
+   letter-spacing: 0.14em;
+   text-transform: uppercase;
+   color: var(--ink-soft);
+}
+.doc-seq a:hover {
+   color: var(--blue-deep);
+}
+.doc-seq a:hover span {
+   color: var(--gold-ink);
+}
+.doc-seq a:focus-visible {
+   outline: 2px solid var(--gold-ink);
+   outline-offset: 4px;
+   border-radius: 2px;
+}
+@media (max-width: 560px) {
+   .doc-seq {
+      grid-template-columns: 1fr;
+      gap: 1.1rem;
+   }
+   .doc-seq-next {
+      grid-column: 1;
+      text-align: left;
+   }
 }
 
 /* footer styles live in components/SiteFooter.astro */

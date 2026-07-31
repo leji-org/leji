@@ -1346,6 +1346,20 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 /**
+ * A request URL path as a clean relative route key. Separators fold to `/` and
+ * the path is cleaned against a root, so one request has one route key on any
+ * platform — `path.normalize` follows the host and answered differently on
+ * Windows, missing every `content/` route test. Canonicalization only; the mount
+ * enforces containment.
+ */
+export function urlPathToRel(urlPath: string): string {
+   return path.posix
+      .normalize('/' + urlPath.replace(/\\/g, '/'))
+      .replace(/\/+$/, '')
+      .replace(/^\/+/, '');
+}
+
+/**
  * Serve the viewer at the web root, bound to 127.0.0.1 (local preview, never
  * hosting). Virtual mounts, no symlinks: chrome (rootPath/.leji/viewer/) at `/`,
  * layer markdown (rootPath/) under `/content/`; `/content/_sidebar.md` maps to the
@@ -1443,14 +1457,16 @@ export function serveViewer(
       }
       let urlPath: string;
       try {
-         // A malformed percent-encoding (e.g. GET /%E0%A4%A) throws URIError;
-         // answer 400 rather than letting it crash the server.
-         urlPath = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
+         // Concatenated, not resolved against a base: a target beginning with "//"
+         // parses as protocol-relative, which moves its first segment into the host
+         // and loses it. A malformed percent-encoding (e.g. GET /%E0%A4%A) throws
+         // URIError; answer 400 rather than letting it crash the server.
+         urlPath = decodeURIComponent(new URL('http://localhost' + (req.url ?? '/')).pathname);
       } catch {
          res.writeHead(400).end('bad request');
          return;
       }
-      const rel = path.normalize(urlPath).replace(/^([/\\])+/, '');
+      const rel = urlPathToRel(urlPath);
       if (rel === 'content' || rel.startsWith('content/')) res.setHeader('content-security-policy', CSP_CONTENT);
       // Refuse any dotfile or VCS-internal segment in the request path: the .leji
       // viewer dir is reached only through the mounts below, never by direct URL.

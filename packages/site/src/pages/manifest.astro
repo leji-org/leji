@@ -13,18 +13,19 @@ const exampleRaw = fs.readFileSync(path.resolve(process.cwd(), 'src/data/manifes
 ---
 
 <Doc
+   kind="reference"
    title="The manifest (leji.json) · Leji"
    description="The leji.json manifest: the machine entrypoint of a Leji context layer, declaring its context root, boot profile, category index files, and conformance claim."
 >
    <h1>The manifest: <code>leji.json</code></h1>
    <p class="sp-lede">{schema.description}</p>
 
+   <p>The manifest is Leji's only fixed filename: the one file tooling can always expect at the repository root.</p>
    <p>
-      The manifest is the only fixed filename in Leji: the one file tooling can always expect at the repository root.
       Field rows are generated from{' '}
-      <a href="/schemas/context-manifest/">the schema</a>, so nothing here drifts from the contract. It is a summary of
-      top-level and selected nested fields, not the whole of it: for deeply nested shapes such as an actor's roles and
-      commands, read the schema itself. Required fields carry the gold mark.
+      <a href="/schemas/context-manifest/">the schema</a>, so nothing here drifts from the contract. This page covers
+      top-level and selected nested fields; for deeper shapes such as an actor's roles and commands, read the schema
+      itself. Required fields carry the gold mark.
    </p>
 
    <h2>Fields</h2>
@@ -33,10 +34,13 @@ const exampleRaw = fs.readFileSync(path.resolve(process.cwd(), 'src/data/manifes
    <h2>A worked example</h2>
    <p>
       A federated, organization-wide context layer that mounts a sibling, using far more of the manifest than a real one
-      usually needs. Most context layers declare only the subset they use: <code>leji init</code> scaffolds a handful of these
-      fields, and a <code>core</code> manifest is much shorter. Two things about the shape are easy to misread: each category
-      points at authored <strong>index files</strong>, not at content directories, and <code>agents</code> is a directory
-      of profiles rather than a load order, so binding one never causes it to be read.
+      needs. Most context layers declare only the subset they use: <code>leji init</code> scaffolds a handful of these fields,
+      and a <code>core</code> manifest is much shorter.
+   </p>
+   <p>
+      Two things about the shape are easy to misread: each category points at authored <strong>index files</strong>, not
+      at content directories, and <code>agents</code> binds role identifiers to profile documents, a directory of roles rather
+      than a load order, so binding one never causes it to be read.
    </p>
    <div class="manifest-example">
       <Code code={exampleRaw.trimEnd()} lang="json" theme="night-owl" wrap />
