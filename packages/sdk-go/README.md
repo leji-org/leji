@@ -55,7 +55,7 @@ gofmt -l .         # prints nothing
 go test ./...      # all green, including the shared fixtures
 ```
 
-The SDK version is a build-time constant defaulting to `1.3.0`; override it with
+The SDK version is a build-time constant defaulting to `1.3.1`; override it with
 `-ldflags "-X github.com/leji-org/leji/packages/sdk-go/internal/schemas.SDKVersion=<v>"`.
 
 - Specification: https://leji.org

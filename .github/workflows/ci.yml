@@ -55,6 +55,18 @@ jobs:
       - run: npm ci
       - run: npm run lint
 
+  version:
+    name: Version coherence (manifests + prose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      # A stale version in prose is only noticed once it is already inside a
+      # published tarball or on pkg.go.dev, where it cannot be corrected in place.
+      - run: npm run version:check
+
   node-sdk:
     name: Node SDK (build + test)
     runs-on: ubuntu-latest

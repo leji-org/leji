@@ -1,6 +1,6 @@
 # Contributing
 
-The Leji spec is at 1.0, extracted from lived practice; the reference SDKs and tooling are at 1.3.0. The 1.0 spec line is GA and frozen at the v1.3.0 reference-tooling release: schema changes within it are additive only, and breaking changes require a new line per spec/versioning.md.
+The Leji spec is at 1.0, extracted from lived practice; the reference SDKs and tooling are at 1.3.1. The 1.0 spec line is GA and frozen at the v1.3.0 reference-tooling release: schema changes within it are additive only, and breaking changes require a new line per spec/versioning.md.
 
 ## Development setup
 

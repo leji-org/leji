@@ -36,16 +36,16 @@ model below).
 
 Each package publishes from its **own** path-prefixed tag, and each release
 workflow triggers on **only** its own tag. Never push a plain repo-wide
-`v1.0.0`: the Go submodule will not resolve from it, and a cross-triggered
+`vX.Y.Z`: the Go submodule will not resolve from it, and a cross-triggered
 publish is irreversible.
 
 | Tag | Publishes |
 |---|---|
-| `packages/sdk/v1.3.0` | npm `@leji-org/leji` **and** JSR `@leji-org/leji` (one tag, two jobs) |
-| `packages/create-leji/v1.3.0` | npm `create-leji` |
-| `packages/sdk-py/v1.3.0` | PyPI `leji` |
-| `packages/sdk-go/v1.3.0` | Go module index + goreleaser binaries |
-| `packages/mcp/v1.3.0` | npm `@leji-org/mcp` |
+| `packages/sdk/v1.3.1` | npm `@leji-org/leji` **and** JSR `@leji-org/leji` (one tag, two jobs) |
+| `packages/create-leji/v1.3.1` | npm `create-leji` |
+| `packages/sdk-py/v1.3.1` | PyPI `leji` |
+| `packages/sdk-go/v1.3.1` | Go module index + goreleaser binaries |
+| `packages/mcp/v1.3.1` | npm `@leji-org/mcp` |
 
 Cut all five at the same version once the pre-flight (above) is green. Tag the
 sdk first: `create-leji` and `@leji-org/mcp` both depend on
@@ -55,14 +55,14 @@ sdk's npm publish job to go green and confirm the version is live**
 
 ```
 # 1. The sdk tag; then WAIT for the npm publish to be green and live.
-git tag packages/sdk/v1.3.0          && git push origin packages/sdk/v1.3.0
-npm view @leji-org/leji version      # must print 1.3.0 before continuing
+git tag packages/sdk/v1.3.1          && git push origin packages/sdk/v1.3.1
+npm view @leji-org/leji version      # must print 1.3.1 before continuing
 
-# 2. Only after @leji-org/leji@1.3.0 is live on npm:
-git tag packages/sdk-py/v1.3.0       && git push origin packages/sdk-py/v1.3.0
-git tag packages/sdk-go/v1.3.0       && git push origin packages/sdk-go/v1.3.0
-git tag packages/create-leji/v1.3.0  && git push origin packages/create-leji/v1.3.0
-git tag packages/mcp/v1.3.0          && git push origin packages/mcp/v1.3.0
+# 2. Only after @leji-org/leji@1.3.1 is live on npm:
+git tag packages/sdk-py/v1.3.1       && git push origin packages/sdk-py/v1.3.1
+git tag packages/sdk-go/v1.3.1       && git push origin packages/sdk-go/v1.3.1
+git tag packages/create-leji/v1.3.1  && git push origin packages/create-leji/v1.3.1
+git tag packages/mcp/v1.3.1          && git push origin packages/mcp/v1.3.1
 ```
 
 ## Finalize: publish the Go binaries (required)
@@ -73,7 +73,7 @@ public until the separate `release-finalize` workflow publishes it. Skipping thi
 leaves the announcement pointing at a release nobody can download.
 
 After every publish job is green, run the `release-finalize` workflow manually and
-give it the Go tag as `release_tag` (e.g. `packages/sdk-go/v1.3.0`). It publishes
+give it the Go tag as `release_tag` (e.g. `packages/sdk-go/v1.3.1`). It publishes
 the draft release and enables Discussions. Confirm the release is no longer marked
 draft before announcing.
 
@@ -101,8 +101,8 @@ immutable, so inspect the wheel and sdist before tagging
 The Go module lives at `packages/sdk-go`, so its import path is
 `github.com/leji-org/leji/packages/sdk-go`. Go resolves versions of a module in
 a subdirectory **only** from tags that carry the module subpath prefix
-(`packages/sdk-go/v1.3.0`); a plain `v1.3.0` will **not** make
-`go install github.com/leji-org/leji/packages/sdk-go/cmd/leji@v1.3.0` resolve.
+(`packages/sdk-go/v1.3.1`); a plain `v1.3.1` will **not** make
+`go install github.com/leji-org/leji/packages/sdk-go/cmd/leji@v1.3.1` resolve.
 There is no upload step: pkg.go.dev indexes the tag on first request.
 
 ## One-time setup (before the first tag)
