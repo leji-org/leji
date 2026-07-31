@@ -1413,6 +1413,50 @@ export async function initLayer(options: InitOptions): Promise<InitResult> {
 
 const DOCS_CANDIDATES = ['docs/', 'doc/', 'documentation/'];
 
+/**
+ * The existing docs directory, named as it is on disk, or null if there is none.
+ *
+ * Matching is case-insensitive and the answer is the real directory entry, which
+ * are two halves of the same defect. Testing `isDir(root/'docs')` succeeds on a
+ * case-insensitive filesystem when the directory is actually `Docs`, and returning
+ * the candidate rather than the entry then recorded a `rootPath` that does not
+ * match disk: reads still resolve locally, so the mismatch stays invisible until
+ * something compares paths case-sensitively. On a case-sensitive filesystem the
+ * same test simply missed, and adoption scaffolded a second directory beside the
+ * one already there.
+ */
+/**
+ * Choose the docs root from a set of directory names, as a pure function of it.
+ *
+ * Exact spelling first, then the lowest remaining name. Both halves are needed: a
+ * case-sensitive filesystem may hold several variants at once, and directory-entry
+ * order is not guaranteed, so taking the first match found would make the recorded
+ * rootPath depend on the order a readdir happened to return. Kept separate from the
+ * filesystem so the ordering rule is testable against an injected set.
+ */
+export function pickDocsRoot(dirNames: readonly string[]): string | null {
+   for (const candidate of DOCS_CANDIDATES) {
+      const want = stripSlash(candidate);
+      const matches = dirNames.filter((n) => n.toLowerCase() === want.toLowerCase()).sort();
+      const hit = matches.find((n) => n === want) ?? matches[0];
+      if (hit !== undefined) return `${hit}/`;
+   }
+   return null;
+}
+
+function detectDocsRoot(root: string): string | null {
+   let names: string[];
+   try {
+      names = fs.readdirSync(root);
+   } catch {
+      return null;
+   }
+   // Directoryness is tested through `isDir`, which follows symlinks, because a
+   // documentation root is allowed to be a directory symlink and reading the entry
+   // type directly would silently stop detecting one.
+   return pickDocsRoot(names.filter((n) => isDir(path.join(root, n))));
+}
+
 /** Options for `adoptLayer`: bringing Leji into an existing repository. */
 export interface AdoptOptions {
    dir: string;
@@ -1509,7 +1553,7 @@ export async function adoptLayer(options: AdoptOptions): Promise<AdoptResult> {
    }
    if (!options.dryRun) assertCleanWorkingTree(root);
    const detected = detectHosts({ root });
-   const detectedRoot = DOCS_CANDIDATES.find((d) => isDir(path.join(root, d))) ?? 'docs/';
+   const detectedRoot = detectDocsRoot(root) ?? 'docs/';
    assertRelativePath(detectedRoot);
 
    const bootRel = `${detectedRoot}boot-profile.md`;

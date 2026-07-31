@@ -112,12 +112,11 @@ const peekJson = `{
       <div class="levels-band">
          <div class="wrap">
             <section class="levels">
-               <p class="section-eyebrow">Adoption, not migration</p>
+               <p class="eyebrow is-kicker">Adoption, not migration</p>
                <h2 class="section-title levels-title">Start from the repo you have.</h2>
                <p class="levels-lede">
-                  The Leji CLI scaffolds the context layer over the tree you already have. It moves nothing, rewrites an
-                  entrypoint only when you ask it to with <code>--wire-adapters</code>, and writes an onboarding brief
-                  that drives your coding agent to populate it from the real codebase.
+                  The CLI scaffolds a context layer over the tree you already have. Nothing moves, and an entrypoint
+                  changes only when you ask for it with <code>--wire-adapters</code>.
                </p>
                <ol class="adopt-flow">
                   <li class="adopt-step">
@@ -125,7 +124,8 @@ const peekJson = `{
                      <h3>Scaffolds around your tree</h3>
                      <p>
                         <code>adopt</code> reuses your docs root, seeds the category index files, and copies what your agent
-                        entrypoint already says into the context layer. Nothing you wrote is moved or rewritten.
+                        entrypoint already says into the context layer. Nothing you wrote is moved, and no entrypoint is rewritten
+                        until you ask with <code>--wire-adapters</code>.
                      </p>
                   </li>
                   <li class="adopt-step">
@@ -151,13 +151,11 @@ const peekJson = `{
 
       <div class="wrap">
          <section class="surfaces">
-            <p class="section-eyebrow">Read by people, reached by agents</p>
-            <h2 class="section-title surfaces-title">One source, two kinds of&nbsp;readers.</h2>
+            <p class="eyebrow is-kicker">Read by people, reached by agents</p>
+            <h2 class="section-title surfaces-title">One source, two&nbsp;audiences.</h2>
             <p class="surfaces-lede">
-               The shared context layer is a repo-owned record of how a team thinks (domain language, constraints,
-               decisions, conventions, agent guardrails), read by people and AI agents and changed through one review
-               gate. It governs your dated evidence too, as records that a later state supersedes rather than documents
-               anyone promises to keep current.
+               A repo-owned record of how your team thinks: domain language, constraints, decisions, conventions, agent
+               guardrails. One source, changed through one review gate.
             </p>
             <div class="chart">
                <div class="chart-source">
@@ -192,12 +190,12 @@ const peekJson = `{
       <div class="levels-band">
          <div class="wrap">
             <section class="levels">
-               <p class="section-eyebrow">Conformance</p>
+               <p class="eyebrow is-kicker">Conformance</p>
                <h2 class="section-title levels-title">Claim a level, then check it.</h2>
                <p class="levels-lede">
-                  Conformance grades a context layer across 4 cumulative levels by what's in place, not self-assessed
-                  maturity. Most teams should reach <code>governed</code> and stop. It stays self-attested: the reference
-                  CLI checks what a machine can check and reports the rest, which your team stands behind.
+                  Four cumulative levels, graded by what is in place rather than self-assessed maturity. Most teams
+                  reach
+                  <code>governed</code> and stop. The CLI checks what a machine can; your team stands behind the rest.
                </p>
                <ol class="ladder">
                   <li>
@@ -218,7 +216,10 @@ const peekJson = `{
                   <li>
                      <span class="rung-tag">federated</span>
                      <strong class="rung-cap">Org-wide practice</strong>
-                     <span>a pinned mount in other repos, with stale-pin reporting.</span>
+                     <span
+                        >a pinned mount in other repos, with stale-pin reporting.
+                        <a href="/federation/">How federation works.</a></span
+                     >
                   </li>
                </ol>
                <aside class="standard-note">
@@ -234,23 +235,17 @@ const peekJson = `{
 
       <div class="why-band">
          <div class="wrap">
-            <p class="section-eyebrow why-eyebrow">Why it's built this way</p>
+            <p class="eyebrow is-kicker on-dark">Why it's built this way</p>
             <h2 class="section-title levels-title">Durable intent, shared in a circle, checked by&nbsp;mechanism.</h2>
-            <p class="why-lede">
-               An <a href="/ai-native/">AI-native team</a> is a team where people and AI agents work from one shared, versioned,
-               governed context layer.
-            </p>
             <section class="theses">
                <article class="thesis">
                   <span class="thesis-num">I.</span>
                   <div class="thesis-body">
                      <h3>Intent over instructions</h3>
                      <p>
-                        Where team context is re-encoded as imperative instructions in a file per vendor, it fragments
-                        and drifts. Leji puts durable intent in one shared context layer, changed through review, and
-                        lets people and agents derive actions from it. Vendor entrypoints redirect into the shared
-                        context layer rather than being the source, so your team's context outlives any single tool or
-                        model choice.
+                        Durable intent belongs in one reviewed context layer, where people and agents derive actions
+                        from it. Vendor entrypoints redirect there, so an <a href="/ai-native/">AI-native team</a>'s
+                        context outlives any tool. <a href="/rationale/#intent-over-instructions">Why intent lasts.</a>
                      </p>
                   </div>
                </article>
@@ -260,8 +255,8 @@ const peekJson = `{
                      <h3>A circle, not a tier</h3>
                      <p>
                         Human-to-human, human-to-AI, and human-to-AI-to-human are first-class flows around one shared
-                        context layer. Equal access, not equal authority: everyone reads, anyone proposes, people
-                        approve through pull requests.
+                        context layer. Everyone reads, anyone proposes, and people approve through pull requests.{' '}
+                        <a href="/rationale/#a-circle-not-a-tier">Why the circle works.</a>
                      </p>
                   </div>
                </article>
@@ -270,10 +265,9 @@ const peekJson = `{
                   <div class="thesis-body">
                      <h3>Mechanism over goodwill</h3>
                      <p>
-                        Shared context decays by default: reality moves, documents don't, and nothing forces a wiki
-                        current. Leji's forcing functions are mechanical, not goodwill: changes ride the same review
-                        gate as code, tooling fails on mechanical drift, freshness horizons flag what has aged, and
-                        stale context is never silently treated as current.
+                        Reality changes and shared context decays. Code review, mechanical drift checks, and freshness
+                        horizons make maintenance mechanical; stale context is never silently treated as current.{' '}
+                        <a href="/rationale/#why-this-is-not-a-wiki">Why mechanisms matter.</a>
                      </p>
                   </div>
                </article>
@@ -284,7 +278,7 @@ const peekJson = `{
       <div class="wrap">
          <section class="manifest-peek">
             <div class="peek-text">
-               <p class="section-eyebrow">The machine entrypoint</p>
+               <p class="eyebrow is-kicker">The machine entrypoint</p>
                <h2 class="section-title">One manifest file</h2>
                <p>
                   Your existing <code>docs/</code> tree conforms by <em>mapping</em>, not renaming. A single{' '}
@@ -297,11 +291,7 @@ const peekJson = `{
                </p>
                <p>
                   Entrypoint files are pointers, never homes. <code>AGENTS.md</code> is the portable one most agent hosts
-                  read, so <code>init</code> and <code>adopt</code> write a pointer-only version when your repo has none (<code
-                     >--no-agents</code
-                  > skips it, and an existing file is never touched). Single-vendor files like{' '}
-                  <code>CLAUDE.md</code> are never created; <code>adopt --wire-adapters</code> turns one you already keep
-                  into the same one-line redirect.
+                  read; the <a href="/adoption/">adoption guide</a> covers the rest.
                </p>
                <p class="peek-more"><a href="/manifest/">Manifest reference →</a></p>
             </div>
@@ -596,24 +586,6 @@ const peekJson = `{
          transform: none;
       }
    }
-   .section-eyebrow {
-      font-family: var(--mono);
-      font-size: 0.74rem;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
-      color: var(--blue);
-      margin: 0 0 0.9rem;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.6rem;
-   }
-   .section-eyebrow::before {
-      content: '';
-      width: 1.6rem;
-      height: 2px;
-      background: var(--gold);
-      border-radius: 2px;
-   }
    .section-title {
       font-family: var(--serif-display);
       font-variation-settings: 'opsz' 80;
@@ -635,8 +607,8 @@ const peekJson = `{
    .levels-lede {
       color: var(--ink-soft);
       margin: 0;
-      max-width: 74ch;
-      font-size: 1.05rem;
+      max-width: var(--measure);
+      font-size: var(--text-lede);
       line-height: 1.7;
    }
    .levels-lede code {
@@ -686,7 +658,6 @@ const peekJson = `{
    .adopt-step p {
       color: var(--ink-soft);
       margin: 0;
-      font-size: 0.92rem;
       line-height: 1.6;
    }
    @media (max-width: 720px) {
@@ -703,7 +674,7 @@ const peekJson = `{
       flex-direction: column;
       gap: 0.35rem;
       margin: clamp(1.6rem, 3.5vh, 2.6rem) 0 0;
-      max-width: 64ch;
+      max-width: var(--measure);
       padding: 0.15rem 0 0.15rem 1.1rem;
       border-left: 2px solid var(--gold);
    }
@@ -717,7 +688,6 @@ const peekJson = `{
    .standard-note p {
       margin: 0;
       color: var(--ink-soft);
-      font-size: 0.95rem;
       line-height: 1.6;
    }
    .ladder {
@@ -785,7 +755,7 @@ const peekJson = `{
       display: block;
       font-family: var(--serif-display);
       font-weight: 580;
-      font-size: 1.05rem;
+      font-size: var(--text-lede);
       line-height: 1.2;
       color: var(--blue-deep);
       margin-bottom: 0.5rem;
@@ -836,8 +806,8 @@ const peekJson = `{
    .surfaces-lede {
       color: var(--ink-soft);
       margin: 0.6rem 0 0;
-      max-width: 74ch;
-      font-size: 1.05rem;
+      max-width: var(--measure);
+      font-size: var(--text-lede);
       line-height: 1.7;
    }
    .chart {
@@ -918,6 +888,7 @@ const peekJson = `{
       color: var(--ink-soft);
       margin: 0;
       line-height: 1.7;
+      max-width: var(--measure);
    }
    .surface strong {
       color: var(--blue-deep);
@@ -979,31 +950,43 @@ const peekJson = `{
       position: relative;
       z-index: 1;
    }
-   .why-eyebrow {
-      color: var(--gold-bright);
-   }
-   .why-eyebrow::before {
-      background: var(--gold);
-   }
    .why-band .section-title {
       color: var(--white);
       margin-bottom: 1rem;
    }
    .why-lede {
       color: var(--white-soft);
-      max-width: 58ch;
-      font-size: 1.05rem;
+      max-width: var(--measure);
+      font-size: var(--text-lede);
       line-height: 1.7;
       margin: 0 0 0.8rem;
    }
-   .why-lede a {
+   /* One link treatment for the whole dark band, lede and theses alike. The
+      thesis links had no rule of their own, so they fell through to the global
+      `a { color: inherit }` and rendered white with the browser's default
+      underline: full strength, no offset, drawn straight through the line. Gold
+      carries the link on this ground, and the underline is held to a hairline so
+      it reads as emphasis rather than as a rule struck through the sentence. */
+   .why-band a {
       color: var(--gold-bright);
       text-decoration: underline;
-      text-decoration-color: rgba(255, 189, 110, 0.4);
+      text-decoration-color: rgba(255, 189, 110, 0.38);
+      text-decoration-thickness: 1px;
       text-underline-offset: 3px;
+      transition: text-decoration-color 140ms ease;
    }
-   .why-lede a:hover {
+   .why-band a:hover {
       text-decoration-color: var(--gold-bright);
+   }
+   .why-band a:focus-visible {
+      outline: 2px solid var(--gold-bright);
+      outline-offset: 3px;
+      border-radius: 2px;
+   }
+   @media (prefers-reduced-motion: reduce) {
+      .why-band a {
+         transition: none;
+      }
    }
    .theses {
       margin-top: 0;
@@ -1035,9 +1018,8 @@ const peekJson = `{
    .thesis p {
       margin: 0;
       color: var(--white-soft);
-      font-size: 1.02rem;
       line-height: 1.72;
-      max-width: 66ch;
+      max-width: var(--measure);
    }
    @media (max-width: 640px) {
       .thesis {
@@ -1064,7 +1046,7 @@ const peekJson = `{
    }
    .peek-text p {
       color: var(--ink-soft);
-      max-width: 52ch;
+      max-width: var(--measure);
    }
    .peek-text em {
       color: var(--blue-deep);

@@ -51,6 +51,9 @@ const schemasHere = current.startsWith('/schemas') ? 'page' : undefined;
             <a href="/adoption/" aria-current={here('/adoption/')}>Adoption guides</a>
          </li>
          <li>
+            <a href="/federation/" aria-current={here('/federation/')}>Federation</a>
+         </li>
+         <li>
             <a href="/rationale/" aria-current={here('/rationale/')}>Rationale</a>
          </li>
          <li>
@@ -65,10 +68,17 @@ const schemasHere = current.startsWith('/schemas') ? 'page' : undefined;
 
 <script is:inline>
    // Persist each group's collapsed state across navigation so it doesn't reset.
+   // In one column the sidebar stacks above the article, so an open nav puts
+   // roughly twenty links between the reader and the H1 they followed a link to
+   // reach. Collapse the groups by default at that width: three summary rows, one
+   // tap to the same list, and the header's own menu is still there. A reader who
+   // has opened a group keeps their choice on both widths.
+   var narrow = window.matchMedia('(max-width: 800px)').matches;
    for (const d of document.querySelectorAll('.doc-nav details[data-group]')) {
       const key = 'leji-nav-' + d.dataset.group;
       const saved = localStorage.getItem(key);
       if (saved !== null) d.open = saved === '1';
+      else if (narrow) d.open = false;
       d.addEventListener('toggle', () => localStorage.setItem(key, d.open ? '1' : '0'));
    }
 </script>

@@ -2269,6 +2269,61 @@ func EnteringViaBoot(m *manifest.Manifest, hostArgs []string) string {
 
 var docsCandidates = []string{"docs/", "doc/", "documentation/"}
 
+// pickDocsRoot chooses the docs root from a set of directory names, as a pure
+// function of it. Exact spelling first, then the lowest remaining name. Both
+// halves are needed: a case-sensitive filesystem may hold several variants at
+// once, and directory-entry order is not guaranteed, so taking the first match
+// found would make the recorded rootPath depend on the order a read happened to
+// return. Kept separate from the filesystem so the ordering rule is testable
+// against an injected set. Returns "" when nothing matches.
+func pickDocsRoot(dirNames []string) string {
+	for _, candidate := range docsCandidates {
+		want := fsx.StripSlash(candidate)
+		var matches []string
+		for _, n := range dirNames {
+			// ToLower, not EqualFold: EqualFold folds long-s onto ASCII "s" and
+			// would match names the other SDKs reject.
+			if strings.ToLower(n) == strings.ToLower(want) {
+				matches = append(matches, n)
+			}
+		}
+		if len(matches) == 0 {
+			continue
+		}
+		sort.Strings(matches)
+		hit := matches[0]
+		for _, n := range matches {
+			if n == want {
+				hit = n
+				break
+			}
+		}
+		return hit + "/"
+	}
+	return ""
+}
+
+// detectDocsRoot reports the existing docs directory named as it is on disk, or
+// "" when there is none. Matching is case-insensitive and the answer is the real
+// entry, which are two halves of one defect: testing IsDir(root/"docs") succeeds
+// on a case-insensitive filesystem when the directory is actually "Docs", and
+// returning the candidate rather than the entry then recorded a rootPath that
+// does not match disk. Directoryness is tested through IsDir, which follows
+// symlinks, because a documentation root is allowed to be a directory symlink.
+func detectDocsRoot(root string) string {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return ""
+	}
+	var dirs []string
+	for _, e := range entries {
+		if fsx.IsDir(filepath.Join(root, e.Name())) {
+			dirs = append(dirs, e.Name())
+		}
+	}
+	return pickDocsRoot(dirs)
+}
+
 // AdoptOptions configures adoptLayer: bringing Leji into an existing repository.
 type AdoptOptions struct {
 	Dir    string
@@ -2396,12 +2451,9 @@ func AdoptLayer(opts AdoptOptions) (AdoptResult, error) {
 		}
 	}
 	detected := detect.DetectHosts(detect.Options{Root: root})
-	detectedRoot := "docs/"
-	for _, d := range docsCandidates {
-		if fsx.IsDir(filepath.Join(root, d)) {
-			detectedRoot = d
-			break
-		}
+	detectedRoot := detectDocsRoot(root)
+	if detectedRoot == "" {
+		detectedRoot = "docs/"
 	}
 	if err := validateRelPath(fsx.StripSlash(detectedRoot)); err != nil {
 		return AdoptResult{}, fmt.Errorf("context root %q is not a safe relative path: %w", detectedRoot, err)

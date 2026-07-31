@@ -1,7 +1,7 @@
 ---
 import { getCollection, render } from 'astro:content';
 import Doc from '../../layouts/Doc.astro';
-import { specDocTitle, specPath } from '../../data/spec-docs';
+import { SPEC_DOCS, specDocTitle, specPath } from '../../data/spec-docs';
 
 export async function getStaticPaths() {
    const docs = await getCollection('spec');
@@ -14,6 +14,11 @@ export async function getStaticPaths() {
 const { doc } = Astro.props;
 const { Content } = await render(doc);
 const docTitle = specDocTitle(doc.id);
+// Structured data must name the page as a reader sees it, so the headline comes
+// from the document's own H1 rather than the sidebar label, which is sentence
+// case for navigation and drifts from the frozen spec headings.
+const h1 = /^#\s+(.+)$/m.exec(doc.body ?? '')?.[1]?.trim();
+const headline = h1 ?? docTitle;
 const title = `${docTitle} · Leji`;
 
 const pageUrl = new URL(specPath(doc.id), Astro.site).href;
@@ -24,8 +29,8 @@ const description =
 const articleLd = {
    '@context': 'https://schema.org',
    '@type': 'TechArticle',
-   name: docTitle,
-   headline: docTitle,
+   name: headline,
+   headline,
    description,
    url: pageUrl,
    inLanguage: 'en',
@@ -34,9 +39,36 @@ const articleLd = {
    // specification, not an organization; naming one here invented an entity.
    publisher: { '@id': 'https://leji.org/#organization' },
 };
+
+// The spec index calls these documents "in reading order", but a reader who
+// finished one had to go back to the sidebar and remember which number they were
+// on. The prose is frozen; the chrome is not.
+const order = SPEC_DOCS.findIndex((d) => d.id === doc.id);
+const prev = order > 0 ? SPEC_DOCS[order - 1] : null;
+const next = order >= 0 && order < SPEC_DOCS.length - 1 ? SPEC_DOCS[order + 1] : null;
 ---
 
-<Doc title={title} description={description} alternate={`/spec/${doc.id}.md`}>
+<Doc kind="normative" title={title} description={description} alternate={`/spec/${doc.id}.md`}>
    <script type="application/ld+json" set:html={JSON.stringify(articleLd)} />
    <Content />
+   {
+      (prev || next) && (
+         <nav class="doc-seq" aria-label="Specification order">
+            {prev ? (
+               <a class="doc-seq-prev" href={specPath(prev.id)}>
+                  <span>Previous</span>
+                  {specDocTitle(prev.id)}
+               </a>
+            ) : (
+               <span />
+            )}
+            {next && (
+               <a class="doc-seq-next" href={specPath(next.id)}>
+                  <span>Next</span>
+                  {specDocTitle(next.id)}
+               </a>
+            )}
+         </nav>
+      )
+   }
 </Doc>

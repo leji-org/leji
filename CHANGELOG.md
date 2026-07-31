@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.3.1 · 2026-07-31
+
+A patch release for two Windows-only defects, plus a documentation pass. No specification,
+schema, or manifest change; the spec stays on the frozen v1.0 line and all reference packages
+move to 1.3.1 together.
+
+### Fixed
+
+- **The viewer served nothing under `/content/` on Windows.** Route keys were derived with
+  `path.normalize`, which follows the host platform and rewrote separators to backslashes, so
+  every `/content/*` request missed its mount and 404ed while the app shell loaded normally. Route
+  keys are now canonicalized with POSIX semantics in all three SDKs.
+- **Adoption recorded a guessed docs-root casing.** Detection tested for `docs/` and returned the
+  candidate it searched for, so a directory named `Docs` produced a `rootPath` that did not match
+  disk on a case-insensitive filesystem, and was missed entirely on a case-sensitive one.
+  Detection now reports the directory as it is named on disk, matching case-insensitively and
+  preferring an exact spelling.
+- **A request target beginning with `//` was parsed as protocol-relative** by the Node viewer,
+  moving its first path segment into the host, so `//content/x.md` 404ed where the other SDKs
+  served it.
+
+### Changed
+
+- **Federation has its own guide** at `/federation/`: the sibling mount model, the pinned
+  `federation.mounts` declaration, the `leji mounts` commands, and what `federated` conformance
+  requires.
+- **The adoption guide is staged**, from scaffold to a context layer an agent reads, with the
+  edge cases behind disclosures rather than in the main path.
+- **Documentation corrections**: the layer projection closure, `federated` conformance
+  conditions, category index selectors, what validation enforces, record routing, the `agents`
+  map, and the MCP server's capability and network claims now match the specification and the
+  reference SDK.
+
 ## 1.3.0 · 2026-07-30
 
 The content-model revision and the GA freeze of the specification. **Spec 1.0 is declared GA at

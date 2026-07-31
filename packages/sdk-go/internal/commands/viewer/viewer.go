@@ -2248,8 +2248,7 @@ func newHandler(rootAbs, base, contentAbs, viewerAbs string, logf func(string)) 
 			_, _ = w.Write([]byte("bad request"))
 			return
 		}
-		clean := filepath.ToSlash(filepath.Clean("/" + urlPath))
-		rel := strings.TrimLeft(clean, "/")
+		rel := urlPathToRel(urlPath)
 		if rel == "content" || strings.HasPrefix(rel, "content/") {
 			w.Header().Set("content-security-policy", cspContent)
 		}
@@ -2373,6 +2372,15 @@ func resolveRoot(root string) string {
 		rootAbs, _ = filepath.Abs(root)
 	}
 	return rootAbs
+}
+
+// urlPathToRel turns a request URL path into a clean relative route key.
+// Separators fold to "/" and the path is cleaned against a root, so one request
+// has one route key on any platform — filepath.Clean follows the host and
+// answered differently on Windows, missing every "content/" route test.
+// Canonicalization only; serveFrom enforces containment.
+func urlPathToRel(urlPath string) string {
+	return strings.TrimLeft(path.Clean("/"+strings.ReplaceAll(urlPath, "\\", "/")), "/")
 }
 
 // Serve serves the viewer at the web root on 127.0.0.1, returning the listener and

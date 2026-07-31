@@ -30,6 +30,7 @@ const tools = [
 ---
 
 <Doc
+   kind="reference"
    title="MCP server · Leji"
    description="Use Leji tooling from your AI agent: a local, read-only MCP server that serves the spec and schemas and checks a context layer on disk."
 >
@@ -42,8 +43,11 @@ const tools = [
       <code>@leji-org/mcp</code> is a local <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener"
          >MCP</a
       > server that wraps the reference SDK. Your agent reads the spec and schemas, validates a context layer on disk, and
-      scores its conformance, with no site fetch and no CLI shell-out. It runs locally over stdio, needs no network or auth,
-      and exposes only read-only tools.
+      scores its conformance, with no site fetch and no CLI shell-out.
+   </p>
+   <p>
+      It runs locally over stdio and makes no network calls at run time, though the first `npx` install fetches the
+      package, and exposes only read-only tools.
    </p>
 
    <h2>Add it to your client</h2>
@@ -57,10 +61,12 @@ const tools = [
    <p>
       If you're adopting with the CLI and either Claude Code or Codex is on your <code>PATH</code>, <code
          >leji init</code
-      >
-      and <code>leji adopt</code> offer to register this server for that host, before handing off to your agent. The offer
-      is interactive, so a <code>--yes</code> run skips it. What follows is for anyone who skipped the prompt, uses another
-      client, or wants a different scope.
+      >{' '}
+      and <code>leji adopt</code> offer to register this server for that host, before handing off to your agent.
+   </p>
+   <p>
+      The offer is interactive, so a <code>--yes</code> run skips it. What follows is for anyone who skipped the prompt, uses
+      another client, or wants a different scope.
    </p>
 
    <h3>Claude Code</h3>
@@ -133,8 +139,9 @@ const tools = [
 
    <h2>Why a server, and not just the CLI?</h2>
    <p>
-      The CLI already validates and scores a context layer. The server adds no new capability; it's a different surface,
-      the one an agent reaches for on its own:
+      The CLI already validates and scores a context layer, and the server offers both. It also does what the CLI does
+      not, searching and serving the specification and schemas, and it is a different surface, the one an agent reaches
+      for on its own:
    </p>
    <ul>
       <li>
@@ -143,7 +150,7 @@ const tools = [
       </li>
       <li>
          <strong>It works where a shell doesn't.</strong> Many agent environments can't or won't run arbitrary commands. A
-         read-only server with no network is reachable where <code>leji validate</code> is not.
+         read-only server that makes no network calls at run time is reachable where <code>leji validate</code> is not.
       </li>
       <li>
          <strong>It serves the spec and schemas directly.</strong> Your agent reads them as resources, without a web fetch,

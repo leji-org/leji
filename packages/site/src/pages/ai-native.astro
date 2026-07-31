@@ -88,6 +88,7 @@ const pageLd = {
 ---
 
 <Doc
+   kind="background"
    title="What is an AI-native team? · Leji"
    description="An AI-native team is a team where people and AI agents work from one shared, versioned, governed context layer. Leji is the open specification for it."
 >
@@ -101,52 +102,44 @@ const pageLd = {
 
    <p>
       The context layer holds the team's domain language, the constraints that must hold, the decisions behind the
-      system, the conventions it follows, and the guardrails its agents run under. People and agents in an AI-native
-      team read it on every task, and every change to it passes the same review gate. <a href="/spec/">Leji</a> is the open
-      specification for the context layer; the context layer itself is what a team builds with it.
+      system, the conventions it follows, and the guardrails its agents run under. People and agents read it on every
+      task, and every change to it passes the same review gate. <a href="/spec/">Leji</a> is the open specification for the
+      context layer.
    </p>
 
    <h2>Beyond prompts and tool adoption</h2>
    <p>
-      Adopting AI coding tools is not the same as being AI-native. Most teams start by writing per-tool instruction
-      files and ad hoc prompts: a rules file for one assistant, a different one for the next, conventions that live in
-      one engineer's head. That makes individual tasks faster without changing how the team operates. An AI-native team
-      moves the operating context out of scattered files and individual memory into one{' '}
-      <a href="/spec/context-layer/">context layer</a> that people and agents share, version, and govern together.
+      AI tools speed up tasks, but scattered prompts, per-tool instructions, and knowledge held in individual memory do
+      not change how a team operates. An AI-native team instead shares, versions, and governs one{' '}
+      <a href="/spec/context-layer/">context layer</a>.
    </p>
 
    <h2>Intent over instructions</h2>
    <p>
-      An AI-native context captures durable intent, what things mean, what must hold, and why, rather than imperative
-      instructions re-encoded for each tool. Intent outlives any one vendor: when the tools change, the meaning and the
-      constraints stay. People and agents derive the right action from declared intent plus the task in front of them.
-      The <a href="/rationale/">rationale</a> explains why durable intent outlasts per-tool instructions.
+      Shared context captures durable intent: what things mean, what must hold, and why. People and agents derive
+      actions from that intent and the task, while meaning and constraints outlive any vendor. The{' '}
+      <a href="/rationale/">rationale</a> explains why.
    </p>
 
    <h2 id="a-circle-not-a-tier">A circle, not a tier</h2>
    <p>
-      Context flows in a circle, not down a tier. Human-to-human, human-to-AI, and human-to-AI-to-human are all
-      first-class flows around one context layer. Everyone with access reads all of it, anyone can propose a change, and
-      people approve. Access is the version control system's to grant; restricted context lives in its own permissioned
-      context layer.
+      Context flows in a circle across human-to-human, human-to-AI, and human-to-AI-to-human work. Everyone with access
+      reads it, anyone can propose changes, and people approve. Version control grants access; restricted context
+      belongs in a permissioned context layer.
    </p>
 
    <h2 id="mechanism-over-goodwill">Mechanism over goodwill</h2>
    <p>
-      Shared context decays by default: reality moves, documents don't, and nothing forces a wiki current. An AI-native
-      team doesn't stay current on discipline alone: changes ride the same review gate as code, tooling fails on
-      mechanical drift, and freshness horizons flag context that has aged, so stale context is surfaced rather than
-      silently treated as current. The <a href="/spec/governance/">governance rules</a> make the forcing functions mechanical,
-      not goodwill.
+      Shared context decays as reality changes. Review gates, mechanical drift checks, and freshness horizons keep
+      maintenance from depending on discipline alone. The <a href="/spec/governance/">governance rules</a> make these forcing
+      functions mechanical and flag context that has aged.
    </p>
 
    <h2 id="ai-native-workflow">An AI-native workflow</h2>
    <p>
-      An engineer and an agent pick up a task and both load the context layer at the start, so both begin from the same
-      domain language, constraints, and recent decisions. The agent proposes a change to the code and, where the work
-      reveals new intent, a change to the context layer. A person reviews both through the same gate. Updating the
-      context layer is part of the work, not a separate chore, so staleness surfaces in the same pass rather than
-      accumulating.
+      An engineer and an agent load the context layer for a task, starting from the same language, constraints, and
+      decisions. The agent proposes code and context changes where needed; a person reviews both through the same gate,
+      making context maintenance part of the work.
    </p>
 
    <h2>How Leji makes it checkable</h2>
@@ -155,43 +148,59 @@ const pageLd = {
          ' '
       }
       manifest declares conformance, and the <a href="/quickstart/">reference CLI</a> adopts the repo, validates the artifacts
-      against published schemas, and scores conformance. The 4 <a href="/spec/conformance/">conformance levels</a>{' '}
+      against published schemas, and scores conformance.
+   </p>
+   <p>
+      The four <a href="/spec/conformance/">conformance levels</a>{' '}
       (<code>core</code>, <code>indexed</code>, <code>governed</code>, and <code>federated</code>) each name a
       cumulative set of requirements a context layer either has in place or does not. They are not a maturity score:
-      most teams should reach <code>governed</code> and stop, and{' '}
-      <code>federated</code> exists for organizations where more than one team already owns a context layer worth keeping
-      whole; siblings stay distinct, independently owned sources that a host mounts by pin. The CLI checks what a machine
-      can check and reports the rest, which the team attests to, so a claim is grounded rather than merely asserted.
+      most teams should reach <code>governed</code> and stop.
+   </p>
+   <p>
+      The <code>federated</code> level exists for organizations where more than one team already owns a context layer worth
+      keeping whole; siblings stay distinct, independently owned sources that a host mounts by pin.
+   </p>
+   <p>
+      The CLI checks what a machine can check and reports the rest, which the team attests to, so a claim is grounded
+      rather than merely asserted.
    </p>
 
    <h2>Frequently asked questions</h2>
 
-   <h3>Is being AI-native just using AI coding tools?</h3>
-   <p>
-      No. Using AI tools speeds up individual tasks. Being AI-native changes how the team operates: the operating
-      context is shared, versioned, and governed, so people and agents work from the same source. Tool adoption is a
-      step on the way, not the destination.
-   </p>
+   <details class="fold">
+      <summary><h3>Is being AI-native just using AI coding tools?</h3></summary>
+      <p>
+         No. Using AI tools speeds up individual tasks. Being AI-native changes how the team operates: the operating
+         context is shared, versioned, and governed, so people and agents work from the same source. Tool adoption is a
+         step on the way, not the destination.
+      </p>
+   </details>
 
-   <h3>Does being AI-native require a specific vendor or tool?</h3>
-   <p>
-      No. The context layer is tool-agnostic. Leji standardizes the shape and the governance, not the contents, and
-      conformance never requires a particular commercial product or service. Vendor entrypoints are redirects into the
-      one context layer.
-   </p>
+   <details class="fold">
+      <summary><h3>Does being AI-native require a specific vendor or tool?</h3></summary>
+      <p>
+         No. The context layer is tool-agnostic. Leji standardizes the shape and the governance, not the contents, and
+         conformance never requires a particular commercial product or service. Vendor entrypoints are redirects into
+         the one context layer.
+      </p>
+   </details>
 
-   <h3>What is the difference between Leji and the context layer?</h3>
-   <p>
-      Leji is the open specification. The context layer is what a team builds and owns by following it. Leji
-      standardizes the shape and the governance, not the contents.
-   </p>
+   <details class="fold">
+      <summary><h3>What is the difference between Leji and the context layer?</h3></summary>
+      <p>
+         Leji is the open specification. The context layer is what a team builds and owns by following it. Leji
+         standardizes the shape and the governance, not the contents.
+      </p>
+   </details>
 
-   <h3>How does an AI-native team keep the context layer from going stale?</h3>
-   <p>
-      Changes to the context layer pass the same review gate as code, freshness horizons flag context that has aged, and
-      tooling never silently treats stale context as current. An AI-native team updates the context layer as part of
-      doing the work, so staleness surfaces early rather than accumulating unseen.
-   </p>
+   <details class="fold">
+      <summary><h3>How does an AI-native team keep the context layer from going stale?</h3></summary>
+      <p>
+         Changes to the context layer pass the same review gate as code, freshness horizons flag context that has aged,
+         and tooling never silently treats stale context as current. An AI-native team updates the context layer as part
+         of doing the work, so staleness surfaces early rather than accumulating unseen.
+      </p>
+   </details>
 
    <p class="next-step">
       Next: <a href="/spec/">read the specification</a> or <a href="/quickstart/"

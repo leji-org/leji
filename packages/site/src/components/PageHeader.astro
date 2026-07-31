@@ -1,0 +1,43 @@
+---
+// The page classification eyebrow, defined in one place so the taxonomy cannot
+// drift page to page.
+//
+// What it encodes is what governs the page, which is the fact a reader arriving
+// from a search engine cannot otherwise get: the sidebar's grouping is the same
+// information, but it collapses on mobile and says nothing on a deep link.
+//
+// The normative split is transcribed from the specification itself, not invented
+// here (spec/README.md): "The JSON Schemas in ../schemas/ are normative for the
+// machine-readable artifacts. The documents in ../rationale/ and ../adoption/ are
+// non-normative."
+//
+// Adding a page means picking a kind, never writing an eyebrow string.
+
+const SPEC_LINE = 'spec 1.0';
+
+// Not exported: Astro hoists exported frontmatter bindings into a separate module
+// scope, where SPEC_LINE would not resolve. Nothing outside needs the map anyway.
+const PAGE_KINDS = {
+   /** The specification documents and the JSON Schemas: binding. */
+   normative: `${SPEC_LINE} · normative`,
+   /** Describes tooling that implements the spec; the spec is the authority. */
+   reference: `${SPEC_LINE} · reference`,
+   /** Task-shaped instructions for adopting it. Non-normative. */
+   guide: 'guide',
+   /** Why it is built this way. Non-normative. */
+   background: 'background',
+   /** How the project is run, versioned, and handed on. */
+   governance: 'governance',
+} as const;
+
+interface Props {
+   kind: keyof typeof PAGE_KINDS;
+   /** Omit where the page's own markdown supplies the h1. */
+   title?: string;
+}
+
+const { kind, title } = Astro.props;
+---
+
+<p class="eyebrow">{PAGE_KINDS[kind]}</p>
+{title && <h1>{title}</h1>}

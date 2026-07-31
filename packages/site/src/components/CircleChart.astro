@@ -5,9 +5,9 @@
 <div class="circle-chart">
    <svg
       class="cc-panel cc-circle"
-      viewBox="467 22 506 384"
+      viewBox="467 22 506 322"
       role="img"
-      aria-label="Leji: a circle. People and agents read one shared context layer; agents propose changes and people approve them; staleness is felt and fixed."
+      aria-label="Leji: a circle. Two groups of people and two groups of agents around one shared context layer, each connected to it by a two-way link."
    >
       <defs>
          <marker
@@ -113,10 +113,9 @@
       <circle cx="812" cy="298" r="32" class="node agent"></circle>
       <text x="812" y="303" class="node-label">Agents</text>
 
-      <text x="720" y="368" class="legend">human-to-human · human-to-AI · human-to-AI-to-human</text>
-      <text x="720" y="390" class="caption"
-         >Everyone reads; anyone proposes; people approve. Staleness is felt and fixed.</text
-      >
+      <!-- The flows and the reading of the diagram are page text, in the figure's
+           caption: SVG <text> does not reflow, wraps badly on narrow screens, and
+           is poorly extracted by answer engines. -->
    </svg>
 </div>
 
@@ -217,19 +216,6 @@
       font-family: var(--mono);
       font-size: 12.5px;
       fill: var(--white);
-      text-anchor: middle;
-   }
-   .legend {
-      font-family: var(--mono);
-      font-size: 13px;
-      font-weight: 500;
-      fill: var(--blue);
-      text-anchor: middle;
-   }
-   .caption {
-      font-family: var(--serif-text);
-      font-size: 13px;
-      fill: var(--ink-soft);
       text-anchor: middle;
    }
 </style>
