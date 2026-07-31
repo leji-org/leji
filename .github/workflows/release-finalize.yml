@@ -28,7 +28,7 @@ jobs:
       # directly into a `run:` shell (avoids command injection on the input).
       RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Validate the tag shape
         # Only a path-prefixed release tag for a known package may be finalized.
         run: |
@@ -50,11 +50,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "$RELEASE_TAG" --draft=false
-      # Enabling Discussions is a repo setting; the default GITHUB_TOKEN may lack
-      # the scope. Best-effort: if it fails, enable it once by hand in repo
-      # Settings -> General -> Features -> Discussions.
+      # Enabling Discussions is a repo setting, which needs administration:write.
+      # GITHUB_TOKEN does not carry it, so this 403s on every release once the
+      # setting is already on. continue-on-error keeps the job green, but a failed
+      # step still posts a red annotation, which reads as a broken release. Swallow
+      # the exit code so a clean release looks clean; the message says what to do
+      # if Discussions is genuinely off.
       - name: Enable Discussions (best-effort)
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh api -X PATCH "repos/${GITHUB_REPOSITORY}" -F has_discussions=true
+        run: |
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}" -F has_discussions=true \
+            || echo "note: could not toggle Discussions (needs administration:write). If it is off, enable it once in Settings -> General -> Features."
+
