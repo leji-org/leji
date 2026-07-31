@@ -1353,10 +1353,16 @@ const CONTENT_TYPES: Record<string, string> = {
  * enforces containment.
  */
 export function urlPathToRel(urlPath: string): string {
-   return path.posix
-      .normalize('/' + urlPath.replace(/\\/g, '/'))
-      .replace(/\/+$/, '')
-      .replace(/^\/+/, '');
+   const cleaned = path.posix.normalize('/' + urlPath.replaceAll('\\', '/'));
+   // Trimmed by index rather than by regex. `normalize` has already collapsed every
+   // run of separators, so an anchored `/\/+$/` could only ever match one character
+   // here, but that is an invariant of another function: a linear scan holds on its
+   // own and does not read as a polynomial regex over a request path.
+   let start = 0;
+   let end = cleaned.length;
+   while (start < end && cleaned.charCodeAt(start) === 47) start++;
+   while (end > start && cleaned.charCodeAt(end - 1) === 47) end--;
+   return cleaned.slice(start, end);
 }
 
 /**
