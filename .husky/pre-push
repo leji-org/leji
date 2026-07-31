@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
-# Pre-push guard: (1) branch-naming allowlist, then (2) TruffleHog secret scan on
-# the commits being pushed (defense in depth on top of pre-commit and CI). Reads
-# ref updates on stdin per the git pre-push contract.
+# Pre-push guard: (1) branch-naming allowlist, (2) version coherence across
+# manifests and prose, then (3) TruffleHog secret scan on the commits being pushed
+# (defense in depth on top of pre-commit and CI). Reads ref updates on stdin per
+# the git pre-push contract.
 #
 # The branch-name check is fast local feedback; the server-side ruleset on origin
 # is the authoritative gate (this hook is bypassable with --no-verify).
@@ -40,7 +41,26 @@ if [ "$_violation" -ne 0 ]; then
    exit 1
 fi
 
-# (2) TruffleHog secret scan.
+# (2) Version coherence: every manifest and every prose file naming a release
+# must agree. Checked here rather than pre-commit because it is a property of the
+# whole tree, not of one staged diff: a bump legitimately spans several commits,
+# and only the pushed state has to be coherent. A stale version in prose is
+# otherwise noticed once it is already inside a published tarball or on
+# pkg.go.dev, where it cannot be corrected in place. ~70ms; CI runs it too.
+if command -v node >/dev/null 2>&1; then
+   _root="$(git rev-parse --show-toplevel)"
+   if ! node "$_root/scripts/version.ts" --check >/dev/null 2>&1; then
+      node "$_root/scripts/version.ts" --check
+      echo ""
+      echo "✖ version drift in the commits you're pushing (see above)."
+      echo "  Fix it, or override with: git push --no-verify"
+      exit 1
+   fi
+else
+   echo "⚠ node not found — skipping local version check (CI still checks)."
+fi
+
+# (3) TruffleHog secret scan.
 if ! command -v trufflehog >/dev/null 2>&1; then
    echo "⚠ trufflehog not installed — skipping local pre-push secret scan (CI still scans)."
    exit 0

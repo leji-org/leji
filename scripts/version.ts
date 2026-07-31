@@ -129,6 +129,53 @@ function writeDepRange(d: DepTarget, next: string): boolean {
    return true;
 }
 
+// Prose that states the current release. `version.ts <x>` rewrites the machine
+// locations above; these say the version in words, so they drift silently and are
+// only noticed once a stale number is already published inside an npm tarball or
+// on pkg.go.dev. Checked, never rewritten: the sentence around the number decides
+// whether it should move at all.
+const PROSE: string[] = [
+   'README.md',
+   'CONTRIBUTING.md',
+   'RELEASING.md',
+   'docs/boot-profile.md',
+   'packages/sdk-go/README.md',
+   '.github/workflows/release-finalize.yml',
+];
+
+// Version-shaped strings that must NOT track this release. Two kinds:
+// a past event, which bumping would rewrite rather than record, and a version
+// belonging to something else entirely.
+const NOT_OURS: RegExp[] = [
+   // Spec 1.0 froze at one specific tooling release and always will have.
+   /frozen at the v?\d+\.\d+\.\d+ reference-tooling release/g,
+   /GA at the reference-tooling v?\d+\.\d+\.\d+ release/g,
+   // SHA-pinned third-party actions: the trailing comment names the action's
+   // own version, which moves on its schedule and not ours.
+   /@[0-9a-f]{40}\s*#\s*v?\d+\.\d+\.\d+/g,
+];
+
+/** Report prose files naming a version other than the released one. */
+function proseDrift(current: string): { rel: string; line: number; text: string }[] {
+   const out: { rel: string; line: number; text: string }[] = [];
+   for (const rel of PROSE) {
+      const file = abs(rel);
+      if (!fs.existsSync(file)) continue;
+      fs.readFileSync(file, 'utf8')
+         .split('\n')
+         .forEach((raw, i) => {
+            // Drop the historical clauses first, so a line carrying both a frozen-at
+            // reference and a current-version claim is judged on the claim alone.
+            let line = raw;
+            for (const skip of NOT_OURS) line = line.replace(skip, '');
+            for (const m of line.matchAll(/\d+\.\d+\.\d+/g)) {
+               if (m[0] !== current) out.push({ rel, line: i + 1, text: raw.trim().slice(0, 110) });
+            }
+         });
+   }
+   return out;
+}
+
 function checkMode(): never {
    const found = TARGETS.map((t) => ({ rel: t.rel, version: readVersion(t) }));
    const versions = new Set(found.map((f) => f.version));
@@ -144,7 +191,17 @@ function checkMode(): never {
          console.error(`\nrun \`npm run version:set ${v}\` to realign`);
          process.exit(1);
       }
-      console.log(`version coherent: ${v} (across ${found.length} locations + ${deps.length} internal dep ranges)`);
+      const stale = proseDrift(v);
+      if (stale.length > 0) {
+         console.error(`version fields agree at ${v}, but prose names another release:`);
+         for (const d of stale) console.error(` != ${d.rel}:${d.line}: ${d.text}`);
+         console.error('\nUpdate the sentence, or add a NOT_OURS pattern in scripts/version.ts');
+         console.error('if it names a past event, or a version belonging to another project.');
+         process.exit(1);
+      }
+      console.log(
+         `version coherent: ${v} (across ${found.length} locations + ${deps.length} internal dep ranges + ${PROSE.length} prose files)`,
+      );
       process.exit(0);
    }
    // Drift: report the majority version and call out every file that disagrees.

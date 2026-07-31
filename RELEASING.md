@@ -36,7 +36,7 @@ model below).
 
 Each package publishes from its **own** path-prefixed tag, and each release
 workflow triggers on **only** its own tag. Never push a plain repo-wide
-`v1.0.0`: the Go submodule will not resolve from it, and a cross-triggered
+`vX.Y.Z`: the Go submodule will not resolve from it, and a cross-triggered
 publish is irreversible.
 
 | Tag | Publishes |
