@@ -1,0 +1,14 @@
+trigger:
+  - main
+pool:
+  vmImage: ubuntu-latest
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '22.x'
+  - script: npm ci
+    displayName: install
+  - script: npx --no-install @leji-org/leji validate
+    displayName: leji validate
+  - script: npx --no-install @leji-org/leji index --check
+    displayName: leji index --check

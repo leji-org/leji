@@ -1,0 +1,19 @@
+leji freshness: Report review horizons across category documents and agent
+   profiles.
+
+Usage: leji freshness [--strict] [--root <dir>] [--json]
+
+Lists documents whose freshness.reviewAfter horizon has passed (expired) or
+falls within the next 30 days (upcoming). Report-only by default; expired
+horizons are warnings.
+
+Options:
+   --strict            Treat expired horizons as errors instead of warnings.
+
+Global options: see leji --help.
+
+Examples:
+   leji freshness
+   leji freshness --strict --json
+
+Full reference: https://leji.org/cli/

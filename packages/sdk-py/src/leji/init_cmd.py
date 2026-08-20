@@ -6,7 +6,9 @@ import datetime as dt
 import json
 import os
 import re
+import signal
 import subprocess
+import threading
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -20,10 +22,39 @@ from .detect import (
     detect_hosts,
     resolve_host_id,
 )
-from .fsx import join_under_root, resolved_within_root, strip_slash, to_posix
+from .fsx import (
+    chmod_guarded,
+    guard_root,
+    join_under_root,
+    nothing_stands_at,
+    resolved_within_root,
+    strip_slash,
+    to_posix,
+    verified_target_read,
+    write_file_atomic_guarded,
+    write_file_guarded,
+)
+from .cigen import (
+    GITLAB_MARKER_END,
+    GITLAB_MARKER_START,
+    HOOK_MARKER,
+    HUSKY_MARKER_END,
+    HUSKY_MARKER_START,
+    build_azure_pipeline,
+    build_ci_file,
+    build_circleci_snippet,
+    build_github_workflow,
+    build_gitlab_block,
+    hook_body,
+    husky_block,
+    is_leji_generated,
+    resolve_ci_job,
+)
+from .ecosystem import EcosystemReport, detect_ecosystem, runner_argv
 from .findings import Finding, has_errors
 from .gitutil import tracked_under, working_tree_clean
 from .indexgen import write_index
+from .layout import LEJI_DIR, WORK_REL, TargetVerdict
 from .manifest import (
     Manifest,
     bind_agent_in_manifest_text,
@@ -151,17 +182,24 @@ def default_layout(root_path: str) -> ScaffoldLayout:
 def _resolve_scaffold_path(
     root: str, root_path: str, name: str, alternates: list[str], is_dir: bool
 ) -> str:
-    """Pick the first candidate name (under root_path) that does not already exist
-    on disk, so ``adopt`` never writes its scaffold over a repo's existing content."""
+    """Pick the first candidate name (under root_path) that is free, so ``adopt``
+    never writes its scaffold over a repo's existing content. Occupancy is decided on
+    the standing entry rather than by ``Path.exists()``, so a dangling candidate link
+    is occupied and the next name is tried, exactly as an existing file has always
+    been."""
+
+    def free(rel: str) -> bool:
+        return nothing_stands_at(str(Path(root) / strip_slash(rel)))
+
     suffix = "/" if is_dir else ""
     for candidate in [name, *alternates]:
         rel = join_under_root(root_path, candidate + suffix)
-        if not (Path(root) / strip_slash(rel)).exists():
+        if free(rel):
             return rel
     n = 2
     while True:
         rel = join_under_root(root_path, f"{name}-{n}{suffix}")
-        if not (Path(root) / strip_slash(rel)).exists():
+        if free(rel):
             return rel
         n += 1
 
@@ -341,62 +379,114 @@ def _assert_no_symlink_escape(root: Path, abs_path: Path, rel: str) -> None:
         raise InitPathError(f'refusing to write through a symlink that escapes the target: "{rel}"')
 
 
-def _write_manifest_exclusive(abs_path: Path, content: str, mode: str) -> None:
-    """Create leji.json with O_EXCL ("x") so the existence check and write are atomic:
-    a concurrent run, or a symlink planted between check and write, cannot be overwritten
-    or followed. FileExistsError surfaces as the same "already exists" error as the guard."""
-    try:
-        with open(abs_path, "x", encoding="utf-8") as f:
-            f.write(content)
-    except FileExistsError as e:
-        if mode == "adopt":
-            raise RuntimeError(
-                "leji.json already exists here; this repository already has a Leji layer"
-            ) from e
+def _init_role(rel: str) -> Optional[str]:
+    """The ``.leji/`` role an init or adopt write legitimately lands in: the transient
+    onboarding workspace is the tool's own ``work`` role, and everything else these
+    commands write is user content with no ``.leji/`` role at all."""
+    return WORK_REL if rel == WORK_REL or rel.startswith(f"{WORK_REL}/") else None
+
+
+def _guarded_or_refuse(rel: str, verdict: TargetVerdict) -> None:
+    """Every init/adopt write goes through the chokepoint, and a refused verdict is the
+    one error this command has always raised for an escaping target: the layer is
+    scaffolded inside the repository it was pointed at, or not at all."""
+    if not verdict.ok:
+        raise InitPathError(f'refusing to write through a symlink that escapes the target: "{rel}"')
+
+
+def _verified_vendor_files(root: Path) -> dict[str, str]:
+    """The present vendor entrypoints and their VERIFIED bytes, read once. The same
+    bytes decide whether an entrypoint is converted, are archived under
+    ``governance/``, and are compared for the draft report, so no act rests on a second
+    read by pathname of a file this command then rewrites. An entry that cannot be
+    verified as a regular file inside the repository is treated as absent, exactly as
+    an escaping symlink already was."""
+    root_real = guard_root(str(root))
+    present: dict[str, str] = {}
+    for rel in KNOWN_VENDOR_FILES:
+        read = verified_target_read(root_real, str(root / rel), None)
+        if read.status == "regular":
+            present[rel] = read.text()
+    return present
+
+
+def _read_merge_source(root_real: str, abs_path: Path, rel: str) -> Optional[str]:
+    """Read a file this command is about to merge and rewrite, through the verified
+    read rather than by pathname: the bytes that decide the merge come from the
+    descriptor the rule cleared, so the file that was judged is the file that is read
+    and then written. None when nothing stands there (the create path); a standing
+    entry that cannot be verified as a regular file inside the repository is the same
+    refusal a write to it would be."""
+    read = verified_target_read(root_real, str(abs_path), _init_role(rel))
+    if read.status == "refused":
+        raise InitPathError(f'refusing to write through a symlink that escapes the target: "{rel}"')
+    return read.text() if read.status == "regular" else None
+
+
+def _write_manifest_exclusive(root_abs: Path, abs_path: Path, content: str, mode: str) -> None:
+    """Create leji.json with O_EXCL so the existence check and write are atomic: a
+    concurrent run, or a symlink planted between check and write, cannot be overwritten
+    or followed. The ``exists`` verdict surfaces as the same "already exists" error the
+    entry point's initial guard raises."""
+    verdict = write_file_guarded(
+        guard_root(str(root_abs)), str(abs_path), None, content, exclusive=True
+    )
+    if verdict.exists:
         raise RuntimeError(
-            "leji.json already exists here; init refuses to overwrite an existing layer"
-        ) from e
+            "leji.json already exists here; this repository already has a Leji layer"
+            if mode == "adopt"
+            else "leji.json already exists here; init refuses to overwrite an existing layer"
+        )
+    _guarded_or_refuse("leji.json", verdict)
 
 
 def _ensure_leji_gitignored(root_abs: Path) -> None:
-    """Ensure the repository-root .gitignore ignores `.leji/` (generated viewer and
-    transient onboarding brief; neither belongs in version control). Idempotent: creates
-    the file if absent, appends the line only when not already present. Matches the line
-    exactly, so a comment or `docs/.leji/` is not treated as equivalent."""
+    """Ensure the repository-root .gitignore ignores `.leji/` — the one line that
+    covers every role of the unified tree (chrome, export output, onboarding
+    workspace, mounts) and any role added later. Idempotent: creates the file if
+    absent, appends the line only when not already present. Matches the line exactly,
+    so a comment or `docs/.leji/` is not treated as equivalent."""
     abs_path = root_abs / ".gitignore"
-    entry = ".leji/"
-    text = abs_path.read_text(encoding="utf-8") if abs_path.is_file() else ""
+    entry = f"{LEJI_DIR}/"
+    root_real = guard_root(str(root_abs))
+    text = _read_merge_source(root_real, abs_path, ".gitignore") or ""
     if entry in text.split("\n"):
         return
-    if text == "":
-        abs_path.write_text(entry + "\n", encoding="utf-8")
-    else:
-        abs_path.write_text(
-            text + ("" if text.endswith("\n") else "\n") + entry + "\n", encoding="utf-8"
-        )
+    nxt = (
+        entry + "\n" if text == "" else text + ("" if text.endswith("\n") else "\n") + entry + "\n"
+    )
+    _guarded_or_refuse(".gitignore", write_file_guarded(root_real, str(abs_path), None, nxt))
 
 
-def _assert_leji_workspace_private(root: str, root_path: str) -> None:
-    """Refuse to write the transient onboarding workspace while any file under
-    ``<rootPath>/.leji/`` is tracked by git: tracked means the ignore boundary is
-    not intact, and private artifacts could land in history. The fix is the
-    owner's call (git rm --cached), never run silently."""
-    leji_dir = join_under_root(root_path, ".leji/")
-    tracked = tracked_under(root, strip_slash(leji_dir))
+def _assert_leji_workspace_private(root: str) -> None:
+    """Refuse to write the transient onboarding workspace while any file under the
+    root ``.leji/`` is tracked by git: tracked means the ignore boundary is not
+    intact, and private artifacts could land in history. The fix is the owner's call
+    (git rm --cached), never run silently."""
+    tracked = tracked_under(root, LEJI_DIR)
     if tracked:
         raise RuntimeError(
-            f"{len(tracked)} file(s) under {leji_dir} are tracked by git; "
+            f"{len(tracked)} file(s) under {LEJI_DIR}/ are tracked by git; "
             "untrack them (git rm --cached) so onboarding artifacts stay private"
         )
 
 
 def _write_file_once(root: Path, rel: str, content: str, written: list[str]) -> None:
+    """Write a file this command owns, once: never over an existing one, and never
+    through a standing entry it cannot verify. The skip is decided by the verified read
+    rather than a pathname check, because ``Path.exists()`` follows symlinks — a
+    dangling link at the target reads as absent and the guarded write then lands at the
+    link's destination, a name this command never planned. Only ``absent`` is free; a
+    regular file is the never-overwrite skip; anything else standing there is the
+    escape refusal, with nothing written."""
     abs_path = _safe_target(root, rel, "write path")
-    _assert_no_symlink_escape(root, abs_path, rel)
-    if abs_path.exists():
+    root_real = guard_root(str(root))
+    standing = verified_target_read(root_real, str(abs_path), _init_role(rel))
+    if standing.status == "regular":
         return
-    abs_path.parent.mkdir(parents=True, exist_ok=True)
-    abs_path.write_text(content, encoding="utf-8")
+    if standing.status == "refused":
+        raise InitPathError(f'refusing to write through a symlink that escapes the target: "{rel}"')
+    _guarded_or_refuse(rel, write_file_guarded(root_real, str(abs_path), _init_role(rel), content))
     written.append(rel)
 
 
@@ -515,6 +605,9 @@ def _build_boot_profile(answers: InitAnswers) -> str:
 def _build_core_profile(answers: InitAnswers) -> str:
     text = _read_template("agents/core.md")
     text = text.replace("docs/", join_under_root(answers.root_path, ""))
+    # The escalation line names a person, so the scaffold fills it: a profile that
+    # shipped `<ownerName>` would be the placeholder the lint exists to catch.
+    text = text.replace("<ownerName>", answers.owner_name)
     if "governance" not in answers.categories:
         text = re.sub(
             r"^ {2}- .*governance/\n",
@@ -545,7 +638,7 @@ deciders:
 
 ## Context
 
-Engineering knowledge lived in heads, chat threads, and per-tool config files. People and agents had no single place to read how this team thinks.
+This repository takes a shared, versioned context layer: one record of how it works, kept in the repository and read by people and agents alike.
 
 ## Decision
 
@@ -553,7 +646,7 @@ Adopt Leji at the `{answers.level}` level: {indexed_line}.
 
 ## Consequences
 
-Vendor config files become one-line redirects. Context fixes ride the same review gate as the work that surfaces them. {answers.owner_name} owns the layer.
+Context changes ride the same review gate as the work that surfaces them, and {answers.owner_name} owns the layer. Agent entrypoints point at the context layer rather than carrying their own copy: the portable `AGENTS.md` pointer where the scaffold writes one, and vendor entrypoints only where `leji adopt --wire-adapters` converts them with your consent.
 """
 
 
@@ -578,9 +671,10 @@ def _build_changelog(answers: InitAnswers, written: list[str]) -> str:
 
 def _build_brief(answers: InitAnswers) -> str:
     """The transient onboarding brief, rewritten for the chosen root
-    (join_under_root('.', '') is '', so a "." root yields `.leji/...` and
-    `context/...`, never `..leji/` or `.context/`) and stamped with the
-    working mode so the agent runs the right interview without re-asking."""
+    (join_under_root('.', '') is '', so a "." root yields `context/...`, never
+    `.context/`) and stamped with the working mode so the agent runs the right
+    interview without re-asking. The workspace paths it names are root-relative
+    already and need no rewriting."""
     return (
         _read_template("onboarding-brief.md")
         .replace("<root>/", join_under_root(answers.root_path, ""))
@@ -588,10 +682,10 @@ def _build_brief(answers: InitAnswers) -> str:
     )
 
 
-def brief_path(root_path: str) -> str:
-    """Path of the transient onboarding brief, under a dot-directory so it is
-    excluded from the index, the viewer, and the changelog."""
-    return join_under_root(root_path, ".leji/onboarding-brief.md")
+#: Path of the transient onboarding brief: the workspace role of the unified root
+#: ``.leji/``, under a dot-directory so it is excluded from the index, the viewer,
+#: and the changelog. Root-relative whatever rootPath is.
+BRIEF_PATH = f"{WORK_REL}/onboarding-brief.md"
 
 
 #: The CI workflow paths, relative to the repository root.
@@ -632,43 +726,11 @@ class HookResult:
     reason: Optional[str] = None
 
 
-_HOOK_MARKER = "# leji pre-commit (managed)"
-# The failure message is single-quoted for the SHELL: the backticks around
-# `leji index` are literal text, and inside a double-quoted echo sh would run them
-# as a command substitution (regenerating the index the hook just refused a commit
-# over). Never emit an unquoted backtick, "$(", or "$VAR" into generated shell
-# unless expansion is the intent.
-_HOOK_BODY = (
-    "#!/bin/sh\n"
-    f"{_HOOK_MARKER}\n"
-    "# Validate the context layer and refuse a commit that would leave the stored\n"
-    "# index stale. Local mirror of the CI gate, preferring a repo-local install;\n"
-    "# delete this file to opt out.\n"
-    'LEJI="leji"\n'
-    '[ -x "node_modules/.bin/leji" ] && LEJI="node_modules/.bin/leji"\n'
-    '"$LEJI" validate || exit 1\n'
-    '"$LEJI" index --check || {\n'
-    "   echo 'leji: stored index is stale; run `leji index` and stage the result.' >&2\n"
-    "   exit 1\n"
-    "}\n"
-)
-
-_HUSKY_MARKER_START = "# >>> leji hooks (managed) >>>"
-_HUSKY_MARKER_END = "# <<< leji hooks (managed) <<<"
-# The same two gates _HOOK_BODY runs (preferring a repo-local install), wrapped in
-# markers so the block can be merged into a husky repo's hand-authored
-# .husky/pre-commit without touching its rest.
-_HUSKY_BLOCK = (
-    f"{_HUSKY_MARKER_START}\n"
-    'LEJI="leji"\n'
-    '[ -x "node_modules/.bin/leji" ] && LEJI="node_modules/.bin/leji"\n'
-    '"$LEJI" validate || exit 1\n'
-    '"$LEJI" index --check || {\n'
-    "   echo 'leji: stored index is stale; run `leji index` and stage the result.' >&2\n"
-    "   exit 1\n"
-    "}\n"
-    f"{_HUSKY_MARKER_END}\n"
-)
+# The hook body, the husky block and their markers live in the shared generator
+# module, so the CI job and the hook transcribe one table.
+_HOOK_MARKER = HOOK_MARKER
+_HUSKY_MARKER_START = HUSKY_MARKER_START
+_HUSKY_MARKER_END = HUSKY_MARKER_END
 
 
 def _hooks_path_config(root: str) -> Optional[str]:
@@ -731,7 +793,123 @@ def _husky_shape(root_abs: Path, hooks_path: Optional[str]) -> Optional[str]:
     return None
 
 
-def ensure_local_hook(root: str) -> HookResult:
+def _git_dirs(root_abs: Path) -> Optional[tuple[Path, Path]]:
+    """Git's own directories for the repo at ``root_abs``, resolved absolute: this
+    working tree's git dir and the common dir it shares with every linked worktree.
+    Both are read-only queries, and together they are what decides whether a hook
+    target is clone-local (personal) rather than committed (shared). ``None`` when
+    this is not a git repository."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root_abs), "rev-parse", "--git-dir", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    lines = [line.strip() for line in out.split("\n") if line.strip()]
+    if len(lines) < 2:
+        return None
+
+    def absolute(value: str) -> Path:
+        p = Path(value)
+        if not p.is_absolute():
+            p = root_abs / p
+        return Path(os.path.normpath(str(p)))
+
+    return absolute(lines[0]), absolute(lines[1])
+
+
+@dataclass
+class HookReport:
+    """The read-only answer `leji start` reports and :func:`ensure_local_hook` would
+    act on.
+
+    ``ownership`` says who owns the pre-commit hook this repository would get, decided
+    by where the write would actually land rather than by the mechanism that would
+    perform it: "personal" under git's own directories AND inside this working tree
+    (``.git/hooks``, a ``core.hooksPath`` resolving inside them) — per clone, never
+    committed, and safe to write; "shared" inside the working tree but not under git's
+    directories (husky, a ``githooks/`` hooks path) — committed, so a maintainer's call;
+    "outside-root" under git's directories but OUTSIDE this working tree (a linked
+    worktree, whose hooks live in the common git directory) — per clone, but the writer
+    refuses to write outside the repository root, so it is reported; "external" anywhere
+    else (a global or ``$HOME`` hooks path, a symlink escaping the repository) —
+    reported, never written; "no-git" when there is no repository to hang a hook on. ``state`` is what stands at that
+    target: leji's own managed hook or block ("current"), nothing ("absent"), or a
+    hook this tool did not write ("foreign")."""
+
+    ownership: str
+    state: str
+    # The target, repository-relative when it lies inside the repository, else the
+    # absolute path git resolved; empty when there is no repository.
+    path: str
+    managed: str  # "file" | "block"
+    # What a person adds by hand where leji must not write.
+    snippet: str
+
+
+def _hook_text(abs_path: Path) -> Optional[str]:
+    """The hook file's text, or None when nothing readable stands there. Read-only:
+    this answers a question, and every write still goes through
+    :func:`ensure_local_hook`."""
+    try:
+        if not abs_path.is_file():
+            return None
+        return abs_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def hook_status(root: str, runner: Optional[list[str]] = None) -> HookReport:
+    """:func:`ensure_local_hook`'s resolve step, without the write: where the managed
+    pre-commit hook would go for this repository, who owns that location, and what
+    stands there now. The whole point is that a report can be produced without touching
+    anything — `leji start` prints it, and only a consented repair goes on to
+    :func:`ensure_local_hook`."""
+    root_abs = Path(root).resolve()
+    argv = runner if runner is not None else runner_argv(detect_ecosystem(str(root_abs)))
+    hooks_dir = _git_hooks_dir(root_abs)
+    dirs = _git_dirs(root_abs)
+    if hooks_dir is None or dirs is None:
+        return HookReport(
+            ownership="no-git", state="absent", path="", managed="file", snippet=hook_body(argv)
+        )
+    git_dir, common_dir = dirs
+    shape = _husky_shape(root_abs, _hooks_path_config(str(root_abs)))
+    target = hooks_dir.parent / "pre-commit" if shape == "underscore" else hooks_dir / "pre-commit"
+    managed = "block" if shape else "file"
+    snippet = husky_block(argv) if shape else hook_body(argv)
+    marker = HUSKY_MARKER_START if shape else HOOK_MARKER
+    # Git's directories are tested FIRST: an ordinary .git/hooks also lies inside the
+    # working tree, and it is per-clone state, not something a commit can carry. A
+    # clone-local target that nonetheless falls outside this working tree (a linked
+    # worktree's shared hooks directory) is reported rather than offered: the writer
+    # refuses everything outside the repository root, so offering it would promise a
+    # write that cannot happen.
+    in_repo = resolved_within_root(str(root_abs), target)
+    clone_local = resolved_within_root(str(git_dir), target) or resolved_within_root(
+        str(common_dir), target
+    )
+    if clone_local:
+        ownership = "personal" if in_repo else "outside-root"
+    elif in_repo:
+        ownership = "shared"
+    else:
+        ownership = "external"
+    existing = _hook_text(target)
+    if existing is None:
+        state = "absent"
+    else:
+        state = "current" if marker in existing else "foreign"
+    shown = str(PurePosixPath(target.relative_to(root_abs))) if in_repo else to_posix(str(target))
+    return HookReport(
+        ownership=ownership, state=state, path=shown, managed=managed, snippet=snippet
+    )
+
+
+def ensure_local_hook(root: str, runner: Optional[list[str]] = None) -> HookResult:
     """Write a managed pre-commit hook running the same checks CI runs, so drift is
     caught before a commit instead of at the pipeline. The write location is git's
     effective hooks dir (``rev-parse --git-path hooks``); core.hooksPath decides
@@ -743,6 +921,10 @@ def ensure_local_hook(root: str) -> HookResult:
     hooks_dir = _git_hooks_dir(root_abs)
     if hooks_dir is None:
         raise RuntimeError("not a git repository (no .git directory); hooks need one")
+    # The hook runs what a clean install of THIS repository provides: the detected
+    # manager's runner when the CLI is actually declared, else the plain binary on
+    # PATH. Injectable so a test pins a runner without planting a manifest.
+    argv = runner if runner is not None else runner_argv(detect_ecosystem(str(root_abs)))
     shape = _husky_shape(root_abs, _hooks_path_config(str(root_abs)))
     # Husky's user-editable hook is .husky/pre-commit: the hooks dir itself for v8
     # (.husky), its parent for v9 (.husky/_). Only a direct v8 hook is run by git
@@ -756,35 +938,63 @@ def ensure_local_hook(root: str) -> HookResult:
         return HookResult(
             path=to_posix(str(target)),
             action="manual",
-            snippet=_HUSKY_BLOCK if shape else _HOOK_BODY,
+            snippet=husky_block(argv) if shape else hook_body(argv),
             managed="block" if shape else "file",
             reason="outside-root",
         )
     rel = str(PurePosixPath(target.relative_to(root_abs)))
+
+    # The hook is written through the chokepoint, judged on the resolved path at the
+    # act; a target that stopped resolving inside the repository between the check
+    # above and the write comes back as the same hand-add result that check returns.
+    def manual(managed: str) -> HookResult:
+        return HookResult(
+            path=to_posix(str(target)),
+            action="manual",
+            snippet=husky_block(argv) if managed == "block" else hook_body(argv),
+            managed=managed,
+            reason="outside-root",
+        )
+
+    guard_root_abs = guard_root(str(root_abs))
     if shape:
-        return _ensure_husky_block(target, rel, shape == "direct")
-    return _ensure_hook_file(target, rel)
+        return _ensure_husky_block(guard_root_abs, target, rel, shape == "direct", manual, argv)
+    return _ensure_hook_file(guard_root_abs, target, rel, manual, argv)
 
 
-def _ensure_hook_file(hook_abs: Path, rel: str) -> HookResult:
+def _ensure_hook_file(
+    root_abs: str,
+    hook_abs: Path,
+    rel: str,
+    manual: Callable[[str], HookResult],
+    runner: list[str],
+) -> HookResult:
     """Write/refresh the standalone managed pre-commit hook at ``hook_abs``. Ours
     (marker present) is created/updated; an existing unmanaged hook is never touched
     and its replacement snippet comes back for a manual merge. A standalone hook is
     run by git itself, so a byte-current but non-executable managed hook is a mode-only
-    correction reported ``updated``."""
-    existing = hook_abs.read_text(encoding="utf-8") if hook_abs.is_file() else None
+    correction reported ``updated``.
+
+    The hook's own bytes decide whether it is ours to rewrite, so they come from the
+    verified read: an entry standing at the hook path that cannot be verified as a
+    regular file inside the repository is reported for a hand-add, never merged."""
+    body = hook_body(runner)
+    hook_read = verified_target_read(root_abs, str(hook_abs), None)
+    if hook_read.status == "refused":
+        return manual("file")
+    existing = hook_read.text() if hook_read.status == "regular" else None
     if existing is not None and _HOOK_MARKER not in existing:
         return HookResult(
-            path=rel, action="manual", snippet=_HOOK_BODY, managed="file", reason="foreign-hook"
+            path=rel, action="manual", snippet=body, managed="file", reason="foreign-hook"
         )
-    if existing == _HOOK_BODY:
+    if existing == body:
         if not _is_executable(hook_abs):
-            os.chmod(hook_abs, 0o755)
+            if not chmod_guarded(root_abs, str(hook_abs), None, 0o755).ok:
+                return manual("file")
             return HookResult(path=rel, action="updated", managed="file")
         return HookResult(path=rel, action="unchanged", managed="file")
-    hook_abs.parent.mkdir(parents=True, exist_ok=True)
-    hook_abs.write_text(_HOOK_BODY, encoding="utf-8")
-    os.chmod(hook_abs, 0o755)
+    if not write_file_guarded(root_abs, str(hook_abs), None, body, mode=0o755).ok:
+        return manual("file")
     return HookResult(path=rel, action="created" if existing is None else "updated", managed="file")
 
 
@@ -796,28 +1006,45 @@ def _is_executable(abs_path: Path) -> bool:
         return False
 
 
-def _ensure_husky_block(hook_abs: Path, rel: str, require_exec: bool) -> HookResult:
+def _ensure_husky_block(
+    root_abs: str,
+    hook_abs: Path,
+    rel: str,
+    require_exec: bool,
+    manual: Callable[[str], HookResult],
+    runner: list[str],
+) -> HookResult:
     """Merge the managed block into a husky hook file at ``hook_abs``, following the
     GitLab managed-block rules: replace an existing block in place (unchanged if
     byte-identical), append it after one blank line to a file without it, or create
     the file as ``#!/bin/sh`` + block (mode 0755) when absent. The rest of a
     user-authored husky hook is left untouched. ``require_exec`` (a direct ``.husky``
     hook git runs itself) forces mode 0755: a byte-current but non-executable file is
-    a mode-only correction reported ``updated``."""
-    if not hook_abs.is_file():
-        hook_abs.parent.mkdir(parents=True, exist_ok=True)
-        hook_abs.write_text("#!/bin/sh\n" + _HUSKY_BLOCK, encoding="utf-8")
-        os.chmod(hook_abs, 0o755)
+    a mode-only correction reported ``updated``.
+
+    The user's own hook is merged, so its bytes come from the verified read: what the
+    merge judged is what the rewrite is based on."""
+    block = husky_block(runner)
+    hook_read = verified_target_read(root_abs, str(hook_abs), None)
+    if hook_read.status == "refused":
+        return manual("block")
+    existing = hook_read.text() if hook_read.status == "regular" else None
+    if existing is None:
+        if not write_file_guarded(
+            root_abs, str(hook_abs), None, "#!/bin/sh\n" + block, mode=0o755
+        ).ok:
+            return manual("block")
         return HookResult(path=rel, action="created", managed="block")
-    existing = hook_abs.read_text(encoding="utf-8")
-    merged = _merge_managed_block(existing, _HUSKY_BLOCK, _HUSKY_MARKER_START, _HUSKY_MARKER_END)
+    merged = _merge_managed_block(existing, block, _HUSKY_MARKER_START, _HUSKY_MARKER_END)
     if merged != existing:
-        hook_abs.write_text(merged, encoding="utf-8")
-        if require_exec:
-            os.chmod(hook_abs, 0o755)
+        if not write_file_guarded(root_abs, str(hook_abs), None, merged).ok:
+            return manual("block")
+        if require_exec and not chmod_guarded(root_abs, str(hook_abs), None, 0o755).ok:
+            return manual("block")
         return HookResult(path=rel, action="updated", managed="block")
     if require_exec and not _is_executable(hook_abs):
-        os.chmod(hook_abs, 0o755)
+        if not chmod_guarded(root_abs, str(hook_abs), None, 0o755).ok:
+            return manual("block")
         return HookResult(path=rel, action="updated", managed="block")
     return HookResult(path=rel, action="unchanged", managed="block")
 
@@ -865,134 +1092,6 @@ class CiResult:
 # layer stays valid, and a breaking major never reaches adopter CI without a bump.
 
 
-def build_github_workflow(local: bool = False) -> str:
-    """The GitHub Actions workflow: a standalone file under .github/workflows/."""
-    run = (
-        "      - run: npm ci\n"
-        "      - run: npx --no-install @leji-org/leji validate\n"
-        "      - run: npx --no-install @leji-org/leji index --check\n"
-        if local
-        else "      - run: npx -y @leji-org/leji@1 validate\n"
-        "      - run: npx -y @leji-org/leji@1 index --check\n"
-    )
-    return (
-        "name: leji\n"
-        "on: [push, pull_request]\n"
-        "jobs:\n"
-        "  validate:\n"
-        "    runs-on: ubuntu-latest\n"
-        "    steps:\n"
-        "      - uses: actions/checkout@v4\n"
-        "      - uses: actions/setup-node@v4\n"
-        "        with:\n"
-        "          node-version: '22'\n"
-        f"{run}"
-    )
-
-
-def build_gitlab_block(local: bool = False) -> str:
-    """The GitLab CI marker-delimited job merged into the shared .gitlab-ci.yml."""
-    script = (
-        "    - npm ci\n"
-        "    - npx --no-install @leji-org/leji validate\n"
-        "    - npx --no-install @leji-org/leji index --check\n"
-        if local
-        else "    - npx -y @leji-org/leji@1 validate\n    - npx -y @leji-org/leji@1 index --check\n"
-    )
-    return (
-        f"{_GITLAB_MARKER_START}\n"
-        "leji-validate:\n"
-        # `.pre` is always available. Without an explicit stage GitLab assigns
-        # `test`, and a pipeline whose own `stages:` omits it rejects the config.
-        "  stage: .pre\n"
-        "  image: node:22\n"
-        "  script:\n"
-        f"{script}"
-        f"{_GITLAB_MARKER_END}\n"
-    )
-
-
-def _circleci_steps(local: bool) -> str:
-    """The CircleCI job steps shared by the config and the hand-add snippet."""
-    if local:
-        return (
-            "      - checkout\n"
-            "      - run: npm ci\n"
-            "      - run: npx --no-install @leji-org/leji validate\n"
-            "      - run: npx --no-install @leji-org/leji index --check\n"
-        )
-    return (
-        "      - checkout\n"
-        "      - run: npx -y @leji-org/leji@1 validate\n"
-        "      - run: npx -y @leji-org/leji@1 index --check\n"
-    )
-
-
-def build_circleci_config(local: bool = False) -> str:
-    """The CircleCI config written when .circleci/config.yml is absent."""
-    return (
-        "version: 2.1\n"
-        "jobs:\n"
-        "  leji-validate:\n"
-        "    docker:\n"
-        "      - image: node:22\n"
-        "    steps:\n"
-        f"{_circleci_steps(local)}"
-        "workflows:\n"
-        "  leji:\n"
-        "    jobs:\n"
-        "      - leji-validate\n"
-    )
-
-
-def build_circleci_snippet(local: bool = False) -> str:
-    """The jobs + workflows fragment to add by hand to an existing CircleCI config."""
-    return (
-        "jobs:\n"
-        "  leji-validate:\n"
-        "    docker:\n"
-        "      - image: node:22\n"
-        "    steps:\n"
-        f"{_circleci_steps(local)}"
-        "workflows:\n"
-        "  leji:\n"
-        "    jobs:\n"
-        "      - leji-validate\n"
-    )
-
-
-def build_azure_pipeline(local: bool = False) -> str:
-    """The Azure Pipelines config: a dedicated .azure-pipelines/leji.yml the user wires to a pipeline."""
-    steps = (
-        (
-            "  - script: npm ci\n"
-            "    displayName: install\n"
-            "  - script: npx --no-install @leji-org/leji validate\n"
-            "    displayName: leji validate\n"
-            "  - script: npx --no-install @leji-org/leji index --check\n"
-            "    displayName: leji index --check\n"
-        )
-        if local
-        else (
-            "  - script: npx -y @leji-org/leji@1 validate\n"
-            "    displayName: leji validate\n"
-            "  - script: npx -y @leji-org/leji@1 index --check\n"
-            "    displayName: leji index --check\n"
-        )
-    )
-    return (
-        "trigger:\n"
-        "  - main\n"
-        "pool:\n"
-        "  vmImage: ubuntu-latest\n"
-        "steps:\n"
-        "  - task: NodeTool@0\n"
-        "    inputs:\n"
-        "      versionSpec: '22.x'\n"
-        f"{steps}"
-    )
-
-
 def _managed_block_span(text: str, start_marker: str, end_marker: str) -> tuple[int, int] | None:
     """The ``[start, end)`` span of the first managed block in ``text``, or ``None`` if none."""
     start = text.find(start_marker)
@@ -1036,7 +1135,7 @@ def _merge_managed_block(text: str, block: str, start_marker: str, end_marker: s
 
 def _merge_gitlab_block(text: str, block: str) -> str:
     """Insert/replace the managed block in an existing ``.gitlab-ci.yml``, byte-exactly."""
-    return _merge_managed_block(text, block, _GITLAB_MARKER_START, _GITLAB_MARKER_END)
+    return _merge_managed_block(text, block, GITLAB_MARKER_START, GITLAB_MARKER_END)
 
 
 def _write_failure_message(rel: str, e: OSError) -> str:
@@ -1048,93 +1147,89 @@ def _write_failure_message(rel: str, e: OSError) -> str:
 
 
 def _write_file_atomic(root_abs: Path, abs_path: Path, rel: str, contents: str) -> None:
-    """Write ``contents`` to ``abs_path`` atomically (sibling temp file then rename), so a
-    failed write never leaves a partial file. On failure the temp file is removed and a
-    deterministic, OS-text-free InitPathError is raised (byte-identical across SDKs)."""
-    tmp = abs_path.with_name(abs_path.name + ".leji-tmp")
-    # The sibling temp path must not escape the root either (a planted
-    # ``<target>.leji-tmp`` symlink would otherwise be written through before the rename).
-    _assert_no_symlink_escape(root_abs, tmp, rel)
+    """Write ``contents`` to ``abs_path`` atomically (sibling temp file then rename,
+    both ends judged by the write chokepoint), so a failed write never leaves a partial
+    file. On failure the temp file is removed and a deterministic, OS-text-free
+    InitPathError is raised (byte-identical across SDKs)."""
     try:
-        abs_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(contents, encoding="utf-8")
-        _maybe_inject_write_failure()
-        tmp.replace(abs_path)
+        verdict = write_file_atomic_guarded(
+            guard_root(str(root_abs)), str(abs_path), _init_role(rel), contents
+        )
     except OSError as e:
-        tmp.unlink(missing_ok=True)
         raise InitPathError(_write_failure_message(rel, e)) from e
-
-
-def _maybe_inject_write_failure() -> None:
-    """Test-only fault injection: when LEJI_TEST_FAIL_RENAME is set, fail after the temp
-    file exists but before the rename commits, to exercise the cleanup/error path."""
-    if os.environ.get("LEJI_TEST_FAIL_RENAME"):
-        raise OSError("injected write failure")
+    _guarded_or_refuse(rel, verdict)
 
 
 # Legacy aliases retained for any external callers of the original single-provider API.
 build_ci_workflow = build_github_workflow
 
 
-def ensure_ci_workflow(root: str, provider: str) -> CiResult:
-    """Add a CI workflow that runs ``leji validate`` (the ``leji ci`` command). GitHub
-    gets its own workflow file; GitLab is create-or-merge into ``.gitlab-ci.yml`` via a
-    marker-delimited managed block; CircleCI is created if absent, else a manual snippet
-    is returned. Deterministic text (byte-identical across SDKs). Refuses a symlink that
-    escapes root."""
+def ensure_ci_workflow(
+    root: str, provider: str, report: Optional[EcosystemReport] = None
+) -> CiResult:
+    """Add a CI workflow running ``leji validate`` (the ``leji ci`` command), with the
+    job the repository's own package manager needs. GitHub, CircleCI and Azure own
+    whole files: created when absent, REPLACED when the file standing there is one leji
+    generated (this release or an earlier one), and left untouched with a hand-add
+    snippet when it is foreign or was edited. GitLab owns a marker-delimited block
+    inside the shared ``.gitlab-ci.yml`` and merges it. Deterministic text
+    (byte-identical across SDKs). Refuses a symlink that escapes root."""
     root_abs = Path(root).resolve()
-    # Local-first: a repo that declares @leji-org/leji runs its lockfile-pinned
-    # install; a repo without one falls back to `npx @leji-org/leji@1`.
-    local = _declares_leji_dep(root_abs) and _has_npm_lockfile(root_abs)
+    # Local-first: a repository that DECLARES the CLI and carries its manager's lock
+    # evidence installs its own locked dependencies and runs the local binary; every
+    # other state takes the fallback that needs no manifest.
+    detected = report if report is not None else detect_ecosystem(str(root_abs))
+    job = resolve_ci_job(detected, provider)
+    # Every arm decides what stands at its target through the verified read, never
+    # through a pathname check: ``Path.exists()`` follows symlinks, so a dangling link
+    # at the workflow path reads as absent and the create lands at the link's
+    # destination. None is the create path; a verified regular file is judged by its
+    # bytes; a standing entry that cannot be verified is the same refusal a write to it
+    # would be.
+    root_real = guard_root(str(root_abs))
+
+    def whole_file(rel: str, snippet: str, note: Optional[str] = None) -> CiResult:
+        """Create, replace what we own, or hand back a snippet."""
+        abs_path = root_abs / rel
+        _assert_no_symlink_escape(root_abs, abs_path, rel)
+        content = build_ci_file(provider, job)
+        existing = _read_merge_source(root_real, abs_path, rel)
+        if existing is None:
+            _write_file_atomic(root_abs, abs_path, rel, content)
+            return CiResult(provider=provider, path=rel, action="created", note=note)
+        if existing == content:
+            return CiResult(provider=provider, path=rel, action="unchanged")
+        if not is_leji_generated(provider, existing):
+            return CiResult(provider=provider, path=rel, action="manual", snippet=snippet)
+        _write_file_atomic(root_abs, abs_path, rel, content)
+        return CiResult(provider=provider, path=rel, action="updated")
+
     if provider == "github":
-        abs_path = root_abs / CI_WORKFLOW_PATH
-        _assert_no_symlink_escape(root_abs, abs_path, CI_WORKFLOW_PATH)
-        if abs_path.exists():
-            return CiResult(provider=provider, path=CI_WORKFLOW_PATH, action="unchanged")
-        _write_file_atomic(root_abs, abs_path, CI_WORKFLOW_PATH, build_github_workflow(local))
-        return CiResult(provider=provider, path=CI_WORKFLOW_PATH, action="created")
+        return whole_file(CI_WORKFLOW_PATH, build_github_workflow(job))
     if provider == "gitlab":
         abs_path = root_abs / GITLAB_CI_PATH
         _assert_no_symlink_escape(root_abs, abs_path, GITLAB_CI_PATH)
-        block = build_gitlab_block(local)
-        if not abs_path.exists():
+        block = build_gitlab_block(job)
+        # The merge is a read-then-write of one target, so the bytes come from the
+        # verified read: the file the rule judged is the file that is read and then
+        # rewritten.
+        text = _read_merge_source(root_real, abs_path, GITLAB_CI_PATH)
+        if text is None:
             _write_file_atomic(root_abs, abs_path, GITLAB_CI_PATH, block)
             return CiResult(provider=provider, path=GITLAB_CI_PATH, action="created")
-        text = abs_path.read_text(encoding="utf-8")
         merged = _merge_gitlab_block(text, block)
         if merged == text:
             return CiResult(provider=provider, path=GITLAB_CI_PATH, action="unchanged")
         _write_file_atomic(root_abs, abs_path, GITLAB_CI_PATH, merged)
         return CiResult(provider=provider, path=GITLAB_CI_PATH, action="updated")
     if provider == "circleci":
-        abs_path = root_abs / CIRCLECI_CONFIG_PATH
-        _assert_no_symlink_escape(root_abs, abs_path, CIRCLECI_CONFIG_PATH)
-        if abs_path.exists():
-            return CiResult(
-                provider=provider,
-                path=CIRCLECI_CONFIG_PATH,
-                action="manual",
-                snippet=build_circleci_snippet(local),
-            )
-        _write_file_atomic(root_abs, abs_path, CIRCLECI_CONFIG_PATH, build_circleci_config(local))
-        return CiResult(provider=provider, path=CIRCLECI_CONFIG_PATH, action="created")
+        return whole_file(CIRCLECI_CONFIG_PATH, build_circleci_snippet(job))
     if provider != "azure":
         # Unreachable from the CLI (it validates first); guards direct helper callers so
         # an unknown provider errors consistently across the three SDKs.
         raise InitPathError(f'unknown provider "{provider}"')
-    abs_path = root_abs / AZURE_PIPELINE_PATH
-    _assert_no_symlink_escape(root_abs, abs_path, AZURE_PIPELINE_PATH)
-    # The activation note is intentionally created-only: a re-run on an existing
-    # pipeline file stays quiet (no note) rather than repeating the setup guidance.
-    if abs_path.exists():
-        return CiResult(provider=provider, path=AZURE_PIPELINE_PATH, action="unchanged")
-    _write_file_atomic(root_abs, abs_path, AZURE_PIPELINE_PATH, build_azure_pipeline(local))
-    return CiResult(
-        provider=provider,
-        path=AZURE_PIPELINE_PATH,
-        action="created",
-        note=AZURE_ACTIVATION_NOTE,
-    )
+    # The activation note is created-only: a re-run on an existing file stays quiet.
+    return whole_file(AZURE_PIPELINE_PATH, build_azure_pipeline(job), AZURE_ACTIVATION_NOTE)
 
 
 def _reject_non_finite(_: str) -> object:
@@ -1142,38 +1237,6 @@ def _reject_non_finite(_: str) -> object:
     matches TS (JSON.parse) and Go (encoding/json), which forbid non-finite constants
     Python's json.loads would otherwise accept."""
     raise ValueError("non-finite JSON constant")
-
-
-def _has_npm_lockfile(root_abs: Path) -> bool:
-    """The generated local-install job runs ``npm ci``, which requires an npm
-    lockfile. A pnpm, Yarn or Bun repository can declare the dependency and still have
-    none, and the job would fail before Leji ran."""
-    return (root_abs / "package-lock.json").exists()
-
-
-def _declares_leji_dep(root_abs: Path) -> bool:
-    """Whether the repo's root package.json declares ``@leji-org/leji`` under
-    ``dependencies`` or ``devDependencies``. Deterministic and identical across SDKs:
-    read bytes, strip a single leading UTF-8 BOM, strict JSON parse rejecting non-finite
-    constants (any error -> not declared), and count dependencies/devDependencies only
-    when they are JSON objects holding the exact key (any other type -> absent)."""
-    try:
-        data = (root_abs / "package.json").read_bytes()
-    except OSError:
-        return False
-    if data.startswith(b"\xef\xbb\xbf"):
-        data = data[3:]
-    try:
-        pkg = json.loads(data, parse_constant=_reject_non_finite)
-    except ValueError:
-        return False
-    if not isinstance(pkg, dict):
-        return False
-    for key in ("dependencies", "devDependencies"):
-        deps = pkg.get(key)
-        if isinstance(deps, dict) and _DEP_NAME in deps:
-            return True
-    return False
 
 
 # A name (also the agent-profile `id` and the agents-map key) and a role must be
@@ -1250,11 +1313,22 @@ from the boot profile and core profile; it never loosens it.
     )
 
 
+# Guidance for the `default` binding: selecting a role profile there is not the same
+# as loading it, a distinction the key's name invites readers to miss. Written-only,
+# like the CI activation note: a re-run that binds nothing stays terse.
+AGENTS_DEFAULT_NOTE = (
+    "agents.default selects a role profile; it does not load it. If its instructions "
+    "must apply before every task, fold them into the boot profile; otherwise keep the "
+    "profile role-scoped and engage it through the relevant protocol."
+)
+
+
 @dataclass
 class AgentResult:
     """What :func:`add_agent` did, for the command to report. Each artifact is
     independently idempotent: a ``*_created``/``manifest_changed`` of False means
-    it was already there."""
+    it was already there. ``note`` is advisory text the caller surfaces verbatim
+    (set when the ``default`` binding is written)."""
 
     name: str
     role: str
@@ -1262,6 +1336,7 @@ class AgentResult:
     profile_path: str
     profile_created: bool
     manifest_changed: bool
+    note: Optional[str] = None
 
 
 def add_agent(
@@ -1296,21 +1371,45 @@ def add_agent(
     base = effective_agent_profiles_path(manifest)
     profile_rel = (base if base.endswith("/") else f"{base}/") + f"{name}.md"
     profile_abs = root_abs / profile_rel
-    profile_created = False
-    if not profile_abs.is_file():
-        _assert_no_symlink_escape(root_abs, profile_abs, profile_rel)
-        profile_abs.parent.mkdir(parents=True, exist_ok=True)
-        profile_abs.write_text(
-            build_agent_profile(name, role, host_id, manifest["rootPath"]), encoding="utf-8"
-        )
-        profile_created = True
+    root_real = guard_root(str(root_abs))
 
+    # Both halves of this command are judged BEFORE either is written: binding an agent
+    # means a profile file and a manifest edit, and a run that can only do one of them
+    # must do neither. The manifest is read through the verified read (its bytes are
+    # spliced and written straight back), so a target that cannot be verified as a
+    # regular file inside the repository refuses the whole command with nothing written.
+    # ``absent`` refuses too: this command edits a manifest, it never creates one.
     manifest_abs = root_abs / "leji.json"
-    original = manifest_abs.read_text(encoding="utf-8")
+    manifest_read = verified_target_read(root_real, str(manifest_abs), None)
+    if manifest_read.status != "regular":
+        raise InitPathError(
+            'refusing to write through a symlink that escapes the target: "leji.json"'
+        )
+    original = manifest_read.text()
     text, _ = bind_agent_in_manifest_text(original, name, profile_rel)
     manifest_changed = text != original
+
+    # The profile half is judged next, still before either write: a pathname check
+    # follows symlinks, so a dangling link at the profile name reads as absent and the
+    # write lands at the link's destination. Only ``absent`` is written; a verified
+    # regular file is the never-overwrite skip this command has always made; anything
+    # else standing there refuses the whole command with nothing written.
+    profile_read = verified_target_read(root_real, str(profile_abs), None)
+    if profile_read.status == "refused":
+        raise InitPathError(
+            f'refusing to write through a symlink that escapes the target: "{profile_rel}"'
+        )
+    profile_created = profile_read.status == "absent"
+
+    if profile_created:
+        profile = build_agent_profile(name, role, host_id, manifest["rootPath"])
+        _guarded_or_refuse(
+            profile_rel, write_file_guarded(root_real, str(profile_abs), None, profile)
+        )
     if manifest_changed:
-        manifest_abs.write_text(text, encoding="utf-8")
+        _guarded_or_refuse(
+            "leji.json", write_file_guarded(root_real, str(manifest_abs), None, text)
+        )
 
     return AgentResult(
         name=name,
@@ -1319,6 +1418,7 @@ def add_agent(
         profile_path=profile_rel,
         profile_created=profile_created,
         manifest_changed=manifest_changed,
+        note=AGENTS_DEFAULT_NOTE if name == "default" and manifest_changed else None,
     )
 
 
@@ -1441,7 +1541,7 @@ def init_layer(
             PlannedWrite(f"{layout.context_dir}{category}.md", _category_index_file(r, category))
         )
     writes.append(PlannedWrite(f"{layout.agents_dir}core.md", _build_core_profile(answers)))
-    writes.append(PlannedWrite(brief_path(r), _build_brief(answers)))
+    writes.append(PlannedWrite(BRIEF_PATH, _build_brief(answers)))
     if answers.level == "indexed":
         # The changelog records the paths seeded; compute from the planned set
         # (everything except the changelog and the generated index). Dot-paths
@@ -1482,13 +1582,12 @@ def init_layer(
     # The tracked-file preflight and the `.leji/` ignore run BEFORE any write at
     # all, so the private onboarding workspace can never land in git and a failed
     # preflight leaves the tree untouched.
-    _assert_leji_workspace_private(str(root), r)
+    _assert_leji_workspace_private(str(root))
     _ensure_leji_gitignored(root)
     # leji.json is created exclusively ("x" / O_EXCL): it closes the check-then-write
     # race and refuses to follow a symlink at the final component, so a concurrent
     # init or a planted symlink cannot be overwritten or escaped.
-    _assert_no_symlink_escape(root, root / "leji.json", "leji.json")
-    _write_manifest_exclusive(root / "leji.json", writes[0].content, "init")
+    _write_manifest_exclusive(root, root / "leji.json", writes[0].content, "init")
     written.append("leji.json")
     # The changelog is held back until the index generates cleanly. Seeding it off a
     # tree that cannot be indexed would leave a layer claiming `indexed` with a
@@ -1569,14 +1668,6 @@ def _detect_docs_root(root: Path) -> "str | None":
     except OSError:
         return None
     return pick_docs_root([e.name for e in entries if _is_dir(e)])
-
-
-def _read_text(path: Path) -> str:
-    """Vendor-file contents, or empty string when the file cannot be read."""
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
-        return ""
 
 
 @dataclass
@@ -1685,20 +1776,15 @@ def adopt_layer(
 
     boot_rel = f"{detected_root}boot-profile.md"
     canonical_redirect = adapter_content(boot_rel).strip()
-    # A vendor file that is a symlink resolving outside root is neither read,
-    # migrated, nor converted: it is treated as absent.
-    vendor_present = [
-        rel
-        for rel in KNOWN_VENDOR_FILES
-        if (root / rel).is_file() and resolved_within_root(str(root), root / rel)
-    ]
+    # A vendor file that cannot be verified as a regular file inside the repository is
+    # neither read, migrated, nor converted: it is treated as absent.
+    vendor = _verified_vendor_files(root)
+    vendor_present = list(vendor.keys())
     # Migrate any vendor file not already exactly Leji's redirect, so its content is
     # archived before --wire-adapters overwrites it. An already-canonical or empty file
     # has nothing to preserve.
     to_migrate = [
-        rel
-        for rel in vendor_present
-        if _read_text(root / rel).strip() not in ("", canonical_redirect)
+        rel for rel in vendor_present if vendor[rel].strip() not in ("", canonical_redirect)
     ]
 
     base = re.sub(r"^-|-$", "", re.sub(r"[^a-z0-9]+", "-", root.name.lower()))
@@ -1731,7 +1817,7 @@ def adopt_layer(
     # Convert only EXISTING vendor entrypoints (never create new) that aren't already the
     # canonical redirect; each was captured in to_migrate above, so no content is lost.
     to_convert = (
-        [rel for rel in vendor_present if _read_text(root / rel).strip() != canonical_redirect]
+        [rel for rel in vendor_present if vendor[rel].strip() != canonical_redirect]
         if wire_adapters
         else []
     )
@@ -1779,7 +1865,7 @@ def adopt_layer(
             PlannedWrite(f"{layout.context_dir}{category}.md", _category_index_file(r, category))
         )
     writes.append(PlannedWrite(f"{layout.agents_dir}core.md", _build_core_profile(answers)))
-    writes.append(PlannedWrite(brief_path(r), _build_brief(answers)))
+    writes.append(PlannedWrite(BRIEF_PATH, _build_brief(answers)))
 
     migrated: list[str] = []
     migration_doc_by_vendor: dict[str, str] = {}
@@ -1796,16 +1882,20 @@ def adopt_layer(
         )
         # Disambiguate against both the planned write set and disk, so the migrated copy
         # is never skipped by _write_file_once (a skip then --wire-adapters overwrite would
-        # lose the original).
+        # lose the original). The on-disk half is decided on the standing entry, never by
+        # ``Path.exists()``, which follows symlinks: a dangling candidate would read as a
+        # free name and the archive would be written at the link's missing destination.
+        # Any standing entry is occupied and the next name is tried (the rule
+        # ``_archive_path`` mirrors).
         slug = base_slug
         doc_rel = f"{join_under_root(r, 'governance/')}imported-{slug}.md"
         n = 2
-        while doc_rel in planned_rels or (root / strip_slash(doc_rel)).exists():
+        while doc_rel in planned_rels or not nothing_stands_at(str(root / strip_slash(doc_rel))):
             slug = f"{base_slug}-{n}"
             doc_rel = f"{join_under_root(r, 'governance/')}imported-{slug}.md"
             n += 1
         planned_rels.add(doc_rel)
-        writes.append(PlannedWrite(doc_rel, _migration_doc(rel, _read_text(root / rel))))
+        writes.append(PlannedWrite(doc_rel, _migration_doc(rel, vendor[rel])))
         migration_doc_by_vendor[rel] = doc_rel
         migrated.append(rel)
     if migrated:
@@ -1829,7 +1919,7 @@ def adopt_layer(
         ),
         index_rel,
     )
-    draft = any(boot_rel not in _read_text(root / rel) for rel in wont_modify)
+    draft = any(boot_rel not in vendor[rel] for rel in wont_modify)
 
     if dry_run:
         return AdoptResult(
@@ -1851,10 +1941,9 @@ def adopt_layer(
     # The tracked-file preflight and the `.leji/` ignore run BEFORE any write at
     # all, so the private onboarding workspace can never land in git and a failed
     # preflight leaves the tree untouched.
-    _assert_leji_workspace_private(str(root), r)
+    _assert_leji_workspace_private(str(root))
     _ensure_leji_gitignored(root)
-    _assert_no_symlink_escape(root, root / "leji.json", "leji.json")
-    _write_manifest_exclusive(root / "leji.json", writes[0].content, "adopt")
+    _write_manifest_exclusive(root, root / "leji.json", writes[0].content, "adopt")
     written.append("leji.json")
     convert = set(to_convert)
     for w in writes[1:]:
@@ -1866,8 +1955,12 @@ def adopt_layer(
             if vendor_doc_rel is not None and vendor_doc_rel not in written:
                 continue
             abs_path = _safe_target(root, w.rel, "write path")
-            _assert_no_symlink_escape(root, abs_path, w.rel)
-            abs_path.write_text(w.content, encoding="utf-8")
+            _guarded_or_refuse(
+                w.rel,
+                write_file_guarded(
+                    guard_root(str(root)), str(abs_path), _init_role(w.rel), w.content
+                ),
+            )
             written.append(w.rel)
         else:
             _write_file_once(root, w.rel, w.content, written)
@@ -1908,14 +2001,22 @@ def _archive_path(root: Path, root_path: str, vendor_rel: str, doc: str) -> Opti
             re.sub(r"\.md$", "", Path(vendor_rel).name, flags=re.IGNORECASE).lower(),
         ),
     )
+    root_real = guard_root(str(root))
     n = 1
     while True:
         slug = base_slug if n == 1 else f"{base_slug}-{n}"
         rel = f"{join_under_root(root_path, 'governance/')}imported-{slug}.md"
         abs_path = root / strip_slash(rel)
-        if not abs_path.exists():
+        # The candidate is judged on the standing entry and, when one stands, on its
+        # verified bytes: a pathname existence check follows symlinks, so a dangling
+        # candidate link would read as free and the write would follow it to its missing
+        # destination. Nothing standing is free; the identical archive is already on
+        # disk; anything else — different bytes, or a standing entry this run cannot
+        # verify — is occupied, and the next name is tried.
+        if nothing_stands_at(str(abs_path)):
             return rel
-        if abs_path.is_file() and _read_text(abs_path) == doc:
+        standing = verified_target_read(root_real, str(abs_path), None)
+        if standing.status == "regular" and standing.text() == doc:
             return None
         n += 1
 
@@ -1940,22 +2041,17 @@ def _wire_adapters_into_layer(root: Path, dry_run: bool) -> AdoptResult:
     r = manifest["rootPath"]
     boot_rel = manifest["bootProfilePath"]
     redirect = adapter_content(boot_rel)
-    # A vendor file that symlinks outside root is treated as absent, as in `adopt`.
-    vendor_present = [
-        rel
-        for rel in KNOWN_VENDOR_FILES
-        if (root / rel).is_file() and resolved_within_root(str(root), root / rel)
-    ]
-    to_convert = [
-        rel for rel in vendor_present if _read_text(root / rel).strip() != redirect.strip()
-    ]
+    # A vendor entrypoint that cannot be verified is treated as absent, as in `adopt`.
+    vendor = _verified_vendor_files(root)
+    vendor_present = list(vendor.keys())
+    to_convert = [rel for rel in vendor_present if vendor[rel].strip() != redirect.strip()]
 
     # Archives first, so a vendor entrypoint is never overwritten before its content
     # is on disk; an empty file has nothing to preserve.
     writes: list[PlannedWrite] = []
     archived: list[str] = []
     for rel in to_convert:
-        content = _read_text(root / rel)
+        content = vendor[rel]
         if not content.strip():
             continue
         doc = _migration_doc(rel, content)
@@ -1988,11 +2084,12 @@ def _wire_adapters_into_layer(root: Path, dry_run: bool) -> AdoptResult:
         )
 
     written: list[str] = []
+    root_real = guard_root(str(root))
     for w in writes:
         abs_path = _safe_target(root, w.rel, "write path")
-        _assert_no_symlink_escape(root, abs_path, w.rel)
-        abs_path.parent.mkdir(parents=True, exist_ok=True)
-        abs_path.write_text(w.content, encoding="utf-8")
+        _guarded_or_refuse(
+            w.rel, write_file_guarded(root_real, str(abs_path), _init_role(w.rel), w.content)
+        )
         written.append(w.rel)
     # Only an archive lands inside the layer, so only an archive can stale the stored
     # index; a plain wiring run leaves the generated index (and its timestamp) alone.
@@ -2085,6 +2182,24 @@ class LaunchResult:
 
     started: bool
     error: Optional[str] = None
+    # The child's captured standard output, set only for a captured run
+    # (``RunOptions.capture``); empty otherwise.
+    stdout: str = ""
+
+
+@dataclass(frozen=True)
+class RunOptions:
+    """Bounds for one child run. ``quiet`` suppresses child output (the MCP presence
+    check); ``capture`` reads stdout back instead — bounded by ``timeout_ms`` and
+    ``max_bytes``, with stdin closed and stderr discarded — which is what the preflight
+    version probe needs; ``env`` adds the read-only, offline variables a probe runs
+    under."""
+
+    quiet: bool = False
+    capture: bool = False
+    timeout_ms: int = 0
+    max_bytes: int = 0
+    env: Optional[dict[str, str]] = None
 
 
 @dataclass
@@ -2098,12 +2213,11 @@ class HandoffIO:
     # <dir>`); a None cwd uses the current directory. Host flags (from
     # `leji start -- <flags>`) go before the prompt argument.
     launch: Callable[[str, str, Optional[str], Optional[list[str]]], LaunchResult]
-    # run(bin, args, cwd, quiet): run a host subcommand (the MCP presence check /
-    # register) from cwd. When quiet, child output is suppressed (the check);
-    # otherwise it inherits the terminal so the user sees the host's own output.
-    # Defaulted so the handoff-only flow (and its test fakes) need not supply it;
-    # production wiring sets it in _default_handoff_io.
-    run: Optional[Callable[[str, list[str], Optional[str], bool], LaunchResult]] = None
+    # run(bin, args, cwd, opts): run a host subcommand (the MCP presence check /
+    # register) or a bounded probe from cwd, per RunOptions. Defaulted so the
+    # handoff-only flow (and its test fakes) need not supply it; production wiring
+    # sets it in _default_handoff_io.
+    run: Optional[Callable[[str, list[str], Optional[str], RunOptions], LaunchResult]] = None
 
 
 @dataclass
@@ -2111,6 +2225,147 @@ class _PromptHost:
     id: str
     bin: str
     name: str
+
+
+@dataclass(frozen=True)
+class StartHost:
+    """The host `leji start` targets, resolved before the preflight runs so the report
+    can name it before the launch takes the terminal."""
+
+    id: str
+    bin: str
+    name: str
+
+
+def _exported(host: Optional[_PromptHost]) -> Optional[StartHost]:
+    return None if host is None else StartHost(id=host.id, bin=host.bin, name=host.name)
+
+
+def _internal(host: Optional[StartHost]) -> Optional[_PromptHost]:
+    return None if host is None else _PromptHost(id=host.id, bin=host.bin, name=host.name)
+
+
+# How much the probe reads at a time when the cap still allows it.
+_PROBE_READ_CHUNK = 4096
+
+
+def _end_probe(proc: "subprocess.Popen[bytes]") -> None:
+    """Stop the probe and everything it started, then reap it. The whole session goes,
+    not just the direct child: the cap and the timeout are only real if nothing the probe
+    spawned survives them holding the pipe."""
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name != "nt":
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        else:
+            proc.kill()
+    except (OSError, ProcessLookupError):
+        proc.kill()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:  # pragma: no cover - the kill above is unconditional
+        pass
+
+
+def _capture_run(
+    bin_name: str, args: list[str], cwd: Optional[str], opts: RunOptions
+) -> LaunchResult:
+    """The bounded probe: stdin closed so nothing can prompt, stderr discarded, output
+    and wall time bounded. Both bounds are enforced WHILE the child runs, not after it
+    finishes: the reader stops at the cap and the child is killed on the spot, so a
+    program that streams forever can neither fill this process's memory nor sit on the
+    pipe until the deadline. Exceeding either bound comes back as a failed run, which
+    every caller treats as a failed probe."""
+    # ``env`` REPLACES the environment; nothing of this process's is inherited.
+    env = dict(opts.env) if opts.env is not None else None
+    try:
+        proc = subprocess.Popen(  # noqa: S603 (no shell)
+            [bin_name, *args],
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env=env,
+            # Its own session, so ending the probe ends everything it started: a shim
+            # that backgrounds a child would otherwise hold the pipe open (and keep
+            # running) after the run is cut off.
+            start_new_session=os.name != "nt",
+        )
+    except OSError as e:
+        return LaunchResult(started=False, error=str(e))
+
+    captured = bytearray()
+    capped = False
+
+    def reader() -> None:
+        """Read UNBUFFERED, never more than one byte past what the cap still allows.
+
+        A buffered read waits for a full chunk or for EOF, so a child that prints one
+        byte past the cap and then holds stdout open would not be seen as overflowing
+        until the deadline. Reading the remaining allowance plus one byte means the
+        first byte past the cap arrives on its own, the cap is decided the moment it is
+        passed, and the main loop ends the child immediately."""
+        nonlocal capped
+        stream = proc.stdout
+        if stream is None:
+            return
+        fd = stream.fileno()
+        while True:
+            allowance = _PROBE_READ_CHUNK
+            if opts.max_bytes:
+                allowance = min(allowance, opts.max_bytes - len(captured) + 1)
+            try:
+                chunk = os.read(fd, allowance)
+            except (OSError, ValueError):
+                return
+            if not chunk:
+                return
+            # Exactly ``max_bytes`` is not overflow: the cap is the most that may be
+            # held, and the whole read that would pass it is refused, as in the other
+            # two SDKs.
+            if opts.max_bytes and len(captured) + len(chunk) > opts.max_bytes:
+                capped = True
+                return
+            captured.extend(chunk)
+
+    pump = threading.Thread(target=reader, daemon=True)
+    pump.start()
+    timed_out = False
+    deadline = (opts.timeout_ms / 1000) if opts.timeout_ms else None
+    try:
+        # The reader owns the pipe; this only waits for the process itself, so the cap
+        # can end the run before the deadline does.
+        while True:
+            try:
+                # Always polled, deadline or not: the cap has to be able to end the run
+                # on its own, as it does in the other two SDKs.
+                proc.wait(timeout=0.05)
+                break
+            except subprocess.TimeoutExpired:
+                if capped:
+                    break
+                if deadline is not None:
+                    deadline -= 0.05
+                    if deadline <= 0:
+                        timed_out = True
+                        break
+    finally:
+        _end_probe(proc)
+        pump.join(timeout=1)
+        if proc.stdout is not None and not pump.is_alive():
+            proc.stdout.close()
+
+    if capped:
+        return LaunchResult(started=True, error="probe output exceeded the cap")
+    if timed_out:
+        return LaunchResult(started=True, error="timed out")
+    code = proc.returncode
+    return LaunchResult(
+        started=True,
+        error=None if code == 0 else f"exit {code}",
+        stdout=captured.decode("utf-8", errors="replace"),
+    )
 
 
 def _default_handoff_io() -> HandoffIO:
@@ -2142,9 +2397,14 @@ def _default_handoff_io() -> HandoffIO:
         )
 
     def run(
-        bin_name: str, args: list[str], cwd: Optional[str] = None, quiet: bool = False
+        bin_name: str,
+        args: list[str],
+        cwd: Optional[str] = None,
+        opts: RunOptions = RunOptions(),
     ) -> LaunchResult:
-        stdio = subprocess.DEVNULL if quiet else None
+        if opts.capture:
+            return _capture_run(bin_name, args, cwd, opts)
+        stdio = subprocess.DEVNULL if opts.quiet else None
         try:
             proc = subprocess.run(  # noqa: S603 (no shell)
                 [bin_name, *args], cwd=cwd, stdin=stdio, stdout=stdio, stderr=stdio
@@ -2276,7 +2536,7 @@ def handoff_offer(
         return False
     io = io or _default_handoff_io()
     mcp = mcp or McpOfferOutcome()
-    prompt_arg = f"Read ./{brief_path(manifest['rootPath'])} and follow it."
+    prompt_arg = f"Read ./{BRIEF_PATH} and follow it."
     if agent:
         chosen: Optional[_PromptHost] = _assert_agent_host(agent)
     elif mcp.next == "skip":
@@ -2355,7 +2615,7 @@ def offer_mcp_install(opts: McpOfferOptions) -> McpOfferOutcome:
     # re-nags — but say so: a silent skip is indistinguishable from the offer being
     # broken. A failed check (e.g. an older host CLI) falls through to the offer.
     if spec.mcp_check:
-        chk = io.run(target.bin, spec.mcp_check, opts.root, True)
+        chk = io.run(target.bin, spec.mcp_check, opts.root, RunOptions(quiet=True))
         if chk.started and chk.error is None:
             print(
                 f"Leji MCP server already registered for {target.name}; skipping the install offer."
@@ -2373,7 +2633,7 @@ def offer_mcp_install(opts: McpOfferOptions) -> McpOfferOutcome:
     ).lower()
     if answer not in ("", "y", "yes"):
         return outcome
-    res = io.run(target.bin, spec.mcp_add, opts.root, False)
+    res = io.run(target.bin, spec.mcp_add, opts.root, RunOptions())
     argv = f"{target.bin} {' '.join(spec.mcp_add)}"
     if not res.started:
         print(
@@ -2394,7 +2654,7 @@ def offer_mcp_install(opts: McpOfferOptions) -> McpOfferOutcome:
 def entering_the_layer(manifest: Manifest, mode: str = "team") -> str:
     """Post-init guidance, printed by the CLI. The team copy is unchanged from
     pre-mode releases; solo swaps one sentence to name the interview."""
-    brief = brief_path(manifest["rootPath"])
+    brief = BRIEF_PATH
     how = (
         [
             "The brief teaches the agent the Leji spec and points it at this repo: it reads your",
@@ -2429,7 +2689,7 @@ def entering_the_layer(manifest: Manifest, mode: str = "team") -> str:
 
 # The onboarding approval guard: a transient Claude Code PreToolUse hook that
 # counters the ask-prompt pattern. AskUserQuestion stays blocked until the
-# proposal is written to <rootPath>/.leji/proposal.md AND printed as message
+# proposal is written to .leji/work/proposal.md AND printed as message
 # text; the corrective message lands at the action boundary, where instruction
 # reliably reaches the model. Self-disabling once the onboarding brief is gone;
 # the finalize step removes it entirely.
@@ -2500,11 +2760,14 @@ GuardAction = str  # "installed" | "unchanged"
 
 
 def ensure_approval_guard(root: str, root_path: str) -> GuardAction:
-    """Write the guard script under <rootPath>/.leji/hooks/ and merge its PreToolUse
-    entry into .claude/settings.json (created if absent, other settings preserved).
-    Idempotent: an existing guard entry is left untouched."""
+    """Write the guard script under the onboarding workspace (`.leji/work/hooks/`)
+    and merge its PreToolUse entry into .claude/settings.json (created if absent,
+    other settings preserved). Idempotent: an existing guard entry is left untouched.
+    ``root_path`` no longer selects the workspace — it is one root-relative tree —
+    and is kept only so the exported signature holds."""
+    del root_path
     root_abs = Path(root).resolve()
-    leji_rel = join_under_root(root_path, ".leji")
+    leji_rel = WORK_REL
     script_rel = f"{leji_rel}/hooks/approval-guard.mjs"
     script_abs = root_abs / script_rel
     _assert_no_symlink_escape(root_abs, script_abs, script_rel)
@@ -2513,7 +2776,9 @@ def ensure_approval_guard(root: str, root_path: str) -> GuardAction:
     settings_abs = root_abs / settings_rel
     _assert_no_symlink_escape(root_abs, settings_abs, settings_rel)
     settings: dict[str, object] = {}
-    existing = settings_abs.read_text(encoding="utf-8") if settings_abs.is_file() else None
+    # The settings file is parsed, merged, and written back, so its bytes come from the
+    # verified read rather than from the pathname the merge later writes to.
+    existing = _read_merge_source(guard_root(str(root_abs)), settings_abs, settings_rel)
     if existing is not None and existing.strip() != "":
         try:
             parsed = json.loads(existing)
@@ -2593,7 +2858,7 @@ def offer_approval_guard(opts: GuardOfferOptions) -> None:
         "Add the temporary onboarding guard for Claude Code, in this repository only? "
         "It has the agent print its proposal before asking for approval. Writes two "
         "project-local files (a hook entry in this repo’s .claude/settings.json, "
-        "a script in the gitignored .leji/ workspace); nothing outside this repository "
+        "a script in the gitignored .leji/work/ workspace); nothing outside this repository "
         "is touched, and the finalize step removes both",
         "Y/n",
     ).lower()
@@ -2602,7 +2867,7 @@ def offer_approval_guard(opts: GuardOfferOptions) -> None:
     action = ensure_approval_guard(opts.root, opts.root_path)
     print(
         "Onboarding guard added (this repository only: .claude/settings.json hook + "
-        ".leji/hooks/approval-guard.mjs; removed at finalize)."
+        ".leji/work/hooks/approval-guard.mjs; removed at finalize)."
         if action == "installed"
         else "Onboarding guard already present in this repository; refreshed the script."
     )
@@ -2630,6 +2895,49 @@ class StartOptions:
     # prompt (from `leji start -- <flags>`, e.g. Claude Code's --chrome).
     host_args: Optional[list[str]] = None
     io: Optional[HandoffIO] = None
+    # The host the caller already resolved, so the preflight report can name it before
+    # the launch takes the terminal. Used only when ``host_resolved`` is True;
+    # otherwise :func:`enter_layer` resolves one itself, as before. A None ``host``
+    # with ``host_resolved`` True is an explicit "no host", which falls back to the
+    # printed commands.
+    host: Optional[StartHost] = None
+    host_resolved: bool = False
+
+
+def boot_profile_ready(root: str, manifest: Manifest) -> bool:
+    """Whether the manifest's boot profile is a safe relative path that actually
+    exists: the one condition `leji start` refuses to run under, checked before
+    anything is reported or launched."""
+    boot_rel = manifest["bootProfilePath"]
+    return bool(_REL_PATH_RE.match(boot_rel)) and os.path.isfile(
+        os.path.join(os.path.abspath(root), boot_rel)
+    )
+
+
+def resolve_start_host(
+    detected: list[DetectedHost],
+    agent: Optional[str] = None,
+    interactive: bool = False,
+    io: Optional[HandoffIO] = None,
+) -> Optional[StartHost]:
+    """Which host `leji start` targets: ``--agent`` forces one, a single detected
+    prompt-capable host is it, and several ask (interactive only). Split out of
+    :func:`enter_layer` so the preflight can report on the host this run has actually
+    selected. Raises on an unknown or non-launchable ``--agent``, as before."""
+    if agent:
+        return _exported(_assert_agent_host(agent))
+    hosts = _prompt_capable_hosts(detected)
+    if len(hosts) == 1:
+        return _exported(hosts[0])
+    if len(hosts) > 1 and interactive:
+        return _exported(_pick_from_multiple(hosts, io or _default_handoff_io()))
+    return None
+
+
+def start_hosts(detected: list[DetectedHost]) -> list[StartHost]:
+    """The detected hosts `leji start` could launch, ranked — what the preflight names
+    when several are present and none was picked."""
+    return [h for h in (_exported(p) for p in _prompt_capable_hosts(detected)) if h is not None]
 
 
 def _boot_prompt(boot_rel: str) -> str:
@@ -2645,21 +2953,17 @@ def enter_layer(opts: StartOptions) -> StartOutcome:
     or launch failed), or 'boot-missing' when the boot path is unsafe or absent. Raises on
     an unknown/non-launchable --agent (usage error → exit 2)."""
     root = os.path.abspath(opts.root)
-    boot_rel = opts.manifest["bootProfilePath"]
-    if not _REL_PATH_RE.match(boot_rel) or not os.path.isfile(os.path.join(root, boot_rel)):
+    if not boot_profile_ready(root, opts.manifest):
         return "boot-missing"
     io = opts.io or _default_handoff_io()
-    prompt_arg = _boot_prompt(boot_rel)
+    prompt_arg = _boot_prompt(opts.manifest["bootProfilePath"])
 
-    host: Optional[_PromptHost] = None
-    if opts.agent:
-        host = _assert_agent_host(opts.agent)
+    # A caller that already resolved the host (the preflight names it before the
+    # launch) passes it in; otherwise it is resolved here, as before.
+    if opts.host_resolved:
+        host = _internal(opts.host)
     else:
-        hosts = _prompt_capable_hosts(opts.detected)
-        if len(hosts) == 1:
-            host = hosts[0]
-        elif len(hosts) > 1 and opts.interactive:
-            host = _pick_from_multiple(hosts, io)
+        host = _internal(resolve_start_host(opts.detected, opts.agent, opts.interactive, io))
 
     if host is None or not opts.interactive:
         return "fallback"

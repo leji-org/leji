@@ -1,0 +1,18 @@
+{
+  "leji": "1.0",
+  "name": "handoff-fixture",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {
+    "domain": {
+      "indexes": [
+        "docs/context/domain.md"
+      ]
+    }
+  },
+  "owners": {
+    "primary": {
+      "name": "Fixture Owner"
+    }
+  }
+}

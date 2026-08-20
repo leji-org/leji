@@ -159,7 +159,7 @@ func collectSelectors(root string, m *manifest.Manifest) ([]*selector, []finding
 		for _, indexRel := range mapping.Indexes {
 			abs := filepath.Join(root, indexRel)
 			text := ""
-			readable := fsx.IsFile(abs) && fsx.ResolvesUnder(rootAbs, abs)
+			readable := fsx.IsFile(abs) && fsx.ResolvedWithinRoot(rootAbs, abs)
 			if readable {
 				var err error
 				text, err = fsx.ReadText(abs)
@@ -425,13 +425,30 @@ func scanFrontmatterArtifact(text, relPath, schemaName, rule string) ScannedProf
 	return ScannedProfile{RelPath: relPath, Frontmatter: fm.Data, Keys: fm.Keys, Body: fm.Body, Findings: fs}
 }
 
-func scanFrontmatterArtifacts(root, dir, schemaName, rule string) []ScannedProfile {
+// ArtifactReader is how a scan gets one artifact's bytes, and whether it may have
+// them at all. The default reads by path; a caller composing something it will serve
+// or export passes a reader that binds the check to the read (check-before-act), and returns false
+// for a source it refuses — missing, not a regular file, or resolving somewhere it
+// may not be read from. A refused artifact is dropped from the scan, exactly as the
+// whitelist filter it replaces dropped it, so validation (which passes no reader) is
+// unaffected.
+type ArtifactReader func(relPath string) (string, bool)
+
+func scanFrontmatterArtifacts(root, dir, schemaName, rule string, read ArtifactReader) []ScannedProfile {
 	var out []ScannedProfile
 	for _, relPath := range fsx.WalkMd(root, dir) {
 		if strings.ToLower(path.Base(relPath)) == "readme.md" {
 			continue
 		}
-		text, _ := fsx.ReadText(filepath.Join(root, relPath))
+		var text string
+		if read == nil {
+			text, _ = fsx.ReadText(filepath.Join(root, relPath))
+		} else {
+			var ok bool
+			if text, ok = read(relPath); !ok {
+				continue
+			}
+		}
 		out = append(out, scanFrontmatterArtifact(text, relPath, schemaName, rule))
 	}
 	return out
@@ -439,7 +456,7 @@ func scanFrontmatterArtifacts(root, dir, schemaName, rule string) []ScannedProfi
 
 func ScanAgentProfiles(root string, m *manifest.Manifest) []ScannedProfile {
 	dir := manifest.EffectiveAgentProfilesPath(m)
-	return scanFrontmatterArtifacts(root, dir, "agent-profile", "profile-frontmatter")
+	return scanFrontmatterArtifacts(root, dir, "agent-profile", "profile-frontmatter", nil)
 }
 
 // ScanProfileSet is the profile set inheritance resolves against: the
@@ -456,8 +473,15 @@ func ScanAgentProfiles(root string, m *manifest.Manifest) []ScannedProfile {
 // findings, so ProfileInheritanceFindings collapses the pair rather than
 // reporting either twice.
 func ScanProfileSet(root string, m *manifest.Manifest) []ScannedProfile {
-	profiles := ScanAgentProfiles(root, m)
+	return ScanProfileSetWith(root, m, nil)
+}
+
+// ScanProfileSetWith is the same scan through a caller's reader — the seam a viewer
+// or export needs and nobody else does. A nil reader is ScanProfileSet's own
+// read-by-path behavior.
+func ScanProfileSetWith(root string, m *manifest.Manifest, read ArtifactReader) []ScannedProfile {
 	dir := manifest.EffectiveAgentProfilesPath(m)
+	profiles := scanFrontmatterArtifacts(root, dir, "agent-profile", "profile-frontmatter", read)
 	seen := map[string]bool{}
 	for _, p := range profiles {
 		seen[p.RelPath] = true
@@ -467,13 +491,21 @@ func ScanProfileSet(root string, m *manifest.Manifest) []ScannedProfile {
 		if seen[rel] || fsx.UnderPath(rel, dir) {
 			continue
 		}
-		abs := filepath.Join(root, rel)
-		if !fsx.IsFile(abs) || !fsx.ResolvesUnder(rootAbs, abs) {
-			continue // missing or escaping: the agents-map check owns that
-		}
-		text, err := fsx.ReadText(abs)
-		if err != nil {
-			continue
+		var text string
+		if read == nil {
+			abs := filepath.Join(root, rel)
+			if !fsx.IsFile(abs) || !fsx.ResolvedWithinRoot(rootAbs, abs) {
+				continue // missing or escaping: the agents-map check owns that
+			}
+			var err error
+			if text, err = fsx.ReadText(abs); err != nil {
+				continue
+			}
+		} else {
+			var ok bool
+			if text, ok = read(rel); !ok {
+				continue
+			}
 		}
 		seen[rel] = true
 		profiles = append(profiles, scanFrontmatterArtifact(text, rel, "agent-profile", "profile-frontmatter"))
@@ -843,7 +875,7 @@ func ReadJSONArtifact(root, relPath string) (any, *findings.Finding) {
 	if !fsx.IsFile(abs) {
 		return nil, nil
 	}
-	if !fsx.ResolvesUnder(root, abs) {
+	if !fsx.ResolvedWithinRoot(root, abs) {
 		f := findings.New("artifact-parse", findings.Error,
 			fmt.Sprintf("artifact %s resolves outside the layer root", relPath), relPath)
 		return nil, &f

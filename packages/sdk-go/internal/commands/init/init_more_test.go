@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/conformance"
-	"github.com/leji-org/leji/packages/sdk-go/internal/commands/validate"
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 )
@@ -173,7 +172,7 @@ func TestIndexedInitNoMachineKeyButFilesAtDefaults(t *testing.T) {
 	gitInit(t, dir)
 	gitCommitAll(t, dir)
 
-	validation := validate.ValidateLayer(dir, false)
+	validation := validateLayer(t, dir, false)
 	for _, f := range validation.Findings {
 		if f.Severity == findings.Error {
 			t.Fatalf("indexed init should validate without errors, got %v", validation.Findings)

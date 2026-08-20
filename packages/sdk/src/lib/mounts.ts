@@ -1,8 +1,10 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { exists, isDir, isFile, readTextWithin } from './fsx.js';
+import { exists, guardRoot, isDir, isFile, mkdirpGuarded, readTextWithin } from './fsx.js';
+import { MOUNTS_REL } from './layout.js';
 import { type Manifest, allStringsScalar } from './manifest.js';
 import { schemaErrors } from './schemas.js';
 import { byteCompare } from './text.js';
@@ -165,7 +167,24 @@ export function cacheKeyFor(sourceIdentity: string, pin: string): string {
 }
 
 export function mountsDir(root: string): string {
-   return path.join(root, '.leji', 'mounts');
+   return path.join(root, MOUNTS_REL);
+}
+
+/**
+ * Establish one mounts DESTINATION — a managed store, a cache entry, a staging
+ * directory — through the write chokepoint, and hand back the RESOLVED directory it
+ * was created at. Null when the rule refuses it: a planted `.leji/mounts` symlink
+ * into another role or out of the repository is caught here, once, instead of being
+ * followed by every per-entry write underneath.
+ *
+ * The per-entry protocol below (hashed identities, contained relative paths, the
+ * symlink-escape rules, publish-by-rename) is the declared exception to the
+ * chokepoint, and it holds only because every one of its acts happens under a root
+ * this function checked and returned — never under a path re-joined from `root`.
+ */
+function establishMountsDir(root: string, dirAbs: string): string | null {
+   const established = mkdirpGuarded(guardRoot(root), dirAbs, MOUNTS_REL);
+   return established.ok ? established.real : null;
 }
 
 /** Machine-local resolution hints (never committed): .leji/mounts.local.json. */
@@ -240,7 +259,7 @@ function hasCommit(repo: string, pin: string): boolean {
 }
 
 /** Resolve a revision to a commit id in `repo`; null when it does not resolve. */
-function revOid(repo: string, rev: string): string | null {
+export function revOid(repo: string, rev: string): string | null {
    const r = runGit(['-C', repo, 'rev-parse', '--verify', '--quiet', `${rev}^{commit}`]);
    return r.ok ? r.stdout.toString('utf8').trim() : null;
 }
@@ -347,28 +366,47 @@ export function findObjectSource(
 }
 
 /**
- * Fetch the pin and refresh the managed witness ref in the store. This is the
- * only writer of the witness namespace: `status` never fetches, so a mount whose
- * pin a hint already resolves still needs its store populated here.
+ * Establish the managed store and retain ONE commit in it: fetch the object by id
+ * from the declared source when the store does not already hold it, then keep it
+ * reachable under `refs/leji-pin/v1/`. Nothing here refreshes a witness, so a
+ * caller that needs more than one commit retained pays exactly one round trip per
+ * commit and no extra observation of a moving ref.
+ *
+ * The declared pin and an explicitly named target are both retained through this,
+ * so the version of record and the version being moved to are equally safe from
+ * git maintenance.
  */
-export function fetchIntoStore(
+/**
+ * Test-only fault injection for {@link retainPinInStore}: with
+ * LEJI_TEST_FAIL_PIN_REF set to a commit id, retaining exactly that commit fails at
+ * the ref. It exists because the TARGET-retention refusal has no other reachable
+ * path — by the time the target is retained, the comparison repository IS the
+ * managed store and already holds the commit, so the fetch never runs and only the
+ * ref update can fail.
+ */
+function retentionInjectedFailure(oid: string): boolean {
+   return process.env.LEJI_TEST_FAIL_PIN_REF === oid;
+}
+
+export function retainPinInStore(
    root: string,
    mount: MountDecl,
    sourceIdentity: string,
-): { repo: string | null; witnessRefreshFailed?: boolean; error?: string } {
+   oid: string,
+): { repo: string | null; error?: string } {
    // Details are stable, Leji-authored text: git stderr never reaches output.
    const failed = (error: string) => ({ repo: null, error });
    // The locator becomes argv here: anything option-shaped is refused, never passed.
    if (mount.source.startsWith('-')) return failed('the source locator may not begin with "-"');
-   const store = storeDir(root, sourceIdentity);
+   const store = establishMountsDir(root, storeDir(root, sourceIdentity));
+   if (store === null) return failed('the managed store could not be initialized');
    if (!isGitRepo(store)) {
-      fs.mkdirSync(store, { recursive: true });
       if (!runGit(['init', '--bare', '-q', store]).ok) return failed('the managed store could not be initialized');
    }
-   // The pin is immutable: a store that already holds it needs no round trip. The
-   // declared pin is resolved directly, never read back out of FETCH_HEAD, so the
-   // fetch has no reason to write one and races with a concurrent fetch.
-   if (!hasCommit(store, mount.pin)) {
+   // A commit id is immutable: a store that already holds it needs no round trip.
+   // The id is resolved directly, never read back out of FETCH_HEAD, so the fetch
+   // has no reason to write one and races with a concurrent fetch.
+   if (!hasCommit(store, oid)) {
       const spec = [
          '-C',
          store,
@@ -378,17 +416,36 @@ export function fetchIntoStore(
          '-q',
          '--no-write-fetch-head',
          mount.source,
-         mount.pin,
+         oid,
       ];
       if (!runGit(spec).ok) return failed('the pin could not be fetched from the source');
    }
-   // Retain the pin by a ref of our own: without it, git maintenance may prune the
+   // Retain it by a ref of our own: without it, git maintenance may prune the
    // version of record.
-   const pinOid = revOid(store, mount.pin);
+   const pinOid = revOid(store, oid);
    if (pinOid === null) return failed('fetched, but the pin is not reachable');
-   if (!runGit(['-C', store, 'update-ref', pinRefFor(sourceIdentity, pinOid), pinOid]).ok) {
+   if (
+      retentionInjectedFailure(pinOid) ||
+      !runGit(['-C', store, 'update-ref', pinRefFor(sourceIdentity, pinOid), pinOid]).ok
+   ) {
       return failed('the pin could not be retained by a ref in the managed store');
    }
+   return { repo: store };
+}
+
+/**
+ * Fetch the pin and refresh the managed witness ref in the store. This is the
+ * only writer of the witness namespace: `status` never fetches, so a mount whose
+ * pin a hint already resolves still needs its store populated here.
+ */
+export function fetchIntoStore(
+   root: string,
+   mount: MountDecl,
+   sourceIdentity: string,
+): { repo: string | null; witnessRefreshFailed?: boolean; error?: string } {
+   const retained = retainPinInStore(root, mount, sourceIdentity, mount.pin);
+   if (retained.repo === null) return retained;
+   const store = retained.repo;
    // The witness refresh is the second half of what `--fetch` was asked to do, so a
    // run that attempts it and does not publish says so on its own terms. Reported
    // only when it was actually attempted: a run that never got this far has already
@@ -400,7 +457,7 @@ export function fetchIntoStore(
 }
 
 /** The raw object a ref points at, unpeeled; null when the ref does not exist. */
-function refOid(repo: string, ref: string): string | null {
+export function refOid(repo: string, ref: string): string | null {
    const r = runGit(['-C', repo, 'rev-parse', '--verify', '--quiet', ref]);
    return r.ok ? r.stdout.toString('utf8').trim() : null;
 }
@@ -413,11 +470,24 @@ function refOid(repo: string, ref: string): string | null {
  * writer published first (a valid outcome), and a failure leaves the previous
  * witness in place.
  */
-function refreshWitness(store: string, mount: MountDecl, sourceIdentity: string): boolean {
+export function refreshWitness(store: string, mount: MountDecl, sourceIdentity: string): boolean {
    const witnessRef = witnessRefFor(sourceIdentity, mount.trackingRef!);
    const tempRef = `${WITNESS_REF_NAMESPACE}/tmp/${process.pid}-${crypto.randomBytes(8).toString('hex')}`;
    const spec = `+${mount.trackingRef}:${tempRef}`;
-   const fetch = runGit(['-C', store, '-c', 'fetch.recurseSubmodules=no', 'fetch', '-q', mount.source, spec]);
+   // `--no-write-fetch-head` for the same reason retention passes it: the ref this
+   // fetch cares about is the temporary one in the refspec, and a FETCH_HEAD left
+   // behind is a per-run path recorded inside the managed store.
+   const fetch = runGit([
+      '-C',
+      store,
+      '-c',
+      'fetch.recurseSubmodules=no',
+      'fetch',
+      '-q',
+      '--no-write-fetch-head',
+      mount.source,
+      spec,
+   ]);
    const tip = fetch.ok ? refOid(store, tempRef) : null;
    // An empty <oldvalue> is git's "must not exist yet".
    const expected = refOid(store, witnessRef) ?? '';
@@ -1163,9 +1233,21 @@ export function hydrateMounts(
          continue;
       }
       // Staged inside the entry's own directory, so publication is a rename on one
-      // filesystem, and under a per-process name, so no two producers collide.
-      const staging = path.join(cacheDir, `.staging-${stagingToken()}`);
-      fs.mkdirSync(staging, { recursive: true });
+      // filesystem, and under a per-process name, so no two producers collide. The
+      // staging directory is established through the chokepoint and every act below
+      // works from the RESOLVED path it returned, the cache entry included.
+      const staging = establishMountsDir(root, path.join(cacheDir, `.staging-${stagingToken()}`));
+      if (staging === null) {
+         outcomes.push(
+            outcome({
+               name: mount.name,
+               status: 'error',
+               detail: 'the cache entry destination could not be established',
+            }),
+         );
+         continue;
+      }
+      const cacheEntryDir = path.dirname(staging);
       const projected = extractProjection(src.repo, mount.pin, staging);
       if (!projected.ok) {
          fs.rmSync(staging, { recursive: true, force: true });
@@ -1201,7 +1283,7 @@ export function hydrateMounts(
          hydratedAt: new Date().toISOString(),
       };
       // The whole tree is extracted and validated before it is publishable.
-      const published = publishCacheEntry(cacheDir, staging, JSON.stringify(metadata, null, 2) + '\n');
+      const published = publishCacheEntry(cacheEntryDir, staging, JSON.stringify(metadata, null, 2) + '\n');
       if (published.status === 'error') {
          outcomes.push(outcome({ name: mount.name, status: 'error', detail: published.detail }));
          continue;
@@ -1223,8 +1305,10 @@ export function hydrateMounts(
 
 /**
  * Verify a cached projection against a reachable object store: every projected
- * file's bytes and mode against the pinned tree. Returns null when no object
- * store is reachable (unverifiable), true/false otherwise.
+ * file's bytes and mode against the pinned tree. Returns null when a prerequisite
+ * for verifying is unavailable — no reachable object store, an unresolvable pin,
+ * no writable temp dir — leaving the projection unverified rather than judged;
+ * true/false otherwise.
  */
 export function verifyProjection(root: string, mount: MountDecl): boolean | null {
    const identity = normalizeSource(mount.source);
@@ -1237,9 +1321,19 @@ export function verifyProjection(root: string, mount: MountDecl): boolean | null
    const commitR = runGit(['-C', src.repo, 'rev-parse', `${mount.pin}^{commit}`]);
    if (!commitR.ok) return null;
    const commit = commitR.stdout.toString('utf8').trim();
-   const staging = path.join(mountsDir(root), `verify-${process.pid}`);
-   fs.rmSync(staging, { recursive: true, force: true });
-   fs.mkdirSync(staging, { recursive: true });
+   // Staging happens outside the host: verifying is a read-only question, so asking
+   // it must not write into the tree being asked about (a read-only or shared
+   // checkout could not answer otherwise). The name is allocated, never constructed
+   // and pre-deleted: a guessed path is a path a concurrent verification is already
+   // using, and deleting it is how one run made another fail. Cleanup is installed
+   // the moment allocation succeeds. A failed allocation is one more unavailable
+   // prerequisite — unverifiable, never an error and never an in-tree fallback.
+   let staging: string;
+   try {
+      staging = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-verify-'));
+   } catch {
+      return null;
+   }
    try {
       const projected = extractProjection(src.repo, commit, staging);
       if (!projected.ok) return false;
@@ -1328,8 +1422,72 @@ export function locateMount(root: string, manifest: Manifest, name: string): Loc
       verified,
       path: present ? projDir : null,
       ...(present && !verified
-         ? { detail: 'projection present but not verified against a reachable object store' }
+         ? {
+              detail:
+                 'projection present but not verified: it does not match its pin, or verification prerequisites are unavailable',
+           }
          : {}),
+   };
+}
+
+/** Which repository answers a pin comparison, and the ONE witness snapshot it
+ * answered with. `reason` is the degraded alternative: a stable status code and
+ * nothing selected. */
+export type ComparisonSelection =
+   | {
+        repo: string;
+        comparisonRepository: NonNullable<StatusResult['pinReport']['comparisonRepository']>;
+        witnessProvenance: NonNullable<StatusResult['pinReport']['witnessProvenance']>;
+        comparedRef: string;
+        tipOid: string;
+     }
+   | { reason: string };
+
+/**
+ * The store-first availability matrix, resolved once: the resolver's own witness
+ * in the managed store first, then the first object source that holds BOTH the pin
+ * and the compared ref. The pin and the witness always come from the same
+ * repository, and nothing here fetches.
+ *
+ * `tipOid` is the single witness snapshot for the whole operation. `status` reports
+ * from it and `update-pin` targets, counts and gates from it, so no caller can end
+ * up describing two different commits by re-reading a ref that moved in between.
+ */
+export function selectComparison(root: string, mount: MountDecl, effectiveRef: string): ComparisonSelection {
+   const identity = normalizeSource(mount.source);
+   if (identity === null) return { reason: 'mount-source-unnormalizable' };
+   if (!validTrackingRef(effectiveRef)) return { reason: 'mount-tracking-ref-invalid' };
+   // Row 1: the managed store holds the pin and the resolver's own witness.
+   const store = storeDir(root, identity);
+   const managedTip =
+      isGitRepo(store) && hasCommit(store, mount.pin) ? revOid(store, witnessRefFor(identity, effectiveRef)) : null;
+   // Row 2: the first pin-holding source that also resolves the ref itself. A
+   // candidate holding only the pin is passed over, never allowed to mask a
+   // later one holding both.
+   const offline =
+      managedTip === null ? objectSourceCandidates(root, mount, identity) : { candidates: [], ambiguous: false };
+   let selected: { repo: string; kind: ObjectSourceKind; tip: string } | null =
+      managedTip === null ? null : { repo: store, kind: 'store', tip: managedTip };
+   for (const candidate of offline.candidates) {
+      const tip = revOid(candidate.repo, effectiveRef);
+      if (tip !== null) {
+         selected = { ...candidate, tip };
+         break;
+      }
+   }
+   if (selected === null) {
+      // Ambiguity is its own answer: those repositories were never consulted,
+      // so reporting the pin or the witness unavailable would claim more than
+      // was checked.
+      if (offline.ambiguous) return { reason: 'mount-source-ambiguous' };
+      return { reason: offline.candidates.length === 0 ? 'mount-pin-unavailable' : 'mount-witness-unavailable' };
+   }
+   return {
+      repo: selected.repo,
+      comparisonRepository: selected.kind === 'store' ? 'managed-store' : selected.kind,
+      witnessProvenance: managedTip !== null ? 'managed' : 'unmanaged',
+      comparedRef: effectiveRef,
+      tipOid: selected.tip,
    };
 }
 
@@ -1379,85 +1537,78 @@ export function mountStatus(
          if (mount.trackingRef === undefined) return unknown('mount-no-tracking-ref');
          if (!validTrackingRef(mount.trackingRef)) return unknown('mount-tracking-ref-invalid');
 
-         // Row 1: the managed store holds the pin and the resolver's own witness.
-         const store = storeDir(root, identity);
-         const managedTip =
-            isGitRepo(store) && hasCommit(store, mount.pin)
-               ? revOid(store, witnessRefFor(identity, mount.trackingRef))
-               : null;
-         // Row 2: the first pin-holding source that also resolves the ref itself. A
-         // candidate holding only the pin is passed over, never allowed to mask a
-         // later one holding both.
-         const offline =
-            managedTip === null ? objectSourceCandidates(root, mount, identity) : { candidates: [], ambiguous: false };
-         let selected: { repo: string; kind: ObjectSourceKind; tip: string } | null =
-            managedTip === null ? null : { repo: store, kind: 'store', tip: managedTip };
-         for (const candidate of offline.candidates) {
-            const tip = revOid(candidate.repo, mount.trackingRef);
-            if (tip !== null) {
-               selected = { ...candidate, tip };
-               break;
-            }
-         }
-         if (selected === null) {
-            // Ambiguity is its own answer: those repositories were never consulted,
-            // so reporting the pin or the witness unavailable would claim more than
-            // was checked.
-            if (offline.ambiguous) return unknown('mount-source-ambiguous');
-            return unknown(offline.candidates.length === 0 ? 'mount-pin-unavailable' : 'mount-witness-unavailable');
-         }
-         const { repo, tip: tipOid } = selected;
-         const comparisonRepository: StatusResult['pinReport']['comparisonRepository'] =
-            selected.kind === 'store' ? 'managed-store' : selected.kind;
-         const witnessProvenance = managedTip !== null ? 'managed' : 'unmanaged';
+         const selection = selectComparison(root, mount, mount.trackingRef);
+         if ('reason' in selection) return unknown(selection.reason);
+         const { repo, tipOid, comparisonRepository, witnessProvenance } = selection;
 
-         const behind = countRange(repo, mount.pin, tipOid);
-         const ahead = countRange(repo, tipOid, mount.pin);
-         if (behind === null || ahead === null) {
-            return unknown('mount-ancestry-incomplete', comparisonRepository, witnessProvenance);
+         const comparison = comparePins(repo, mount.pin, tipOid);
+         if ('reason' in comparison) {
+            return unknown(comparison.reason, comparisonRepository, witnessProvenance);
          }
-         const shallow = runGit(['-C', repo, 'rev-parse', '--is-shallow-repository']);
-         const ancestryComplete = shallow.ok && shallow.stdout.toString('utf8').trim() === 'false';
-         // Both counts positive is either divergence or two unrelated histories, and
-         // only a merge base tells them apart. Exit 1 is the answer "no merge base";
-         // any other failure is the repository unable to answer, never an answer.
-         // Truncated history can also lose a merge base that exists, so `unrelated`
-         // is a claim only complete ancestry makes.
-         let disjoint = false;
-         if (behind > 0 && ahead > 0) {
-            const mergeBase = runGit(['-C', repo, 'merge-base', mount.pin, tipOid]);
-            if (!mergeBase.ok && mergeBase.code !== 1) {
-               return unknown('mount-ancestry-incomplete', comparisonRepository, witnessProvenance);
-            }
-            disjoint = !mergeBase.ok;
-            if (disjoint && !ancestryComplete) {
-               return unknown('mount-ancestry-incomplete', comparisonRepository, witnessProvenance);
-            }
-         }
-         const pinState: StatusResult['pinReport']['state'] =
-            behind === 0 && ahead === 0
-               ? 'up-to-date'
-               : behind > 0 && ahead > 0
-                 ? disjoint
-                    ? 'unrelated'
-                    : 'diverged'
-                 : behind > 0
-                   ? 'behind'
-                   : 'ahead';
          return {
             ...base,
             pinReport: {
-               state: pinState,
-               behind,
-               ahead,
+               state: comparison.state,
+               behind: comparison.behind,
+               ahead: comparison.ahead,
                comparedRef: mount.trackingRef,
                comparisonRepository,
                witnessProvenance,
-               ancestryComplete,
+               ancestryComplete: comparison.ancestryComplete,
                observedAt,
             },
          };
       });
+}
+
+/** A settled pin comparison: never `unknown`, because a repository that cannot
+ * answer the range returns the reason instead. */
+export interface PinComparison {
+   state: Exclude<StatusResult['pinReport']['state'], 'unknown'>;
+   behind: number;
+   ahead: number;
+   ancestryComplete: boolean;
+}
+
+/**
+ * Where the pin stands against ONE witness snapshot, in ONE repository. Shared by
+ * `status`, which reports it, and `update-pin`, which additionally gates on it — so
+ * the two can never describe the same pair of commits differently.
+ */
+export function comparePins(
+   repo: string,
+   pin: string,
+   tipOid: string,
+): PinComparison | { reason: 'mount-ancestry-incomplete' } {
+   const incomplete = { reason: 'mount-ancestry-incomplete' } as const;
+   const behind = countRange(repo, pin, tipOid);
+   const ahead = countRange(repo, tipOid, pin);
+   if (behind === null || ahead === null) return incomplete;
+   const shallow = runGit(['-C', repo, 'rev-parse', '--is-shallow-repository']);
+   const ancestryComplete = shallow.ok && shallow.stdout.toString('utf8').trim() === 'false';
+   // Both counts positive is either divergence or two unrelated histories, and
+   // only a merge base tells them apart. Exit 1 is the answer "no merge base";
+   // any other failure is the repository unable to answer, never an answer.
+   // Truncated history can also lose a merge base that exists, so `unrelated`
+   // is a claim only complete ancestry makes.
+   let disjoint = false;
+   if (behind > 0 && ahead > 0) {
+      const mergeBase = runGit(['-C', repo, 'merge-base', pin, tipOid]);
+      if (!mergeBase.ok && mergeBase.code !== 1) return incomplete;
+      disjoint = !mergeBase.ok;
+      if (disjoint && !ancestryComplete) return incomplete;
+   }
+   const state: PinComparison['state'] =
+      behind === 0 && ahead === 0
+         ? 'up-to-date'
+         : behind > 0 && ahead > 0
+           ? disjoint
+              ? 'unrelated'
+              : 'diverged'
+           : behind > 0
+             ? 'behind'
+             : 'ahead';
+   return { state, behind, ahead, ancestryComplete };
 }
 
 /** Commits in `from..to`, or null when the range cannot be counted (missing objects). */
@@ -1466,6 +1617,21 @@ function countRange(repo: string, from: string, to: string): number | null {
    if (!r.ok) return null;
    const n = parseInt(r.stdout.toString('utf8').trim(), 10);
    return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The ref a source advertises as its default branch: `HEAD`'s symref target, read
+ * with `ls-remote --symref`. The one lookup in this module that reaches the network
+ * without the caller having named a ref, so both failures stay distinguishable —
+ * the source could not be reached at all, or it advertises no symref to follow.
+ */
+export function resolveDefaultRef(source: string): { ref: string } | { error: 'unreachable' | 'no-symref' } {
+   // The locator becomes argv here: anything option-shaped is refused, never passed.
+   if (source.startsWith('-')) return { error: 'unreachable' };
+   const head = runGit(['ls-remote', '--symref', source, 'HEAD']);
+   if (!head.ok) return { error: 'unreachable' };
+   const m = /^ref:\s+(\S+)\s+HEAD/m.exec(head.stdout.toString('utf8'));
+   return m ? { ref: m[1] } : { error: 'no-symref' };
 }
 
 export interface ReachabilityResult {
@@ -1491,11 +1657,18 @@ export function checkPinReachability(root: string, mount: MountDecl): Reachabili
    // Resolve the witness ref: declared, or the source's advertised default branch.
    let witnessRef = mount.trackingRef ?? null;
    if (witnessRef === null) {
-      const head = runGit(['ls-remote', '--symref', mount.source, 'HEAD']);
-      if (!head.ok) return { state: 'unknown', witnessRef: null, detail: 'the source could not be reached' };
-      const m = /^ref:\s+(\S+)\s+HEAD/m.exec(head.stdout.toString('utf8'));
-      if (!m) return { state: 'unknown', witnessRef: null, detail: 'source advertises no HEAD symref' };
-      witnessRef = m[1];
+      const resolved = resolveDefaultRef(mount.source);
+      if ('error' in resolved) {
+         return {
+            state: 'unknown',
+            witnessRef: null,
+            detail:
+               resolved.error === 'unreachable'
+                  ? 'the source could not be reached'
+                  : 'source advertises no HEAD symref',
+         };
+      }
+      witnessRef = resolved.ref;
    }
    const adv = runGit(['ls-remote', mount.source, witnessRef]);
    if (!adv.ok) return { state: 'unknown', witnessRef, detail: 'the source could not be reached' };
@@ -1504,9 +1677,11 @@ export function checkPinReachability(root: string, mount: MountDecl): Reachabili
    const tip = line.split('\t')[0];
    // Establish ancestry in the resolver store: fetch the witness ref (full history,
    // no promisor state), then ask whether the pin is an ancestor of its tip.
-   const store = path.join(mountsDir(root), 'store', sha256Hex(identity));
+   const store = establishMountsDir(root, path.join(mountsDir(root), 'store', sha256Hex(identity)));
+   if (store === null) {
+      return { state: 'unknown', witnessRef, detail: 'the managed store could not be initialized' };
+   }
    if (!isGitRepo(store)) {
-      fs.mkdirSync(store, { recursive: true });
       const init = runGit(['init', '--bare', '-q', store]);
       if (!init.ok) return { state: 'unknown', witnessRef, detail: 'the managed store could not be initialized' };
    }
@@ -1567,7 +1742,7 @@ export function federationEnforcement(
             message:
                verified === false
                   ? `mount "${mount.name}" projection does not match its pin; re-run \`leji mounts hydrate\``
-                  : `mount "${mount.name}" projection cannot be verified (no reachable object store); an unverified cache is not evidence`,
+                  : `mount "${mount.name}" projection cannot be verified (verification prerequisites unavailable: no reachable object store, unresolvable pin, or no writable temp dir); an unverified cache is not evidence`,
             path: mount.name,
          });
       }

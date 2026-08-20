@@ -68,7 +68,7 @@ func Build(rootAbs string, writes []PlannedWrite, wontModify, overwrite []string
 		entries = append(entries, PlanEntry{
 			Rel:    rel,
 			Status: WontModify,
-			Note:   "existing file, read-only input — Leji will not modify it",
+			Note:   "existing file, read-only input; Leji will not modify it",
 		})
 	}
 	return entries

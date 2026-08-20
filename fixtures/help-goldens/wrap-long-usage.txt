@@ -1,0 +1,2 @@
+Usage: leji mounts update-pin <name> [--to <oid>] [--allow-non-fast-forward]
+       [--fetch] [--dry-run] [--root <dir>] [--json]

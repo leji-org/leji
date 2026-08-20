@@ -10,8 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from .findings import Finding
-from .fsx import resolved_within_root
-from .layer import read_json_artifact
+from .fsx import guard_root, verified_target_read, write_file_guarded
 from .manifest import Manifest, claimed_level, effective_changelog_path, level_at_least
 
 
@@ -80,13 +79,17 @@ def seed_changelog_if_missing(root: str, manifest: Manifest) -> Optional[str]:
     """Seed the machine changelog when the layer claims ``indexed``+ and the file is
     missing (lets ``leji index`` complete the indexed surface for a layer upgraded
     from core). Returns the seeded path, or ``None`` when nothing was written (not
-    indexed, already present, or a symlink escapes the root). Never overwrites."""
+    indexed, already present, or a symlink escapes the root). Never overwrites.
+
+    "Missing" is decided by the exclusive create itself rather than by a pathname
+    check, because ``Path.is_file()`` follows symlinks: a dangling link at the
+    changelog name reads as absent and the seed would be created at the link's
+    destination. The exclusive create judges the ORIGINAL entry, so any standing entry
+    is the same already-present no-op an existing changelog is."""
     if not level_at_least(claimed_level(manifest), "indexed"):
         return None
     rel = effective_changelog_path(manifest)
     abs_path = Path(root) / rel
-    if abs_path.is_file() or not resolved_within_root(root, abs_path):
-        return None
     log = {
         "$schema": "https://leji.org/schemas/v1.0/context-changelog.schema.json",
         "schemaVersion": "1.0",
@@ -102,8 +105,10 @@ def seed_changelog_if_missing(root: str, manifest: Manifest) -> Optional[str]:
             }
         ],
     }
-    abs_path.parent.mkdir(parents=True, exist_ok=True)
-    abs_path.write_text(serialize_changelog(log), encoding="utf-8")
+    if not write_file_guarded(
+        guard_root(root), str(abs_path), None, serialize_changelog(log), exclusive=True
+    ).ok:
+        return None
     return rel
 
 
@@ -143,14 +148,40 @@ def compact_changelog(
             kept=0,
             path=rel,
         )
-    data, parse_finding = read_json_artifact(root, rel)
-    if parse_finding:
-        return CompactResult(findings=[parse_finding], folded=0, kept=0, path=rel)
-    if data is None:
+    # Compaction rewrites the file it just read, so the bytes it folds come from the
+    # verified read rather than from a pathname read once and written again: a refusal
+    # (outside the layer root, a private role, an entry that is not a regular file) is
+    # reported exactly as an unreadable artifact, and nothing is written.
+    root_real = guard_root(root)
+    read = verified_target_read(root_real, str(Path(root) / rel), None)
+    if read.status == "refused":
+        return CompactResult(
+            findings=[
+                Finding(
+                    "artifact-parse",
+                    "error",
+                    f"artifact {rel} resolves outside the layer root",
+                    rel,
+                )
+            ],
+            folded=0,
+            kept=0,
+            path=rel,
+        )
+    if read.status == "absent":
         return CompactResult(
             findings=[
                 Finding("changelog-required", "error", f"changelog {rel} does not exist", rel)
             ],
+            folded=0,
+            kept=0,
+            path=rel,
+        )
+    try:
+        data = json.loads(read.text())
+    except (ValueError, UnicodeDecodeError) as e:
+        return CompactResult(
+            findings=[Finding("artifact-parse", "error", f"invalid JSON: {e}", rel)],
             folded=0,
             kept=0,
             path=rel,
@@ -212,7 +243,7 @@ def compact_changelog(
     nxt = {**log, "entries": [*survivors, compaction]}
 
     abs_path = Path(root) / rel
-    if not resolved_within_root(root, abs_path):
+    if not write_file_guarded(root_real, str(abs_path), None, serialize_changelog(nxt)).ok:
         return CompactResult(
             findings=[
                 Finding(
@@ -226,7 +257,5 @@ def compact_changelog(
             kept=len(original),
             path=rel,
         )
-    abs_path.parent.mkdir(parents=True, exist_ok=True)
-    abs_path.write_text(serialize_changelog(nxt), encoding="utf-8")
 
     return CompactResult(findings=[], folded=n_folded, kept=len(nxt["entries"]), path=rel)

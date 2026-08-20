@@ -1,0 +1,26 @@
+leji index: Generate the context index at the declared path, or verify it is
+   current.
+
+Usage: leji index [--check] [--root <dir>] [--json]
+
+Resolves the category index files to the documents they list and writes the
+context index to machine.indexPath. Ids are carried across a move when the move
+is unambiguous: a document whose path changes keeps its id if its content is
+unchanged and that content is unique in the context layer. A move that also
+edits the content, or that moves one of several byte-identical documents, cannot
+be carried and mints a fresh id. Declare a frontmatter id to make a document's
+id survive any move; that is the only unconditional guarantee. With --check it
+writes nothing and instead fails when the stored index no longer matches what
+the index files resolve to (a stale index is a hard failure).
+
+Options:
+   --check             Verify the stored index is current with the tree; write
+                       nothing.
+
+Global options: see leji --help.
+
+Examples:
+   leji index
+   leji index --check
+
+Full reference: https://leji.org/cli/

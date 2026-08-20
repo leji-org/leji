@@ -5,6 +5,7 @@ import { Code } from 'astro:components';
 import Doc from '../layouts/Doc.astro';
 import SupportedRuntimes from '../components/SupportedRuntimes.astro';
 import InstallTabs from '../components/InstallTabs.astro';
+import lejiSyntaxTheme from '../styles/shiki-leji.json';
 
 // Single-sourced from the SDK's CLI spec; `leji --help` renders from the same
 // file, so this page and the tool cannot disagree.
@@ -44,7 +45,7 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
       </p>
    </div>
 
-   <div class="cli-code"><Code code={cli.usage} lang="bash" theme="night-owl" /></div>
+   <div class="cli-code"><Code code={cli.usage} lang="bash" theme={lejiSyntaxTheme} /></div>
 
    <aside class="cli-onboarding">
       <h2>Agent onboarding</h2>
@@ -60,23 +61,38 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
       </p>
    </aside>
 
-   <h2>Commands</h2>
-   <table class="cli-table cmd-table">
-      <tbody>
-         {
-            cli.commands.map((c: any) => (
-               <tr>
-                  <td>
-                     <a href={`#${slug(c.name)}`}>
-                        <code>{c.name}</code>
-                     </a>
-                  </td>
-                  <td>{segments(c.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
-               </tr>
-            ))
-         }
-      </tbody>
-   </table>
+   {
+      cli.groups.map((g: any) => (
+         <Fragment>
+            <h2>{g.title}</h2>
+            <table class="cli-table cmd-table">
+               <tbody>
+                  {cli.commands
+                     .filter((c: any) => c.group === g.id)
+                     .map((c: any) => (
+                        <tr>
+                           <td>
+                              <a href={`#${slug(c.name)}`}>
+                                 <code>{c.name}</code>
+                              </a>
+                           </td>
+                           <td>
+                              {c.aliasOf
+                                 ? [
+                                      'alias of ',
+                                      <a href={`#${slug(c.aliasOf)}`}>
+                                         <code>{c.aliasOf}</code>
+                                      </a>,
+                                   ]
+                                 : segments(c.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}
+                           </td>
+                        </tr>
+                     ))}
+               </tbody>
+            </table>
+         </Fragment>
+      ))
+   }
 
    <h2>Exit codes</h2>
    <table class="cli-table">
@@ -113,6 +129,23 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
       </tbody>
    </table>
 
+   <h2 id="pinned-cli">The CLI a repository pins</h2>
+   <p>
+      Inside a repository that directly declares the Leji CLI and has it installed, with a copy that meets the layer's
+      minimum, the installed <code>leji</code> runs that copy for every invocation, <code>--version</code> and <code
+         >--help</code
+      > included. Node finds it under <code>node_modules</code>; Python finds it in a project environment inside the
+      repository (<code>.venv</code>, or uv's <code>UV_PROJECT_ENVIRONMENT</code>). So a person typing <code>leji</code
+      >, the git hook, CI, and every teammate run one version of the tool, whatever each of them installed globally.
+      Anything else runs the global CLI exactly as before.
+   </p>
+   <p>
+      Set <code>LEJI_NO_LOCAL</code> to any value to run the global copy instead. The Go CLI does not hand off, because a
+      Go repository's declared copy is built on demand by the toolchain rather than installed as an executable: run the pinned
+      copy with <code>go tool leji</code>. Upgrading the Python CLI? An already-installed console script gains the
+      hand-off after a reinstall, which rebakes the entry point.
+   </p>
+
    {
       cli.commands.map((c: any) => (
          <section class="cmd">
@@ -128,7 +161,7 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
                </ul>
             )}
             <div class="cli-code">
-               <Code code={c.usage} lang="bash" theme="night-owl" />
+               <Code code={c.usage} lang="bash" theme={lejiSyntaxTheme} />
             </div>
             {c.options.length > 0 && (
                <table class="cli-table">
@@ -146,7 +179,7 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
             )}
             <p class="ex-label">{c.examples.length > 1 ? 'Examples' : 'Example'}</p>
             <div class="cli-code">
-               <Code code={c.examples.join('\n')} lang="bash" theme="night-owl" />
+               <Code code={c.examples.join('\n')} lang="bash" theme={lejiSyntaxTheme} />
             </div>
          </section>
       ))
@@ -157,8 +190,8 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
    .cli-onboarding {
       margin: 1.8rem 0 0.6rem;
       padding: 1.1rem 1.3rem;
-      border-left: 3px solid var(--gold);
-      background: rgba(255, 189, 110, 0.08);
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
       border-radius: 0 8px 8px 0;
    }
    .cli-onboarding h2 {
@@ -167,15 +200,15 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
    }
    .cli-onboarding p {
       margin: 0;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
    }
 
    /* command names styled like the schema links */
    .cmd-table td a code {
-      color: var(--blue);
+      color: var(--leji-link);
    }
    .cmd-table td a:hover code {
-      background: rgba(34, 63, 147, 0.13);
+      background: rgba(0, 159, 113, 0.14);
    }
 
    .runtimes-block {
@@ -191,18 +224,18 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
       font-size: 0.72rem;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       margin: 0 0 0.6rem;
    }
    .cli-install-tabs {
-      background: var(--blue-deep);
+      background: var(--leji-deep);
       border-radius: 12px;
-      box-shadow: 0 14px 40px rgba(22, 41, 96, 0.14);
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
       overflow: hidden;
    }
    .cli-install-next {
       margin: 0.9rem 0 0;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
    }
 
    .cli-table {
@@ -216,21 +249,21 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
       font-size: 0.72rem;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       padding: 0.4rem 0.9rem 0.4rem 0;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--leji-border);
    }
    .cli-table td {
       padding: 0.5rem 0.9rem 0.5rem 0;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--leji-border);
       vertical-align: top;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
    }
    .cli-table td:first-child {
       white-space: nowrap;
    }
    .cli-table td code {
-      color: var(--blue-deep);
+      color: var(--leji-text);
       font-size: 0.85em;
    }
 
@@ -239,10 +272,10 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
       padding-top: 0.4rem;
    }
    .cmd h2 {
-      scroll-margin-top: 1.5rem;
+      scroll-margin-top: calc(var(--header-h) + 1.5rem);
    }
    .cmd h2 code {
-      color: var(--blue-deep);
+      color: var(--leji-text);
       background: none;
       padding: 0;
    }
@@ -255,7 +288,7 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
       position: relative;
       padding-left: 1.1rem;
       margin: 0.5rem 0;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       line-height: 1.6;
    }
    .cmd-details li::before {
@@ -266,18 +299,18 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
       width: 5px;
       height: 5px;
       border-radius: 50%;
-      background: var(--gold);
+      background: var(--leji-brand);
    }
    .ex-label {
       font-family: var(--mono);
       font-size: 0.72rem;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       margin: 1.1rem 0 0;
    }
    .cli-code :global(.astro-code) {
-      background: var(--blue-deep) !important;
+      background: var(--leji-deep) !important;
       border-radius: 10px;
       padding: 1rem 1.2rem;
       font-size: var(--code-fz);

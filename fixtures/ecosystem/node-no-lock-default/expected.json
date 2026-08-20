@@ -1,0 +1,51 @@
+{
+  "ecosystem": {
+    "selected": {
+      "ecosystem": "node",
+      "status": "ok",
+      "manifest": "package.json",
+      "manager": "npm",
+      "source": "default",
+      "evidence": [],
+      "add": [
+        "npm",
+        "i",
+        "-D",
+        "@leji-org/leji"
+      ],
+      "runner": [
+        "npx",
+        "--no-install",
+        "@leji-org/leji"
+      ],
+      "directDeclared": false,
+      "lockEvidenced": false,
+      "candidates": []
+    },
+    "all": [
+      {
+        "ecosystem": "node",
+        "status": "ok",
+        "manifest": "package.json",
+        "manager": "npm",
+        "source": "default",
+        "evidence": [],
+        "add": [
+          "npm",
+          "i",
+          "-D",
+          "@leji-org/leji"
+        ],
+        "runner": [
+          "npx",
+          "--no-install",
+          "@leji-org/leji"
+        ],
+        "directDeclared": false,
+        "lockEvidenced": false,
+        "candidates": []
+      }
+    ],
+    "reason": null
+  }
+}

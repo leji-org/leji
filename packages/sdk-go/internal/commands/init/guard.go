@@ -12,11 +12,12 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/detect"
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
 	"github.com/leji-org/leji/packages/sdk-go/internal/jsonenc"
+	"github.com/leji-org/leji/packages/sdk-go/internal/layout"
 )
 
 // The onboarding approval guard: a transient Claude Code PreToolUse hook that
 // counters the ask-prompt pattern. AskUserQuestion stays blocked until the
-// proposal is written to <rootPath>/.leji/proposal.md AND printed as message
+// proposal is written to .leji/work/proposal.md AND printed as message
 // text; the corrective message lands at the action boundary, where instruction
 // reliably reaches the model. Self-disabling once the onboarding brief is gone;
 // the finalize step removes it entirely.
@@ -144,16 +145,19 @@ func decodeOrderedValue(dec *json.Decoder) (any, error) {
 	return nil, errors.New("unexpected JSON delimiter")
 }
 
-// EnsureApprovalGuard writes the guard script under <rootPath>/.leji/hooks/ and
-// merges its PreToolUse entry into .claude/settings.json (created if absent,
-// other settings preserved). Idempotent: an existing guard entry is left
-// untouched.
+// EnsureApprovalGuard writes the guard script under the onboarding workspace
+// (`.leji/work/hooks/`) and merges its PreToolUse entry into
+// .claude/settings.json (created if absent, other settings preserved).
+// Idempotent: an existing guard entry is left untouched. rootPath no longer
+// selects the workspace — it is one root-relative tree — and is kept only so the
+// exported signature holds.
 func EnsureApprovalGuard(root, rootPath string) (GuardAction, error) {
+	_ = rootPath
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
 		rootAbs = root
 	}
-	lejiRel := fsx.JoinUnderRoot(rootPath, ".leji")
+	lejiRel := layout.WorkRel
 	scriptRel := lejiRel + "/hooks/approval-guard.mjs"
 	scriptAbs := filepath.Join(rootAbs, scriptRel)
 	if err := guardWithinRoot(rootAbs, scriptAbs, scriptRel); err != nil {
@@ -166,19 +170,19 @@ func EnsureApprovalGuard(root, rootPath string) (GuardAction, error) {
 		return "", err
 	}
 	settings := newOrdered()
-	if fsx.IsFile(settingsAbs) {
-		existing, rerr := fsx.ReadText(settingsAbs)
-		if rerr != nil {
-			return "", rerr
+	// The settings file is parsed, merged, and written back, so its bytes come from
+	// the verified read rather than from the pathname the merge later writes to.
+	existing, _, rerr := readMergeSource(fsx.GuardRoot(rootAbs), settingsAbs, settingsRel)
+	if rerr != nil {
+		return "", rerr
+	}
+	if strings.TrimSpace(existing) != "" {
+		parsed, perr := parseOrderedJSON(existing)
+		obj, isObj := parsed.(*ordered)
+		if perr != nil || !isObj {
+			return "", fmt.Errorf("%s is not valid JSON; fix it before installing the onboarding guard", settingsRel)
 		}
-		if strings.TrimSpace(existing) != "" {
-			parsed, perr := parseOrderedJSON(existing)
-			obj, isObj := parsed.(*ordered)
-			if perr != nil || !isObj {
-				return "", fmt.Errorf("%s is not valid JSON; fix it before installing the onboarding guard", settingsRel)
-			}
-			settings = obj
-		}
+		settings = obj
 	}
 	hooks, isObj := settings.values["hooks"].(*ordered)
 	if !isObj {
@@ -270,7 +274,7 @@ func OfferApprovalGuard(opts GuardOfferOptions, hio *HandoffIO, out io.Writer) e
 		return nil
 	}
 	answer := strings.ToLower(hio.ReadLine(
-		"Add the temporary onboarding guard for Claude Code, in this repository only? It has the agent print its proposal before asking for approval. Writes two project-local files (a hook entry in this repo’s .claude/settings.json, a script in the gitignored .leji/ workspace); nothing outside this repository is touched, and the finalize step removes both",
+		"Add the temporary onboarding guard for Claude Code, in this repository only? It has the agent print its proposal before asking for approval. Writes two project-local files (a hook entry in this repo’s .claude/settings.json, a script in the gitignored .leji/work/ workspace); nothing outside this repository is touched, and the finalize step removes both",
 		"Y/n",
 	))
 	if !(answer == "" || answer == "y" || answer == "yes") {
@@ -281,7 +285,7 @@ func OfferApprovalGuard(opts GuardOfferOptions, hio *HandoffIO, out io.Writer) e
 		return err
 	}
 	if action == "installed" {
-		fmt.Fprintln(out, "Onboarding guard added (this repository only: .claude/settings.json hook + .leji/hooks/approval-guard.mjs; removed at finalize).")
+		fmt.Fprintln(out, "Onboarding guard added (this repository only: .claude/settings.json hook + .leji/work/hooks/approval-guard.mjs; removed at finalize).")
 	} else {
 		fmt.Fprintln(out, "Onboarding guard already present in this repository; refreshed the script.")
 	}

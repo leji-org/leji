@@ -1,4 +1,18 @@
 {
   "validate": { "exit": 0, "findings": [] },
-  "conformance": { "exit": 0, "claimedLevel": "core", "verifiedLevel": "core" }
+  "conformance": { "exit": 0, "claimedLevel": "core", "verifiedLevel": "core" },
+  "badge": {
+    "preseed": {
+      "path": "leji-badge.svg",
+      "bytes": "not a badge\n"
+    },
+    "exit": 2,
+    "out": null,
+    "level": null,
+    "claimedLevel": "core",
+    "verifiedLevel": "core",
+    "golden": null,
+    "action": null,
+    "written": false
+  }
 }

@@ -61,7 +61,7 @@ def build_write_plan(
             PlanEntry(
                 rel=rel,
                 status="wont-modify",
-                note="existing file, read-only input — Leji will not modify it",
+                note="existing file, read-only input; Leji will not modify it",
             )
         )
     return entries

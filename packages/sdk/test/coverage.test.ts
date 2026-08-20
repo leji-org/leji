@@ -10,7 +10,7 @@ import { generateViewer, loadManifest, run, serveViewer, validateManifestObject 
 import type { Manifest } from '../dist/index.js';
 import { contentFindings } from '../dist/commands/validate.js';
 import { finding, sortFindings } from '../dist/lib/findings.js';
-import { realpathWithin, walkMd } from '../dist/lib/fsx.js';
+import { resolvedWithinRoot, walkMd } from '../dist/lib/fsx.js';
 import { schemaErrors } from '../dist/lib/schemas.js';
 import { gitLastModified, gitShowHead, gitToplevel } from '../dist/lib/git.js';
 import { readJsonArtifact } from '../dist/lib/layer.js';
@@ -65,11 +65,11 @@ test('sortFindings: undefined path sorts first, then rule, then message', () => 
    );
 });
 
-// --- lib/fsx: realpathWithin error branches ---
-test('realpathWithin: unresolvable root is false; non-existent target is allowed', () => {
-   assert.equal(realpathWithin(path.join(os.tmpdir(), 'leji-no-such-root-zzz'), os.tmpdir()), false);
-   const d = tmpdir('leji-rpw-');
-   assert.equal(realpathWithin(d, path.join(d, 'missing')), true);
+// --- lib/fsx: resolvedWithinRoot error branches ---
+test('resolvedWithinRoot: an unresolvable root is false; a not-yet-created target is contained', () => {
+   assert.equal(resolvedWithinRoot(path.join(os.tmpdir(), 'leji-no-such-root-zzz'), os.tmpdir()), false);
+   const d = tmpdir('leji-rwr-');
+   assert.equal(resolvedWithinRoot(d, path.join(d, 'missing')), true);
 });
 
 // --- lib/schemas: root-level violation label ---

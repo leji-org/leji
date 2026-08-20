@@ -1,0 +1,8 @@
+{
+  "note": "The addressed mount carries two \"pin\" members: rewriting the first would report a change the manifest does not have.",
+  "mount": "product-context",
+  "from": "4e974570000000000000000000000000000000aa",
+  "to": "9f1c2e9b8a7f6d5c4b3a2e1d0c9b8a7f6d5c4b3a",
+  "outcome": "error",
+  "error": "duplicate-key"
+}

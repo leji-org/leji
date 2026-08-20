@@ -8,13 +8,14 @@ import AnimatedTerminal from '../components/AnimatedTerminal.astro';
 import ViewerGlimpse from '../components/ViewerGlimpse.astro';
 import InstallTabs from '../components/InstallTabs.astro';
 import githubIcon from '../assets/github.svg?raw';
+import lejiSyntaxTheme from '../styles/shiki-leji.json';
 
 // Captured verbatim from a real run: a repo with an existing docs/ tree and an
 // AGENTS.md, `leji adopt --yes --wire-adapters`, then validate and conformance
 // (the file list is elided to its first entries, real sorted order).
 // The fixture carries AGENTS.md, the portable adapter, rather than a
-// single-vendor entrypoint: this is a neutral standard and the hero should not
-// showcase one vendor's file.
+// single-vendor entrypoint: the standard is vendor-agnostic and the hero should
+// not showcase one vendor's file.
 // Re-capture this after any change to what init/adopt writes; it drifted once
 // when AGENTS.md generation landed and took the file count with it.
 // To re-capture: outside this repo, make a fresh dir with a docs/ tree (a couple
@@ -26,7 +27,7 @@ import githubIcon from '../assets/github.svg?raw';
 const heroSession = [
    { cmd: 'leji adopt --yes --wire-adapters' },
    { out: 'Wrote 16 files (context root: docs/):' },
-   { out: '   AGENTS.md   docs/.leji/onboarding-brief.md   docs/agents/core.md   …', mark: 'dim' },
+   { out: '   .leji/work/onboarding-brief.md   AGENTS.md   docs/agents/core.md   …', mark: 'dim' },
    { gap: true },
    { cmd: 'leji validate' },
    { out: 'ok (0 errors, 0 warnings)', mark: 'ok' },
@@ -194,7 +195,7 @@ const peekJson = `{
                <h2 class="section-title levels-title">Claim a level, then check it.</h2>
                <p class="levels-lede">
                   Four cumulative levels, graded by what is in place rather than self-assessed maturity. Most teams
-                  reach
+                  reach{' '}
                   <code>governed</code> and stop. The CLI checks what a machine can; your team stands behind the rest.
                </p>
                <ol class="ladder">
@@ -223,10 +224,10 @@ const peekJson = `{
                   </li>
                </ol>
                <aside class="standard-note">
-                  <span class="standard-note-label">A neutral standard</span>
+                  <span class="standard-note-label">No commercial gate</span>
                   <p>
                      Every level is reachable with the open specification and reference tooling alone. Conformance never
-                     requires a commercial product or service.
+                     requires a commercial product or service, including the steward's own.
                   </p>
                </aside>
             </section>
@@ -296,7 +297,7 @@ const peekJson = `{
                <p class="peek-more"><a href="/manifest/">Manifest reference →</a></p>
             </div>
             <div class="peek-code">
-               <Code code={peekJson} lang="json" theme="night-owl" wrap />
+               <Code code={peekJson} lang="json" theme={lejiSyntaxTheme} wrap />
             </div>
          </section>
       </div>
@@ -309,17 +310,21 @@ const peekJson = `{
       --grain: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='160'%20height='160'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.8'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20type='saturate'%20values='0'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url(%23n)'/%3E%3C/svg%3E");
       position: relative;
       overflow: hidden;
-      color: var(--white);
+      color: var(--leji-surface);
+      /* Depth, three layers deep: the linear runs deepest at both ends and opens
+         to --leji-deep across the middle, so the band frames itself; a mint wash
+         lights the top where the headline sits; and the brand green, centred
+         below the band's own edge, lifts the ground under the terminal the way
+         the retired composition lifted it from below. */
       background:
-         radial-gradient(120% 80% at 50% -20%, rgba(255, 205, 146, 0.16), transparent 55%),
-         radial-gradient(90% 60% at 50% 118%, rgba(61, 86, 160, 0.55), transparent 60%),
-         linear-gradient(180deg, #0c1736 0%, var(--blue-deep) 32%, #18306e 100%);
+         radial-gradient(120% 80% at 50% -20%, rgba(112, 216, 194, 0.16), transparent 55%),
+         radial-gradient(90% 60% at 50% 118%, rgba(0, 159, 113, 0.55), transparent 60%),
+         linear-gradient(180deg, var(--leji-deepest) 0%, var(--leji-deep) 32%, var(--leji-deepest) 100%);
       padding-bottom: clamp(3.5rem, 8vh, 6rem);
       /* The banner is a sibling above this band, not a child, so <main> can be the
          page's landmark. Pull the band up behind it and pad the same amount back, so
          the gradient, glow and fluting are continuous under the header.
-         --header-h mirrors SiteHeader's row: the 30px logo plus its 1.05rem padding. */
-      --header-h: calc(30px + 2 * 1.05rem);
+         --header-h is the header row's height, defined in global.css. */
       margin-top: calc(-1 * var(--header-h));
       padding-top: var(--header-h);
    }
@@ -340,7 +345,7 @@ const peekJson = `{
       content: '';
       position: absolute;
       inset: 0;
-      background-image: repeating-linear-gradient(90deg, transparent 0 86px, rgba(255, 189, 110, 0.045) 86px 87px);
+      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(112, 216, 194, 0.05) 78px 79px);
       pointer-events: none;
       z-index: 0;
    }
@@ -375,13 +380,13 @@ const peekJson = `{
       font-size: 0.72rem;
       letter-spacing: 0.24em;
       text-transform: uppercase;
-      color: var(--gold-bright);
+      color: var(--leji-accent);
       margin: 0 0 1.3rem;
    }
    .kicker .sep {
       font-style: normal;
       font-size: 0.5rem;
-      color: var(--gold);
+      color: var(--leji-accent);
       opacity: 0.7;
       transform: translateY(-1px);
    }
@@ -393,25 +398,27 @@ const peekJson = `{
       font-size: clamp(2.4rem, 5.2vw, 4.05rem);
       line-height: 1.06;
       letter-spacing: -0.02em;
-      color: var(--white);
+      color: var(--leji-surface);
       margin: 0;
       max-width: 30ch;
    }
 
+   /* The one word the headline turns on: mint against white, with the glow that
+      makes it read as lit rather than merely coloured. */
    .gild {
       position: relative;
       white-space: nowrap;
-      color: var(--gold-bright);
+      color: var(--leji-accent);
       font-style: italic;
       font-variation-settings: 'opsz' 144;
-      text-shadow: 0 0 34px rgba(255, 189, 110, 0.4);
+      text-shadow: 0 0 34px rgba(112, 216, 194, 0.4);
    }
 
    .carved-rule {
       width: 92px;
       height: 2px;
       margin: 1.7rem 0 0;
-      background: linear-gradient(90deg, var(--gold-bright), rgba(255, 189, 110, 0.05));
+      background: linear-gradient(90deg, var(--leji-accent), rgba(112, 216, 194, 0.05));
       border-radius: 2px;
       box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
    }
@@ -425,21 +432,21 @@ const peekJson = `{
       margin: 1.7rem 0 2.1rem;
    }
    .lede strong {
-      color: var(--white);
+      color: var(--leji-surface);
       font-weight: 600;
    }
    .lede code {
       font-size: 0.84em;
       color: var(--white-strong);
       background: rgba(255, 255, 255, 0.09);
-      border: 1px solid rgba(255, 189, 110, 0.16);
+      border: 1px solid rgba(112, 216, 194, 0.22);
       padding: 0.06em 0.36em;
       border-radius: 4px;
    }
    .lede a {
       color: inherit;
       text-decoration: underline;
-      text-decoration-color: rgba(255, 189, 110, 0.28);
+      text-decoration-color: rgba(112, 216, 194, 0.35);
       text-decoration-thickness: 1px;
       text-underline-offset: 2px;
       transition:
@@ -447,8 +454,8 @@ const peekJson = `{
          text-decoration-color 0.15s ease;
    }
    .lede a:hover {
-      color: var(--gold-bright);
-      text-decoration-color: var(--gold-bright);
+      color: var(--leji-accent);
+      text-decoration-color: var(--leji-accent);
    }
 
    .cta {
@@ -471,12 +478,12 @@ const peekJson = `{
       display: inline-flex;
       align-items: center;
       gap: 0.45em;
-      color: var(--gold-bright);
+      color: var(--leji-accent);
       text-decoration: none;
    }
    .hero-license .gh-icon {
       display: inline-flex;
-      color: var(--white);
+      color: var(--leji-surface);
    }
    .hero-license .gh-icon :global(svg) {
       display: block;
@@ -484,13 +491,13 @@ const peekJson = `{
       width: auto;
    }
    .hero-license .free {
-      color: var(--gold-bright);
+      color: var(--leji-accent);
       text-transform: uppercase;
       letter-spacing: 0.12em;
    }
    .hero-license .oss-link:hover .free {
       text-decoration: underline;
-      text-decoration-color: var(--gold);
+      text-decoration-color: var(--leji-accent);
       text-underline-offset: 3px;
    }
    .btn {
@@ -507,27 +514,33 @@ const peekJson = `{
          background 0.16s ease,
          border-color 0.16s ease;
    }
+   /* Primary CTA per the brand's own website mapping: brand green ground, white
+      label. Flat, not a ramp: the green is saturated enough to hold the button on
+      its own, and the shadow already gives it the lift. */
    .btn.solid {
-      background: linear-gradient(180deg, var(--gold-bright), var(--gold));
-      color: var(--blue-deep);
+      /* the accessible green ground carries white at 5.15:1 at any size; the
+         vivid brand green is the hover moment */
+      background: var(--leji-brand-dark);
+      color: var(--leji-surface);
       font-weight: 600;
       box-shadow:
          inset 0 1px 0 rgba(255, 255, 255, 0.45),
-         0 10px 28px rgba(255, 189, 110, 0.26);
+         0 10px 28px rgba(0, 159, 113, 0.32);
    }
    .btn.solid:hover {
+      background: var(--leji-brand);
       transform: translateY(-2px);
       box-shadow:
          inset 0 1px 0 rgba(255, 255, 255, 0.55),
-         0 16px 40px rgba(255, 189, 110, 0.38);
+         0 16px 40px rgba(0, 159, 113, 0.45);
    }
    .btn.ghost {
-      border: 1px solid rgba(255, 189, 110, 0.45);
-      color: var(--gold-bright);
+      border: 1px solid rgba(112, 216, 194, 0.5);
+      color: var(--leji-accent);
    }
    .btn.ghost:hover {
-      background: rgba(255, 189, 110, 0.1);
-      border-color: var(--gold-bright);
+      background: rgba(112, 216, 194, 0.12);
+      border-color: var(--leji-accent);
       transform: translateY(-2px);
    }
    .hero-proof {
@@ -538,7 +551,7 @@ const peekJson = `{
       content: '';
       position: absolute;
       inset: -12% -8% -16%;
-      background: radial-gradient(58% 60% at 62% 34%, rgba(255, 189, 110, 0.18), transparent 72%);
+      background: radial-gradient(58% 60% at 62% 34%, rgba(112, 216, 194, 0.2), transparent 72%);
       filter: blur(18px);
       pointer-events: none;
       z-index: 0;
@@ -550,8 +563,8 @@ const peekJson = `{
    .hero-proof :global(.term) {
       box-shadow:
          0 1px 0 rgba(255, 255, 255, 0.06) inset,
-         0 34px 80px rgba(7, 14, 38, 0.55),
-         0 0 0 1px rgba(255, 189, 110, 0.16);
+         0 34px 80px rgba(16, 42, 41, 0.55),
+         0 0 0 1px rgba(112, 216, 194, 0.22);
    }
    .reveal {
       opacity: 0;
@@ -593,7 +606,7 @@ const peekJson = `{
       font-size: clamp(1.7rem, 3vw, 2.3rem);
       line-height: 1.12;
       letter-spacing: -0.012em;
-      color: var(--blue-deep);
+      color: var(--leji-text);
       margin: 0 0 0.6rem;
       max-width: 22ch;
    }
@@ -605,7 +618,7 @@ const peekJson = `{
       margin-bottom: 0.9rem;
    }
    .levels-lede {
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       margin: 0;
       max-width: var(--measure);
       font-size: var(--text-lede);
@@ -613,10 +626,10 @@ const peekJson = `{
    }
    .levels-lede code {
       font-size: 0.85em;
-      background: rgba(34, 63, 147, 0.07);
+      background: var(--leji-surface);
       padding: 0.1em 0.35em;
       border-radius: 4px;
-      color: var(--blue-deep);
+      color: var(--leji-text);
    }
    .adopt-flow {
       list-style: none;
@@ -637,7 +650,7 @@ const peekJson = `{
       left: 0;
       width: 100%;
       height: 2px;
-      background: var(--gold);
+      background: var(--leji-brand);
    }
    .step-when {
       display: block;
@@ -645,18 +658,18 @@ const peekJson = `{
       font-size: 0.66rem;
       letter-spacing: 0.2em;
       text-transform: uppercase;
-      color: var(--blue);
+      color: var(--leji-link);
       margin-bottom: 0.5rem;
    }
    .adopt-step h3 {
       font-family: var(--serif-display);
       font-weight: 560;
       font-size: 1.1rem;
-      color: var(--blue-deep);
+      color: var(--leji-text);
       margin: 0 0 0.4rem;
    }
    .adopt-step p {
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       margin: 0;
       line-height: 1.6;
    }
@@ -676,18 +689,18 @@ const peekJson = `{
       margin: clamp(1.6rem, 3.5vh, 2.6rem) 0 0;
       max-width: var(--measure);
       padding: 0.15rem 0 0.15rem 1.1rem;
-      border-left: 2px solid var(--gold);
+      border-left: 2px solid var(--leji-brand);
    }
    .standard-note-label {
       font-family: var(--mono);
       font-size: 0.66rem;
       letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: var(--blue);
+      color: var(--leji-link);
    }
    .standard-note p {
       margin: 0;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       line-height: 1.6;
    }
    .ladder {
@@ -713,10 +726,12 @@ const peekJson = `{
    }
    .ladder li {
       counter-increment: ladder;
-      border: 1px solid var(--line);
+      border: 1px solid var(--leji-border);
       border-radius: 12px;
       padding: 1.4rem 1.4rem 1.3rem;
-      background: linear-gradient(180deg, var(--white), #fbf8f2);
+      /* Flat white per the brand's card rule: on the mint band and on the canvas
+         alike, pure white plus the border is what lifts the card. */
+      background: var(--leji-surface);
       position: relative;
       transition:
          transform 0.16s ease,
@@ -725,9 +740,11 @@ const peekJson = `{
    }
    .ladder li:hover {
       transform: translateY(-3px);
-      border-color: var(--gold);
-      box-shadow: 0 14px 34px rgba(22, 41, 96, 0.1);
+      border-color: var(--leji-brand);
+      box-shadow: 0 14px 34px rgba(24, 61, 59, 0.12);
    }
+   /* A light chip carrying dark text: mint ground, heading tone on it, 7.1:1.
+      Brand green here would force white text at 3.4:1 on a 15px numeral. */
    .ladder li::before {
       content: counter(ladder);
       position: absolute;
@@ -735,12 +752,12 @@ const peekJson = `{
       left: 1.1rem;
       font-family: var(--serif-display);
       font-weight: 620;
-      color: var(--blue-deep);
-      background: var(--gold);
+      color: var(--leji-text);
+      background: var(--leji-accent);
       padding: 0.06rem 0.6rem;
       border-radius: 999px;
       font-size: 0.92rem;
-      box-shadow: 0 3px 10px rgba(22, 41, 96, 0.18);
+      box-shadow: 0 3px 10px rgba(24, 61, 59, 0.18);
    }
    .ladder .rung-tag {
       display: inline-block;
@@ -748,7 +765,7 @@ const peekJson = `{
       font-size: 0.66rem;
       letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: var(--blue);
+      color: var(--leji-link);
       margin-bottom: 0.55rem;
    }
    .ladder .rung-cap {
@@ -757,12 +774,12 @@ const peekJson = `{
       font-weight: 580;
       font-size: var(--text-lede);
       line-height: 1.2;
-      color: var(--blue-deep);
+      color: var(--leji-text);
       margin-bottom: 0.5rem;
    }
    .ladder span {
       font-size: 0.9rem;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       line-height: 1.55;
    }
 
@@ -770,11 +787,13 @@ const peekJson = `{
       position: relative;
       overflow: hidden;
       padding: clamp(3rem, 7vh, 5rem) 0;
+      /* One recessed tint: the soft mint already sits a measured step under the
+         canvas, and a second gradient stop would have had to borrow a token whose
+         role is elsewhere. */
       background:
-         radial-gradient(75% 60% at 88% -15%, rgba(34, 63, 147, 0.025), transparent 60%),
-         linear-gradient(180deg, #f7f2e9, #f5eee2);
-      border-top: 1px solid var(--line-dark);
-      border-bottom: 1px solid var(--line-dark);
+         radial-gradient(75% 60% at 88% -15%, rgba(0, 159, 113, 0.04), transparent 60%), var(--leji-accent-soft);
+      border-top: 1px solid var(--leji-accent-rule);
+      border-bottom: 1px solid var(--leji-accent-rule);
    }
    .levels-band::before {
       content: '';
@@ -790,7 +809,7 @@ const peekJson = `{
       content: '';
       position: absolute;
       inset: 0;
-      background-image: repeating-linear-gradient(90deg, transparent 0 86px, rgba(255, 189, 110, 0.04) 86px 87px);
+      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(0, 159, 113, 0.022) 78px 79px);
       pointer-events: none;
    }
    .levels-band > * {
@@ -804,7 +823,7 @@ const peekJson = `{
       max-width: none;
    }
    .surfaces-lede {
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       margin: 0.6rem 0 0;
       max-width: var(--measure);
       font-size: var(--text-lede);
@@ -821,24 +840,24 @@ const peekJson = `{
       flex-direction: column;
       gap: 0.55rem;
       padding: 1.5rem 1.7rem;
-      border: 1px solid var(--gold);
+      border: 1px solid var(--leji-brand);
       border-radius: 14px;
-      background: var(--white);
-      box-shadow: 0 14px 32px rgba(22, 41, 96, 0.1);
+      background: var(--leji-surface);
+      box-shadow: 0 14px 32px rgba(24, 61, 59, 0.12);
    }
    .chart-source-name {
       font-family: var(--serif-display);
       font-weight: 580;
       font-size: 1.18rem;
       line-height: 1.15;
-      color: var(--blue-deep);
+      color: var(--leji-text);
    }
    .chart-source-tag {
       font-family: var(--mono);
       font-size: 0.7rem;
       letter-spacing: 0.16em;
       text-transform: uppercase;
-      color: var(--blue);
+      color: var(--leji-link);
    }
    .chart-fork {
       align-self: stretch;
@@ -847,7 +866,7 @@ const peekJson = `{
    }
    .chart-fork path {
       fill: none;
-      stroke: var(--gold);
+      stroke: var(--leji-brand);
       stroke-width: 1.25;
       vector-effect: non-scaling-stroke;
       opacity: 0.75;
@@ -860,9 +879,9 @@ const peekJson = `{
    .surface {
       position: relative;
       padding: 1.4rem 1.6rem;
-      border: 1px solid var(--line);
+      border: 1px solid var(--leji-border);
       border-radius: 12px;
-      background: linear-gradient(180deg, var(--white), #fbf8f2);
+      background: var(--leji-surface);
    }
    .surface::before {
       content: '';
@@ -873,37 +892,37 @@ const peekJson = `{
       width: 8px;
       height: 8px;
       border-radius: 999px;
-      background: var(--gold);
-      box-shadow: 0 0 0 3px var(--paper);
+      background: var(--leji-brand);
+      box-shadow: 0 0 0 3px var(--leji-canvas);
    }
    .surface-label {
       font-family: var(--mono);
       font-size: 0.72rem;
       letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: var(--blue);
+      color: var(--leji-link);
       margin: 0 0 0.6rem;
    }
    .surface-body {
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       margin: 0;
       line-height: 1.7;
       max-width: var(--measure);
    }
    .surface strong {
-      color: var(--blue-deep);
+      color: var(--leji-text);
       font-weight: 600;
    }
    .surface code {
-      background: rgba(34, 63, 147, 0.07);
+      background: var(--leji-code-bg);
       padding: 0.1em 0.35em;
       border-radius: 4px;
       font-size: 0.85em;
-      color: var(--blue-deep);
+      color: var(--leji-text);
    }
    .surface a {
-      color: var(--blue);
-      text-decoration-color: var(--gold);
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
       text-underline-offset: 3px;
    }
    @media (max-width: 720px) {
@@ -923,11 +942,14 @@ const peekJson = `{
       padding: clamp(3.5rem, 7vh, 5.5rem) 0 clamp(4rem, 8vh, 6rem);
       position: relative;
       overflow: hidden;
-      color: var(--white);
+      color: var(--leji-surface);
+      /* Travels the same direction as before, lighter to darker, so the band
+         settles as the page ends: --leji-deep down to --leji-deepest, mint above
+         the theses and brand green lifting the lower-left corner. */
       background:
-         radial-gradient(90% 70% at 85% -20%, rgba(255, 205, 146, 0.12), transparent 58%),
-         radial-gradient(80% 60% at 0% 120%, rgba(61, 86, 160, 0.5), transparent 60%),
-         linear-gradient(180deg, #16295e, var(--blue-deep));
+         radial-gradient(90% 70% at 85% -20%, rgba(112, 216, 194, 0.14), transparent 58%),
+         radial-gradient(80% 60% at 0% 120%, rgba(0, 159, 113, 0.5), transparent 60%),
+         linear-gradient(180deg, var(--leji-deep), var(--leji-deepest));
    }
    .why-band::before {
       content: '';
@@ -943,7 +965,7 @@ const peekJson = `{
       content: '';
       position: absolute;
       inset: 0;
-      background-image: repeating-linear-gradient(90deg, transparent 0 86px, rgba(255, 189, 110, 0.04) 86px 87px);
+      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(112, 216, 194, 0.047) 78px 79px);
       pointer-events: none;
    }
    .why-band > * {
@@ -951,7 +973,7 @@ const peekJson = `{
       z-index: 1;
    }
    .why-band .section-title {
-      color: var(--white);
+      color: var(--leji-surface);
       margin-bottom: 1rem;
    }
    .why-lede {
@@ -964,22 +986,22 @@ const peekJson = `{
    /* One link treatment for the whole dark band, lede and theses alike. The
       thesis links had no rule of their own, so they fell through to the global
       `a { color: inherit }` and rendered white with the browser's default
-      underline: full strength, no offset, drawn straight through the line. Gold
+      underline: full strength, no offset, drawn straight through the line. Mint
       carries the link on this ground, and the underline is held to a hairline so
       it reads as emphasis rather than as a rule struck through the sentence. */
    .why-band a {
-      color: var(--gold-bright);
+      color: var(--leji-accent);
       text-decoration: underline;
-      text-decoration-color: rgba(255, 189, 110, 0.38);
+      text-decoration-color: rgba(112, 216, 194, 0.45);
       text-decoration-thickness: 1px;
       text-underline-offset: 3px;
       transition: text-decoration-color 140ms ease;
    }
    .why-band a:hover {
-      text-decoration-color: var(--gold-bright);
+      text-decoration-color: var(--leji-accent);
    }
    .why-band a:focus-visible {
-      outline: 2px solid var(--gold-bright);
+      outline: 2px solid var(--leji-accent);
       outline-offset: 3px;
       border-radius: 2px;
    }
@@ -1004,7 +1026,7 @@ const peekJson = `{
       font-weight: 460;
       font-size: clamp(2.1rem, 3.4vw, 2.9rem);
       line-height: 1;
-      color: var(--gold);
+      color: var(--leji-accent);
       text-align: right;
    }
    .thesis h3 {
@@ -1013,7 +1035,7 @@ const peekJson = `{
       font-weight: 560;
       font-size: 1.55rem;
       margin: 0 0 0.7rem;
-      color: var(--white);
+      color: var(--leji-surface);
    }
    .thesis p {
       margin: 0;
@@ -1045,40 +1067,42 @@ const peekJson = `{
       }
    }
    .peek-text p {
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       max-width: var(--measure);
    }
    .peek-text em {
-      color: var(--blue-deep);
+      color: var(--leji-text);
    }
    .peek-more a {
       font-family: var(--mono);
       font-size: 0.76rem;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: var(--blue);
+      color: var(--leji-link);
       text-decoration: none;
-      border-bottom: 1px solid var(--gold);
+      border-bottom: 1px solid var(--leji-brand);
       padding-bottom: 2px;
    }
+   /* Hover deepens, it does not brighten: the link is already the accessible end
+      of the green, so the state that answers is the darker one. */
    .peek-more a:hover {
-      color: var(--blue-soft);
-      border-color: var(--gold-bright);
+      color: var(--leji-text);
+      border-color: var(--leji-text);
    }
    .peek-text code {
-      background: rgba(34, 63, 147, 0.07);
+      background: var(--leji-code-bg);
       padding: 0.1em 0.35em;
       border-radius: 4px;
       font-size: 0.85em;
-      color: var(--blue-deep);
+      color: var(--leji-text);
    }
    .peek-code :global(.astro-code) {
-      background: var(--blue-deep) !important;
+      background: var(--leji-deep) !important;
       border-radius: 14px;
       padding: 1.5rem 1.7rem;
       font-size: var(--code-fz);
       line-height: 1.65;
-      box-shadow: 0 24px 60px rgba(22, 41, 96, 0.2);
+      box-shadow: 0 24px 60px rgba(24, 61, 59, 0.22);
       margin: 0;
    }
 </style>

@@ -78,16 +78,16 @@ const sections = await Promise.all(
    .onepage-toc {
       margin: 1.6rem 0 0.5rem;
       padding: 1rem 1.3rem;
-      border: 1px solid var(--line);
+      border: 1px solid var(--leji-border);
       border-radius: 10px;
-      background: rgba(34, 63, 147, 0.03);
+      background: var(--leji-accent-soft);
    }
    .toc-title {
       font-family: var(--mono);
       font-size: 0.72rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       margin: 0 0 0.5rem;
    }
    .onepage-toc ol {
@@ -100,10 +100,10 @@ const sections = await Promise.all(
       margin: 0.2rem 0;
    }
    .spec-section {
-      scroll-margin-top: 1.5rem;
+      scroll-margin-top: calc(var(--header-h) + 1.5rem);
       padding-top: 1.5rem;
       margin-top: 2.5rem;
-      border-top: 1px solid var(--line);
+      border-top: 1px solid var(--leji-border);
    }
    .spec-section:first-of-type {
       border-top: none;
@@ -117,18 +117,18 @@ const sections = await Promise.all(
       margin: 0 0 -0.6rem;
    }
    .sec-meta a {
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       text-decoration: none;
    }
    .sec-meta a:hover {
-      color: var(--blue);
+      color: var(--leji-link);
    }
    /* the demoted h2 (was h1) reads as the section title on the consolidated page */
    .sec-meta + :global(h2) {
       font-family: var(--serif-display);
       font-weight: 580;
       font-size: 1.7rem;
-      color: var(--blue-deep);
+      color: var(--leji-text);
       margin: 0.2rem 0 0.8rem;
    }
    /* the overview's own heading repeats the page title, so drop it here */

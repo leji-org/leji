@@ -24,7 +24,8 @@ from leji.layer import (
 from leji.manifest import load_manifest
 from leji.schemas import schema_errors
 from leji.validate import validate_layer
-from leji.viewer_cmd import generate_viewer, resolved_profile_page, serve_viewer
+from leji.serve_cmd import serve_viewer
+from leji.viewer_cmd import generate_viewer, resolved_profile_page
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO_ROOT / "examples" / "monorepo"
@@ -596,7 +597,7 @@ def test_an_inheriting_profile_renders_resolved_naming_both_sources(tmp_path: Pa
     assert "docs/agents/core.md" in page
     assert "docs/agents/thought-partner.md" in page
     # Posture entries are labelled with the profile that supplied them.
-    assert "`docs/system/invariants.md` — from `core`" in page
+    assert "`docs/system/invariants.md` (from `core`)" in page
     assert "from `thought-partner`" in page
     # A profile with no inherits is served from disk as authored.
     assert resolved_profile_page(str(directory), manifest, "docs/agents/core.md") is None

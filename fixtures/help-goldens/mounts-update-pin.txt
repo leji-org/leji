@@ -1,0 +1,55 @@
+leji mounts update-pin: Move a declared mount's pin forward to a witnessed
+   commit, showing the comparison first.
+
+Usage: leji mounts update-pin <name> [--to <oid>] [--allow-non-fast-forward]
+       [--fetch] [--dry-run] [--root <dir>] [--json]
+
+Rewrites one declared federation mount's pin in leji.json, after printing where
+that pin stands against its tracking ref. Offline by default: the target is the
+last successfully observed witness in a reachable object store (the
+resolver-managed store first, then a hint or a unique matching submodule holding
+both the pin and the ref), never a claim that the source was looked at during
+this run. --fetch observes the declared source and nothing else, in three acts:
+retain the current pin in the resolver-managed store, refresh the managed
+witness ref once, and retain the target once the comparison has passed; any of
+them failing refuses the move with a stable reason and leaves leji.json
+untouched, though objects and refs already fetched stay in the managed store.
+With no trackingRef declared the run refuses offline, and under --fetch resolves
+the source's advertised default branch for this run and reports it as the
+compared ref. The pin moves forward only: a target that is not a descendant of
+the current pin is refused unless BOTH --to <oid> and --allow-non-fast-forward
+are given, which is recorded as a warning and as override in --json; neither
+flag bypasses a repository whose ancestry is incomplete. --to takes a full 40-
+or 64-character lowercase hex commit id the comparison repository already holds.
+--dry-run computes and prints everything and writes no manifest byte; combined
+with --fetch it still performs that flag's store and network acts, so fetched
+objects and refs land in the managed store. Only the pin's own bytes are
+replaced, so field order, formatting and unmodeled keys survive. Hydration is a
+separate step: the run prints the leji mounts hydrate command that materializes
+the new pin, and the cache entry for the old pin is left in place for you to
+remove by hand. Exit 0 when the pin was updated, was already the target, or the
+run was a dry run; 1 when the move was refused with a stable reason; 2 for a
+usage error, or when the addressed pin cannot be located in leji.json.
+
+Options:
+   --to <oid>                 Move to this exact commit instead of the witness
+                              tip; it must already be held by the comparison
+                              repository.
+   --allow-non-fast-forward   Permit a target that is not a descendant of the
+                              current pin. Valid only with --to, and always
+                              warned.
+   --fetch                    Observe the declared source: retain the current
+                              pin, refresh the managed witness ref, and retain
+                              the target.
+   --dry-run                  Show the comparison and what would change; write
+                              no manifest byte. With --fetch, the store and
+                              network acts still happen.
+
+Global options: see leji --help.
+
+Examples:
+   leji mounts update-pin product-context
+   leji mounts update-pin product-context --fetch --dry-run
+   leji mounts update-pin product-context --to 7d3f2a19c4e8b6a0d5f1c2e9b8a7f6d5c4b3a2e1
+
+Full reference: https://leji.org/cli/

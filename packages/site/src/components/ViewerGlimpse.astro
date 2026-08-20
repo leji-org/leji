@@ -105,31 +105,29 @@ import icon from '../assets/leji-icon.svg?raw';
       inset: 0;
       display: grid;
       grid-template-columns: minmax(7.5rem, 38%) 1fr;
-      /* Pure white, not the site's warm --white: this panel mimics the viewer's
-         own window sitting on the dark hero band, and the real viewer renders on
-         white. The sidebar takes a hair of grey so the split reads. */
-      background: #fff;
-      color: var(--ink);
+      /* The viewer's own window, sitting on the deep-green hero band: it renders
+         on white, and the sidebar takes a hair of the canvas so the split reads. */
+      background: var(--leji-surface);
+      color: var(--leji-text);
       font-family: var(--serif-text);
       overflow: hidden;
       text-align: left;
    }
 
-   /* Sidebar chrome sampled from a running `leji viewer`: #f8f9fa on #e0e0e0
-      dividers over a white page. Deliberately the viewer's neutral greys, not
-      the site's warm --line / --paper, because this panel is the viewer. */
+   /* Sidebar chrome after the viewer's own green pass: the canvas tint against a
+      white page, divided by the brand border. */
    .g-side {
       position: relative;
-      background: #f8f9fa;
-      border-right: 1px solid #e0e0e0;
+      background: var(--leji-canvas);
+      border-right: 1px solid var(--leji-border);
       padding: 0.55rem 0.6rem 1.4rem;
       min-width: 0;
    }
    .g-search {
       font-size: 0.56rem;
-      color: var(--ink-soft);
-      background: #fff;
-      border: 1px solid #e0e0e0;
+      color: var(--leji-text-body);
+      background: var(--leji-surface);
+      border: 1px solid var(--leji-border);
       border-radius: 5px;
       padding: 0.32rem 0.45rem;
       white-space: nowrap;
@@ -151,17 +149,17 @@ import icon from '../assets/leji-icon.svg?raw';
       font-family: var(--serif-display);
       font-weight: 600;
       font-size: 0.92rem;
-      color: var(--blue);
+      color: var(--leji-link);
       letter-spacing: 0.01em;
    }
    .g-boot {
       font-size: 0.62rem;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       padding: 0.12rem 0;
    }
    .g-hr {
       border: 0;
-      border-top: 1px solid #e0e0e0;
+      border-top: 1px solid var(--leji-border);
       margin: 0.45rem 0;
    }
    .g-nav {
@@ -175,13 +173,13 @@ import icon from '../assets/leji-icon.svg?raw';
       gap: 0.28rem;
       font-size: 0.62rem;
       font-weight: 700;
-      color: var(--ink);
+      color: var(--leji-text);
       padding: 0.18rem 0;
       white-space: nowrap;
    }
    .g-tri {
       font-size: 0.42rem;
-      color: #bbb3a4;
+      color: var(--leji-text-muted);
       font-weight: 400;
    }
    .g-emo {
@@ -197,20 +195,20 @@ import icon from '../assets/leji-icon.svg?raw';
       font-size: 0.5rem;
       letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: var(--blue);
+      color: var(--leji-link);
    }
    .g-h1 {
       font-family: var(--serif-display);
       font-weight: 560;
       font-size: 1.25rem;
       line-height: 1;
-      color: var(--blue-deep);
+      color: var(--leji-text);
       margin: 0 0 0.35rem;
    }
    .g-lede {
       font-size: 0.6rem;
       line-height: 1.35;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       margin: 0 0 0.6rem;
       max-width: 22rem;
    }
@@ -222,12 +220,12 @@ import icon from '../assets/leji-icon.svg?raw';
    }
    /* The review gate, drawn the way a team would keep it under governance:
       people and agents both propose, a person approves, rejected work returns.
-      Gold is spent once, on the gate, because that approval is the mechanism
-      the whole spec exists to enforce; everything else stays quiet blue. Left
-      to right, matching the flowchart LR the generated viewer emits. Gold is a
-      fill and never text: --gold measures 1.53:1 on paper. */
+      The mint accent is spent once, on the gate, because that approval is the
+      mechanism the whole spec exists to enforce; everything else stays quiet
+      deep green. Left to right, matching the flowchart LR the generated viewer
+      emits. The accent is a fill and never text: it measures 1.7:1 on white. */
    .g-edge path {
-      stroke: var(--blue-soft);
+      stroke: var(--leji-brand);
       stroke-width: 1.3;
       opacity: 0.6;
    }
@@ -236,17 +234,17 @@ import icon from '../assets/leji-icon.svg?raw';
       opacity: 0.55;
    }
    .g-map marker path {
-      fill: var(--blue-soft);
+      fill: var(--leji-brand);
       opacity: 0.6;
    }
    .g-node rect {
-      fill: var(--blue);
-      stroke: var(--blue-deep);
+      fill: var(--leji-deep);
+      stroke: var(--leji-deepest);
       stroke-width: 1;
    }
    .g-gate path {
-      fill: var(--gold);
-      stroke: var(--gold-ink);
+      fill: var(--leji-accent);
+      stroke: var(--leji-brand-dark);
       stroke-width: 1;
    }
    .g-node text,
@@ -264,49 +262,49 @@ import icon from '../assets/leji-icon.svg?raw';
       font-size: 7px;
    }
    .g-node .g-t {
-      fill: var(--paper);
+      fill: var(--leji-canvas);
    }
    .g-node .g-s {
-      fill: rgba(250, 246, 239, 0.72);
+      fill: rgba(247, 248, 245, 0.72);
    }
    .g-gate .g-t,
    .g-gate .g-s {
-      fill: var(--blue-deep);
+      fill: var(--leji-text);
    }
    .g-gate .g-s {
       opacity: 0.72;
    }
    /* Flat shapes only, matching what mermaid actually renders: sharp rectangles,
       triangles for the gates, a circle for the entry point, arrows for flow. The
-      split is semantic, not decorative: blue for a step, gold for a decision,
-      pale for the artifact the steps act on. */
+      split is semantic, not decorative: deep green for a step, mint for a
+      decision, pale mint for the artifact the steps act on. */
    .g-entry circle {
-      fill: var(--blue);
-      stroke: var(--blue-deep);
+      fill: var(--leji-deep);
+      stroke: var(--leji-deepest);
       stroke-width: 1;
    }
    .g-artifact rect {
-      fill: #dfe4f4;
-      stroke: var(--blue);
+      fill: var(--leji-accent-soft);
+      stroke: var(--leji-brand);
       stroke-width: 1;
    }
    .g-entry .g-t {
-      fill: var(--paper);
+      fill: var(--leji-canvas);
    }
    .g-artifact .g-t {
-      fill: var(--blue-deep);
+      fill: var(--leji-text);
    }
    .g-artifact .g-s {
-      fill: var(--blue-deep);
+      fill: var(--leji-text);
       opacity: 0.7;
    }
    /* Edge labels sit on the line with a white knockout, the way mermaid draws
       them, rather than floating in the margin. */
    .g-lbl rect {
-      fill: #fff;
+      fill: var(--leji-surface);
    }
    .g-lbl text {
-      fill: var(--ink-soft);
+      fill: var(--leji-text-body);
       font-family: var(--serif-text);
       font-size: 7.5px;
       text-anchor: middle;

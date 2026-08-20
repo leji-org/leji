@@ -5,23 +5,43 @@ import Doc from '../layouts/Doc.astro';
 <Doc
    kind="governance"
    title="Trust · Leji"
-   description="Who maintains Leji, what the 1.0 spec line promises, what happens if the steward disappears, and how to report a vulnerability."
+   description="Who stewards Leji, how the steward's commercial products relate to the specification, what the 1.0 spec line promises, what happens if the steward disappears, and how to report a vulnerability."
 >
    <h1>Trust</h1>
    <p>
       Leji is built to need as little trust as possible. The specification, schemas, tooling, and fixtures are public,
-      permissively licensed, and run on your own machine. One steward maintains them today, and every promise is
-      recorded in a public repository artifact, not just asserted.
+      permissively licensed, and run on your own machine. Leji has a named corporate steward, and what protects you is
+      not trust in that steward's intentions: everything here is openly licensed, runs without any steward service,
+      requires no steward endpoint, permits competing implementations and commercial services, and can be forked.
    </p>
 
    <h2>Who maintains this</h2>
    <p>
       Leji was created by <a href="https://vuongnguyen.com" target="_blank" rel="noopener">Vuong Nguyen</a> and is stewarded
-      by <a href="https://meteordreams.com" target="_blank" rel="noopener">Meteor Dreams, LLC</a>.{' '}
+      by <a href="https://contexing.com" target="_blank" rel="noopener">Contexing, LLC</a>, which is developing LejiAI,
+      a commercial hosted viewer at leji.ai.{' '}
       <a href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md" target="_blank" rel="noopener">GOVERNANCE.md</a
       >{' '}
-      records how decisions are made, how maintainership transfers, and the intent to move to neutral, multi-party governance
-      as adoption grows.
+      records how decisions are made, how maintainership transfers, and which assets transfer with it. Contexing holds the
+      Leji name. The specification, schemas, and tooling are permissively licensed and may be forked by anyone, under a different
+      name.
+   </p>
+
+   <h2>Commercial products</h2>
+   <p>
+      Contexing, LLC, Leji's steward, is developing LejiAI, a hosted Leji viewer at leji.ai for teams whose members do
+      not work in git. It is optional. No conformance level requires it, no part of the specification depends on it, and
+      the reference tooling remains local, offline, and account-free. What the hosted viewer adds is infrastructure
+      rather than format capability: authentication, per-person access control, and operated hosting. Independent
+      commercial products built on Leji, including ones competing with ours, need no permission.
+   </p>
+   <p>
+      Steward-authored proposals that touch areas its products depend on are labeled as such and carry a longer comment
+      period, in public, so "no conformance advantage" is something you can check rather than something we assert. See{
+         ' '
+      }
+      <a href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md" target="_blank" rel="noopener">GOVERNANCE.md</a
+      >.
    </p>
 
    <h2>The versioning promise</h2>
@@ -41,6 +61,13 @@ import Doc from '../layouts/Doc.astro';
       tested against. Validation, scaffolding, and conformance run offline and report nothing back. A fork or an
       independent implementation needs no permission and loses no capability.
    </p>
+   <p>
+      The name is the one thing the licenses do not cover. A fork keeps everything the licenses grant, the complete
+      specification, schemas, SDKs, CLI, and fixture suite, and needs no permission. It needs a different name and its
+      own infrastructure: domains, package registrations, and signing keys are operated assets, not licensed artifacts.
+      What a fork may and may not call itself is written down in{' '}
+      <a href="/trademark/">the trademark and usage policy</a>.
+   </p>
 
    <h2>Independent implementations</h2>
    <p>
@@ -52,13 +79,15 @@ import Doc from '../layouts/Doc.astro';
 
    <h2>Security</h2>
    <p>
-      The reference tooling runs on your machine: no telemetry, no account, and no Leji service to depend on.
-      Validation, scaffolding, and conformance work fully offline, schemas and templates ship inside each package, and
-      Leji's own validation and scaffolding logic makes no network requests.
+      The reference tooling runs on your machine: no telemetry, no account, and nothing to depend on beyond your own
+      machine. Validation, scaffolding, and conformance work fully offline, schemas and templates ship inside each
+      package, and Leji's own validation and scaffolding logic makes no network requests. Contexing, LLC, Leji's
+      steward, is developing a hosted service at leji.ai; the reference tooling never contacts it.
    </p>
    <p>
-      The federation commands you invoke deliberately (<code>leji mounts hydrate --fetch</code> and{' '}
-      <code>leji conformance --federation=verify</code>) contact the repository you named and nothing else.{' '}
+      The federation commands you invoke deliberately (<code>leji mounts hydrate --fetch</code>,{' '}
+      <code>leji mounts update-pin --fetch</code>, and <code>leji conformance --federation=verify</code>) contact the
+      repository you named and nothing else.{' '}
       <code>leji start</code> and the optional onboarding handoff launch the coding agent you already have, whose network
       behavior is its own.
    </p>
@@ -76,7 +105,12 @@ import Doc from '../layouts/Doc.astro';
    <h2>The change record</h2>
    <p>
       This repository runs the same context layer controls the spec asks of adopters: a reviewed changelog, a generated
-      index, and decision records, including the preview-to-GA transition itself. Releases are recorded in{' '}
+      index, and decision records, including the preview-to-GA transition and{' '}
+      <a
+         href="https://github.com/leji-org/leji/blob/main/docs/decisions/0007-commercial-hosted-viewer.md"
+         target="_blank"
+         rel="noopener">the decision to build a commercial hosted viewer</a
+      >. Releases are recorded in{' '}
       <a href="https://github.com/leji-org/leji/blob/main/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG.md</a>,
       with a machine mirror.
    </p>

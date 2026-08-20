@@ -1,0 +1,10 @@
+# >>> leji ci (managed) >>>
+leji-validate:
+  stage: .pre
+  image: python:3.12
+  script:
+    # pipenv is installed unpinned here; pin it if your project pins it.
+    - pip install pipenv && pipenv install --dev
+    - pipenv run leji validate
+    - pipenv run leji index --check
+# <<< leji ci (managed) <<<

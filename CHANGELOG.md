@@ -1,5 +1,80 @@
 # Changelog
 
+## 1.4.0 · 2026-08-21
+
+The OSS feature program: export, badge, pin updates, rendering parity, a unified `.leji/`
+layout, ecosystem-aware adoption, and the hand-off that keeps every clone on one CLI
+version. No normative specification or schema change; the spec stays on the frozen v1.0 line and all
+reference packages move to 1.4.0 together.
+
+### Added
+
+- **`leji export`** generates the complete, self-contained static site from a context
+  layer: the same content the local viewer serves, hostable on any static host, subpaths
+  included, no build step and no network path. `leji viewer build` is a co-equal name for
+  the same operation. Output lands in `.leji/dist/`; a consolidated
+  `third-party-licenses.txt` ships with every generated tree.
+- **`leji badge`** emits a deterministic, self-attested conformance badge: the SVG is
+  scored locally by `leji conformance`, byte-identical on rerun, with one markdown line
+  that embeds it. The badge face reads `Leji 1.0 · <level>`; the full self-attestation
+  claim rides the SVG title, its accessible label, and the markdown alt text, and the
+  linked page explains it. No registry, no endpoint, no account.
+- **`leji mounts update-pin`** completes the federation lifecycle: it moves a declared
+  mount pin with the witness comparison in hand, fast-forward by default with a narrow
+  audited override, fetching from the declared source only.
+- **Rendering parity**: the supported markdown subset is documented at
+  `adoption/rendering.md`, export lints the out-of-subset constructs, and rendering
+  fixtures (sample repos with canonical golden trees) join the shared suite so any
+  renderer can verify against identical expectations.
+- **Ecosystem-aware adoption**: `leji init` and `leji adopt` detect the repository's
+  package manager (npm, pnpm, yarn, bun; uv, poetry, pdm, pipenv, pip; Go 1.24 tools) and,
+  on your explicit consent, run that manager's own add command so the Leji CLI is declared
+  as a tracked dev dependency and a clean install brings it. Hooks and generated CI run
+  the CLI through the manager the repository actually uses.
+- **The pinned-CLI hand-off**: inside a repository that declares the Leji CLI and has it
+  installed, the installed Node and Python executables run that copy for every
+  invocation, so a person typing `leji`, the hooks, CI, and every teammate use one
+  version. Eligibility is decided on verified evidence only; `LEJI_NO_LOCAL` (any value)
+  opts out; the Go CLI does not hand off (use `go tool leji`). Note for Python upgraders:
+  an already-installed console script gains the hand-off after a reinstall, which rebakes
+  the entry point.
+- **`leji start` preflight**: on an adopted repository, `start` first prints a terse Setup
+  block (the repository's CLI, your agent's MCP registration, the team `.mcp.json`, the
+  git hook) with `ok` / `you` / `team` ownership words, exact fix commands, and TTY-only
+  status color, then offers the personal repairs and launches. `--json` gives the same
+  checks as one scriptable document.
+- **Grouped CLI help** generated from one shared description in all three SDKs, with an
+  agent-ready page at leji.org linked from every badge.
+- **`create-leji` is a one-time smart bootstrap**: `npm create leji` routes a new
+  repository to `init` and an adopted one to `adopt`, with honest scaffold starters.
+
+### Changed
+
+- **Contexing, LLC is disclosed as steward.** `GOVERNANCE.md` names the steward and its
+  independence commitments, the Trust page carries the stewardship story, and the
+  trademark policy is published at `/trademark/`; contributor terms with DCO sign-off
+  land alongside. Vuong Nguyen remains creator and editor; conformance requires no
+  steward product or service, as before.
+- **One `.leji/` directory** at the repository root with role subdirectories (`mounts/`,
+  `viewer/`, `dist/`, `work/`); the mounts cache is structurally unservable and
+  unexportable.
+- **Write-path hardening**: every user-influenceable write in the three SDKs goes through
+  a chokepoint that judges root containment and the `.leji/` role rule immediately before
+  the act; the check-before-act contract is documented at `docs/practice/trust-boundary.md`.
+- **Viewer accent validation** is strict hex (3, 4, 6, or 8 digits).
+- The CI matrix adds a Node 22/24 leg and a named Windows regressions job.
+
+### Fixed
+
+- **In-page relative links stay inside the viewer's router** instead of escaping to the
+  server, live and static-exported alike.
+- **Relative image paths in governed markdown resolve against their document**, raw-HTML
+  `img` sources included, with containment enforced at render time.
+- **`leji start` explains an `agents.default` binding at bind time** (`leji agent` teaches
+  the boot semantics; a binding alone never loads a profile, per spec rule 2).
+- **`--check-integrity` help and behavior agree**: verification stages in the OS temp
+  directory, exactly as the help text says.
+
 ## 1.3.1 · 2026-07-31
 
 A patch release for two Windows-only defects, plus a documentation pass. No specification,

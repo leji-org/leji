@@ -1,0 +1,9 @@
+# >>> leji ci (managed) >>>
+leji-validate:
+  stage: .pre
+  image: golang:1.24
+  script:
+    - go mod download
+    - go tool leji validate
+    - go tool leji index --check
+# <<< leji ci (managed) <<<

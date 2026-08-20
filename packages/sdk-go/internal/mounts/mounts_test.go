@@ -5,12 +5,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/conformance"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/validate"
@@ -189,7 +194,7 @@ func TestMountsHydrateViaHintMaterializesVerifiedProjectionAndClearsWarning(t *t
 		t.Fatalf("projection missing boot-profile.md: %v", err)
 	}
 	// validate no longer reports mount-unavailable.
-	v := validate.ValidateLayer(host, false)
+	v := validateLayer(t, host, false)
 	for _, f := range v.Findings {
 		if f.Rule == "mount-unavailable" {
 			t.Fatalf("validate still reports mount-unavailable: %+v", f)
@@ -406,6 +411,59 @@ func TestMountsHydrateFetchPullsPinIntoManagedStore(t *testing.T) {
 	}
 	if loc.Pin == nil || *loc.Pin != pin {
 		t.Fatalf("locate pin = %v, want %s", loc.Pin, pin)
+	}
+}
+
+// TestMountsFetchRetainsThePinAndWritesNoFetchHead mirrors the TS reference's
+// `mounts: --fetch retains the pin by a resolver-owned ref, and writes no
+// FETCH_HEAD at all`.
+func TestMountsFetchRetainsThePinAndWritesNoFetchHead(t *testing.T) {
+	host, sibling, pin := mountedPair(t)
+	// Fetching a commit by id is how the resolver retains a pin, so the sibling must
+	// serve one the way a real host does.
+	git(t, sibling, "config", "uploadpack.allowAnySHA1InWant", "true")
+	identity, ok := mounts.NormalizeSource(acmeSource)
+	if !ok {
+		t.Fatal("identity failed to normalize")
+	}
+	m := loadHost(t, host)
+	// main moves past the pin, so neither fetch may leave the version of record to
+	// FETCH_HEAD: only a ref of our own retains it.
+	if err := os.WriteFile(filepath.Join(sibling, "b.md"), []byte("# b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, sibling, "add", "-A")
+	git(t, sibling, "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "later")
+	hydrate := func() {
+		t.Helper()
+		withSourceRewrite(t, sibling, func() mounts.ReachabilityResult {
+			if _, err := mounts.HydrateMounts(host, m, mounts.HydrateOptions{Fetch: true}); err != nil {
+				t.Fatalf("hydrate: %v", err)
+			}
+			return mounts.ReachabilityResult{}
+		})
+	}
+	hydrate()
+	sum := sha256.Sum256([]byte(identity))
+	store := filepath.Join(host, ".leji", "mounts", "store", hex.EncodeToString(sum[:]))
+	if got := git(t, store, "rev-parse", mounts.PinRefFor(identity, pin)); got != pin {
+		t.Fatalf("the pin ref retains the version of record: got %s want %s", got, pin)
+	}
+	// Both fetches pass --no-write-fetch-head, so the managed store carries no
+	// per-run record of where the objects came from.
+	if _, err := os.Stat(filepath.Join(store, "FETCH_HEAD")); !os.IsNotExist(err) {
+		t.Fatal("no FETCH_HEAD in the managed store")
+	}
+	// And a second --fetch, which refreshes the witness over an existing store, does
+	// not create one either.
+	if err := os.WriteFile(filepath.Join(sibling, "c.md"), []byte("# c\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, sibling, "add", "-A")
+	git(t, sibling, "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "later2")
+	hydrate()
+	if _, err := os.Stat(filepath.Join(store, "FETCH_HEAD")); !os.IsNotExist(err) {
+		t.Fatal("still none after a witness refresh")
 	}
 }
 
@@ -884,7 +942,7 @@ func patchMount(t *testing.T, key, value string) []findings.Finding {
 	if err := os.WriteFile(mp, append(out, '\n'), 0o644); err != nil {
 		t.Fatalf("write host manifest: %v", err)
 	}
-	return validate.ValidateLayer(host, false).Findings
+	return validateLayer(t, host, false).Findings
 }
 
 func hasRule(fs []findings.Finding, rule, severity string) bool {
@@ -974,4 +1032,466 @@ func TestConformanceReportsAllFourMountItemsWhenNoneAreDeclared(t *testing.T) {
 	if strings.Join(got, ",") != want {
 		t.Fatalf("federated items = %v", got)
 	}
+}
+
+// --- verification is read-only: it may not stage inside the tree it verifies ---
+
+// denyWrites strips write permission from every directory in the tree; returns
+// the undo. On POSIX this is a real denial for a non-root user. The Windows
+// equivalent is a DENY ACE rather than a mode, which is a named verify-at-build
+// obligation for the cross-platform runner, not something these mode bits stand
+// in for.
+func denyWrites(t *testing.T, dir string) func() {
+	t.Helper()
+	type saved struct {
+		path string
+		mode os.FileMode
+	}
+	var dirs []saved
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		dirs = append(dirs, saved{p, info.Mode().Perm()})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", dir, err)
+	}
+	for _, s := range dirs {
+		if err := os.Chmod(s.path, 0o555); err != nil {
+			t.Fatalf("chmod %s: %v", s.path, err)
+		}
+	}
+	return func() {
+		for _, s := range dirs {
+			os.Chmod(s.path, s.mode)
+		}
+	}
+}
+
+// writeDenied asserts the denial rather than assuming it: a mode that a
+// root-owned or ACL-governed run ignores would make every "did not write"
+// assertion below vacuous.
+func writeDenied(dir string) bool {
+	probe := filepath.Join(dir, ".write-probe")
+	if err := os.WriteFile(probe, []byte("x"), 0o644); err != nil {
+		return true
+	}
+	os.Remove(probe)
+	return false
+}
+
+// treeSnapshot records paths, types, modes, symlink targets, content and
+// directory mtimes: the whole of what "the tree is byte-for-byte what it was"
+// has to mean here. Content alone would miss a staging directory created and
+// removed between the two reads — its parent's mtime is the only trace that
+// survives.
+func treeSnapshot(t *testing.T, dir, prefix string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	var out []string
+	for _, name := range names {
+		abs := filepath.Join(dir, name)
+		rel := name
+		if prefix != "" {
+			rel = prefix + "/" + name
+		}
+		st, err := os.Lstat(abs)
+		if err != nil {
+			t.Fatalf("lstat %s: %v", abs, err)
+		}
+		mode := fmt.Sprintf("%o", st.Mode().Perm())
+		switch {
+		case st.Mode()&os.ModeSymlink != 0:
+			target, err := os.Readlink(abs)
+			if err != nil {
+				t.Fatalf("readlink %s: %v", abs, err)
+			}
+			out = append(out, fmt.Sprintf("L %s %s %s", rel, mode, target))
+		case st.IsDir():
+			out = append(out, fmt.Sprintf("D %s %s %d", rel, mode, st.ModTime().UnixNano()))
+			out = append(out, treeSnapshot(t, abs, rel)...)
+		default:
+			data, err := os.ReadFile(abs)
+			if err != nil {
+				t.Fatalf("read %s: %v", abs, err)
+			}
+			sum := sha256.Sum256(data)
+			out = append(out, fmt.Sprintf("F %s %s %d %s", rel, mode, st.Size(), hex.EncodeToString(sum[:])))
+		}
+	}
+	return out
+}
+
+// verifyResidue lists staging directories left behind in the OS temp dir.
+// Compared as a delta, since the suite's other tests run against the same temp
+// dir.
+func verifyResidue(t *testing.T) map[string]bool {
+	t.Helper()
+	entries, err := os.ReadDir(os.TempDir())
+	if err != nil {
+		t.Fatalf("read temp dir: %v", err)
+	}
+	out := map[string]bool{}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "leji-verify-") {
+			out[e.Name()] = true
+		}
+	}
+	return out
+}
+
+func newVerifyResidue(t *testing.T, before map[string]bool) []string {
+	t.Helper()
+	var out []string
+	for name := range verifyResidue(t) {
+		if !before[name] {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func TestMountsCheckIntegrityVerifiesAWriteDeniedHostTreeTwiceWithoutTouchingIt(t *testing.T) {
+	// `mounts status --check-integrity` staged its comparison tree inside the
+	// host's own .leji/mounts/, so the read-only diagnostic wrote into the tree it
+	// was diagnosing — and could not run at all where that tree is not writable.
+	host, _, _ := mountedPair(t)
+	m := loadHost(t, host)
+	if _, err := mounts.HydrateMounts(host, m, mounts.HydrateOptions{}); err != nil {
+		t.Fatalf("hydrate: %v", err)
+	}
+	restore := denyWrites(t, host)
+	defer restore()
+	if !writeDenied(filepath.Join(host, ".leji", "mounts")) {
+		t.Fatalf("the mounts dir must really be write-denied")
+	}
+	if !writeDenied(host) {
+		t.Fatalf("the host root must really be write-denied")
+	}
+	before := treeSnapshot(t, host, "")
+	residueBefore := verifyResidue(t)
+	// Twice: once proves it runs, twice proves the second run is not consuming
+	// residue the first left behind.
+	for i := range 2 {
+		rows, err := mounts.MountStatus(host, m, mounts.StatusOptions{CheckIntegrity: true})
+		if err != nil {
+			t.Fatalf("status %d: %v", i, err)
+		}
+		if rows[0].Verified == nil || !*rows[0].Verified {
+			t.Fatalf("status %d verified = %v", i, rows[0].Verified)
+		}
+	}
+	// The other two callers of the same verification, on the same denied tree.
+	loc, err := mounts.LocateMount(host, m, "acme-product-context")
+	if err != nil {
+		t.Fatalf("locate: %v", err)
+	}
+	if !loc.Present || !loc.Verified {
+		t.Fatalf("locate = %+v", loc)
+	}
+	findings, err := mounts.FederationEnforcement(host, m, "available", nil)
+	if err != nil {
+		t.Fatalf("enforcement: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("findings = %+v", findings)
+	}
+	if !slices.Equal(treeSnapshot(t, host, ""), before) {
+		t.Fatalf("verification wrote into the host tree")
+	}
+	if extra := newVerifyResidue(t, residueBefore); len(extra) != 0 {
+		t.Fatalf("staging outlived the verification that allocated it: %v", extra)
+	}
+}
+
+// rendezvous returns a two-party barrier: each call blocks until both parties
+// have called it, and it is reusable round after round.
+func rendezvous() func() {
+	gate := make(chan struct{})
+	return func() {
+		select {
+		case gate <- struct{}{}:
+		case <-gate:
+		}
+	}
+}
+
+func TestMountsTwoVerificationsAtOnceInOneProcessDoNotCollide(t *testing.T) {
+	// Two goroutines running `rounds` verifications of the host's only mount, every
+	// round entered through a two-goroutine rendezvous, with the lagging goroutine
+	// then held back to about half of its last round.
+	//
+	// Both halves earn their place. Without the rendezvous the goroutines drift into
+	// taking turns and never overlap; with the rendezvous alone they run identical
+	// work in lockstep, and two of them staging the same content into one shared
+	// directory at the same instant still agree — the interleaving that a shared
+	// staging directory cannot survive is one goroutine starting while the other is
+	// mid-verification. One process, so a staging name derived from the pid is one
+	// name for both of them.
+	host, _, _ := mountedPair(t)
+	m := loadHost(t, host)
+	if _, err := mounts.HydrateMounts(host, m, mounts.HydrateOptions{}); err != nil {
+		t.Fatalf("hydrate: %v", err)
+	}
+	mount := firstMount(t, m)
+	residueBefore := verifyResidue(t)
+	const rounds = 8
+	meet := rendezvous()
+	results := make([][]string, 2)
+	var wg sync.WaitGroup
+	for i := range results {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			lag := i == 1
+			lastRound := 40 * time.Millisecond
+			out := make([]string, 0, rounds)
+			for range rounds {
+				meet()
+				if lag {
+					time.Sleep(max(lastRound/2, 5*time.Millisecond))
+				}
+				startedAt := time.Now()
+				v, err := mounts.VerifyProjection(host, mount)
+				lastRound = time.Since(startedAt)
+				switch {
+				case err != nil:
+					out = append(out, "error "+err.Error())
+				case v == nil:
+					out = append(out, "unverifiable")
+				default:
+					out = append(out, fmt.Sprintf("%t", *v))
+				}
+			}
+			results[i] = out
+		}(i)
+	}
+	wg.Wait()
+	// Every one of them verified: a shared staging path has one goroutine deleting
+	// or half-writing the tree the other is comparing, which surfaces as ENOENT,
+	// ENOTEMPTY, or a false verdict on content nobody tampered with.
+	want := make([]string, rounds)
+	for i := range want {
+		want[i] = "true"
+	}
+	for i, got := range results {
+		if !slices.Equal(got, want) {
+			t.Fatalf("goroutine %d = %v", i, got)
+		}
+	}
+	if extra := newVerifyResidue(t, residueBefore); len(extra) != 0 {
+		t.Fatalf("staging outlived the verifications that allocated it: %v", extra)
+	}
+}
+
+func TestMountsAnUnusableTempDirMakesVerificationUnverifiableNeverInTree(t *testing.T) {
+	host, _, _ := mountedPair(t)
+	m := loadHost(t, host)
+	if _, err := mounts.HydrateMounts(host, m, mounts.HydrateOptions{}); err != nil {
+		t.Fatalf("hydrate: %v", err)
+	}
+	noTmp := filepath.Join(t.TempDir(), "notmp")
+	if err := os.Mkdir(noTmp, 0o755); err != nil {
+		t.Fatalf("mkdir notmp: %v", err)
+	}
+	if err := os.Chmod(noTmp, 0o555); err != nil {
+		t.Fatalf("chmod notmp: %v", err)
+	}
+	defer os.Chmod(noTmp, 0o755)
+	t.Setenv("TMPDIR", noTmp)
+	if os.TempDir() != noTmp {
+		t.Fatalf("the runtime must honor TMPDIR for this to force the failure")
+	}
+	if !writeDenied(noTmp) {
+		t.Fatalf("the temp dir must really be write-denied")
+	}
+	before := treeSnapshot(t, host, "")
+	// Unknown: no staging area is a missing prerequisite, exactly like no reachable
+	// object store. It is never a pass, never a failure, and never a reason to fall
+	// back into the host tree.
+	rows, err := mounts.MountStatus(host, m, mounts.StatusOptions{CheckIntegrity: true})
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !rows[0].Present || rows[0].Verified != nil {
+		t.Fatalf("status row = %+v", rows[0])
+	}
+	loc, err := mounts.LocateMount(host, m, "acme-product-context")
+	if err != nil {
+		t.Fatalf("locate: %v", err)
+	}
+	if !loc.Present || loc.Verified {
+		t.Fatalf("locate = %+v", loc)
+	}
+	if !strings.Contains(loc.Detail, "present but not verified") ||
+		!strings.Contains(loc.Detail, "verification prerequisites are unavailable") {
+		t.Fatalf("locate detail = %q", loc.Detail)
+	}
+	// The diagnostic names the prerequisite that was actually missing rather than
+	// blaming the object store, which is reachable here: a reader told to check
+	// their hint would be reading the wrong end of the failure.
+	findings, err := mounts.FederationEnforcement(host, m, "available", nil)
+	if err != nil {
+		t.Fatalf("enforcement: %v", err)
+	}
+	if len(findings) != 1 ||
+		!strings.Contains(findings[0].Message, "cannot be verified") ||
+		!strings.Contains(findings[0].Message, "verification prerequisites unavailable") ||
+		!strings.Contains(findings[0].Message, "no writable temp dir") {
+		t.Fatalf("findings = %+v", findings)
+	}
+	if !slices.Equal(treeSnapshot(t, host, ""), before) {
+		t.Fatalf("verification fell back into the host tree")
+	}
+	staged, err := os.ReadDir(noTmp)
+	if err != nil {
+		t.Fatalf("read notmp: %v", err)
+	}
+	if len(staged) != 0 {
+		t.Fatalf("nothing was staged in the unusable temp dir: %v", staged)
+	}
+}
+
+func TestMountsAReachableStoreWithoutThePinIsUnverifiableAndNamesThePrerequisite(t *testing.T) {
+	host, _, _ := mountedPair(t)
+	m := loadHost(t, host)
+	if _, err := mounts.HydrateMounts(host, m, mounts.HydrateOptions{}); err != nil {
+		t.Fatalf("hydrate: %v", err)
+	}
+	// A real repository, reachable, that simply does not contain this pin. The
+	// published projection stays published — its cache key comes from the
+	// declaration, not from whichever store happens to be reachable — so the only
+	// missing prerequisite is the commit the comparison would be made against.
+	other := filepath.Join(filepath.Dir(host), "other")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatalf("mkdir other: %v", err)
+	}
+	git(t, other, "init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(other, "unrelated.md"), []byte("# unrelated\n"), 0o644); err != nil {
+		t.Fatalf("write unrelated: %v", err)
+	}
+	git(t, other, "add", "-A")
+	git(t, other, "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "unrelated")
+	hint := `{"mounts":{"acme-product-context":{"repo":"../other"}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(host, ".leji", "mounts.local.json"), []byte(hint), 0o644); err != nil {
+		t.Fatalf("write hint: %v", err)
+	}
+	v, err := mounts.VerifyProjection(host, firstMount(t, m))
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if v != nil {
+		t.Fatalf("verify = %v, want nil", *v)
+	}
+	rows, err := mounts.MountStatus(host, m, mounts.StatusOptions{CheckIntegrity: true})
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !rows[0].Present || rows[0].Verified != nil {
+		t.Fatalf("status row = %+v", rows[0])
+	}
+	loc, err := mounts.LocateMount(host, m, "acme-product-context")
+	if err != nil {
+		t.Fatalf("locate: %v", err)
+	}
+	if !loc.Present || loc.Verified {
+		t.Fatalf("locate = %+v", loc)
+	}
+	// The parenthetical is the whole of what makes a projection unverifiable. An
+	// exhaustive-looking list that omits this branch tells the reader their object
+	// store is unreachable when it is reachable and their pin is what is missing.
+	findings, err := mounts.FederationEnforcement(host, m, "available", nil)
+	if err != nil {
+		t.Fatalf("enforcement: %v", err)
+	}
+	want := `mount "acme-product-context" projection cannot be verified (verification prerequisites unavailable: no reachable object store, unresolvable pin, or no writable temp dir); an unverified cache is not evidence`
+	if len(findings) != 1 || findings[0].Message != want {
+		t.Fatalf("findings = %+v", findings)
+	}
+}
+
+func TestMountsHydrateRefusesAStoreDestinationPlantedOutOfTheRepository(t *testing.T) {
+	// `.leji/mounts` was a lexical join, so a planted symlink redirected every
+	// per-entry write of the federation protocol — into another private role, or clean
+	// out of the repository. The store, cache entry and staging destinations are
+	// established through the write chokepoint now, and every inner act works from the
+	// RESOLVED root it returned. Mutation that reddens: mkdir the destination directly
+	// again — the projection materializes through the link.
+	for _, c := range []struct {
+		name   string
+		plant  func(t *testing.T, host string) string
+		detail string
+	}{
+		{"out of the repository", func(t *testing.T, host string) string {
+			away := t.TempDir()
+			if err := os.Symlink(away, filepath.Join(host, ".leji", "mounts")); err != nil {
+				t.Fatal(err)
+			}
+			return away
+		}, "the cache entry destination could not be established"},
+		{"into another private role", func(t *testing.T, host string) string {
+			target := filepath.Join(host, ".leji", "work", "planted")
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join("work", "planted"), filepath.Join(host, ".leji", "mounts")); err != nil {
+				t.Fatal(err)
+			}
+			return target
+		}, "the cache entry destination could not be established"},
+	} {
+		host, _, _ := mountedPair(t)
+		if err := os.RemoveAll(filepath.Join(host, ".leji", "mounts")); err != nil {
+			t.Fatal(err)
+		}
+		landing := c.plant(t, host)
+		m := loadHost(t, host)
+
+		r, err := mounts.HydrateMounts(host, m, mounts.HydrateOptions{})
+		if err != nil {
+			t.Fatalf("%s: hydrate: %v", c.name, err)
+		}
+		if len(r.Outcomes) != 1 || r.Outcomes[0].Status != "error" || r.Outcomes[0].Detail != c.detail {
+			t.Fatalf("%s: outcomes = %+v", c.name, r.Outcomes)
+		}
+		entries, rerr := os.ReadDir(landing)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		if len(entries) != 0 {
+			t.Fatalf("%s: nothing may be materialized through the planted link, got %v", c.name, entries)
+		}
+	}
+}
+
+// --- gate helpers -------------------------------------------------------------
+// These commands now carry an error channel, because an operational read failure on
+// an allowed path propagates instead of being swallowed (the reference throws it).
+// A test that does not construct such a failure asserts there is none.
+
+func validateLayer(t *testing.T, root string, content bool) validate.Result {
+	t.Helper()
+	res, err := validate.ValidateLayer(root, content)
+	if err != nil {
+		t.Fatalf("ValidateLayer(%s): %v", root, err)
+	}
+	return res
 }

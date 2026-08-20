@@ -1,0 +1,57 @@
+{
+  "ecosystem": {
+    "selected": {
+      "ecosystem": "python",
+      "status": "ok",
+      "manifest": "pyproject.toml",
+      "manager": "poetry",
+      "source": "lockfile",
+      "evidence": [
+        "poetry.lock"
+      ],
+      "add": [
+        "poetry",
+        "add",
+        "--group",
+        "dev",
+        "leji"
+      ],
+      "runner": [
+        "poetry",
+        "run",
+        "leji"
+      ],
+      "directDeclared": true,
+      "lockEvidenced": true,
+      "candidates": []
+    },
+    "all": [
+      {
+        "ecosystem": "python",
+        "status": "ok",
+        "manifest": "pyproject.toml",
+        "manager": "poetry",
+        "source": "lockfile",
+        "evidence": [
+          "poetry.lock"
+        ],
+        "add": [
+          "poetry",
+          "add",
+          "--group",
+          "dev",
+          "leji"
+        ],
+        "runner": [
+          "poetry",
+          "run",
+          "leji"
+        ],
+        "directDeclared": true,
+        "lockEvidenced": true,
+        "candidates": []
+      }
+    ],
+    "reason": null
+  }
+}

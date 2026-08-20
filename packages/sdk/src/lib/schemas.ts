@@ -41,8 +41,17 @@ export interface CliOption {
    flags: string;
    summary: string;
 }
+/** One display section of the command list, in the order help and the site show them. */
+export interface CliGroup {
+   id: string;
+   title: string;
+}
 export interface CliCommand {
    name: string;
+   /** The `groups` id this command is listed under; exactly one, and always a declared id. */
+   group: string;
+   /** Set on an alias: the primary command it stands for, itself never an alias. */
+   aliasOf?: string;
    summary: string;
    usage: string;
    description: string;
@@ -57,6 +66,7 @@ export interface CliSpec {
    usage: string;
    globalOptions: CliOption[];
    exitCodes: { code: number; meaning: string }[];
+   groups: CliGroup[];
    commands: CliCommand[];
 }
 

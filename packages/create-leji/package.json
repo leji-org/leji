@@ -1,7 +1,7 @@
 {
   "name": "create-leji",
-  "version": "1.3.1",
-  "description": "Bootstrap a Leji context layer: `npm create leji` runs `leji init` for Leji, the open specification for the shared context layer of AI-native teams.",
+  "version": "1.4.0",
+  "description": "Bootstrap a Leji context layer: `npm create leji` runs `leji init` on a new repository and `leji adopt` on one that already has docs or an agent entrypoint. Leji is the open specification for the shared context layer of AI-native teams.",
   "keywords": [
     "leji",
     "create-leji",
@@ -34,7 +34,11 @@
     "index.js",
     "LICENSE"
   ],
+  "scripts": {
+    "pretest": "npm run build --prefix ../sdk",
+    "test": "node --test"
+  },
   "dependencies": {
-    "@leji-org/leji": "^1.3.1"
+    "@leji-org/leji": "^1.4.0"
   }
 }

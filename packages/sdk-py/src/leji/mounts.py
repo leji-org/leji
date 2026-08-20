@@ -31,11 +31,13 @@ import secrets
 import shutil
 import stat as statmod
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Literal, cast
 
-from .fsx import resolved_within_root
+from .fsx import guard_root, mkdirp_guarded, resolved_within_root
+from .layout import MOUNTS_REL
 from .manifest import Manifest, all_strings_scalar
 from .schemas import schema_errors
 
@@ -202,7 +204,22 @@ def _join(*parts: str) -> str:
 
 
 def mounts_dir(root: str) -> str:
-    return _join(root, ".leji", "mounts")
+    return _join(root, *MOUNTS_REL.split("/"))
+
+
+def _establish_mounts_dir(root: str, dir_abs: str) -> str | None:
+    """Establish one mounts DESTINATION — a managed store, a cache entry, a staging
+    directory — through the write chokepoint, and hand back the RESOLVED directory it
+    was created at. None when the rule refuses it: a planted ``.leji/mounts`` symlink
+    into another role or out of the repository is caught here, once, instead of being
+    followed by every per-entry write underneath.
+
+    The per-entry protocol below (hashed identities, contained relative paths, the
+    symlink-escape rules, publish-by-rename) is the declared exception to the
+    chokepoint, and it holds only because every one of its acts happens under a root
+    this function checked and returned — never under a path re-joined from ``root``."""
+    established = mkdirp_guarded(guard_root(root), dir_abs, MOUNTS_REL)
+    return established.real if established.ok else None
 
 
 def read_hints(root: str) -> dict[str, str]:
@@ -393,10 +410,26 @@ def find_object_source(root: str, mount: MountDecl, source_identity: str) -> Obj
     return ObjectSource(repo=None, kind=None, ambiguous=ambiguous)
 
 
-def fetch_into_store(root: str, mount: MountDecl, source_identity: str) -> FetchResult:
-    """Fetch the pin and refresh the managed witness ref in the store. This is the
-    only writer of the witness namespace: ``status`` never fetches, so a mount
-    whose pin a hint already resolves still needs its store populated here."""
+def _retention_injected_failure(oid: str) -> bool:
+    """Test-only fault injection for :func:`retain_pin_in_store`: with
+    LEJI_TEST_FAIL_PIN_REF set to a commit id, retaining exactly that commit fails at
+    the ref. It exists because the TARGET-retention refusal has no other reachable
+    path — by the time the target is retained, the comparison repository IS the
+    managed store and already holds the commit, so the fetch never runs and only the
+    ref update can fail."""
+    return os.environ.get("LEJI_TEST_FAIL_PIN_REF") == oid
+
+
+def retain_pin_in_store(root: str, mount: MountDecl, source_identity: str, oid: str) -> FetchResult:
+    """Establish the managed store and retain ONE commit in it: fetch the object by
+    id from the declared source when the store does not already hold it, then keep it
+    reachable under ``refs/leji-pin/v1/``. Nothing here refreshes a witness, so a
+    caller that needs more than one commit retained pays exactly one round trip per
+    commit and no extra observation of a moving ref.
+
+    The declared pin and an explicitly named target are both retained through this,
+    so the version of record and the version being moved to are equally safe from
+    git maintenance."""
 
     def failed(error: str) -> FetchResult:
         # Details are stable, Leji-authored text: git stderr never reaches output.
@@ -405,15 +438,16 @@ def fetch_into_store(root: str, mount: MountDecl, source_identity: str) -> Fetch
     # The locator becomes argv here: anything option-shaped is refused, never passed.
     if mount.source.startswith("-"):
         return failed('the source locator may not begin with "-"')
-    store = _store_dir(root, source_identity)
+    store = _establish_mounts_dir(root, _store_dir(root, source_identity))
+    if store is None:
+        return failed("the managed store could not be initialized")
     if not _is_git_repo(store):
-        Path(store).mkdir(parents=True, exist_ok=True)
         if not run_git(["init", "--bare", "-q", store]).ok:
             return failed("the managed store could not be initialized")
-    # The pin is immutable: a store that already holds it needs no round trip. The
-    # declared pin is resolved directly, never read back out of FETCH_HEAD, so the
-    # fetch has no reason to write one and races with a concurrent fetch.
-    if not _has_commit(store, mount.pin):
+    # A commit id is immutable: a store that already holds it needs no round trip.
+    # The id is resolved directly, never read back out of FETCH_HEAD, so the fetch
+    # has no reason to write one and races with a concurrent fetch.
+    if not _has_commit(store, oid):
         fetch = run_git(
             [
                 "-C",
@@ -424,29 +458,45 @@ def fetch_into_store(root: str, mount: MountDecl, source_identity: str) -> Fetch
                 "-q",
                 "--no-write-fetch-head",
                 mount.source,
-                mount.pin,
+                oid,
             ]
         )
         if not fetch.ok:
             return failed("the pin could not be fetched from the source")
-    # Retain the pin by a ref of our own: without it, git maintenance may prune the
+    # Retain it by a ref of our own: without it, git maintenance may prune the
     # version of record.
-    pin_oid = _rev_oid(store, mount.pin)
+    pin_oid = _rev_oid(store, oid)
     if pin_oid is None:
         return failed("fetched, but the pin is not reachable")
-    if not run_git(["-C", store, "update-ref", pin_ref_for(source_identity, pin_oid), pin_oid]).ok:
+    if (
+        _retention_injected_failure(pin_oid)
+        or not run_git(
+            ["-C", store, "update-ref", pin_ref_for(source_identity, pin_oid), pin_oid]
+        ).ok
+    ):
         return failed("the pin could not be retained by a ref in the managed store")
+    return FetchResult(repo=store)
+
+
+def fetch_into_store(root: str, mount: MountDecl, source_identity: str) -> FetchResult:
+    """Fetch the pin and refresh the managed witness ref in the store. This is the
+    only writer of the witness namespace: ``status`` never fetches, so a mount
+    whose pin a hint already resolves still needs its store populated here."""
+    retained = retain_pin_in_store(root, mount, source_identity, mount.pin)
+    if retained.repo is None:
+        return retained
+    store = retained.repo
     # The witness refresh is the second half of what ``--fetch`` was asked to do, so
     # a run that attempts it and does not publish says so on its own terms. Reported
     # only when it was actually attempted: a run that never got this far has already
     # reported the fetch failure that stopped it.
     if mount.tracking_ref is not None and valid_tracking_ref(mount.tracking_ref):
-        if not _refresh_witness(store, mount, source_identity):
+        if not refresh_witness(store, mount, source_identity):
             return FetchResult(repo=store, witness_refresh_failed=True)
     return FetchResult(repo=store)
 
 
-def _refresh_witness(store: str, mount: MountDecl, source_identity: str) -> bool:
+def refresh_witness(store: str, mount: MountDecl, source_identity: str) -> bool:
     """Refresh the managed witness ref: fetch the tracking ref to a unique
     temporary ref, publish it onto the canonical witness with git's own
     compare-and-swap, then drop the temporary. Forced (``+``), so the witness
@@ -457,8 +507,21 @@ def _refresh_witness(store: str, mount: MountDecl, source_identity: str) -> bool
     witness_ref = witness_ref_for(source_identity, tracking_ref)
     temp_ref = f"{WITNESS_REF_NAMESPACE}/tmp/{os.getpid()}-{secrets.token_hex(8)}"
     spec = f"+{tracking_ref}:{temp_ref}"
+    # ``--no-write-fetch-head`` for the same reason retention passes it: the ref this
+    # fetch cares about is the temporary one in the refspec, and a FETCH_HEAD left
+    # behind is a per-run path recorded inside the managed store.
     fetch = run_git(
-        ["-C", store, "-c", "fetch.recurseSubmodules=no", "fetch", "-q", mount.source, spec]
+        [
+            "-C",
+            store,
+            "-c",
+            "fetch.recurseSubmodules=no",
+            "fetch",
+            "-q",
+            "--no-write-fetch-head",
+            mount.source,
+            spec,
+        ]
     )
     tip = _ref_oid(store, temp_ref) if fetch.ok else None
     # An empty <oldvalue> is git's "must not exist yet".
@@ -1243,9 +1306,22 @@ def hydrate_mounts(
             )
             continue
         # Staged inside the entry's own directory, so publication is a rename on one
-        # filesystem, and under a per-process name, so no two producers collide.
-        staging = _join(cache_dir, f".staging-{_staging_token()}")
-        Path(staging).mkdir(parents=True, exist_ok=True)
+        # filesystem, and under a per-process name, so no two producers collide. The
+        # staging directory is established through the chokepoint and every act below
+        # works from the RESOLVED path it returned, the cache entry included.
+        staging = _establish_mounts_dir(root, _join(cache_dir, f".staging-{_staging_token()}"))
+        if staging is None:
+            outcomes.append(
+                outcome(
+                    {
+                        "name": mount.name,
+                        "status": "error",
+                        "detail": "the cache entry destination could not be established",
+                    }
+                )
+            )
+            continue
+        cache_entry_dir = os.path.dirname(staging)
         projected = extract_projection(src.repo, mount.pin, staging)
         if not projected.ok:
             shutil.rmtree(staging, ignore_errors=True)
@@ -1283,7 +1359,7 @@ def hydrate_mounts(
         }
         # The whole tree is extracted and validated before it is publishable.
         status, detail = _publish_cache_entry(
-            cache_dir, staging, json.dumps(metadata, indent=2, ensure_ascii=False) + "\n"
+            cache_entry_dir, staging, json.dumps(metadata, indent=2, ensure_ascii=False) + "\n"
         )
         if status == "error":
             outcomes.append(outcome({"name": mount.name, "status": "error", "detail": detail}))
@@ -1301,8 +1377,10 @@ def hydrate_mounts(
 
 def verify_projection(root: str, mount: MountDecl) -> bool | None:
     """Verify a cached projection against a reachable object store: every projected
-    file's bytes and mode against the pinned tree. Returns None when no object
-    store is reachable (unverifiable), True/False otherwise."""
+    file's bytes and mode against the pinned tree. Returns None when a prerequisite
+    for verifying is unavailable — no reachable object store, an unresolvable pin,
+    no writable temp dir — leaving the projection unverified rather than judged;
+    True/False otherwise."""
     identity = normalize_source(mount.source)
     if identity is None:
         return False
@@ -1317,9 +1395,17 @@ def verify_projection(root: str, mount: MountDecl) -> bool | None:
     if not commit_r.ok:
         return None
     commit = commit_r.stdout.decode("utf-8").strip()
-    staging = _join(mounts_dir(root), f"verify-{os.getpid()}")
-    shutil.rmtree(staging, ignore_errors=True)
-    Path(staging).mkdir(parents=True, exist_ok=True)
+    # Staging happens outside the host: verifying is a read-only question, so asking
+    # it must not write into the tree being asked about (a read-only or shared
+    # checkout could not answer otherwise). The name is allocated, never constructed
+    # and pre-deleted: a guessed path is a path a concurrent verification is already
+    # using, and deleting it is how one run made another fail. Cleanup is installed
+    # the moment allocation succeeds. A failed allocation is one more unavailable
+    # prerequisite — unverifiable, never an error and never an in-tree fallback.
+    try:
+        staging = tempfile.mkdtemp(prefix="leji-verify-")
+    except OSError:
+        return None
     try:
         projected = extract_projection(src.repo, commit, staging)
         if not projected.ok:
@@ -1414,8 +1500,130 @@ def locate_mount(root: str, manifest: Manifest, name: str) -> dict[str, object]:
         "path": proj_dir if present else None,
     }
     if present and not verified:
-        out["detail"] = "projection present but not verified against a reachable object store"
+        out["detail"] = (
+            "projection present but not verified: it does not match its pin, "
+            "or verification prerequisites are unavailable"
+        )
     return out
+
+
+@dataclass
+class ComparisonSelection:
+    """Which repository answers a pin comparison, and the ONE witness snapshot it
+    answered with. ``reason`` is the degraded alternative: a stable status code and
+    nothing selected."""
+
+    repo: str | None = None
+    comparison_repository: str | None = None
+    witness_provenance: str | None = None
+    compared_ref: str | None = None
+    tip_oid: str | None = None
+    reason: str | None = None
+
+
+def select_comparison(root: str, mount: MountDecl, effective_ref: str) -> ComparisonSelection:
+    """The store-first availability matrix, resolved once: the resolver's own witness
+    in the managed store first, then the first object source that holds BOTH the pin
+    and the compared ref. The pin and the witness always come from the same
+    repository, and nothing here fetches.
+
+    ``tip_oid`` is the single witness snapshot for the whole operation. ``status``
+    reports from it and ``update-pin`` targets, counts and gates from it, so no
+    caller can end up describing two different commits by re-reading a ref that moved
+    in between."""
+    identity = normalize_source(mount.source)
+    if identity is None:
+        return ComparisonSelection(reason="mount-source-unnormalizable")
+    if not valid_tracking_ref(effective_ref):
+        return ComparisonSelection(reason="mount-tracking-ref-invalid")
+    # Row 1: the managed store holds the pin and the resolver's own witness.
+    store = _store_dir(root, identity)
+    managed_tip = (
+        _rev_oid(store, witness_ref_for(identity, effective_ref))
+        if _is_git_repo(store) and _has_commit(store, mount.pin)
+        else None
+    )
+    # Row 2: the first pin-holding source that also resolves the ref itself. A
+    # candidate holding only the pin is passed over, never allowed to mask a
+    # later one holding both.
+    candidates: list[ObjectSource] = []
+    ambiguous = False
+    if managed_tip is None:
+        candidates, ambiguous = object_source_candidates(root, mount, identity)
+    selected: tuple[str, str, str] | None = (
+        None if managed_tip is None else (store, "store", managed_tip)
+    )
+    for candidate in candidates:
+        tip = _rev_oid(cast("str", candidate.repo), effective_ref)
+        if tip is not None:
+            selected = (cast("str", candidate.repo), cast("str", candidate.kind), tip)
+            break
+    if selected is None:
+        # Ambiguity is its own answer: those repositories were never consulted,
+        # so reporting the pin or the witness unavailable would claim more than
+        # was checked.
+        if ambiguous:
+            return ComparisonSelection(reason="mount-source-ambiguous")
+        return ComparisonSelection(
+            reason="mount-pin-unavailable" if not candidates else "mount-witness-unavailable"
+        )
+    repo, kind, tip_oid = selected
+    return ComparisonSelection(
+        repo=repo,
+        comparison_repository="managed-store" if kind == "store" else kind,
+        witness_provenance="managed" if managed_tip is not None else "unmanaged",
+        compared_ref=effective_ref,
+        tip_oid=tip_oid,
+    )
+
+
+@dataclass
+class PinComparison:
+    """A settled pin comparison: never ``unknown``, because a repository that cannot
+    answer the range returns the reason instead."""
+
+    state: str = ""
+    behind: int = 0
+    ahead: int = 0
+    ancestry_complete: bool = False
+    reason: str | None = None
+
+
+def compare_pins(repo: str, pin: str, tip_oid: str) -> PinComparison:
+    """Where the pin stands against ONE witness snapshot, in ONE repository. Shared
+    by ``status``, which reports it, and ``update-pin``, which additionally gates on
+    it — so the two can never describe the same pair of commits differently."""
+    incomplete = PinComparison(reason="mount-ancestry-incomplete")
+    behind = _count_range(repo, pin, tip_oid)
+    ahead = _count_range(repo, tip_oid, pin)
+    if behind is None or ahead is None:
+        return incomplete
+    shallow = run_git(["-C", repo, "rev-parse", "--is-shallow-repository"])
+    ancestry_complete = shallow.ok and shallow.stdout.decode("utf-8").strip() == "false"
+    # Both counts positive is either divergence or two unrelated histories, and
+    # only a merge base tells them apart. Exit 1 is the answer "no merge base";
+    # any other failure is the repository unable to answer, never an answer.
+    # Truncated history can also lose a merge base that exists, so `unrelated`
+    # is a claim only complete ancestry makes.
+    disjoint = False
+    if behind > 0 and ahead > 0:
+        merge_base = run_git(["-C", repo, "merge-base", pin, tip_oid])
+        if not merge_base.ok and merge_base.code != 1:
+            return incomplete
+        disjoint = not merge_base.ok
+        if disjoint and not ancestry_complete:
+            return incomplete
+    if behind == 0 and ahead == 0:
+        state = "up-to-date"
+    elif behind > 0 and ahead > 0:
+        state = "unrelated" if disjoint else "diverged"
+    elif behind > 0:
+        state = "behind"
+    else:
+        state = "ahead"
+    return PinComparison(
+        state=state, behind=behind, ahead=ahead, ancestry_complete=ancestry_complete
+    )
 
 
 def mount_status(
@@ -1483,89 +1691,30 @@ def mount_status(
             rows.append(unknown("mount-tracking-ref-invalid"))
             continue
 
-        # Row 1: the managed store holds the pin and the resolver's own witness.
-        store = _store_dir(root, identity)
-        managed_tip = (
-            _rev_oid(store, witness_ref_for(identity, mount.tracking_ref))
-            if _is_git_repo(store) and _has_commit(store, mount.pin)
-            else None
-        )
-        # Row 2: the first pin-holding source that also resolves the ref itself. A
-        # candidate holding only the pin is passed over, never allowed to mask a
-        # later one holding both.
-        candidates: list[ObjectSource] = []
-        ambiguous = False
-        if managed_tip is None:
-            candidates, ambiguous = object_source_candidates(root, mount, identity)
-        selected: tuple[str, str, str] | None = (
-            None if managed_tip is None else (store, "store", managed_tip)
-        )
-        for candidate in candidates:
-            tip = _rev_oid(cast("str", candidate.repo), mount.tracking_ref)
-            if tip is not None:
-                selected = (cast("str", candidate.repo), cast("str", candidate.kind), tip)
-                break
-        if selected is None:
-            # Ambiguity is its own answer: those repositories were never consulted,
-            # so reporting the pin unavailable would claim more than was checked.
-            if ambiguous:
-                rows.append(unknown("mount-source-ambiguous"))
-            elif not candidates:
-                rows.append(unknown("mount-pin-unavailable"))
-            else:
-                rows.append(unknown("mount-witness-unavailable"))
+        selection = select_comparison(root, mount, mount.tracking_ref)
+        if selection.reason is not None:
+            rows.append(unknown(selection.reason))
             continue
-        repo, kind, tip_oid = selected
-        comparison_repository = "managed-store" if kind == "store" else kind
-        witness_provenance = "managed" if managed_tip is not None else "unmanaged"
+        repo = cast("str", selection.repo)
+        tip_oid = cast("str", selection.tip_oid)
+        comparison_repository = selection.comparison_repository
+        witness_provenance = selection.witness_provenance
 
-        behind = _count_range(repo, mount.pin, tip_oid)
-        ahead = _count_range(repo, tip_oid, mount.pin)
-        if behind is None or ahead is None:
-            rows.append(
-                unknown("mount-ancestry-incomplete", comparison_repository, witness_provenance)
-            )
+        comparison = compare_pins(repo, mount.pin, tip_oid)
+        if comparison.reason is not None:
+            rows.append(unknown(comparison.reason, comparison_repository, witness_provenance))
             continue
-        shallow = run_git(["-C", repo, "rev-parse", "--is-shallow-repository"])
-        ancestry_complete = shallow.ok and shallow.stdout.decode("utf-8").strip() == "false"
-        # Both counts positive is either divergence or two unrelated histories, and
-        # only a merge base tells them apart. Exit 1 is the answer "no merge base";
-        # any other failure is the repository unable to answer, never an answer.
-        # Truncated history can also lose a merge base that exists, so `unrelated`
-        # is a claim only complete ancestry makes.
-        disjoint = False
-        if behind > 0 and ahead > 0:
-            merge_base = run_git(["-C", repo, "merge-base", mount.pin, tip_oid])
-            if not merge_base.ok and merge_base.code != 1:
-                rows.append(
-                    unknown("mount-ancestry-incomplete", comparison_repository, witness_provenance)
-                )
-                continue
-            disjoint = not merge_base.ok
-            if disjoint and not ancestry_complete:
-                rows.append(
-                    unknown("mount-ancestry-incomplete", comparison_repository, witness_provenance)
-                )
-                continue
-        if behind == 0 and ahead == 0:
-            state = "up-to-date"
-        elif behind > 0 and ahead > 0:
-            state = "unrelated" if disjoint else "diverged"
-        elif behind > 0:
-            state = "behind"
-        else:
-            state = "ahead"
         rows.append(
             {
                 **base,
                 "pinReport": {
-                    "state": state,
-                    "behind": behind,
-                    "ahead": ahead,
+                    "state": comparison.state,
+                    "behind": comparison.behind,
+                    "ahead": comparison.ahead,
                     "comparedRef": mount.tracking_ref,
                     "comparisonRepository": comparison_repository,
                     "witnessProvenance": witness_provenance,
-                    "ancestryComplete": ancestry_complete,
+                    "ancestryComplete": comparison.ancestry_complete,
                     "observedAt": observed_at,
                 },
             }
@@ -1585,14 +1734,40 @@ def _count_range(repo: str, from_ref: str, to_ref: str) -> int | None:
         return None
 
 
+_HEAD_SYMREF_RE = re.compile(r"^ref:\s+(\S+)\s+HEAD", re.MULTILINE)
+
+
+@dataclass
+class DefaultRef:
+    """The ref a source advertises as its default branch, or why it could not be
+    read: ``unreachable`` (the source answered nothing) or ``no-symref`` (it
+    answered, advertising no symref to follow)."""
+
+    ref: str | None = None
+    error: str | None = None
+
+
+def resolve_default_ref(source: str) -> DefaultRef:
+    """The ref a source advertises as its default branch: ``HEAD``'s symref target,
+    read with ``ls-remote --symref``. The one lookup in this module that reaches the
+    network without the caller having named a ref, so both failures stay
+    distinguishable — the source could not be reached at all, or it advertises no
+    symref to follow."""
+    # The locator becomes argv here: anything option-shaped is refused, never passed.
+    if source.startswith("-"):
+        return DefaultRef(error="unreachable")
+    head = run_git(["ls-remote", "--symref", source, "HEAD"])
+    if not head.ok:
+        return DefaultRef(error="unreachable")
+    m = _HEAD_SYMREF_RE.search(head.stdout.decode("utf-8"))
+    return DefaultRef(ref=m.group(1)) if m else DefaultRef(error="no-symref")
+
+
 @dataclass
 class ReachabilityResult:
     state: str  # 'reachable' | 'unreachable' | 'unknown'
     witness_ref: str | None
     detail: str | None = None
-
-
-_HEAD_SYMREF_RE = re.compile(r"^ref:\s+(\S+)\s+HEAD", re.MULTILINE)
 
 
 def check_pin_reachability(root: str, mount: MountDecl) -> ReachabilityResult:
@@ -1611,17 +1786,18 @@ def check_pin_reachability(root: str, mount: MountDecl) -> ReachabilityResult:
     # Resolve the witness ref: declared, or the source's advertised default branch.
     witness_ref = mount.tracking_ref
     if witness_ref is None:
-        head = run_git(["ls-remote", "--symref", mount.source, "HEAD"])
-        if not head.ok:
+        resolved = resolve_default_ref(mount.source)
+        if resolved.ref is None:
             return ReachabilityResult(
-                state="unknown", witness_ref=None, detail="the source could not be reached"
+                state="unknown",
+                witness_ref=None,
+                detail=(
+                    "the source could not be reached"
+                    if resolved.error == "unreachable"
+                    else "source advertises no HEAD symref"
+                ),
             )
-        m = _HEAD_SYMREF_RE.search(head.stdout.decode("utf-8"))
-        if not m:
-            return ReachabilityResult(
-                state="unknown", witness_ref=None, detail="source advertises no HEAD symref"
-            )
-        witness_ref = m.group(1)
+        witness_ref = resolved.ref
     adv = run_git(["ls-remote", mount.source, witness_ref])
     if not adv.ok:
         return ReachabilityResult(
@@ -1637,9 +1813,14 @@ def check_pin_reachability(root: str, mount: MountDecl) -> ReachabilityResult:
     tip = line.split("\t")[0]
     # Establish ancestry in the resolver store: fetch the witness ref (full history,
     # no promisor state), then ask whether the pin is an ancestor of its tip.
-    store = _join(mounts_dir(root), "store", sha256_hex(identity))
+    store = _establish_mounts_dir(root, _join(mounts_dir(root), "store", sha256_hex(identity)))
+    if store is None:
+        return ReachabilityResult(
+            state="unknown",
+            witness_ref=witness_ref,
+            detail="the managed store could not be initialized",
+        )
     if not _is_git_repo(store):
-        Path(store).mkdir(parents=True, exist_ok=True)
         init = run_git(["init", "--bare", "-q", store])
         if not init.ok:
             return ReachabilityResult(
@@ -1723,7 +1904,9 @@ def federation_enforcement(
                 "re-run `leji mounts hydrate`"
                 if verified is False
                 else f'mount "{mount.name}" projection cannot be verified '
-                "(no reachable object store); an unverified cache is not evidence"
+                "(verification prerequisites unavailable: no reachable object store, "
+                "unresolvable pin, or no writable temp dir); an unverified cache is "
+                "not evidence"
             )
             out.append(
                 EnforcementFinding(

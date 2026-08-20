@@ -21,11 +21,55 @@ export interface HostSpec {
    /** Argv that reports whether the Leji MCP server is already registered (exit 0 =
     * present); used to skip the install offer when it's already there. */
    mcpCheck?: string[];
+   /** Argv that registers the server for THIS USER, across every project. Absent
+    * when `mcpAdd` is already the user-level form (Codex has no other scope). */
+   mcpAddUser?: string[];
+   /** The committed file a shared (project-scope) registration writes, repository
+    * root relative. Only a host whose `mcpAdd` writes into the repository has one. */
+   mcpSharedFile?: string;
+   /** Where a host with no registration command reads its MCP configuration, for a
+    * host Leji can only tell the user about, and which shape that file takes. */
+   mcpConfig?: { path: string; scope: 'project' | 'user'; shape: McpConfigShape };
 }
+
+/**
+ * The top-level key an MCP client's configuration file uses for its server map.
+ * `mcpServers` is the common one; VS Code (and GitHub Copilot through it) spells the
+ * same map `servers` in `.vscode/mcp.json`, so a client told to paste the common
+ * block there ends up with a file the editor ignores.
+ */
+export type McpConfigShape = 'mcpServers' | 'servers';
 
 /** The registered server name and the npm package behind the local Leji MCP server. */
 export const MCP_SERVER_NAME = 'leji';
 export const MCP_PACKAGE = '@leji-org/mcp';
+
+/**
+ * The MCP client configuration for the local Leji server, in the shape one client's
+ * configuration file takes. The SDK owns these bytes: the MCP package README and the
+ * website quote the `mcpServers` form, and a repo test asserts the three of them
+ * agree, so the instruction a user reads is one text.
+ */
+export function mcpJsonConfig(shape: McpConfigShape): string {
+   return `{
+  "${shape}": {
+    "${MCP_SERVER_NAME}": { "command": "npx", "args": ["-y", "${MCP_PACKAGE}"] }
+  }
+}`;
+}
+
+/** The common form, the one the README and the website publish. */
+export const MCP_JSON_CONFIG: string = mcpJsonConfig('mcpServers');
+
+/** One host command line as a user would type it: the host binary, then the argv. */
+export function mcpCommand(spec: HostSpec, argv: string[]): string {
+   return `${spec.bins[0]} ${argv.join(' ')}`;
+}
+
+/** The host spec with this id, or undefined. */
+export function hostSpec(id: string): HostSpec | undefined {
+   return HOST_SPECS.find((s) => s.id === id);
+}
 
 /**
  * The portable discovery adapter. `AGENTS.md` is a cross-host entrypoint
@@ -48,6 +92,10 @@ export const HOST_SPECS: HostSpec[] = [
       // Project scope writes a committed `.mcp.json` so the whole team gets the server.
       mcpAdd: ['mcp', 'add', MCP_SERVER_NAME, '--scope', 'project', '--', 'npx', '-y', MCP_PACKAGE],
       mcpCheck: ['mcp', 'get', MCP_SERVER_NAME],
+      // User scope is the personal form: it registers for every project of this
+      // user without touching a file the repository commits.
+      mcpAddUser: ['mcp', 'add', MCP_SERVER_NAME, '--scope', 'user', '--', 'npx', '-y', MCP_PACKAGE],
+      mcpSharedFile: '.mcp.json',
    },
    {
       id: 'codex',
@@ -69,6 +117,7 @@ export const HOST_SPECS: HostSpec[] = [
       repoFiles: ['.github/copilot-instructions.md'],
       userDirs: [],
       adapter: '.github/copilot-instructions.md',
+      mcpConfig: { path: '.vscode/mcp.json', scope: 'project', shape: 'servers' },
    },
    {
       id: 'gemini',
@@ -77,6 +126,7 @@ export const HOST_SPECS: HostSpec[] = [
       repoFiles: ['GEMINI.md', '.gemini'],
       userDirs: ['.gemini'],
       adapter: 'GEMINI.md',
+      mcpConfig: { path: '.gemini/settings.json', scope: 'project', shape: 'mcpServers' },
    },
    {
       id: 'cursor',
@@ -85,6 +135,7 @@ export const HOST_SPECS: HostSpec[] = [
       repoFiles: ['.cursor/rules', '.cursorrules'],
       userDirs: [],
       adapter: '.cursor/rules/leji.md',
+      mcpConfig: { path: '.cursor/mcp.json', scope: 'project', shape: 'mcpServers' },
    },
    {
       id: 'windsurf',
@@ -93,6 +144,7 @@ export const HOST_SPECS: HostSpec[] = [
       repoFiles: ['.windsurf/rules', '.windsurfrules'],
       userDirs: [],
       adapter: '.windsurf/rules/leji.md',
+      mcpConfig: { path: '~/.codeium/windsurf/mcp_config.json', scope: 'user', shape: 'mcpServers' },
    },
 ];
 

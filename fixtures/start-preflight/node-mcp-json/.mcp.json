@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "leji": { "command": "npx", "args": ["-y", "@leji-org/mcp"] }
+  }
+}

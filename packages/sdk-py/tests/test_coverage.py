@@ -122,13 +122,13 @@ def test_cli_viewer_text_output_serve_hint(tmp_path, capsys) -> None:
     out = capsys.readouterr().out
     assert code == 0
     assert "serve: leji view" in out
-    assert "viewer ready (3 entries) → docs/.leji/viewer/" in out
+    assert "viewer ready (3 entries) → .leji/viewer/" in out
 
 
 def test_serve_viewer_rejects_escaping_root_rel(tmp_path) -> None:
     # The CLI passes a schema-validated rootPath, but a direct SDK caller could pass
     # an escaping root_rel (e.g. ".."); serve_viewer must refuse. Mirrors Node/Go.
-    from leji.viewer_cmd import serve_viewer
+    from leji.serve_cmd import serve_viewer
 
     layer = _copy(EXAMPLE, tmp_path)
     for root_rel in ("..", "../.."):
@@ -143,7 +143,8 @@ def test_serve_viewer_serves_chrome_content_and_refuses_traversal(tmp_path) -> N
     import http.client
     import threading
 
-    from leji.viewer_cmd import generate_viewer, serve_viewer
+    from leji.serve_cmd import serve_viewer
+    from leji.viewer_cmd import generate_viewer
 
     layer = _copy(EXAMPLE, tmp_path)
     manifest = load_manifest(str(layer)).manifest
@@ -195,7 +196,8 @@ def test_serve_viewer_live_sidebar_and_index(tmp_path) -> None:
     import http.client
     import threading
 
-    from leji.viewer_cmd import generate_viewer, serve_viewer
+    from leji.serve_cmd import serve_viewer
+    from leji.viewer_cmd import generate_viewer
 
     layer = _copy(EXAMPLE, tmp_path)
     manifest = load_manifest(str(layer)).manifest
@@ -225,7 +227,7 @@ def test_serve_viewer_live_sidebar_and_index(tmp_path) -> None:
         )
         status, body = get("/content/_sidebar.md")
         assert status == 200
-        assert b"[Fresh Note](fresh-note.md)" in body
+        assert b"[Fresh Note](/fresh-note.md)" in body
         assert b"- **Reference**" in body
         # The stored index path serves the live index JSON.
         status, body = get("/content/context-index.json")
@@ -240,7 +242,7 @@ def test_serve_viewer_live_sidebar_and_index(tmp_path) -> None:
 def test_open_browser_spawns_and_swallows_errors(monkeypatch) -> None:
     # open_browser is best-effort: it spawns the platform opener and never raises,
     # even when the opener is missing. Covers the happy path and the OSError branch.
-    from leji import viewer_cmd
+    from leji import serve_cmd
 
     calls: list[list[str]] = []
 
@@ -249,7 +251,7 @@ def test_open_browser_spawns_and_swallows_errors(monkeypatch) -> None:
         return object()
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
-    viewer_cmd.open_browser("http://127.0.0.1:5354/")
+    serve_cmd.open_browser("http://127.0.0.1:5354/")
     assert len(calls) == 1
     assert calls[0][-1] == "http://127.0.0.1:5354/"
 
@@ -257,23 +259,23 @@ def test_open_browser_spawns_and_swallows_errors(monkeypatch) -> None:
         raise OSError("no opener on PATH")
 
     monkeypatch.setattr(subprocess, "Popen", raising_popen)
-    viewer_cmd.open_browser("http://127.0.0.1:5354/")  # must not raise
+    serve_cmd.open_browser("http://127.0.0.1:5354/")  # must not raise
 
 
 def test_build_viewer_exports_static_folder_and_contains_output(tmp_path) -> None:
     # build_viewer was untested in Python: exercise the default export, an absolute
     # in-repo --out, and the containment guards (escape / repo root / context root).
-    from leji.viewer_cmd import build_viewer
+    from leji.export_cmd import build_viewer
 
     layer = _copy(EXAMPLE, tmp_path)
     manifest = load_manifest(str(layer)).manifest
 
-    # Default out: a self-contained static folder under the context root, mirroring
-    # the served URL contract (chrome at the web root, markdown under /content/).
+    # Default out: the dist role of the unified root `.leji/`, mirroring the served
+    # URL contract (chrome at the web root, markdown under /content/).
     result = build_viewer(str(layer), manifest)
-    assert result.out == "docs/.leji/viewer-dist"
+    assert result.out == ".leji/dist"
     assert not has_errors(result.findings)
-    out = Path(layer) / "docs" / ".leji" / "viewer-dist"
+    out = Path(layer) / ".leji" / "dist"
     index = (out / "index.html").read_text()
     assert index.startswith("<!--") and "Leji viewer" in index  # protect warning prepended
     assert (out / "content" / "domain" / "glossary.md").is_file()
@@ -285,8 +287,13 @@ def test_build_viewer_exports_static_folder_and_contains_output(tmp_path) -> Non
     assert build_viewer(str(layer), manifest, str(abs_out)).out == "dist-abs"
     assert (abs_out / "index.html").is_file()
 
-    # Containment guards: escaping --out, the repo root, and the context root are refused.
-    for bad in ("../escape", ".", "docs"):
+    # Containment guards. An escaping --out is answered by the write rule itself, ahead
+    # of the collision checks: every write stays inside the repository root.
+    with pytest.raises(RuntimeError, match="resolves outside the repository"):
+        build_viewer(str(layer), manifest, "../escape")
+    # The repo root and the context root are the collision usage errors, raised before
+    # any work starts.
+    for bad in (".", "docs"):
         with pytest.raises(RuntimeError, match="must be a path inside the repository"):
             build_viewer(str(layer), manifest, bad)
 
@@ -942,3 +949,52 @@ def test_conformance_reports_all_four_mount_items_when_none_are_declared(tmp_pat
         ("mount-routing", "not-applicable"),
         ("mount-discovery", "not-applicable"),
     ]
+
+
+# Mirrors units.test.ts "seedChangelogIfMissing treats a dangling changelog link as
+# present, never seeding through it" and its out-of-repository twin.
+def test_seed_changelog_treats_a_dangling_link_as_present(tmp_path: Path) -> None:
+    # An existence check follows symlinks, so a dangling changelog link read as absent
+    # and the seed was created at the link's missing destination. The exclusive create
+    # judges the ORIGINAL entry, so any standing entry is the same no-op an existing
+    # changelog is.
+    from leji.changelog import seed_changelog_if_missing
+
+    layer = _copy(FIXTURES / "valid-minimal-core", tmp_path)
+    mp = layer / "leji.json"
+    m = json.loads(mp.read_text(encoding="utf-8"))
+    m["conformance"] = {**m.get("conformance", {}), "claimedLevel": "indexed"}
+    mp.write_text(json.dumps(m, indent=2) + "\n", encoding="utf-8")
+    link = layer / "docs" / "context-changelog.json"
+    link.symlink_to("never-created.json")
+    manifest = load_manifest(str(layer)).manifest
+    assert manifest is not None
+
+    assert seed_changelog_if_missing(str(layer), manifest) is None, (
+        "a standing entry is never seeded through"
+    )
+    assert not (layer / "docs" / "never-created.json").exists(), (
+        "the dangling link's destination is never created"
+    )
+    assert link.is_symlink(), "the planted link is left exactly as it was"
+
+
+def test_seed_changelog_refuses_a_link_resolving_outside_the_repository(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    from leji.changelog import seed_changelog_if_missing
+
+    layer = _copy(FIXTURES / "valid-minimal-core", tmp_path)
+    outside = tmp_path_factory.mktemp("leji-seed-outside")
+    mp = layer / "leji.json"
+    m = json.loads(mp.read_text(encoding="utf-8"))
+    m["conformance"] = {**m.get("conformance", {}), "claimedLevel": "indexed"}
+    mp.write_text(json.dumps(m, indent=2) + "\n", encoding="utf-8")
+    (layer / "docs" / "context-changelog.json").symlink_to(outside / "context-changelog.json")
+    manifest = load_manifest(str(layer)).manifest
+    assert manifest is not None
+
+    assert seed_changelog_if_missing(str(layer), manifest) is None, (
+        "nothing seeded through a link that leaves the repository"
+    )
+    assert not (outside / "context-changelog.json").exists(), "nothing written outside the root"

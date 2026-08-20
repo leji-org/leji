@@ -1,0 +1,3 @@
+#!/bin/sh
+# A hand-authored hook this repository already committed.
+echo "project hook"

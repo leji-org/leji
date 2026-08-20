@@ -3,30 +3,117 @@
 // Kept as a vendored file (not inline) so the page can run under a strict
 // Content-Security-Policy (script-src 'self'), which blocks any script injected
 // through served Markdown content. Written alongside the page by `leji viewer`.
-// Pick a readable mermaid node-text color for the layer's accent: dark text on a
-// light accent, white on a dark one. Parses #rgb or #rrggbb (case-insensitive);
-// an unparseable value keeps the dark default.
+// Fallback mermaid node-text color for the layer's accent. The SDK computes this
+// server-side and ships it in the config block (lejiMermaidTextColor), over every
+// color form the manifest accepts; this covers only a viewer tree generated before
+// that field existed, so it parses #rgb and #rrggbb and nothing else. WCAG relative
+// luminance over linearized sRGB: whichever of #1a1a1a and #ffffff contrasts more
+// with the accent, or #000000 when neither clears 4.5:1 (a mid-gray accent, where
+// the extra half-stop of black is the best text color available). An unparseable
+// value keeps the dark default.
 function lejiMermaidTextColor(accent) {
    var hex = String(accent || '').replace(/^#/, '');
    if (hex.length === 3) {
       hex = hex.charAt(0) + hex.charAt(0) + hex.charAt(1) + hex.charAt(1) + hex.charAt(2) + hex.charAt(2);
    }
    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return '#1a1a1a';
-   var r = parseInt(hex.slice(0, 2), 16);
-   var g = parseInt(hex.slice(2, 4), 16);
-   var b = parseInt(hex.slice(4, 6), 16);
-   var brightness = (299 * r + 587 * g + 114 * b) / 1000;
-   return brightness >= 150 ? '#1a1a1a' : '#ffffff';
+   var luminance = function (h) {
+      var channel = function (i) {
+         var c = parseInt(h.slice(i, i + 2), 16) / 255;
+         return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
+   };
+   var ratio = function (a, b) {
+      return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+   };
+   var accentLuminance = luminance(hex);
+   var onDark = ratio(luminance('1a1a1a'), accentLuminance);
+   var onLight = ratio(luminance('ffffff'), accentLuminance);
+   if (onDark < 4.5 && onLight < 4.5) return '#000000';
+   return onDark >= onLight ? '#1a1a1a' : '#ffffff';
 }
 
-window.$docsify = Object.assign(JSON.parse(document.getElementById('leji-docsify-config').textContent), {
+// Resolve a raw-HTML `<img src>` against the document that carries it, exactly as
+// Docsify's relativePath routing already resolves the markdown image form. Returns
+// the path under `contentBase` (query and fragment preserved) or null for a src that must be
+// left as authored: empty, fragment- or query-only, root-relative, backslash-led,
+// protocol-relative, any scheme reference, and any traversal escaping /content/ —
+// traversal is rejected rather than clamped, because the server canonicalizes and a
+// clamped path would quietly address the viewer chrome instead of the layer.
+// Containment is judged on the decoded, normalized path, not the literal one,
+// because the server canonicalizes percent-encoding and separators before it
+// routes — an encoded `..` reads as traversal there even though URL keeps it.
+// The value is first put through URL parsing's own input preprocessing — leading
+// and trailing C0-control-and-space characters trimmed, then ASCII tab, LF, and
+// CR removed anywhere in the value — so classification sees exactly what the
+// parser sees; otherwise a padded or tab-split scheme reference slips past the
+// first-character and scheme checks and gets rewritten.
+function lejiResolveImgSrc(src, docDir, contentBase) {
+   var origin = 'http://leji.invalid';
+   var raw = String(src || '')
+      .replace(/^[\x00-\x20]+/, '')
+      .replace(/[\x00-\x20]+$/, '')
+      .replace(/[\t\n\r]/g, '');
+   if (raw === '') return null;
+   var first = raw.charAt(0);
+   if (first === '#' || first === '?' || first === '/' || first === '\\') return null;
+   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) return null;
+   var url;
+   try {
+      url = new URL(raw, origin + '/content/' + (docDir ? docDir + '/' : ''));
+   } catch (e) {
+      return null;
+   }
+   if (url.origin !== origin) return null;
+   if (url.pathname.indexOf('/content/') !== 0) return null;
+   var decoded;
+   try {
+      decoded = decodeURIComponent(url.pathname);
+   } catch (e) {
+      return null;
+   }
+   var parts = decoded.replace(/\\/g, '/').split('/');
+   var kept = [];
+   for (var i = 0; i < parts.length; i++) {
+      if (parts[i] === '' || parts[i] === '.') continue;
+      if (parts[i] === '..') kept.pop();
+      else kept.push(parts[i]);
+   }
+   if (('/' + kept.join('/')).indexOf('/content/') !== 0) return null;
+   // Re-based onto the content mount as this page addresses it: '/content/…' when
+   // served locally, 'content/…' in an export, which the browser then resolves
+   // against the page so a subpath-hosted tree still finds the file.
+   return contentBase + url.pathname.slice('/content/'.length) + url.search + url.hash;
+}
+
+var lejiConfig = JSON.parse(document.getElementById('leji-docsify-config').textContent);
+// Where this page addresses the layer's markdown, from the SDK's config block:
+// '/content/' for the local server, 'content/' for an export. Everything the page
+// fetches for itself is derived from it, so one generated value moves the whole
+// chrome between the app root and a relative base. Older viewer trees carry no
+// basePath in their config; they were server-flavored, so the app root is the
+// correct fallback.
+var lejiContentBase = typeof lejiConfig.basePath === 'string' ? lejiConfig.basePath : '/content/';
+
+window.$docsify = Object.assign(lejiConfig, {
    // The viewer chrome lives at the web root; the layer's markdown is mounted under
-   // /content/. basePath points Docsify at the content mount; the alias maps every
-   // nested `_sidebar.md` lookup to the single generated sidebar (so nested routes do
-   // not 404), which basePath then resolves to /content/_sidebar.md.
-   basePath: '/content/',
+   // the content base above. basePath points Docsify at the content mount; the alias
+   // maps every nested `_sidebar.md` lookup to the single generated sidebar (so
+   // nested routes do not 404), which basePath then resolves to <base>_sidebar.md.
+   basePath: lejiContentBase,
    loadSidebar: '_sidebar.md',
    alias: { '/.*/_sidebar.md': '_sidebar.md' },
+   // Markdown links resolve against the document that carries them, matching how
+   // the same files read on disk and on any git host. Generated sidebar links are
+   // emitted app-root absolute (leading slash) so they are unaffected. Without
+   // this, a `../`-style link on a nested page escapes the router entirely.
+   relativePath: true,
+   // A missing document renders Docsify's in-app not-found message; the vendored
+   // runtime's default (true) would issue a second, always-failing fetch for a
+   // `_404.md` no layer ships. The primary missing-document 404 is inherent to
+   // static serving.
+   notFoundPage: false,
    subMaxLevel: 3,
    auto2top: true,
    // Docsify's script execution runs a `new Function(...)` over a rendered page's
@@ -50,6 +137,26 @@ window.$docsify = Object.assign(JSON.parse(document.getElementById('leji-docsify
             return content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
          });
       },
+      function resolveImageSrc(hook, vm) {
+         // relativePath resolves markdown images; a raw-HTML <img src="assets/x.svg">
+         // passes through untouched and the browser resolves it against the page URL,
+         // so on a nested page it 404s. Rewrite at render rather than on the way out:
+         // a document's served bytes are the file's, verbatim. afterEach runs before
+         // the compiled HTML is inserted, so the unresolved URL is never requested.
+         hook.afterEach(function (html, next) {
+            var rel = vm.route && vm.route.file ? vm.route.file : '';
+            var cut = rel.lastIndexOf('/');
+            var docDir = cut === -1 ? '' : rel.slice(0, cut);
+            // Parsed in a detached container, never regexed over the HTML string.
+            var container = document.createElement('div');
+            container.innerHTML = html;
+            container.querySelectorAll('img[src]').forEach(function (img) {
+               var resolved = lejiResolveImgSrc(img.getAttribute('src'), docDir, lejiContentBase);
+               if (resolved !== null) img.setAttribute('src', resolved);
+            });
+            next(container.innerHTML);
+         });
+      },
       function categoryBadge(hook, vm) {
          // Top-right classification chip: the category (emoji + label) every
          // governed page carries for agents, made visible to people. Records
@@ -60,8 +167,10 @@ window.$docsify = Object.assign(JSON.parse(document.getElementById('leji-docsify
          if (!cfg.lejiIndexRel || !cfg.lejiCategories) return;
          hook.doneEach(function () {
             var rel = vm.route && vm.route.file ? vm.route.file : '';
-            fetch('/content/' + cfg.lejiIndexRel, { cache: 'no-store' })
-               .then(function (r) { return r.ok ? r.json() : null; })
+            fetch(lejiContentBase + cfg.lejiIndexRel, { cache: 'no-store' })
+               .then(function (r) {
+                  return r.ok ? r.json() : null;
+               })
                .then(function (idx) {
                   var label = null;
                   if (rel === cfg.lejiBootPath) {
@@ -76,11 +185,17 @@ window.$docsify = Object.assign(JSON.parse(document.getElementById('leji-docsify
                            prefix = path.slice(0, path.length - rel.length);
                            break;
                         }
-                        if (path === rel) { prefix = ''; break; }
+                        if (path === rel) {
+                           prefix = '';
+                           break;
+                        }
                      }
                      var entry = null;
                      for (var j = 0; j < idx.entries.length; j++) {
-                        if (idx.entries[j].path === (prefix === null ? rel : prefix + rel)) { entry = idx.entries[j]; break; }
+                        if (idx.entries[j].path === (prefix === null ? rel : prefix + rel)) {
+                           entry = idx.entries[j];
+                           break;
+                        }
                      }
                      if (entry) {
                         label = cfg.lejiCategories[entry.category] || entry.category;
@@ -90,7 +205,10 @@ window.$docsify = Object.assign(JSON.parse(document.getElementById('leji-docsify
                      }
                   }
                   var el = document.querySelector('.lj-cat');
-                  if (!label) { if (el) el.remove(); return; }
+                  if (!label) {
+                     if (el) el.remove();
+                     return;
+                  }
                   if (!el) {
                      el = document.createElement('div');
                      el.className = 'lj-cat';
@@ -98,7 +216,9 @@ window.$docsify = Object.assign(JSON.parse(document.getElementById('leji-docsify
                   }
                   el.textContent = label;
                })
-               .catch(function () { /* badge is best-effort chrome */ });
+               .catch(function () {
+                  /* badge is best-effort chrome */
+               });
          });
       },
       function sidebarLoadingState(hook) {
@@ -131,7 +251,10 @@ window.$docsify = Object.assign(JSON.parse(document.getElementById('leji-docsify
       },
       function brandMermaid(hook) {
          // Theme mermaid diagrams from the layer's accent color; runs at init so
-         // it lands after mermaid.min.js (loaded last) is present.
+         // it lands after mermaid.min.js (loaded last) is present. The node-text
+         // color is the SDK's, computed at generation time over every color form
+         // the manifest accepts; the local fallback covers only a viewer tree
+         // generated before that field shipped.
          hook.init(function () {
             if (!window.mermaid || !window.$docsify.themeColor) return;
             window.mermaid.initialize({
@@ -139,9 +262,10 @@ window.$docsify = Object.assign(JSON.parse(document.getElementById('leji-docsify
                theme: 'base',
                themeVariables: {
                   primaryColor: window.$docsify.themeColor,
-                  primaryTextColor: lejiMermaidTextColor(window.$docsify.themeColor),
+                  primaryTextColor:
+                     window.$docsify.lejiMermaidTextColor || lejiMermaidTextColor(window.$docsify.themeColor),
                   lineColor: '#666',
-                  tertiaryColor: '#f8f9fa',
+                  tertiaryColor: '#f7f8f5',
                },
             });
          });

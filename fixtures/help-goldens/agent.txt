@@ -1,0 +1,42 @@
+leji agent: Bind an additional named agent into an existing context layer.
+
+Usage: leji agent --name <name> [--host <host>] [--role <role>] [--root <dir>]
+       [--json]
+
+Adds a second (or third) agent to a context layer that already has a
+`leji.json`.
+
+Details:
+   - Writes a starter agent profile under the agent-profiles path and binds it
+     in the manifest's agents map via an in-place edit that preserves the rest
+     of the file.
+   - Never writes an agent-host entrypoint file. The portable `AGENTS.md`
+     pointer is written by `init` and `adopt` (unless `--no-agents`);
+     single-vendor files like `CLAUDE.md` are only ever converted from an
+     existing one by `adopt --wire-adapters`.
+   - `--host` is optional: a host pins the profile to a specific external CLI;
+     with none, it's a host-agnostic resident agent any host can run.
+   - The role defaults to reviewer; pass `--role` for a different one.
+   - Binding the `default` key prints a note: `agents.default` selects a role
+     profile, it does not load it, so instructions that must apply before every
+     task belong in the boot profile rather than that profile. This note prints
+     once, when the binding is written.
+   - Idempotent: an existing profile or binding is left untouched. Requires an
+     existing context layer.
+
+Options:
+   --name <name>       Name for the agent; also its profile id and agents-map
+                       key (kebab-case).
+   --host <host>       Optional. Pin the profile to a host (claude-code, codex,
+                       copilot, gemini, cursor, windsurf; aliases ok); omit for
+                       a host-agnostic resident agent.
+   --role <role>       Role the agent fills (default: reviewer).
+
+Global options: see leji --help.
+
+Examples:
+   leji agent --name porter --role porter
+   leji agent --host codex --name reviewer
+   leji agent --host claude-code --name thought-partner --role advisor
+
+Full reference: https://leji.org/cli/

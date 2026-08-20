@@ -40,7 +40,7 @@ func loadManifest(t *testing.T, dir string) *manifest.Manifest {
 func TestGenerateIndexStableIDs(t *testing.T) {
 	dir := copyExample(t)
 	m := loadManifest(t, dir)
-	res := GenerateIndex(dir, m)
+	res := generateIndex(t, dir, m)
 	if res.Index == nil {
 		t.Fatalf("generate produced no index: %v", res.Findings)
 	}
@@ -64,7 +64,7 @@ func TestGenerateIndexStableIDs(t *testing.T) {
 		}
 	}
 	// generatedAt is intentionally not stable, so compare entries only.
-	second := GenerateIndex(dir, m)
+	second := generateIndex(t, dir, m)
 	if len(second.Index.Entries) != len(res.Index.Entries) {
 		t.Fatal("entry count changed across regenerations")
 	}
@@ -81,7 +81,7 @@ func TestCheckIndexFreshThenStale(t *testing.T) {
 	m := loadManifest(t, dir)
 
 	// The committed example ships a current index: CheckIndex is fresh.
-	res := CheckIndex(dir, m)
+	res := checkIndex(t, dir, m)
 	if res.Stale == nil || *res.Stale {
 		t.Fatalf("committed example should be fresh: stale=%v findings=%v", res.Stale, res.Findings)
 	}
@@ -96,7 +96,7 @@ func TestCheckIndexFreshThenStale(t *testing.T) {
 	if err := os.WriteFile(newDoc, []byte("---\nsummary: A new term.\n---\n\n# New Term\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res = CheckIndex(dir, m)
+	res = checkIndex(t, dir, m)
 	if res.Stale == nil || !*res.Stale {
 		t.Fatalf("adding an unindexed doc should be stale: %+v", res)
 	}
@@ -118,7 +118,7 @@ func TestCheckIndexMissingIsRequired(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 		t.Fatal(err)
 	}
-	res := CheckIndex(dir, m)
+	res := checkIndex(t, dir, m)
 	if res.Stale == nil || !*res.Stale {
 		t.Fatalf("missing index should be stale: %+v", res)
 	}
@@ -151,7 +151,7 @@ func TestWriteIndexRoundTrips(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 		t.Fatalf("index not written: %v", err)
 	}
-	check := CheckIndex(dir, m)
+	check := checkIndex(t, dir, m)
 	if check.Stale == nil || *check.Stale {
 		t.Fatalf("freshly written index should be fresh: %+v", check)
 	}
@@ -182,5 +182,64 @@ func TestWriteIndexRefusesSymlinkEscape(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outside, "context-index.json")); !os.IsNotExist(err) {
 		t.Fatal("nothing should be written outside the root")
+	}
+}
+
+// --- gate helpers -------------------------------------------------------------
+// These commands now carry an error channel, because an operational read failure on
+// an allowed path propagates instead of being swallowed (the reference throws it).
+// A test that does not construct such a failure asserts there is none.
+
+func checkIndex(t *testing.T, root string, m *manifest.Manifest) Result {
+	t.Helper()
+	res, err := CheckIndex(root, m)
+	if err != nil {
+		t.Fatalf("CheckIndex(%s): %v", root, err)
+	}
+	return res
+}
+
+func generateIndex(t *testing.T, root string, m *manifest.Manifest) Result {
+	t.Helper()
+	res, err := GenerateIndex(root, m)
+	if err != nil {
+		t.Fatalf("GenerateIndex(%s): %v", root, err)
+	}
+	return res
+}
+
+func TestStoredIndexPropagatesAnOperationalReadFailure(t *testing.T) {
+	// The stored index is read through the verified read, and generation carries ids
+	// out of those bytes. A refusal (absent, unverifiable, outside the layer) means
+	// "no stored index"; an operational failure on an allowed path is the filesystem
+	// failing, and the reference lets it throw — so every caller that reads it
+	// propagates rather than generating an index that silently carries nothing.
+	// Mutation that reddens: swallow the error in LoadStoredIndex.
+	if os.Geteuid() == 0 {
+		t.Skip("running as root bypasses permission bits; the read cannot be made to fail")
+	}
+	dir := copyExample(t)
+	m := loadManifest(t, dir)
+	abs := filepath.Join(dir, filepath.FromSlash(manifest.EffectiveIndexPath(m)))
+	if err := os.Chmod(abs, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chmod(abs, 0o644) }()
+	if f, oerr := os.Open(abs); oerr == nil {
+		_ = f.Close()
+		t.Skip("this platform ignores the mode; the read cannot be made to fail")
+	}
+
+	if _, err := LoadStoredIndex(dir, m); err == nil {
+		t.Fatal("LoadStoredIndex must propagate an operational read failure")
+	}
+	if _, err := GenerateIndex(dir, m); err == nil {
+		t.Fatal("GenerateIndex must propagate an operational read failure")
+	}
+	if _, err := CheckIndex(dir, m); err == nil {
+		t.Fatal("CheckIndex must propagate an operational read failure")
+	}
+	if _, err := WriteIndex(dir, m); err == nil {
+		t.Fatal("WriteIndex must propagate an operational read failure")
 	}
 }

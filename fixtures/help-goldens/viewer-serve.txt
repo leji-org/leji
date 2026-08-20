@@ -1,0 +1,22 @@
+leji viewer serve: Generate the viewer and serve it locally.
+
+Usage: leji viewer serve [--port <n>] [--open] [--root <dir>] [--json]
+
+Generates the viewer, then serves it on localhost (a local preview, never
+hosting) at the web root. With --open it also opens your default browser at the
+viewer.
+
+Options:
+   --open              Open the viewer in your default browser after serving.
+   --port <n>          Port to serve on. Overrides the manifest viewer.port;
+                       default 5354 (LEJI on a phone keypad); 0 picks a free
+                       port.
+
+Global options: see leji --help.
+
+Examples:
+   leji viewer serve
+   leji viewer serve --open
+   leji viewer serve --port 0
+
+Full reference: https://leji.org/cli/

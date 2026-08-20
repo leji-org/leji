@@ -5,7 +5,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import {
    type HydrateOutcome,
    cacheKeyFor,
@@ -590,20 +591,27 @@ test('mounts: submodule ambiguity outranks a candidate that resolves only the pi
    assert.equal(hydrateMounts(host, manifest!, {}).outcomes[0].objectSource, 'hint');
 });
 
-test('mounts: --fetch retains the pin by a resolver-owned ref, not just FETCH_HEAD', () => {
+test('mounts: --fetch retains the pin by a resolver-owned ref, and writes no FETCH_HEAD at all', () => {
    const { host, sibling, pin } = mountedPair();
    git(sibling, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
    const { manifest } = loadManifest(host);
-   // main moves past the pin, so the witness fetch overwrites FETCH_HEAD with a
-   // different commit: only a ref of our own still retains the version of record.
+   // main moves past the pin, so neither fetch may leave the version of record to
+   // FETCH_HEAD: only a ref of our own retains it.
    commitFile(sibling, 'b.md');
    withSourceRewrite(sibling, () => hydrateMounts(host, manifest!, { fetch: true }));
    const store = storeFor(host, ACME_IDENTITY);
    assert.equal(git(store, 'rev-parse', pinRefFor(ACME_IDENTITY, pin)), pin);
-   assert.notEqual(git(store, 'rev-parse', 'FETCH_HEAD'), pin);
    assert.ok(
       git(store, 'for-each-ref', '--format=%(refname)', 'refs/leji-pin').includes(pinRefFor(ACME_IDENTITY, pin)),
    );
+   // Both fetches pass --no-write-fetch-head, so the managed store carries no
+   // per-run record of where the objects came from.
+   assert.equal(fs.existsSync(path.join(store, 'FETCH_HEAD')), false, 'no FETCH_HEAD in the managed store');
+   // And a second --fetch, which refreshes the witness over an existing store,
+   // does not create one either.
+   commitFile(sibling, 'c.md');
+   withSourceRewrite(sibling, () => hydrateMounts(host, manifest!, { fetch: true }));
+   assert.equal(fs.existsSync(path.join(store, 'FETCH_HEAD')), false, 'still none after a witness refresh');
 });
 
 test('mounts: git exit codes separate "no merge base" from a repository that cannot answer', () => {
@@ -1616,5 +1624,396 @@ test('mounts: conformance reports all four mount items as n/a when none are decl
          ['mount-routing', 'not-applicable'],
          ['mount-discovery', 'not-applicable'],
       ],
+   );
+});
+
+// --- verification is read-only: it may not stage inside the tree it verifies ---
+
+/** Every directory at or under dir. */
+function allDirs(dir: string): string[] {
+   const out = [dir];
+   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) out.push(...allDirs(path.join(dir, e.name)));
+   }
+   return out;
+}
+
+/**
+ * Can a write be refused to the account this suite runs as?
+ *
+ * POSIX: yes. 0o555 on the directory, and a non-root user is refused by the mode.
+ *
+ * Windows: no, and not for want of trying. An inheritable DENY ACE for the running
+ * SID does land — rc run three read it back on the mounts dir, explicit
+ * `(OI)(CI)(DENY)(W)` and `(I)(OI)(CI)(DENY)(W)` inherited — and the write succeeds
+ * anyway. The hosted runner is an elevated administrator whose token carries
+ * SeBackupPrivilege and SeRestorePrivilege ENABLED; libuv opens every file with
+ * FILE_FLAG_BACKUP_SEMANTICS (which is how Node opens a directory at all), and a
+ * backup-intent open by a holder of those privileges is granted without consulting
+ * the DACL. No ACL edit expresses denial to that token, so none is attempted.
+ *
+ * The platform that cannot host the precondition proves the property a different and
+ * stronger way: `treeSnapshot` equality across the command. "Without touching it" is
+ * what these tests are about, and an identical inventory measures that directly
+ * instead of inferring it from a permission the runner can bypass — a privilege can
+ * forge access, but not a byte that did not change.
+ */
+const CAN_DENY_WRITES = process.platform !== 'win32';
+
+/** What a failed guard needs in the log to be readable without a second CI run:
+ * what actually stands at the path, the mode it carries, and who this process is
+ * against who owns it. Total — a message builder must never replace the failure it
+ * was called to explain. */
+function denialEvidence(target: string): string {
+   try {
+      const st = fs.statSync(target);
+      const kind = st.isDirectory() ? 'directory' : st.isFile() ? 'file' : 'other';
+      const uid = typeof process.geteuid === 'function' ? process.geteuid() : 'n/a';
+      return `evidence for ${target}: ${kind}, mode ${(st.mode & 0o777).toString(8)}, owner uid ${st.uid}, this euid ${uid}`;
+   } catch (e) {
+      return `evidence for ${target}: unreadable (${(e as NodeJS.ErrnoException).code})`;
+   }
+}
+
+/** Strip write permission from every directory in the tree; returns the undo. A
+ * mode, and a real denial for a non-root user. On Windows this is a no-op that
+ * claims nothing: no ACL it could lay down would hold against the runner's token
+ * (see CAN_DENY_WRITES), and a mechanism that cannot deny must not pretend to. */
+function denyWrites(dir: string): () => void {
+   if (!CAN_DENY_WRITES) return () => {};
+   const saved = allDirs(dir).map((d) => [d, fs.statSync(d).mode] as const);
+   for (const [d] of saved) fs.chmodSync(d, 0o555);
+   return () => {
+      for (const [d, mode] of saved) fs.chmodSync(d, mode);
+   };
+}
+
+/** Denial is asserted, never assumed: a mode a root-owned run ignores would make
+ * every "did not write" assertion below vacuous. Only a refusal counts — every other
+ * way the probe can fail (an absent directory, a sharing violation) is a defect in
+ * this harness, and says nothing about permission. POSIX only; see CAN_DENY_WRITES.
+ *
+ * Both failure paths carry the evidence with them, because this condition can only be
+ * built on the platform itself: a guard that only says "it was not denied" is a whole
+ * CI run spent asking the obvious next question. */
+function assertWriteDenied(dir: string, what: string): void {
+   const probe = path.join(dir, '.write-probe');
+   try {
+      fs.writeFileSync(probe, 'x');
+   } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === 'EACCES' || err.code === 'EPERM') return;
+      assert.fail(
+         `${what} refused the probe with ${err.code}, which is not access denied: ${err.message}\n${denialEvidence(dir)}`,
+      );
+   }
+   fs.rmSync(probe, { force: true });
+   assert.fail(`${what} must really be write-denied, and the probe created ${probe} anyway\n${denialEvidence(dir)}`);
+}
+
+/**
+ * Point the runtime's temp directory at something staging cannot be allocated in.
+ * Which variables decide it differs per platform (TMPDIR on POSIX; TEMP, then TMP, on
+ * Windows), and so does the way to make it unusable: POSIX takes the write permission
+ * away, which also walks the EACCES path a genuinely read-only temp would take;
+ * Windows cannot deny its own token (see CAN_DENY_WRITES), so there the variables
+ * name a regular FILE instead — `mkdtemp` beneath a file cannot succeed for any
+ * token, privileged or not, and a failed allocation is the same missing prerequisite
+ * reached by a route no privilege bypasses.
+ *
+ * `holder` is the directory the location lives in, and is a directory on both
+ * platforms: on POSIX it IS the temp location, on Windows it is the file's parent.
+ * It is what "nothing was staged here" is measured against.
+ */
+function unusableTempDir(): { tmp: string; holder: string; restore: () => void } {
+   const vars = process.platform === 'win32' ? ['TEMP', 'TMP'] : ['TMPDIR'];
+   const saved = vars.map((v) => [v, process.env[v]] as const);
+   const holder = tmpdir('leji-notmp-');
+   let tmp = holder;
+   let restoreWrites = () => {};
+   if (CAN_DENY_WRITES) {
+      restoreWrites = denyWrites(holder);
+   } else {
+      tmp = path.join(holder, 'not-a-directory');
+      fs.writeFileSync(tmp, '');
+   }
+   // Overridden last, so building the condition above still had a usable temp dir.
+   for (const v of vars) process.env[v] = tmp;
+   return {
+      tmp,
+      holder,
+      restore: () => {
+         for (const [v, value] of saved) {
+            if (value === undefined) delete process.env[v];
+            else process.env[v] = value;
+         }
+         restoreWrites();
+      },
+   };
+}
+
+/** The errnos that mean "no staging area here": a directory that refuses the write,
+ * or a path whose parent is not a directory at all. */
+const UNUSABLE_TEMP_CODES: ReadonlySet<string> = new Set(['EACCES', 'EPERM', 'ENOTDIR', 'ENOENT']);
+
+/** The missing prerequisite is asserted, never assumed: a temp location the runtime
+ * can still allocate in would make every "unverifiable" assertion below vacuous, on
+ * either platform and by either mechanism. This probes what the product actually
+ * does — `mkdtemp` under `os.tmpdir()` — rather than something adjacent to it. */
+function assertNoStaging(tmp: string): void {
+   assert.equal(os.tmpdir(), tmp, 'the runtime must honor the temp variables for this to force the failure');
+   let staged = '';
+   try {
+      staged = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-staging-probe-'));
+   } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (UNUSABLE_TEMP_CODES.has(err.code ?? '')) return;
+      assert.fail(
+         `allocating staging failed with ${err.code}, which is not an unusable temp dir: ${err.message}\n${denialEvidence(tmp)}`,
+      );
+   }
+   fs.rmSync(staged, { recursive: true, force: true });
+   assert.fail(
+      `the temp dir must really be unusable, and staging was allocated at ${staged} anyway\n${denialEvidence(tmp)}`,
+   );
+}
+
+/**
+ * Paths, types, modes, symlink targets, content and directory mtimes: the whole of
+ * what "the tree is byte-for-byte what it was" has to mean here. Content alone would
+ * miss a directory created and removed between the two reads — its parent's mtime is
+ * the only trace that survives.
+ *
+ * The ROOT carries its own entry, in the same shape as every other directory, because
+ * the root is the parent of anything created directly beneath it: without that line,
+ * a staging directory allocated at the top of the tree and removed again leaves this
+ * snapshot completely unchanged, and on Windows — where equality is the whole proof
+ * (see CAN_DENY_WRITES) — that is precisely the write nothing else would catch.
+ */
+function treeSnapshot(dir: string): string[] {
+   const st = fs.lstatSync(dir);
+   return [`D . ${(st.mode & 0o777).toString(8)} ${st.mtimeMs}`, ...walkSnapshot(dir)];
+}
+
+/** Everything BELOW the root, recursively. Split out so the root's own entry is
+ * recorded once by `treeSnapshot` rather than once per level of the walk. */
+function walkSnapshot(dir: string, prefix = ''): string[] {
+   const out: string[] = [];
+   for (const name of fs.readdirSync(dir).sort()) {
+      const abs = path.join(dir, name);
+      const rel = prefix === '' ? name : `${prefix}/${name}`;
+      const st = fs.lstatSync(abs);
+      const mode = (st.mode & 0o777).toString(8);
+      if (st.isSymbolicLink()) {
+         out.push(`L ${rel} ${mode} ${fs.readlinkSync(abs, { encoding: 'buffer' }).toString('base64')}`);
+      } else if (st.isDirectory()) {
+         out.push(`D ${rel} ${mode} ${st.mtimeMs}`);
+         out.push(...walkSnapshot(abs, rel));
+      } else {
+         out.push(
+            `F ${rel} ${mode} ${st.size} ${crypto.createHash('sha256').update(fs.readFileSync(abs)).digest('hex')}`,
+         );
+      }
+   }
+   return out;
+}
+
+/** Staging directories left behind in the OS temp dir. Compared as a delta, since
+ * the suite's other files run in sibling processes against the same temp dir. */
+function verifyResidue(): string[] {
+   return fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('leji-verify-'));
+}
+
+test('mounts: --check-integrity verifies a write-denied host tree, twice, without touching it', () => {
+   // `mounts status --check-integrity` staged its comparison tree inside the host's
+   // own .leji/mounts/, so the read-only diagnostic wrote into the tree it was
+   // diagnosing — and could not run at all where that tree is not writable.
+   const { host } = mountedPair();
+   const { manifest } = loadManifest(host);
+   hydrateMounts(host, manifest!, {});
+   const restore = denyWrites(host);
+   try {
+      // Where a write CAN be refused, refusing it proves the extra half the defect
+      // had: that the diagnostic runs at all against a tree it cannot write. Where it
+      // cannot (CAN_DENY_WRITES), the snapshot below carries the property on its own —
+      // it is the direct measurement, and the denial was only ever the setting.
+      if (CAN_DENY_WRITES) {
+         assertWriteDenied(path.join(host, '.leji', 'mounts'), 'the mounts dir');
+         assertWriteDenied(host, 'the host root');
+      }
+      const before = treeSnapshot(host);
+      const residueBefore = new Set(verifyResidue());
+      // Twice: once proves it runs, twice proves the second run is not consuming
+      // residue the first left behind.
+      assert.equal(mountStatus(host, manifest!, { checkIntegrity: true })[0].verified, true);
+      assert.equal(mountStatus(host, manifest!, { checkIntegrity: true })[0].verified, true);
+      // The other two callers of the same verification, on the same denied tree.
+      const loc = locateMount(host, manifest!, 'acme-product-context');
+      assert.equal(loc.present, true);
+      assert.equal(loc.verified, true);
+      assert.deepEqual(federationEnforcement(host, manifest!, 'available', null), []);
+      assert.deepEqual(treeSnapshot(host), before, 'verification wrote into the host tree');
+      assert.deepEqual(
+         verifyResidue().filter((n) => !residueBefore.has(n)),
+         [],
+         'staging outlived the verification that allocated it',
+      );
+   } finally {
+      restore();
+   }
+});
+
+/** One worker thread running `rounds` verifications of the host's only mount, every
+ * round entered through a two-thread rendezvous on the shared gate, with the lagging
+ * thread then held back to about half of its last round.
+ *
+ * Both halves earn their place. Without the rendezvous the threads drift into taking
+ * turns and never overlap; with the rendezvous alone they run identical work in
+ * lockstep, and two threads staging the same content into one shared directory at the
+ * same instant still agree — the interleaving that a shared staging directory cannot
+ * survive is one thread starting while the other is mid-verification. Worker threads,
+ * so "the same process" is literal: a staging name derived from the pid is one name
+ * for both of them. */
+function verifyInWorker(host: string, rounds: number, gate: SharedArrayBuffer, lag: boolean): Promise<unknown[]> {
+   const code = `
+      const { parentPort, workerData } = require('node:worker_threads');
+      const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+      (async () => {
+         const { loadManifest } = await import(workerData.index);
+         const { verifyProjection } = await import(workerData.mounts);
+         const mount = loadManifest(workerData.host).manifest.federation.mounts[0];
+         const gate = new Int32Array(workerData.gate);
+         const results = [];
+         let lastMs = 40;
+         for (let i = 0; i < workerData.rounds; i++) {
+            const bothArrived = (i + 1) * 2;
+            Atomics.add(gate, 0, 1);
+            Atomics.notify(gate, 0);
+            let seen;
+            while ((seen = Atomics.load(gate, 0)) < bothArrived) Atomics.wait(gate, 0, seen, 200);
+            if (workerData.lag) sleep(Math.max(5, Math.round(lastMs / 2)));
+            const startedAt = Date.now();
+            try {
+               results.push(verifyProjection(workerData.host, mount));
+            } catch (e) {
+               results.push('threw ' + String(e && e.code ? e.code : e));
+            }
+            lastMs = Date.now() - startedAt;
+         }
+         parentPort.postMessage(results);
+      })();
+   `;
+   return new Promise((resolve, reject) => {
+      const worker = new Worker(code, {
+         eval: true,
+         workerData: {
+            host,
+            rounds,
+            gate,
+            lag,
+            index: pathToFileURL(path.join(pkgRoot, 'dist', 'index.js')).href,
+            mounts: pathToFileURL(path.join(pkgRoot, 'dist', 'lib', 'mounts.js')).href,
+         },
+      });
+      let results: unknown[] | null = null;
+      worker.on('message', (m: unknown[]) => {
+         results = m;
+      });
+      worker.on('error', reject);
+      worker.on('exit', () => resolve(results ?? ['no result']));
+   });
+}
+
+test('mounts: two verifications running at once in one process do not collide', async () => {
+   const { host } = mountedPair();
+   const { manifest } = loadManifest(host);
+   hydrateMounts(host, manifest!, {});
+   const residueBefore = new Set(verifyResidue());
+   const rounds = 8;
+   const gate = new SharedArrayBuffer(4);
+   const [a, b] = await Promise.all([
+      verifyInWorker(host, rounds, gate, false),
+      verifyInWorker(host, rounds, gate, true),
+   ]);
+   // Every one of them verified: a shared staging path has one thread deleting or
+   // half-writing the tree the other is comparing, which surfaces as ENOENT,
+   // ENOTEMPTY, or a false verdict on content nobody tampered with.
+   assert.deepEqual(a, new Array(rounds).fill(true));
+   assert.deepEqual(b, new Array(rounds).fill(true));
+   assert.deepEqual(
+      verifyResidue().filter((n) => !residueBefore.has(n)),
+      [],
+   );
+});
+
+test('mounts: an unusable temp directory makes verification unverifiable, never in-tree', () => {
+   const { host } = mountedPair();
+   const { manifest } = loadManifest(host);
+   hydrateMounts(host, manifest!, {});
+   const { tmp, holder, restore } = unusableTempDir();
+   try {
+      assertNoStaging(tmp);
+      const before = treeSnapshot(host);
+      // The holder's own mtime is in this snapshot: staging is allocated directly in
+      // the temp dir and removed again in a `finally`, so nothing else would show it.
+      const tempBefore = treeSnapshot(holder);
+      // Unknown: no staging area is a missing prerequisite, exactly like no reachable
+      // object store. It is never a pass, never a failure, and never a reason to fall
+      // back into the host tree.
+      const row = mountStatus(host, manifest!, { checkIntegrity: true })[0];
+      assert.equal(row.present, true);
+      assert.equal(row.verified, null);
+      const loc = locateMount(host, manifest!, 'acme-product-context');
+      assert.equal(loc.present, true);
+      assert.equal(loc.verified, false);
+      assert.match(loc.detail!, /present but not verified/);
+      assert.match(loc.detail!, /verification prerequisites are unavailable/);
+      // The diagnostic names the prerequisite that was actually missing rather than
+      // blaming the object store, which is reachable here: a reader told to check
+      // their hint would be reading the wrong end of the failure.
+      const findings = federationEnforcement(host, manifest!, 'available', null);
+      assert.equal(findings.length, 1);
+      assert.match(findings[0].message, /cannot be verified/);
+      assert.match(findings[0].message, /verification prerequisites unavailable/);
+      assert.match(findings[0].message, /no writable temp dir/);
+      assert.deepEqual(treeSnapshot(host), before, 'verification fell back into the host tree');
+      assert.deepEqual(treeSnapshot(holder), tempBefore, 'something was staged at the unusable temp location');
+   } finally {
+      restore();
+   }
+});
+
+test('mounts: a reachable store that does not hold the pin is unverifiable, and the diagnostic says which prerequisite', () => {
+   const { host } = mountedPair();
+   const { manifest } = loadManifest(host);
+   hydrateMounts(host, manifest!, {});
+   // A real repository, reachable, that simply does not contain this pin. The
+   // published projection stays published — its cache key comes from the
+   // declaration, not from whichever store happens to be reachable — so the only
+   // missing prerequisite is the commit the comparison would be made against.
+   const other = path.join(path.dirname(host), 'other');
+   fs.mkdirSync(other, { recursive: true });
+   git(other, 'init', '-q', '-b', 'main');
+   commitFile(other, 'unrelated.md');
+   fs.writeFileSync(
+      path.join(host, '.leji', 'mounts.local.json'),
+      JSON.stringify({ mounts: { 'acme-product-context': { repo: '../other' } } }) + '\n',
+   );
+   const mount = manifest!.federation!.mounts![0];
+   assert.equal(verifyProjection(host, mount), null);
+   const row = mountStatus(host, manifest!, { checkIntegrity: true })[0];
+   assert.equal(row.present, true);
+   assert.equal(row.verified, null);
+   const loc = locateMount(host, manifest!, 'acme-product-context');
+   assert.equal(loc.present, true);
+   assert.equal(loc.verified, false);
+   // The parenthetical is the whole of what makes a projection unverifiable. An
+   // exhaustive-looking list that omits this branch tells the reader their object
+   // store is unreachable when it is reachable and their pin is what is missing.
+   const findings = federationEnforcement(host, manifest!, 'available', null);
+   assert.equal(findings.length, 1);
+   assert.equal(
+      findings[0].message,
+      'mount "acme-product-context" projection cannot be verified (verification prerequisites unavailable: no reachable object store, unresolvable pin, or no writable temp dir); an unverified cache is not evidence',
    );
 });

@@ -1,0 +1,2 @@
+   --emoji-😀😀 <value>  A flag carrying astral characters, so a column padded in
+                       UTF-16 units misaligns this row by two.

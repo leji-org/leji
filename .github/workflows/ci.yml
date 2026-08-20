@@ -5,7 +5,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # rc/*: a release candidate proves the full matrix here before main sees it.
+    branches: [main, "rc/*"]
   pull_request:
 
 permissions:
@@ -42,7 +43,35 @@ jobs:
           curl -sSfL "${base}/trufflehog_${TRUFFLEHOG_VERSION}_checksums.txt" -o checksums.txt
           grep "  ${asset}$" checksums.txt | sha256sum -c -
           tar -xzf "$asset" trufflehog
-          ./trufflehog git "file://$PWD" --only-verified --fail --no-update
+          # Lob excluded: its test-key pattern matches pytest function names (FP
+          # since trufflehog 3.96.0); keep in sync with .husky/pre-commit.
+          ./trufflehog git "file://$PWD" --only-verified --fail --no-update --exclude-detectors=lob
+
+  dco:
+    name: DCO (Signed-off-by on every commit)
+    # Contributor terms are DCO-only, with no CLA, so the sign-off line is the
+    # whole record: it is checked on the pull request, where it can still be
+    # fixed by rewriting the branch (CONTRIBUTING.md, "Contributor terms").
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history so every commit in the range is readable
+      - name: Every commit carries a Signed-off-by line
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for sha in $(git rev-list "$BASE_SHA..$HEAD_SHA"); do
+            if ! git show -s --format=%B "$sha" | grep -qiE '^Signed-off-by: .+ <.+@.+>[[:space:]]*$'; then
+              echo "::error::$sha has no Signed-off-by line; sign off with 'git commit -s' (CONTRIBUTING.md#contributor-terms)"
+              missing=1
+            fi
+          done
+          exit "$missing"
 
   lint:
     name: Prettier
@@ -68,8 +97,31 @@ jobs:
       - run: npm run version:check
 
   node-sdk:
-    name: Node SDK (build + test)
+    name: Node SDK (build + test, Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The declared engines floor and the version the rest of CI runs on: a
+        # test suite exercised only on the newest runtime does not test the floor.
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm ci
+      - run: npm run build -w packages/sdk
+      - run: npm test -w packages/sdk
+
+  windows-regressions:
+    name: Node SDK (Windows regressions)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -79,7 +131,42 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npm run build -w packages/sdk
-      - run: npm test -w packages/sdk
+      # The tests for defects only this platform produces: forward-slashed route
+      # keys, the docs root as disk spells it, and read-only verification against a
+      # DENY ACE rather than a mode. Named one by one, because the point is these
+      # tests, and asserted by pass count: a pattern matching nothing also exits 0,
+      # so a green job on its own is no evidence that anything ran. The count pins
+      # the shape too: a rename selects nothing, and splitting one of these into
+      # subtests counts every subtest — both land here, as an edit someone had to mean.
+      - name: Platform regressions, by name
+        working-directory: packages/sdk
+        run: |
+          named() {
+            local file="$1" expected="$2" pattern="$3" out status=0
+            out=$(node --test --test-reporter=tap --test-name-pattern="$pattern" "$file" 2>&1) || status=$?
+            printf '%s\n' "$out"
+            if [ "$status" -ne 0 ]; then
+              echo "::error::$file: the named run exited $status"
+              return 1
+            fi
+            # A pattern that selects nothing reports the file itself as one passing
+            # test, which is precisely the outcome this step exists to refuse.
+            if grep -qF -- " - $file" <<<"$out"; then
+              echo "::error::$file: the pattern selected no test"
+              return 1
+            fi
+            if ! grep -qE "^# pass ${expected}\$" <<<"$out"; then
+              echo "::error::$file: expected exactly $expected named tests to pass"
+              return 1
+            fi
+          }
+          named test/units.test.ts 2 '^(serveViewer routes a backslash-separated request to the content mount|adopt detects an existing docs root by its real name, whatever its case)( .+)?$'
+          named test/mounts.test.ts 2 '^(mounts: --check-integrity verifies a write-denied host tree, twice, without touching it|mounts: an unusable temp directory makes verification unverifiable, never in-tree)( .+)?$'
+          # The export's byte contract is the place a path separator or a line ending
+          # leaks into shipped output, so the golden trees and the strict gate are
+          # asserted on this platform too.
+          named test/renderlint.test.ts 3 '^fixture valid-render-.+$'
+          named test/export.test.ts 2 '^strict: .+$'
 
   mcp:
     name: MCP server (build + test)
@@ -167,6 +254,61 @@ jobs:
       - run: npm ci
       # Node, Go, Python CLIs on identical inputs; asserts byte-identical output.
       - run: npm run parity
+
+  offline-export:
+    name: Export fixtures with no network (all three SDKs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.23"
+          cache-dependency-path: packages/sdk-go/go.sum
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      - run: npm run build -w packages/sdk
+      - name: Install the Python SDK
+        working-directory: packages/sdk-py
+        run: python -m pip install --upgrade pip && pip install -e ".[dev]"
+      # Compiled here, where the network still exists, so nothing inside the
+      # namespace needs to reach a module proxy to build what it runs.
+      - name: Compile the Go fixture tests
+        working-directory: packages/sdk-go
+        run: go test -c -o /tmp/leji-conformance.test ./internal/conformancetest
+      # An export is a static site a user hosts anywhere: it must be produced with
+      # no network at all, and the fixtures' committed goldens say what "produced"
+      # means byte for byte. `unshare -rn` gives the run its own network namespace,
+      # which holds nothing but a loopback interface — brought up because the same
+      # fixtures also serve the layer to themselves. If a runner image ever refuses
+      # unprivileged namespaces, the replacement is a container run with
+      # `--network none`; this leg is release-blocking, so it fails, never skips.
+      - name: The export fixture set, in a namespace with no network
+        run: |
+          set -euo pipefail
+          # ubuntu-24.04 carries AppArmor's restriction on unprivileged user
+          # namespaces, which is what makes `unshare -r` fail writing
+          # /proc/self/uid_map; relaxing that one knob lets the namespace be created,
+          # and everything inside it still runs as the unprivileged runner account.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare -rn sh -euc '
+            ip link set lo up
+            # The isolation is proved before it is relied on: a runner where this
+            # reached the internet would report a no-network guarantee it never tested.
+            if curl -s --max-time 10 -o /dev/null https://example.com; then
+              echo "::error::the network is reachable inside the namespace"
+              exit 1
+            fi
+            node --test packages/sdk/test/renderlint.test.ts packages/sdk/test/canary.test.ts
+            (cd packages/sdk-py && python -m pytest -q tests/test_render_fixtures.py tests/test_canary.py)
+            (cd packages/sdk-go/internal/conformancetest && /tmp/leji-conformance.test -test.count=1)
+          '
 
   site:
     name: Site (build)

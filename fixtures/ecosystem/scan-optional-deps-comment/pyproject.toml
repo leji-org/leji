@@ -1,0 +1,7 @@
+[project]
+name = "d"
+version = "0"
+
+[project.optional-dependencies]
+# leji = 1
+dev = ["pytest"]  # leji

@@ -79,7 +79,7 @@ func TestAgentsMapBadTargetFlagged(t *testing.T) {
 	if err := os.WriteFile(mpath, append(out, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res := validate.ValidateLayer(dir, false)
+	res := validateLayer(t, dir, false)
 	found := false
 	for _, f := range res.Findings {
 		if f.Rule == "profile-frontmatter" {
@@ -108,7 +108,7 @@ func TestIndexEntryArraysSerialized(t *testing.T) {
 		t.Fatalf("expected serialized tags in the index: %s", string(b))
 	}
 	// CheckIndex compares the stored tagged index against the tree (array path).
-	if res := indexgen.CheckIndex(dir, m); res.Stale != nil && *res.Stale {
+	if res := checkIndex(t, dir, m); res.Stale != nil && *res.Stale {
 		t.Fatalf("freshly written index should be current, findings: %v", res.Findings)
 	}
 }

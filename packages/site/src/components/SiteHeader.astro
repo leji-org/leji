@@ -1,5 +1,5 @@
 ---
-// Site header. `flush` drops the band background and gold line where the header sits inside the monument (the landing page).
+// Site header. `flush` drops the band background and mint line where the header sits inside the monument (the landing page).
 import LejiLogo from './LejiLogo.astro';
 import githubIcon from '../assets/github.svg?raw';
 const { flush = false } = Astro.props;
@@ -67,10 +67,18 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
 
 <style>
    .site-header-band {
-      border-bottom: 3px solid var(--gold);
-      background: var(--blue-deep);
-      color: var(--white);
-      position: relative;
+      border-bottom: 3px solid var(--leji-accent);
+      background: var(--leji-deep);
+      color: var(--leji-surface);
+      position: sticky;
+      top: 0;
+      /* the stuck ground swap on every page, and the flush variant's mint line */
+      transition:
+         background-color 0.25s ease,
+         border-color 0.25s ease;
+      /* above .doc-nav, which pins at the content level, and above the dropdowns
+         (z-30) a stuck band has to keep painting over. */
+      z-index: 40;
       /* no overflow:hidden here: it would clip the Reference dropdown. The
          fluting ::before is inset:0, so it never overflows the band anyway. */
    }
@@ -78,22 +86,64 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
       content: '';
       position: absolute;
       inset: 0;
-      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(255, 189, 110, 0.05) 78px 79px);
+      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(112, 216, 194, 0.06) 78px 79px);
       pointer-events: none;
    }
    .site-header-band > * {
       position: relative;
    }
    /* Flush: the landing page's monument band runs up behind this header, so the
-      band paints the background and the header stays transparent on top of it. */
+      band paints the background and the header stays transparent on top of it.
+      The transparent border reserves the mint rule's 3px, so taking the line
+      back is a colour change and never a height change. */
    .site-header-band.flush {
-      border-bottom: none;
+      border-bottom: 3px solid transparent;
       background: transparent;
-      position: relative;
-      z-index: 2;
    }
+   /* The fluting is hidden, not dropped: at rest the monument draws its own
+      flutes behind this header, so a second set would double them. It fades in
+      with the glass ground, where the band paints and the monument no longer
+      shows through. */
    .site-header-band.flush::before {
-      content: none;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+   }
+   .site-header-band.flush[data-stuck]::before {
+      opacity: 1;
+   }
+   /* Two stages, two different constraints. Ground first: once the page can
+      scroll at all, something is travelling under the band, so it needs a
+      ground or that content reads straight through it. That ground is glass,
+      and only here: the band is translucent exactly while content can pass
+      beneath it, so every page's at-rest look is untouched. Over the hero the
+      monument's own dark ground makes the change visually silent. */
+   .site-header-band[data-stuck] {
+      background: rgba(24, 61, 59, 0.85);
+      /* -webkit- first, standard last: the build's CSS minifier collapses the
+         pair to whichever comes last, and the standard property is the one to
+         keep; Safari without it falls to the @supports rule below. */
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+   }
+   /* Without blur behind it, 85% is not glass but a washed-out band that the
+      page shows through: fall back to the solid ground. */
+   @supports not (backdrop-filter: blur(1px)) {
+      .site-header-band[data-stuck] {
+         background: var(--leji-deep);
+      }
+   }
+   /* Same solid ground where the reader has asked for less transparency. */
+   @media (prefers-reduced-transparency: reduce) {
+      .site-header-band[data-stuck] {
+         background: var(--leji-deep);
+      }
+   }
+   /* The mint line is the monument's boundary, not a scroll indicator: it
+      arrives only once the monument's bottom edge has passed under the band,
+      where the flush header stops sitting inside the monument and becomes the
+      standard band. */
+   .site-header-band.flush[data-past-hero] {
+      border-bottom-color: var(--leji-accent);
    }
    .header-row {
       display: flex;
@@ -105,7 +155,7 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
       padding-bottom: 1.05rem;
    }
    .brand {
-      color: var(--white);
+      color: var(--leji-surface);
       display: inline-flex;
    }
    .nav-toggle {
@@ -118,7 +168,7 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
       padding: 0;
       background: none;
       border: none;
-      color: var(--white);
+      color: var(--leji-surface);
       cursor: pointer;
    }
    .bars,
@@ -193,11 +243,11 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
          border-color 0.2s;
    }
    nav a:hover {
-      color: var(--gold-bright);
-      border-color: var(--gold);
+      color: var(--leji-accent);
+      border-color: var(--leji-accent);
    }
    nav a[aria-current='page'] {
-      color: var(--gold-bright);
+      color: var(--leji-accent);
    }
 
    /* Reference dropdown */
@@ -225,10 +275,10 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
       flex-direction: column;
       gap: 0.15rem;
       padding: 0.5rem;
-      background: var(--white);
-      border: 1px solid var(--paper-edge);
+      background: var(--leji-surface);
+      border: 1px solid var(--leji-border);
       border-radius: 10px;
-      box-shadow: 0 14px 34px rgba(22, 41, 96, 0.22);
+      box-shadow: 0 14px 34px rgba(24, 61, 59, 0.24);
       z-index: 30;
    }
    /* keep the menu open while crossing the gap from trigger to menu */
@@ -245,7 +295,7 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
       display: flex;
    }
    .nav-menu a {
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       text-transform: none;
       letter-spacing: 0.01em;
       font-size: 0.82rem;
@@ -254,15 +304,17 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
       border-bottom: none;
    }
    .nav-menu a:hover {
-      color: var(--blue-deep);
-      background: rgba(34, 63, 147, 0.07);
+      color: var(--leji-text);
+      background: var(--leji-accent-soft);
       border-color: transparent;
    }
 
    @media (prefers-reduced-motion: reduce) {
       .bars,
       .bars::before,
-      .bars::after {
+      .bars::after,
+      .site-header-band,
+      .site-header-band.flush::before {
          transition: none;
       }
    }
@@ -323,20 +375,41 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
          padding: 0.5rem 0;
       }
       .nav-menu a:hover {
-         color: var(--gold-bright);
+         color: var(--leji-accent);
          background: transparent;
       }
       /* The flush header borrows the monument's background, but the band only
          reserves --header-h behind it: one collapsed row. An open menu is several
          times that, so the overflow would fall on the page background and the
-         white-soft links would sit on cream, unreadable. Paint our own while open. */
+         white-soft links would sit on the canvas, unreadable. Paint our own while open. */
       .site-header-band.flush:has(nav[data-open]) {
-         background: var(--blue-deep);
+         background: var(--leji-deep);
       }
    }
 </style>
 
 <script>
+   const band = document.querySelector<HTMLElement>('.site-header-band');
+   if (band) {
+      // Only the flush header reads these, but the state is the band's either way.
+      // Synced on load as well as on scroll: an anchor lands the page pre-scrolled.
+      // Two stages, because the band's ground and its mint line answer to
+      // different things: the ground guards against content showing through, so
+      // it lands as soon as anything can scroll under the band; the line marks
+      // the monument's bottom edge passing under it. Without a monument there is
+      // no such edge, so the line follows the ground.
+      const monument = document.querySelector('.monument');
+      const isPastHero = monument
+         ? () => monument.getBoundingClientRect().bottom <= band.offsetHeight
+         : () => window.scrollY > 0;
+      const sync = () => {
+         band.toggleAttribute('data-stuck', window.scrollY > 0);
+         band.toggleAttribute('data-past-hero', isPastHero());
+      };
+      sync();
+      window.addEventListener('scroll', sync, { passive: true });
+   }
+
    const toggle = document.querySelector<HTMLButtonElement>('.nav-toggle');
    const nav = document.getElementById('site-nav');
 

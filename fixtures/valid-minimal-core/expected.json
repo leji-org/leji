@@ -7,5 +7,18 @@
     "exit": 0,
     "claimedLevel": "core",
     "verifiedLevel": "core"
+  },
+  "badge": {
+    "exit": 0,
+    "out": "leji-badge.svg",
+    "level": "core",
+    "claimedLevel": "core",
+    "verifiedLevel": "core",
+    "golden": "badge/core.svg",
+    "action": "wrote",
+    "rerun": {
+      "action": "unchanged",
+      "byteIdentical": true
+    }
   }
 }

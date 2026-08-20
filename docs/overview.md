@@ -15,9 +15,9 @@ flowchart LR
   boot --> cat_domain
   cat_system["⚙️ System · 1 doc"]
   boot --> cat_system
-  cat_practice["🛠️ Practice · 2 docs"]
+  cat_practice["🛠️ Practice · 3 docs"]
   boot --> cat_practice
-  cat_decisions["🧭 Decisions · 6 docs"]
+  cat_decisions["🧭 Decisions · 7 docs"]
   boot --> cat_decisions
 ```
 <!-- leji:generated-map:end -->

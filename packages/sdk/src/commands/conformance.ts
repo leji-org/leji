@@ -467,7 +467,7 @@ export function renderExplain(result: ConformanceResult): string {
                : b.status === 'unknown'
                  ? ' (evidence unobtainable in this run; unknown never awards the level)'
                  : '';
-         lines.push(`   - ${b.description}${b.detail ? ` — ${b.detail}` : ''}${how}`);
+         lines.push(`   - ${b.description}${b.detail ? `: ${b.detail}` : ''}${how}`);
       }
    }
    lines.push(

@@ -8,7 +8,7 @@ docs-root choice must be a function of the name set and not of its order.
 """
 
 from leji.init_cmd import pick_docs_root
-from leji.viewer_cmd import _url_path_to_rel
+from leji.serve_cmd import _url_path_to_rel
 
 
 def test_url_path_to_rel_is_separator_agnostic() -> None:

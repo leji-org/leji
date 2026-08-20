@@ -1,0 +1,7 @@
+{
+  "note": "CRLF line endings throughout: the scanner never normalizes them.",
+  "mount": "product-context",
+  "from": "4e974570000000000000000000000000000000aa",
+  "to": "9f1c2e9b8a7f6d5c4b3a2e1d0c9b8a7f6d5c4b3a",
+  "outcome": "replaced"
+}

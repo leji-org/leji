@@ -1,0 +1,25 @@
+leji changelog check: Verify the machine changelog: schema and append-only
+   discipline.
+
+Usage: leji changelog check [--strict] [--root <dir>] [--json]
+
+Validates the declared changelog against its schema and checks append-only
+discipline against the committed state of the file at HEAD: surviving entries
+are immutable, and entries may be removed only from the oldest end and only
+alongside a compaction entry. The comparison is against HEAD, so it catches an
+uncommitted rewrite (which is what the pre-commit hook uses it for); in a CI
+checkout the working tree is HEAD, so it does not by itself detect a rewrite
+that arrives already committed. Reviewing the diff covers that. Without git the
+discipline is unverifiable and reported as a warning.
+
+Options:
+   --strict            Treat an unverifiable append-only check (no git baseline)
+                       as an error.
+
+Global options: see leji --help.
+
+Examples:
+   leji changelog check
+   leji changelog check --strict
+
+Full reference: https://leji.org/cli/

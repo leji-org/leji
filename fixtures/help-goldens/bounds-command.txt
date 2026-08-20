@@ -1,0 +1,18 @@
+leji a-command-name-long-enough-to-outgrow-its-bounded-column: A command name
+   past the name column's upper bound, so its summary starts on the next line.
+
+Usage: leji a-command-name-long-enough-to-outgrow-its-bounded-column [--root
+       <dir>]
+
+One paragraph, wrapped like any other description.
+
+Options:
+   --emoji-😀😀 <value>   A flag carrying astral characters, so a column padded in
+                        UTF-16 units misaligns this row by two.
+
+Global options: see leji --help.
+
+Examples:
+   leji a-command-name-long-enough-to-outgrow-its-bounded-column
+
+Full reference: https://leji.org/cli/

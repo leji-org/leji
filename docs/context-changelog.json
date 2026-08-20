@@ -270,6 +270,57 @@
       ],
       "proposedBy": "agent:claude",
       "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "ts-first-codified",
+      "date": "2026-08-09",
+      "type": "changed",
+      "summary": "TS-first porting practice codified: LIVE section cross-links the CONTRIBUTING Tooling rule.",
+      "paths": [
+        "docs/practice/testing-cli-adoptions.md"
+      ]
+    },
+    {
+      "id": "trust-boundary-recorded",
+      "date": "2026-08-17",
+      "type": "added",
+      "summary": "The CLI trust boundary recorded: containment rule, write chokepoint, verified reads, declared exceptions.",
+      "paths": [
+        "docs/practice/trust-boundary.md"
+      ]
+    },
+    {
+      "id": "dependency-declaration-offer",
+      "date": "2026-08-18",
+      "type": "changed",
+      "summary": "Offline invariant restated: the SDK runs your package manager's add command only on your explicit yes at init/adopt.",
+      "paths": [
+        "docs/system/invariants.md"
+      ]
+    },
+    {
+      "id": "pinned-cli-handoff",
+      "date": "2026-08-19",
+      "type": "changed",
+      "summary": "Trust boundary: the installed executable hands the whole invocation to the repository's own pinned Leji CLI.",
+      "paths": [
+        "docs/practice/trust-boundary.md"
+      ]
+    },
+    {
+      "id": "commercial-hosted-viewer",
+      "date": "2026-08-20",
+      "type": "added",
+      "summary": "Decision 0007: a commercial hosted viewer at leji.ai, with the governance language change and independence commitments that ride it.",
+      "paths": [
+        "docs/decisions/0007-commercial-hosted-viewer.md"
+      ],
+      "categories": [
+        "decisions"
+      ],
+      "decisionRefs": [
+        "commercial-hosted-viewer"
+      ]
     }
   ]
 }

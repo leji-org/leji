@@ -1,10 +1,11 @@
 # Leji
 
 [![CI](https://github.com/leji-org/leji/actions/workflows/ci.yml/badge.svg)](https://github.com/leji-org/leji/actions/workflows/ci.yml)
+[![Leji 1.0 · governed · self-attested](leji-badge.svg)](https://leji.org/agent-ready/)
 
 **An open specification for the shared context layer of AI-native teams.** Leji (from the word *legible*, pronounced LEH-jee) defines a versioned, repo-owned context layer of how a team thinks: domain language, constraints, decision records, conventions, agent guardrails, one reviewed body of context that people and AI agents both read, changed through the same review gate as the code.
 
-> **Status: 1.3.1.** The reference SDKs (`@leji-org/leji` on npm and JSR, `leji` on PyPI, and the Go module) are at 1.3.1. The specification and schemas are on the v1.0 line, **GA and frozen at the v1.3.0 reference-tooling release**: any incompatible change ships as a new line. See [spec/versioning.md](spec/versioning.md).
+> **Status: 1.4.0.** The reference SDKs (`@leji-org/leji` on npm and JSR, `leji` on PyPI, and the Go module) are at 1.4.0. The specification and schemas are on the v1.0 line, **GA and frozen at the v1.3.0 reference-tooling release**: any incompatible change ships as a new line. See [spec/versioning.md](spec/versioning.md).
 
 ## Principles
 
@@ -26,7 +27,7 @@ The name is the thesis: the context layer makes a team's operating context **leg
 | `rationale/` | Non-normative: why a circle, why intent, why this is not a wiki |
 | `packages/sdk`, `packages/sdk-py`, `packages/sdk-go` | The reference SDKs and CLI (npm, PyPI, Go), behaviorally identical and tested against the shared `fixtures/`: validate, index, changelog, freshness, conformance, init |
 | `packages/mcp` | The MCP server (`@leji-org/mcp`): the spec, schemas, validation, and conformance as read-only tools for coding agents |
-| `packages/create-leji` | `npm create leji`: scaffolds a context layer (a thin shim over the SDK's `init`) |
+| `packages/create-leji` | `npm create leji`: the zero-install bootstrap, routing to the SDK's `init` or `adopt` by what the target directory already holds |
 | `packages/site/` | The spec website (plain Astro; deployable by anyone) |
 
 ## License
@@ -35,4 +36,4 @@ Code, schemas, templates, and the SDK: Apache-2.0. Specification prose and ratio
 
 ## Governance
 
-See [GOVERNANCE.md](GOVERNANCE.md). Leji was created by [Vuong Nguyen](https://vuongnguyen.com); [Meteor Dreams](https://meteordreams.com) is the current steward.
+See [GOVERNANCE.md](GOVERNANCE.md). Leji was created by [Vuong Nguyen](https://vuongnguyen.com); [Contexing, LLC](https://contexing.com) is the steward.

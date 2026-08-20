@@ -1,0 +1,21 @@
+{
+  "ecosystem": {
+    "selected": null,
+    "all": [
+      {
+        "ecosystem": "node",
+        "status": "unsupported-manager",
+        "manifest": "package.json",
+        "manager": null,
+        "source": "packageManager",
+        "evidence": [],
+        "add": null,
+        "runner": null,
+        "directDeclared": false,
+        "lockEvidenced": false,
+        "candidates": []
+      }
+    ],
+    "reason": "unsupported-manager"
+  }
+}

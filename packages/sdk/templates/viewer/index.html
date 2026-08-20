@@ -31,9 +31,10 @@
       <link rel="stylesheet" href="assets/vue.css" />
       <link rel="stylesheet" href="assets/docsify-sidebar-collapse.min.css" />
       <style>
-         /* Viewer default styling: white content, a light-gray sidebar, tight
-            nesting — the shape teams hand-build for internal dashboards. Accents
-            ride --theme-color (set by Docsify from viewer.theme.primary). */
+         /* Viewer default styling: white content, the brand canvas on the sidebar
+            and its chrome, tight nesting — the shape teams hand-build for internal
+            dashboards. Accents ride --theme-color (set by Docsify from
+            viewer.theme.primary). */
          body {
             background-color: #ffffff;
          }
@@ -48,8 +49,8 @@
             font-size: 0.7rem;
             letter-spacing: 0.02em;
             color: #555555;
-            background: #f8f9fa;
-            border: 1px solid #e0e0e0;
+            background: #f7f8f5;
+            border: 1px solid #cde5d9;
             border-radius: 999px;
             padding: 3px 10px;
             user-select: none;
@@ -57,8 +58,8 @@
 
          /* Light sidebar */
          .sidebar {
-            background-color: #f8f9fa;
-            border-right: 1px solid #e0e0e0;
+            background-color: #f7f8f5;
+            border-right: 1px solid #cde5d9;
          }
          /* Loading state while the served sidebar is being generated: the CSS
             :empty rule paints instantly (before any script runs); the boot
@@ -97,7 +98,7 @@
             padding: 6px 0;
          }
          .sidebar-nav li > a:hover {
-            color: var(--theme-color, #223f93);
+            color: var(--theme-color, #009f71);
          }
 
          /* Top-level links (boot profile, pins) */
@@ -181,7 +182,7 @@
             padding: 2px 0;
          }
          .sidebar-nav ul ul li > a:hover {
-            color: var(--theme-color, #223f93);
+            color: var(--theme-color, #009f71);
             transition: color 0.2s ease;
          }
 
@@ -189,28 +190,28 @@
          .sidebar-nav hr {
             margin: 16px 0;
             border: none;
-            border-top: 1px solid #e0e0e0;
+            border-top: 1px solid #cde5d9;
          }
 
          /* Search */
          .search input {
             background-color: #ffffff;
-            border: 1px solid #e0e0e0;
+            border: 1px solid #cde5d9;
             color: #2c3e50;
          }
          .search .results-panel {
             background-color: #ffffff;
-            border: 1px solid #e0e0e0;
+            border: 1px solid #cde5d9;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
          }
          .search .results-panel .matching-post > a {
             color: #2c3e50;
          }
          .search .results-panel .matching-post > a:hover {
-            color: var(--theme-color, #223f93);
+            color: var(--theme-color, #009f71);
          }
          .matching-post {
-            border-bottom: 1px solid #e0e0e0;
+            border-bottom: 1px solid #cde5d9;
          }
 
          /* App name / logo block */
@@ -228,7 +229,7 @@
 
          /* Powered-by mark: lower-right corner, out of the way. The overrides
             neutralize the theme stylesheet's older bar treatment. The Leji link
-            keeps Leji blue whatever the layer's own accent is. */
+            keeps the Leji link green whatever the layer's own accent is. */
          .leji-powered {
             position: fixed;
             left: auto;
@@ -244,11 +245,11 @@
             z-index: 30;
          }
          .leji-powered a {
-            color: var(--leji-blue, #223f93);
+            color: var(--leji-link, #007d59);
             text-decoration: none;
          }
          .leji-powered a:hover {
-            color: #162960;
+            color: #164e42;
          }
       </style>
    </head>

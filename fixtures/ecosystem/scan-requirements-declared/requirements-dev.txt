@@ -1,0 +1,2 @@
+pytest
+leji>=1,<2

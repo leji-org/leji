@@ -312,7 +312,7 @@
           "properties": {
             "primary": {
               "type": "string",
-              "description": "Primary/accent color as a CSS color (e.g. \"#223F93\"). Drives links, the active state, and diagram accents."
+              "description": "Primary/accent color as a hex CSS color (e.g. \"#009F71\"). Drives links, the active state, and diagram accents."
             }
           }
         },

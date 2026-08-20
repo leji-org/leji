@@ -1,0 +1,45 @@
+leji start: Open a coding agent in this context layer, booted from the boot
+   profile.
+
+Usage: leji start [--agent <name>] [--root <dir>] [--json] [-- <host flags…>]
+
+Detects an installed agent (or use --agent), launches it from the context root,
+and points it at the boot profile so it loads the team's context first. The
+agent-facing counterpart to `leji view`. Several detected agents prompt for
+which; with none detected or in a non-interactive shell, it prints the command
+to run. Everything after a literal -- passes verbatim to the launched host
+binary, before the boot prompt. Host-specific flags ride with a pinned host:
+`leji start --agent claude-code -- --chrome`, never bare `-- --chrome`, which
+could hand the flag to whichever host gets picked.
+
+Details:
+   - Before the agent starts, prints a Setup block for this clone: whether the
+     Leji CLI this repository declares resolves here and meets the minimum
+     version for the layer's spec line, whether the MCP server is registered for
+     the selected host, whether the shared `.mcp.json` is committed, and whether
+     the pre-commit hook is installed.
+   - Each row is personal or shared. Personal state (your host's MCP
+     registration, this clone's `.git` hook) is offered on a real terminal and
+     printed as an exact command otherwise; shared state (the dependency
+     declaration, a committed `.mcp.json`, a hooks directory inside the working
+     tree) is only ever reported, with the command a maintainer runs and
+     commits. A gap never blocks entry: the agent still boots.
+   - `--json` makes it report-only: one document with `ready` and the same
+     checks, no prompts and no launch, exit 0 even when `ready` is false. The
+     launch-selection arguments are accepted and have no effect there; an
+     `--agent` naming no launchable host is still a usage error.
+
+Options:
+   --agent <name>      Launch a specific host (claude-code or codex) instead of
+                       auto-detecting.
+   -- <host flags…>    Pass the remaining arguments verbatim to the launched
+                       host binary; pin --agent when they are host-specific.
+
+Global options: see leji --help.
+
+Examples:
+   leji start
+   leji start --agent codex
+   leji start --agent claude-code -- --chrome
+
+Full reference: https://leji.org/cli/

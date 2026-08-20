@@ -1,0 +1,41 @@
+{
+  "ecosystem": {
+    "selected": {
+      "ecosystem": "python",
+      "status": "ok",
+      "manifest": "requirements.txt",
+      "manager": "pip",
+      "source": "default",
+      "evidence": [
+        "requirements.txt"
+      ],
+      "add": null,
+      "runner": [
+        "leji"
+      ],
+      "directDeclared": false,
+      "lockEvidenced": false,
+      "candidates": []
+    },
+    "all": [
+      {
+        "ecosystem": "python",
+        "status": "ok",
+        "manifest": "requirements.txt",
+        "manager": "pip",
+        "source": "default",
+        "evidence": [
+          "requirements.txt"
+        ],
+        "add": null,
+        "runner": [
+          "leji"
+        ],
+        "directDeclared": false,
+        "lockEvidenced": false,
+        "candidates": []
+      }
+    ],
+    "reason": null
+  }
+}

@@ -2,6 +2,7 @@
 
 ## Checklist
 
+- [ ] Every commit is signed off (`git commit -s`), and I agree to the [Contributor terms](../CONTRIBUTING.md#contributor-terms)
 - [ ] `npm run assets:check` passes (schemas/templates/cli.json vendored copies in sync)
 - [ ] Behavior changes land in all three SDKs (npm, PyPI, Go) with `npm run parity` green, or the PR says why not
 - [ ] Tests cover the change; the three suites pass (`npm test`)

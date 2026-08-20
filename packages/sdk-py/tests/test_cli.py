@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -363,6 +364,97 @@ def test_index_generate_writes_and_reports(tmp_path, capsys) -> None:
     assert payload["entries"] == 3
 
 
+def _unindexed_line(n: int) -> str:
+    """The generate run's closing nudge. Spec-pinned byte for byte and identical in
+    all three SDKs, so it is asserted as an exact string, never a pattern; the zero
+    case is asserted as absence."""
+    return f"{n} file(s) unindexed: add to a category index or leave as reference deliberately"
+
+
+def test_index_generate_reports_the_unindexed_count(tmp_path, capsys) -> None:
+    layer = tmp_path / "layer"
+    shutil.copytree(EXAMPLE, layer)
+    # Two markdown files under the governed root that no category index lists.
+    (layer / "docs" / "notes").mkdir()
+    (layer / "docs" / "notes" / "loose.md").write_text("# Loose\n")
+    (layer / "docs" / "stray.md").write_text("# Stray\n")
+    code, out, _ = run_cli(capsys, ["index", "--root", str(layer)])
+    # A nudge, never a gate: the count does not move the exit code.
+    assert code == 0
+    assert out.rstrip("\n").split("\n")[-1] == _unindexed_line(2)
+
+
+def test_index_generate_is_quiet_when_nothing_is_unindexed(tmp_path, capsys) -> None:
+    layer = tmp_path / "layer"
+    shutil.copytree(EXAMPLE, layer)
+    code, out, _ = run_cli(capsys, ["index", "--root", str(layer)])
+    assert code == 0
+    assert "unindexed" not in out
+    assert out.rstrip("\n").split("\n")[-1].startswith("ok (")
+
+
+def test_index_check_is_unaffected_by_the_unindexed_count(tmp_path, capsys) -> None:
+    layer = tmp_path / "layer"
+    shutil.copytree(EXAMPLE, layer)
+    (layer / "docs" / "stray.md").write_text("# Stray\n")
+    assert run_cli(capsys, ["index", "--root", str(layer)])[0] == 0
+    code, out, _ = run_cli(capsys, ["index", "--check", "--root", str(layer)])
+    assert code == 0
+    assert "unindexed" not in out
+
+
+def _has_key_deep(value: object, key: str) -> bool:
+    """Whether key appears anywhere in the document, at any depth. Checking the whole
+    tree rather than the top level alone is what makes the JSON assertion hold against
+    a field added later inside summary or a future extra."""
+    if isinstance(value, dict):
+        return key in value or any(_has_key_deep(v, key) for v in value.values())
+    if isinstance(value, list):
+        return any(_has_key_deep(v, key) for v in value)
+    return False
+
+
+def test_index_json_carries_no_trailing_nudge(tmp_path, capsys) -> None:
+    layer = tmp_path / "layer"
+    shutil.copytree(EXAMPLE, layer)
+    (layer / "docs" / "stray.md").write_text("# Stray\n")
+    code, out, _ = run_cli(capsys, ["index", "--root", str(layer), "--json"])
+    assert code == 0
+    # One document and nothing after it: the payload must still parse whole.
+    payload = json.loads(out)
+    assert payload["written"] == "docs/context-index.json"
+    # The nudge is text-mode only. The count is not part of the index run's contract,
+    # so no consumer may start reading it off this document — not at the top level,
+    # not tucked into summary or a later extra.
+    assert not _has_key_deep(payload, "unindexed"), out
+
+
+def test_index_generate_prints_no_nudge_when_the_index_write_fails(tmp_path, capsys) -> None:
+    # Root bypasses permission bits, so the write would succeed; skip there.
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses permission bits")
+    layer = tmp_path / "layer"
+    shutil.copytree(EXAMPLE, layer)
+    (layer / "docs" / "stray.md").write_text("# Stray\n")
+    # The nudge would have something to say here: the count is nonzero, so the silence
+    # below is the operational failure's doing and not an empty set.
+    _, before, _ = run_cli(capsys, ["status", "--root", str(layer), "--json"])
+    assert json.loads(before)["unindexed"]
+    target = layer / "docs" / "context-index.json"
+    target.chmod(0o444)
+    try:
+        code, out, err = run_cli(capsys, ["index", "--root", str(layer)])
+        # An operational failure surfaces its error and nothing else: generation never
+        # completed, so the layer has no count worth reporting.
+        assert code == 2
+        assert err.startswith("leji: ")
+        assert "context-index.json" in err
+        assert "permission denied" in err.lower()
+        assert "unindexed" not in out
+    finally:
+        target.chmod(0o644)  # restore so the temp tree can be cleaned up
+
+
 def test_conformance_marks_failing_core_items(capsys) -> None:
     code, out, _ = run_cli(
         capsys, ["conformance", "--root", str(FIXTURES / "invalid-missing-boot-profile"), "--json"]
@@ -405,8 +497,8 @@ def test_clijson_documents_exactly_the_accepted_commands(capsys, tmp_path) -> No
             argv += ["--keep", "1"]  # compact requires --keep or --before
         elif name == "agent":
             argv += ["--host", "codex", "--name", "reviewer"]  # agent requires both
-        elif name == "mounts locate":
-            argv.insert(2, "acme-product-context")  # locate takes a positional mount name
+        elif name in ("mounts locate", "mounts update-pin"):
+            argv.insert(2, "acme-product-context")  # both take a positional mount name
         code = main(argv)
         capsys.readouterr()
         assert code != 2, f'"{name}" should not be a usage error'
@@ -414,17 +506,20 @@ def test_clijson_documents_exactly_the_accepted_commands(capsys, tmp_path) -> No
     assert documented == [
         "adopt",
         "agent",
+        "badge",
         "changelog check",
         "changelog compact",
         "ci",
         "conformance",
         "detect",
+        "export",
         "freshness",
         "index",
         "init",
         "mounts hydrate",
         "mounts locate",
         "mounts status",
+        "mounts update-pin",
         "route",
         "start",
         "status",
@@ -510,7 +605,7 @@ def test_viewer_prints_serve_hint(tmp_path, capsys) -> None:
     code, out, _ = run_cli(capsys, ["viewer", "--root", str(layer)])
     assert code == 0, out
     assert "serve: leji view" in out
-    assert "viewer ready (3 entries) → docs/.leji/viewer/" in out
+    assert "viewer ready (3 entries) → .leji/viewer/" in out
 
 
 def test_viewer_rejects_open(tmp_path, capsys) -> None:
@@ -611,3 +706,47 @@ def test_start_on_core_layer_non_tty_falls_back(capsys, tmp_path) -> None:
     code, out, err = run_cli(capsys, ["start", "--root", str(tmp_path)])
     assert code == 0, out + err
     assert "To enter this context layer" in out
+
+
+# Mirrors run.test.ts "agent: writing the default binding prints the
+# selects-vs-loads guidance (human and JSON); other keys and re-runs do not".
+def test_agent_default_binding_prints_selects_vs_loads_guidance(capsys, tmp_path) -> None:
+    guidance = (
+        "agents.default selects a role profile; it does not load it. If its instructions "
+        "must apply before every task, fold them into the boot profile; otherwise keep the "
+        "profile role-scoped and engage it through the relevant protocol."
+    )
+
+    def seed(name: str) -> Path:
+        d = tmp_path / name
+        d.mkdir()
+        run_cli(capsys, ["init", "--dir", str(d), "--yes", "--name", "demo"])
+        return d
+
+    # human output: the guidance follows the success lines, byte-exact
+    layer = seed("agent")
+    code, out, err = run_cli(capsys, ["agent", "--name", "default", "--root", str(layer)])
+    assert code == 0, out + err
+    assert 'Bound agent "default"' in out
+    assert out.rstrip("\n").split("\n")[-1] == guidance
+    # written-only: a re-run binds nothing and stays terse, in both modes
+    code, out, err = run_cli(capsys, ["agent", "--name", "default", "--root", str(layer)])
+    assert code == 0, out + err
+    assert "selects a role profile" not in out, "no guidance when nothing was bound"
+    _, out, _ = run_cli(capsys, ["agent", "--name", "default", "--json", "--root", str(layer)])
+    assert "note" not in json.loads(out)
+    # JSON mode carries the same sentence in `note` (the CI activation-note pattern)
+    code, out, err = run_cli(
+        capsys, ["agent", "--name", "default", "--json", "--root", str(seed("agent-j"))]
+    )
+    assert code == 0, out + err
+    assert json.loads(out)["note"] == guidance
+    # any other binding stays quiet, in both modes
+    code, out, err = run_cli(capsys, ["agent", "--name", "reviewer", "--root", str(layer)])
+    assert code == 0, out + err
+    assert "selects a role profile" not in out, "no guidance for a non-default key"
+    code, out, err = run_cli(
+        capsys, ["agent", "--name", "thought-partner", "--json", "--root", str(layer)]
+    )
+    assert code == 0, out + err
+    assert "note" not in json.loads(out)

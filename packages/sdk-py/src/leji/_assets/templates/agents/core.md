@@ -24,4 +24,4 @@ The shared posture for all agents working in this repository. Role profiles inhe
 
 ## Escalation
 
-<Who to ask, in what channel, for what kind of question.>
+Ask the primary owner (<ownerName>) whenever mustAskWhen applies; record durable rulings in decisions.

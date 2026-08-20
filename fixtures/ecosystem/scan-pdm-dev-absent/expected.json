@@ -1,0 +1,57 @@
+{
+  "ecosystem": {
+    "selected": {
+      "ecosystem": "python",
+      "status": "ok",
+      "manifest": "pyproject.toml",
+      "manager": "pdm",
+      "source": "lockfile",
+      "evidence": [
+        "pdm.lock"
+      ],
+      "add": [
+        "pdm",
+        "add",
+        "-dG",
+        "dev",
+        "leji"
+      ],
+      "runner": [
+        "pdm",
+        "run",
+        "leji"
+      ],
+      "directDeclared": false,
+      "lockEvidenced": true,
+      "candidates": []
+    },
+    "all": [
+      {
+        "ecosystem": "python",
+        "status": "ok",
+        "manifest": "pyproject.toml",
+        "manager": "pdm",
+        "source": "lockfile",
+        "evidence": [
+          "pdm.lock"
+        ],
+        "add": [
+          "pdm",
+          "add",
+          "-dG",
+          "dev",
+          "leji"
+        ],
+        "runner": [
+          "pdm",
+          "run",
+          "leji"
+        ],
+        "directDeclared": false,
+        "lockEvidenced": true,
+        "candidates": []
+      }
+    ],
+    "reason": null
+  }
+}

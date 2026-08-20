@@ -4,8 +4,24 @@ Behaviorally identical to the `@leji-org/leji` npm package and the Go SDK; all t
 implementations are tested against one shared fixture suite.
 """
 
+from .badge import (
+    DEFAULT_BADGE_OUT,
+    OUT_RULE,
+    BadgeResult,
+    badge_label,
+    badge_markdown,
+    badge_run,
+    render_badge,
+)
 from .changelog import CompactResult, compact_changelog, serialize_changelog
 from .conformance import ConformanceResult, conformance_report, render_explain
+from .dependency import dependency_add_failed, offer_dependency
+from .ecosystem import (
+    detect_ecosystem,
+    render_ecosystem_block,
+    render_ecosystem_line,
+    runner_argv,
+)
 from .detect import (
     HOST_SPECS,
     DetectedHost,
@@ -17,15 +33,13 @@ from .detect import (
     render_detect,
     resolve_host_id,
 )
+from .export_cmd import BuildResult, build_viewer
+from .serve_cmd import open_browser, serve_viewer
 from .viewer_cmd import (
-    BuildResult,
     ViewerResult,
     build_sidebar,
-    build_viewer,
     generate_viewer,
-    open_browser,
     resolve_viewer_port,
-    serve_viewer,
 )
 from .findings import Finding, Severity, sort_findings, summarize
 from .freshness import FreshnessReport, freshness_report
@@ -63,9 +77,11 @@ __version__ = SDK_VERSION
 __all__ = [
     "AdoptResult",
     "AgentResult",
+    "BadgeResult",
     "BuildResult",
     "CompactResult",
     "ConformanceResult",
+    "DEFAULT_BADGE_OUT",
     "DanglingEntry",
     "DetectResult",
     "DetectedHost",
@@ -78,6 +94,7 @@ __all__ = [
     "InitResult",
     "LIVE_STATUSES",
     "Manifest",
+    "OUT_RULE",
     "PlanEntry",
     "PlannedWrite",
     "RouteInput",
@@ -92,6 +109,9 @@ __all__ = [
     "adapter_content",
     "add_agent",
     "adopt_layer",
+    "badge_label",
+    "badge_markdown",
+    "badge_run",
     "build_sidebar",
     "build_viewer",
     "build_write_plan",
@@ -102,6 +122,8 @@ __all__ = [
     "conformance_report",
     "content_findings",
     "detect_hosts",
+    "dependency_add_failed",
+    "detect_ecosystem",
     "detect_layer",
     "ensure_ci_workflow",
     "enter_layer",
@@ -109,7 +131,12 @@ __all__ = [
     "freshness_report",
     "generate_viewer",
     "handoff_offer",
+    "render_badge",
+    "offer_dependency",
     "render_detect",
+    "render_ecosystem_block",
+    "render_ecosystem_line",
+    "runner_argv",
     "render_explain",
     "resolve_host_id",
     "route",

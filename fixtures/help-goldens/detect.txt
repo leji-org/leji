@@ -1,0 +1,21 @@
+leji detect: Detect the coding-agent hosts available on this machine.
+
+Usage: leji detect [--root <dir>] [--json]
+
+Best-effort, read-only detection of installed agent hosts (Claude Code, Codex,
+Copilot, Gemini, Cursor, Windsurf), ranked by signal strength: a runnable
+binary, a config file in the repository, or a user-level config directory.
+Writes nothing; use it to decide which host to open with `leji start --agent
+<name>` (launchable hosts today: claude-code and codex; other detected hosts
+enter the context layer through their vendor-file redirect). Also reports the
+repository's own dependency ecosystem: the package manager its manifest and
+lockfiles name, whether the Leji CLI is already declared as a dev dependency
+there, and the command that would declare it.
+
+Global options: see leji --help.
+
+Examples:
+   leji detect
+   leji detect --json
+
+Full reference: https://leji.org/cli/

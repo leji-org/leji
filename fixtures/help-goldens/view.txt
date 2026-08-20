@@ -1,0 +1,19 @@
+leji view: Alias for `leji viewer serve` (and opens the browser).
+
+Usage: leji view [--port <n>] [--root <dir>]
+
+One-word shortcut to browse the context layer: generates the viewer, serves it
+on localhost, and opens your default browser. Equivalent to `leji viewer serve
+--open`.
+
+Options:
+   --port <n>          Port to serve on. Overrides the manifest viewer.port;
+                       default 5354; 0 picks a free port.
+
+Global options: see leji --help.
+
+Examples:
+   leji view
+   leji view --port 0
+
+Full reference: https://leji.org/cli/

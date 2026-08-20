@@ -19,6 +19,10 @@ leji init                  # new repo: scaffold leji.json, a boot profile, categ
 leji adopt --wire-adapters # finish an adoption over a vendor entrypoint (CLAUDE.md, AGENTS.md)
 ```
 
+Or, in one step with nothing installed: `npm create leji` reads the directory and runs `leji adopt`
+here, or `leji init` on a repository with nothing to adopt. It replaces this step rather than
+preceding it, so take it and continue at the next heading.
+
 Map lived paths instead of renaming them. `docs/engineering/START-HERE.md` conforms as a boot profile; new layers should use the lowercase-kebab defaults.
 
 <span id="make-it-yours"></span>
@@ -65,9 +69,28 @@ At `indexed`, `leji index` generates `context-index.json`; `leji index --check` 
 
 Without CI conventions, `leji ci` generates a workflow; `leji ci --hooks` installs the gates as a pre-commit. `leji ci --help` explains CLI resolution.
 
-In an established pipeline, run `leji validate` and `leji index --check` in required jobs and hooks. Pin `@leji-org/leji` as a lockfile devDependency.
+In an established pipeline, run `leji validate` and `leji index --check` in required jobs and hooks. Declare the CLI as a dev dependency so a clean install brings it: `leji init`/`leji adopt` detect the package manager this repository uses and, on your explicit yes, run its own add command (pip and pre-1.24 Go get the printed line instead).
 
 At `governed`, add reviewed changes, valid agent profiles, freshness checks, and required CI.
+
+### Show your conformance
+
+`leji badge` writes `leji-badge.svg` at the repository root and prints the line to paste into your README:
+
+```bash
+leji badge                        # write leji-badge.svg and print the snippet
+leji badge --out docs/badge.svg   # somewhere else; the snippet follows the path
+```
+
+```markdown
+[![Leji 1.0 · governed · self-attested](leji-badge.svg)](https://leji.org/agent-ready/)
+```
+
+The badge is self-attested and honest about this run: it states the level `leji conformance` verified, which is never above what `leji.json` claims and is sometimes below it. A claim the offline run could not confirm is named on stdout rather than badged.
+
+Run it on a committed tree. An uncommitted changelog leaves the `indexed` check unverifiable, so a working copy that has not been committed badges `core` whatever it claims.
+
+The snippet's image path is relative to the repository root. A README in a subdirectory needs the path adjusted to reach the file from there.
 
 <span id="where-it-lives"></span>
 
@@ -123,7 +146,7 @@ leji viewer serve      # localhost preview at http://127.0.0.1:5354/
 leji viewer build      # export a self-contained static folder for internal hosting
 ```
 
-`serve` is not hosting. Publish only for the context layer's audience. Governed H1s provide navigation; manifest `viewer` fields provide branding and pins. MkDocs can use the index. See the [machine-readable surface specification](../spec/machine-readable-surface.md).
+`serve` is not hosting. Publish only for the context layer's audience. The build writes inside the repository (`.leji/dist/` by default, or a `--out` path within it) and the output folder is yours: copy it wherever your host reads from. Governed H1s provide navigation; manifest `viewer` fields provide branding and pins. MkDocs can use the index. See the [machine-readable surface specification](../spec/machine-readable-surface.md).
 
 </details>
 

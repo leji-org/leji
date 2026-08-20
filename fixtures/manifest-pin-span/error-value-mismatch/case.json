@@ -1,0 +1,8 @@
+{
+  "note": "The span holds a pin other than `from`: the manifest moved under the run, so it is refused rather than overwritten.",
+  "mount": "product-context",
+  "from": "1111111111111111111111111111111111111111",
+  "to": "9f1c2e9b8a7f6d5c4b3a2e1d0c9b8a7f6d5c4b3a",
+  "outcome": "error",
+  "error": "not-from"
+}

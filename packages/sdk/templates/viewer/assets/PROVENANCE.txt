@@ -33,4 +33,11 @@ mermaid.min.js, docsify-mermaid.js
 leji-logo.svg
    The default viewer logo (the Leji mark). Overridden per-layer by viewer.logo.
 
+third-party-licenses.txt
+   The consolidated notice for everything vendored here: a component list (name,
+   version, copyright, license) followed by each license text once. Unlike this
+   note it DOES ship, into every generated viewer/ and every exported dist/, so
+   the redistributed components carry their notices. Update it whenever an asset
+   is added, removed, or bumped.
+
 This note is documentation only; the SDKs never copy it into a user's output.

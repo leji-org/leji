@@ -25,15 +25,34 @@ import (
 var SupportedLines = []string{"1.0"}
 
 // SDKVersion is overridable via ldflags; defaults to match Node/Python.
-var SDKVersion = "1.3.1"
+var SDKVersion = "1.4.0"
 
 type CliOption struct {
 	Flags   string `json:"flags"`
 	Summary string `json:"summary"`
 }
 
+// CliGroup is one display section of the command list, in the order help and the
+// site show them.
+type CliGroup struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// CliExitCode carries the code as a json.Number so help prints the literal the
+// asset holds (`0`), never a float rendering of it.
+type CliExitCode struct {
+	Code    json.Number `json:"code"`
+	Meaning string      `json:"meaning"`
+}
+
 type CliCommand struct {
-	Name        string      `json:"name"`
+	Name string `json:"name"`
+	// Group is the CliGroup id this command is listed under; exactly one, and
+	// always a declared id. AliasOf, when set, names the primary command this one
+	// stands for, itself never an alias.
+	Group       string      `json:"group"`
+	AliasOf     string      `json:"aliasOf,omitempty"`
 	Summary     string      `json:"summary"`
 	Usage       string      `json:"usage"`
 	Description string      `json:"description"`
@@ -43,12 +62,13 @@ type CliCommand struct {
 }
 
 type CliSpec struct {
-	Name          string           `json:"name"`
-	Summary       string           `json:"summary"`
-	Usage         string           `json:"usage"`
-	GlobalOptions []CliOption      `json:"globalOptions"`
-	ExitCodes     []map[string]any `json:"exitCodes"`
-	Commands      []CliCommand     `json:"commands"`
+	Name          string        `json:"name"`
+	Summary       string        `json:"summary"`
+	Usage         string        `json:"usage"`
+	GlobalOptions []CliOption   `json:"globalOptions"`
+	ExitCodes     []CliExitCode `json:"exitCodes"`
+	Groups        []CliGroup    `json:"groups"`
+	Commands      []CliCommand  `json:"commands"`
 }
 
 func LoadCliSpec() (CliSpec, error) {

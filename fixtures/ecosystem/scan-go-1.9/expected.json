@@ -1,0 +1,37 @@
+{
+  "ecosystem": {
+    "selected": {
+      "ecosystem": "go",
+      "status": "ok",
+      "manifest": "go.mod",
+      "manager": "go-legacy",
+      "source": "manifest",
+      "evidence": [],
+      "add": null,
+      "runner": [
+        "leji"
+      ],
+      "directDeclared": false,
+      "lockEvidenced": false,
+      "candidates": []
+    },
+    "all": [
+      {
+        "ecosystem": "go",
+        "status": "ok",
+        "manifest": "go.mod",
+        "manager": "go-legacy",
+        "source": "manifest",
+        "evidence": [],
+        "add": null,
+        "runner": [
+          "leji"
+        ],
+        "directDeclared": false,
+        "lockEvidenced": false,
+        "candidates": []
+      }
+    ],
+    "reason": null
+  }
+}

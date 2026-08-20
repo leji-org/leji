@@ -1,0 +1,55 @@
+{
+  "ecosystem": {
+    "selected": {
+      "ecosystem": "python",
+      "status": "ok",
+      "manifest": "Pipfile",
+      "manager": "pipenv",
+      "source": "manifest",
+      "evidence": [
+        "Pipfile"
+      ],
+      "add": [
+        "pipenv",
+        "install",
+        "--dev",
+        "leji"
+      ],
+      "runner": [
+        "pipenv",
+        "run",
+        "leji"
+      ],
+      "directDeclared": true,
+      "lockEvidenced": false,
+      "candidates": []
+    },
+    "all": [
+      {
+        "ecosystem": "python",
+        "status": "ok",
+        "manifest": "Pipfile",
+        "manager": "pipenv",
+        "source": "manifest",
+        "evidence": [
+          "Pipfile"
+        ],
+        "add": [
+          "pipenv",
+          "install",
+          "--dev",
+          "leji"
+        ],
+        "runner": [
+          "pipenv",
+          "run",
+          "leji"
+        ],
+        "directDeclared": true,
+        "lockEvidenced": false,
+        "candidates": []
+      }
+    ],
+    "reason": null
+  }
+}

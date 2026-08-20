@@ -12,6 +12,7 @@ leji index --check      # fail when the index is stale
 leji changelog check    # append-only discipline
 leji freshness          # review-horizon report
 leji conformance        # score the layer against its claimed level
+leji badge              # write the self-attested conformance badge and its markdown
 leji status             # unindexed, dangling, and stale documents
 leji route              # the governed context a task's scope routes to
 leji viewer             # generate the static viewer for the context layer
@@ -26,15 +27,23 @@ leji agent --name <n>   # bind an additional named agent into the layer
 leji mounts hydrate     # materialize declared federation mounts into the resolver cache
 leji mounts status      # each mount's availability, integrity, and pin ancestry
 leji mounts locate      # resolver state for one mount: projection path, pin, verification
+leji mounts update-pin  # move one mount's declared pin, verified against the source
 leji changelog compact  # fold the oldest changelog entries into one compaction entry
 ```
 
 See the full command reference (flags, exit codes, examples) at
 https://leji.org/cli/.
 
+Inside a repository that declares `leji`, has a project environment inside the
+repository (`.venv`, or uv's `UV_PROJECT_ENVIRONMENT`) with a copy meeting the
+layer's minimum, `leji` runs that copy; set `LEJI_NO_LOCAL` to any value to run
+this one.
+
 Behaviorally identical to the `@leji-org/leji` npm package and the Go SDK: same
 commands, same flags, same findings, same exit codes (0 clean, 1 findings, 2
-usage error). All three implementations are tested against one shared fixture
+usage error); the one runtime-specific behavior is the hand-off above, which the
+Node and Python CLIs perform and the Go CLI does not (there, run the pinned copy
+with `go tool leji`). All three implementations are tested against one shared fixture
 suite. Install whichever matches your toolchain; agents and CI see the same
 tool either way.
 

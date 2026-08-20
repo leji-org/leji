@@ -1,0 +1,105 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": []
+  },
+  "conformance": {
+    "exit": 0,
+    "claimedLevel": "core",
+    "verifiedLevel": "core"
+  },
+  "seeds": [
+    {
+      "from": "docs/.leji-seed",
+      "to": "docs/.leji"
+    }
+  ],
+  "export": {
+    "exit": 0,
+    "findings": [],
+    "out": ".leji/dist",
+    "layout": {
+      "roles": {
+        "viewer": ".leji/viewer/",
+        "dist": ".leji/dist/"
+      },
+      "present": [
+        ".leji/viewer/index.html",
+        ".leji/viewer/_sidebar.md",
+        ".leji/viewer/_manifest.md",
+        ".leji/viewer/assets/",
+        ".leji/dist/index.html",
+        ".leji/dist/assets/",
+        ".leji/dist/content/_sidebar.md",
+        ".leji/dist/content/_manifest.md",
+        ".leji/dist/content/boot-profile.md",
+        ".leji/dist/content/overview.md",
+        ".leji/dist/content/domain/overview.md",
+        ".leji/dist/content/decisions/0001-adopt-leji.md",
+        "docs/overview.md"
+      ],
+      "absent": [],
+      "preserved": [
+        "docs/.leji/viewer/index.html",
+        "docs/.leji/viewer/_sidebar.md",
+        "docs/.leji/viewer/_manifest.md",
+        "docs/.leji/viewer/assets/leji-logo.svg",
+        "docs/.leji/viewer-dist/index.html",
+        "docs/.leji/viewer-dist/content/boot-profile.md",
+        "docs/.leji/onboarding-brief.md"
+      ]
+    },
+    "rerun": {
+      "byteIdentical": true
+    },
+    "goldenTree": {
+      "status": "baked",
+      "contentDir": "expected-export/content",
+      "manifest": "expected-export.manifest.json"
+    }
+  },
+  "trustCanary": {
+    "topology": "nested",
+    "plantedPaths": [
+      "docs/.leji/viewer/index.html",
+      "docs/.leji/viewer/_sidebar.md",
+      "docs/.leji/viewer/_manifest.md",
+      "docs/.leji/viewer/assets/leji-logo.svg",
+      "docs/.leji/viewer-dist/index.html",
+      "docs/.leji/viewer-dist/content/boot-profile.md",
+      "docs/.leji/onboarding-brief.md"
+    ],
+    "serve": {
+      "requests": [
+        { "path": "/", "status": 200, "note": "chrome shell; the only way into the viewer role" },
+        { "path": "/index.html", "status": 200 },
+        { "path": "/assets/leji-logo.svg", "status": 200, "note": "chrome assets" },
+        { "path": "/content/boot-profile.md", "status": 200 },
+        { "path": "/content/overview.md", "status": 200 },
+        { "path": "/content/domain/overview.md", "status": 200 },
+        { "path": "/content/decisions/0001-adopt-leji.md", "status": 200 },
+        { "path": "/content/context/domain.md", "status": 200 },
+        { "path": "/content/context/decisions.md", "status": 200 },
+        { "path": "/content/_sidebar.md", "status": 200 },
+        { "path": "/content/_manifest.md", "status": 200 },
+        { "path": "/content/context-index.json", "status": 200 },
+        {
+          "path": "/content/.leji/viewer/index.html",
+          "status": 404,
+          "note": "the stale tree sits inside the content root here, so dot-refusal is the live boundary"
+        },
+        { "path": "/content/.leji/viewer-dist/index.html", "status": 404 },
+        { "path": "/content/.leji/onboarding-brief.md", "status": 404 },
+        { "path": "/content/%2eleji/viewer/index.html", "status": 404, "note": "encoded leading dot" },
+        { "path": "/content/%2E%6Ceji/viewer-dist/index.html", "status": 404 }
+      ],
+      "routeScan": {
+        "assertNoTokenIn200Bodies": true
+      }
+    },
+    "exportScan": {
+      "root": ".leji/dist",
+      "occurrences": 0
+    }
+  }
+}

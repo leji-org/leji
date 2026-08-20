@@ -38,6 +38,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
+	"github.com/leji-org/leji/packages/sdk-go/internal/layout"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/schemas"
 )
@@ -235,13 +236,35 @@ func CacheKeyFor(sourceIdentity, pin string) string {
 
 // MountsDir is the resolver-owned cache root under the host layer.
 func MountsDir(root string) string {
-	return filepath.Join(root, ".leji", "mounts")
+	return layout.Abs(root, layout.MountsRel)
+}
+
+// establishMountsDir establishes one mounts DESTINATION — a managed store, a cache
+// entry, a staging directory — through the write chokepoint, and hands back the
+// RESOLVED directory it was created at. ok is false when the rule refuses it: a
+// planted `.leji/mounts` symlink into another role or out of the repository is caught
+// here, once, instead of being followed by every per-entry write underneath.
+//
+// The per-entry protocol elsewhere in this package (hashed identities, contained
+// relative paths, the symlink-escape rules, publish-by-rename) is the declared
+// exception to the chokepoint, and it holds only because every one of its acts
+// happens under a root this function checked and returned — never under a path
+// re-joined from root.
+func establishMountsDir(root, dirAbs string) (string, bool, error) {
+	verdict, real, err := fsx.MkdirpGuarded(fsx.GuardRoot(root), dirAbs, layout.MountsRel)
+	if err != nil {
+		return "", false, err
+	}
+	if !verdict.OK {
+		return "", false, nil
+	}
+	return real, true, nil
 }
 
 // readTextWithin mirrors Node's readTextWithin: nil (ok=false) unless abs is a
 // regular file that resolves inside root.
 func readTextWithin(root, abs string) (string, bool) {
-	if !fsx.IsFile(abs) || !fsx.ResolvesUnder(root, abs) {
+	if !fsx.IsFile(abs) || !fsx.ResolvedWithinRoot(root, abs) {
 		return "", false
 	}
 	text, err := fsx.ReadText(abs)
@@ -536,74 +559,114 @@ func FindObjectSource(root string, mount MountDecl, sourceIdentity string) Objec
 	return ObjectSource{Ambiguous: ambiguous}
 }
 
+// retentionInjectedFailure is test-only fault injection for RetainPinInStore: with
+// LEJI_TEST_FAIL_PIN_REF set to a commit id, retaining exactly that commit fails at
+// the ref. It exists because the TARGET-retention refusal has no other reachable
+// path — by the time the target is retained, the comparison repository IS the
+// managed store and already holds the commit, so the fetch never runs and only the
+// ref update can fail.
+func retentionInjectedFailure(oid string) bool {
+	return os.Getenv("LEJI_TEST_FAIL_PIN_REF") == oid
+}
+
+// RetainPinInStore establishes the managed store and retains ONE commit in it:
+// fetch the object by id from the declared source when the store does not already
+// hold it, then keep it reachable under `refs/leji-pin/v1/`. Nothing here refreshes
+// a witness, so a caller that needs more than one commit retained pays exactly one
+// round trip per commit and no extra observation of a moving ref.
+//
+// The declared pin and an explicitly named target are both retained through this,
+// so the version of record and the version being moved to are equally safe from git
+// maintenance. repo "" means failure, with errMsg saying why (stable, Leji-authored
+// text: git stderr never reaches output).
+func RetainPinInStore(root string, mount MountDecl, sourceIdentity, oid string) (repo string, errMsg string, err error) {
+	failed := func(msg string) (string, string, error) {
+		return "", msg, nil
+	}
+	// The locator becomes argv here: anything option-shaped is refused, never passed.
+	if strings.HasPrefix(mount.Source, "-") {
+		return failed(`the source locator may not begin with "-"`)
+	}
+	store, ok, err := establishMountsDir(root, storeDir(root, sourceIdentity))
+	if err != nil {
+		return "", "", err
+	}
+	if !ok {
+		return failed("the managed store could not be initialized")
+	}
+	if !isGitRepo(store) {
+		if !RunGit([]string{"init", "--bare", "-q", store}, "").OK {
+			return failed("the managed store could not be initialized")
+		}
+	}
+	// A commit id is immutable: a store that already holds it needs no round trip.
+	// The id is resolved directly, never read back out of FETCH_HEAD, so the fetch
+	// has no reason to write one and races with a concurrent fetch.
+	if !hasCommit(store, oid) {
+		fetch := RunGit([]string{
+			"-C", store,
+			"-c", "fetch.recurseSubmodules=no",
+			"fetch", "-q", "--no-write-fetch-head",
+			mount.Source, oid,
+		}, "")
+		if !fetch.OK {
+			return failed("the pin could not be fetched from the source")
+		}
+	}
+	// Retain it by a ref of our own: without it, git maintenance may prune the
+	// version of record.
+	pinOid := revOid(store, oid)
+	if pinOid == "" {
+		return failed("fetched, but the pin is not reachable")
+	}
+	if retentionInjectedFailure(pinOid) ||
+		!RunGit([]string{"-C", store, "update-ref", PinRefFor(sourceIdentity, pinOid), pinOid}, "").OK {
+		return failed("the pin could not be retained by a ref in the managed store")
+	}
+	return store, "", nil
+}
+
 // FetchIntoStore fetches the pin and refreshes the managed witness ref in the
 // store. This is the only writer of the witness namespace: `status` never
 // fetches, so a mount whose pin a hint already resolves still needs its store
 // populated here. repo "" means failure, with errMsg saying why (stable,
 // Leji-authored text: git stderr never reaches output).
 func FetchIntoStore(root string, mount MountDecl, sourceIdentity string) (repo string, witnessRefreshFailed bool, errMsg string, err error) {
-	failed := func(msg string) (string, bool, string, error) {
-		return "", false, msg, nil
-	}
-	// The locator becomes argv here: anything option-shaped is refused, never passed.
-	if strings.HasPrefix(mount.Source, "-") {
-		return failed(`the source locator may not begin with "-"`)
-	}
-	store := storeDir(root, sourceIdentity)
-	if !isGitRepo(store) {
-		if err := os.MkdirAll(store, 0o755); err != nil {
-			return "", false, "", err
-		}
-		if !RunGit([]string{"init", "--bare", "-q", store}, "").OK {
-			return failed("the managed store could not be initialized")
-		}
-	}
-	// The pin is immutable: a store that already holds it needs no round trip. The
-	// declared pin is resolved directly, never read back out of FETCH_HEAD, so the
-	// fetch has no reason to write one and races with a concurrent fetch.
-	if !hasCommit(store, mount.Pin) {
-		fetch := RunGit([]string{
-			"-C", store,
-			"-c", "fetch.recurseSubmodules=no",
-			"fetch", "-q", "--no-write-fetch-head",
-			mount.Source, mount.Pin,
-		}, "")
-		if !fetch.OK {
-			return failed("the pin could not be fetched from the source")
-		}
-	}
-	// Retain the pin by a ref of our own: without it, git maintenance may prune the
-	// version of record.
-	pinOid := revOid(store, mount.Pin)
-	if pinOid == "" {
-		return failed("fetched, but the pin is not reachable")
-	}
-	if !RunGit([]string{"-C", store, "update-ref", PinRefFor(sourceIdentity, pinOid), pinOid}, "").OK {
-		return failed("the pin could not be retained by a ref in the managed store")
+	store, errMsg, err := RetainPinInStore(root, mount, sourceIdentity, mount.Pin)
+	if err != nil || store == "" {
+		return "", false, errMsg, err
 	}
 	// The witness refresh is the second half of what `--fetch` was asked to do, so a
 	// run that attempts it and does not publish says so on its own terms. Reported
 	// only when it was actually attempted: a run that never got this far has already
 	// reported the fetch failure that stopped it.
 	if mount.TrackingRef != "" && ValidTrackingRef(mount.TrackingRef) {
-		if !refreshWitness(store, mount, sourceIdentity) {
+		if !RefreshWitness(store, mount, sourceIdentity) {
 			return store, true, "", nil
 		}
 	}
 	return store, false, "", nil
 }
 
-// refreshWitness refreshes the managed witness ref: fetch the tracking ref to a
+// RefreshWitness refreshes the managed witness ref: fetch the tracking ref to a
 // unique temporary ref, publish it onto the canonical witness with git's own
 // compare-and-swap, then drop the temporary. Forced (`+`), so the witness follows
 // a non-fast-forward upstream move. No lock: git's ref update is atomic, a lost
 // swap means another writer published first (a valid outcome), and a failure
 // leaves the previous witness in place.
-func refreshWitness(store string, mount MountDecl, sourceIdentity string) bool {
+func RefreshWitness(store string, mount MountDecl, sourceIdentity string) bool {
 	witnessRef := WitnessRefFor(sourceIdentity, mount.TrackingRef)
 	tempRef := fmt.Sprintf("%s/tmp/%d-%s", WitnessRefNamespace, os.Getpid(), randomHex(8))
 	spec := "+" + mount.TrackingRef + ":" + tempRef
-	fetch := RunGit([]string{"-C", store, "-c", "fetch.recurseSubmodules=no", "fetch", "-q", mount.Source, spec}, "")
+	// `--no-write-fetch-head` for the same reason retention passes it: the ref this
+	// fetch cares about is the temporary one in the refspec, and a FETCH_HEAD left
+	// behind is a per-run path recorded inside the managed store.
+	fetch := RunGit([]string{
+		"-C", store,
+		"-c", "fetch.recurseSubmodules=no",
+		"fetch", "-q", "--no-write-fetch-head",
+		mount.Source, spec,
+	}, "")
 	tip := ""
 	if fetch.OK {
 		tip = refOid(store, tempRef)
@@ -1589,7 +1652,9 @@ func TrackedCacheFiles(root string) []string {
 	return out
 }
 
-func nowISO() string {
+// NowISO is the observation clock every mount surface stamps with: UTC, millisecond
+// precision, the same spelling Node's toISOString() writes.
+func NowISO() string {
 	return time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 }
 
@@ -1679,11 +1744,22 @@ func HydrateMounts(root string, m *manifest.Manifest, opts HydrateOptions) (Hydr
 			continue
 		}
 		// Staged inside the entry's own directory, so publication is a rename on one
-		// filesystem, and under a per-process name, so no two producers collide.
-		staging := filepath.Join(cacheDir, ".staging-"+stagingToken())
-		if err := os.MkdirAll(staging, 0o755); err != nil {
+		// filesystem, and under a per-process name, so no two producers collide. The
+		// staging directory is established through the chokepoint and every act below
+		// works from the RESOLVED path it returned, the cache entry included.
+		staging, staged, err := establishMountsDir(root, filepath.Join(cacheDir, ".staging-"+stagingToken()))
+		if err != nil {
 			return HydrateResult{}, err
 		}
+		if !staged {
+			outcomes = append(outcomes, outcome(HydrateOutcome{
+				Name:   mount.Name,
+				Status: "error",
+				Detail: "the cache entry destination could not be established",
+			}))
+			continue
+		}
+		cacheEntryDir := filepath.Dir(staging)
 		projected, err := ExtractProjection(src.Repo, mount.Pin, staging)
 		if err != nil {
 			return HydrateResult{}, err
@@ -1734,12 +1810,12 @@ func HydrateMounts(root string, m *manifest.Manifest, opts HydrateOptions) (Hydr
 			metadata.set("siblingName", nil)
 		}
 		metadata.set("completionState", "complete")
-		metadata.set("hydratedAt", nowISO())
+		metadata.set("hydratedAt", NowISO())
 		var buf bytes.Buffer
 		metadata.encodeIndent(&buf, "", "  ")
 		buf.WriteByte('\n')
 		// The whole tree is extracted and validated before it is publishable.
-		status, detail, perr := publishCacheEntry(cacheDir, staging, buf.Bytes())
+		status, detail, perr := publishCacheEntry(cacheEntryDir, staging, buf.Bytes())
 		if perr != nil {
 			return HydrateResult{}, perr
 		}
@@ -1770,8 +1846,10 @@ func contains(list []string, s string) bool {
 
 // VerifyProjection verifies a cached projection against a reachable object
 // store: every projected file's bytes and mode against the pinned tree. Returns
-// nil when no object store is reachable (unverifiable), true/false otherwise.
-// The error return carries filesystem failures (TS exceptions).
+// nil when a prerequisite for verifying is unavailable — no reachable object
+// store, an unresolvable pin, no writable temp dir — leaving the projection
+// unverified rather than judged; true/false otherwise. The error return carries
+// filesystem failures (TS exceptions).
 func VerifyProjection(root string, mount MountDecl) (*bool, error) {
 	f := false
 	identity, idOK := NormalizeSource(mount.Source)
@@ -1792,12 +1870,16 @@ func VerifyProjection(root string, mount MountDecl) (*bool, error) {
 		return nil, nil
 	}
 	commit := strings.TrimSpace(string(commitR.Stdout))
-	staging := filepath.Join(MountsDir(root), fmt.Sprintf("verify-%d", os.Getpid()))
-	if err := os.RemoveAll(staging); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(staging, 0o755); err != nil {
-		return nil, err
+	// Staging happens outside the host: verifying is a read-only question, so asking
+	// it must not write into the tree being asked about (a read-only or shared
+	// checkout could not answer otherwise). The name is allocated, never constructed
+	// and pre-deleted: a guessed path is a path a concurrent verification is already
+	// using, and deleting it is how one run made another fail. Cleanup is installed
+	// the moment allocation succeeds. A failed allocation is one more unavailable
+	// prerequisite — unverifiable, never an error and never an in-tree fallback.
+	staging, err := os.MkdirTemp("", "leji-verify-*")
+	if err != nil {
+		return nil, nil
 	}
 	defer os.RemoveAll(staging)
 	projected, err := ExtractProjection(src.Repo, commit, staging)
@@ -1982,9 +2064,167 @@ func LocateMount(root string, m *manifest.Manifest, name string) (LocateResult, 
 		result.Path = &projDir
 	}
 	if present && !verified {
-		result.Detail = "projection present but not verified against a reachable object store"
+		result.Detail = "projection present but not verified: it does not match its pin, or verification prerequisites are unavailable"
 	}
 	return result, nil
+}
+
+// ComparisonSelection is which repository answers a pin comparison, and the ONE
+// witness snapshot it answered with. Reason is the degraded alternative: a stable
+// status code and nothing selected.
+type ComparisonSelection struct {
+	Repo                 string
+	ComparisonRepository string
+	WitnessProvenance    string
+	ComparedRef          string
+	TipOid               string
+	// Reason is non-empty exactly when nothing was selected.
+	Reason string
+}
+
+// SelectComparison resolves the store-first availability matrix once: the
+// resolver's own witness in the managed store first, then the first object source
+// that holds BOTH the pin and the compared ref. The pin and the witness always come
+// from the same repository, and nothing here fetches.
+//
+// TipOid is the single witness snapshot for the whole operation. `status` reports
+// from it and `update-pin` targets, counts and gates from it, so no caller can end
+// up describing two different commits by re-reading a ref that moved in between.
+func SelectComparison(root string, mount MountDecl, effectiveRef string) ComparisonSelection {
+	identity, idOK := NormalizeSource(mount.Source)
+	if !idOK {
+		return ComparisonSelection{Reason: "mount-source-unnormalizable"}
+	}
+	if !ValidTrackingRef(effectiveRef) {
+		return ComparisonSelection{Reason: "mount-tracking-ref-invalid"}
+	}
+	// Row 1: the managed store holds the pin and the resolver's own witness.
+	store := storeDir(root, identity)
+	managedTip := ""
+	if isGitRepo(store) && hasCommit(store, mount.Pin) {
+		managedTip = revOid(store, WitnessRefFor(identity, effectiveRef))
+	}
+	// Row 2: the first pin-holding source that also resolves the ref itself. A
+	// candidate holding only the pin is passed over, never allowed to mask a
+	// later one holding both.
+	var candidates []ObjectSource
+	ambiguous := false
+	if managedTip == "" {
+		candidates, ambiguous = ObjectSourceCandidates(root, mount, identity)
+	}
+	selectedRepo, selectedKind, tipOid := "", "", ""
+	if managedTip != "" {
+		selectedRepo, selectedKind, tipOid = store, "store", managedTip
+	}
+	for _, candidate := range candidates {
+		if tip := revOid(candidate.Repo, effectiveRef); tip != "" {
+			selectedRepo, selectedKind, tipOid = candidate.Repo, candidate.Kind, tip
+			break
+		}
+	}
+	if selectedRepo == "" {
+		// Ambiguity is its own answer: those repositories were never consulted,
+		// so reporting the pin or the witness unavailable would claim more than
+		// was checked.
+		reason := "mount-witness-unavailable"
+		if ambiguous {
+			reason = "mount-source-ambiguous"
+		} else if len(candidates) == 0 {
+			reason = "mount-pin-unavailable"
+		}
+		return ComparisonSelection{Reason: reason}
+	}
+	comparisonRepository := selectedKind
+	if selectedKind == "store" {
+		comparisonRepository = "managed-store"
+	}
+	witnessProvenance := "unmanaged"
+	if managedTip != "" {
+		witnessProvenance = "managed"
+	}
+	return ComparisonSelection{
+		Repo:                 selectedRepo,
+		ComparisonRepository: comparisonRepository,
+		WitnessProvenance:    witnessProvenance,
+		ComparedRef:          effectiveRef,
+		TipOid:               tipOid,
+	}
+}
+
+// PinComparison is a settled pin comparison: State is never "unknown", because a
+// repository that cannot answer the range returns Reason instead.
+type PinComparison struct {
+	State            string
+	Behind           int
+	Ahead            int
+	AncestryComplete bool
+	// Reason is "mount-ancestry-incomplete" exactly when nothing was settled.
+	Reason string
+}
+
+// ComparePins says where the pin stands against ONE witness snapshot, in ONE
+// repository. Shared by `status`, which reports it, and `update-pin`, which
+// additionally gates on it — so the two can never describe the same pair of commits
+// differently.
+func ComparePins(repo, pin, tipOid string) PinComparison {
+	incomplete := PinComparison{Reason: "mount-ancestry-incomplete"}
+	behind, behindOK := countRange(repo, pin, tipOid)
+	ahead, aheadOK := countRange(repo, tipOid, pin)
+	if !behindOK || !aheadOK {
+		return incomplete
+	}
+	shallow := RunGit([]string{"-C", repo, "rev-parse", "--is-shallow-repository"}, "")
+	ancestryComplete := shallow.OK && strings.TrimSpace(string(shallow.Stdout)) == "false"
+	// Both counts positive is either divergence or two unrelated histories, and
+	// only a merge base tells them apart. Exit 1 is the answer "no merge base";
+	// any other failure is the repository unable to answer, never an answer.
+	// Truncated history can also lose a merge base that exists, so `unrelated`
+	// is a claim only complete ancestry makes.
+	disjoint := false
+	if behind > 0 && ahead > 0 {
+		mergeBase := RunGit([]string{"-C", repo, "merge-base", pin, tipOid}, "")
+		if !mergeBase.OK && mergeBase.Code != 1 {
+			return incomplete
+		}
+		disjoint = !mergeBase.OK
+		if disjoint && !ancestryComplete {
+			return incomplete
+		}
+	}
+	state := "ahead"
+	switch {
+	case behind == 0 && ahead == 0:
+		state = "up-to-date"
+	case behind > 0 && ahead > 0:
+		state = "diverged"
+		if disjoint {
+			state = "unrelated"
+		}
+	case behind > 0:
+		state = "behind"
+	}
+	return PinComparison{State: state, Behind: behind, Ahead: ahead, AncestryComplete: ancestryComplete}
+}
+
+// ResolveDefaultRef returns the ref a source advertises as its default branch:
+// HEAD's symref target, read with `ls-remote --symref`. The one lookup in this
+// package that reaches the network without the caller having named a ref, so both
+// failures stay distinguishable — errKind is "unreachable" when the source could
+// not be reached at all, "no-symref" when it advertises no symref to follow.
+func ResolveDefaultRef(source string) (ref string, errKind string) {
+	// The locator becomes argv here: anything option-shaped is refused, never passed.
+	if strings.HasPrefix(source, "-") {
+		return "", "unreachable"
+	}
+	head := RunGit([]string{"ls-remote", "--symref", source, "HEAD"}, "")
+	if !head.OK {
+		return "", "unreachable"
+	}
+	m := headSymrefRe.FindStringSubmatch(string(head.Stdout))
+	if m == nil {
+		return "", "no-symref"
+	}
+	return m[1], ""
 }
 
 // MountStatus reports every declared mount's pin against its witness, offline.
@@ -1995,7 +2235,7 @@ func LocateMount(root string, m *manifest.Manifest, name string) (LocateResult, 
 // exceptions).
 func MountStatus(root string, m *manifest.Manifest, opts StatusOptions) ([]StatusResult, error) {
 	// One observation time for the whole execution, injectable so tests are stable.
-	observedAt := nowISO()
+	observedAt := NowISO()
 	if !opts.Now.IsZero() {
 		observedAt = opts.Now.UTC().Format("2006-01-02T15:04:05.000Z")
 	}
@@ -2060,99 +2300,27 @@ func MountStatus(root string, m *manifest.Manifest, opts StatusOptions) ([]Statu
 			out = append(out, unknown("mount-tracking-ref-invalid", nil, nil))
 			continue
 		}
-		// Row 1: the managed store holds the pin and the resolver's own witness.
-		store := storeDir(root, identity)
-		managedTip := ""
-		if isGitRepo(store) && hasCommit(store, mount.Pin) {
-			managedTip = revOid(store, WitnessRefFor(identity, mount.TrackingRef))
-		}
-		// Row 2: the first pin-holding source that also resolves the ref itself. A
-		// candidate holding only the pin is passed over, never allowed to mask a
-		// later one holding both.
-		var candidates []ObjectSource
-		ambiguous := false
-		if managedTip == "" {
-			candidates, ambiguous = ObjectSourceCandidates(root, mount, identity)
-		}
-		selectedRepo, selectedKind, tipOid := "", "", ""
-		if managedTip != "" {
-			selectedRepo, selectedKind, tipOid = store, "store", managedTip
-		}
-		for _, candidate := range candidates {
-			if tip := revOid(candidate.Repo, mount.TrackingRef); tip != "" {
-				selectedRepo, selectedKind, tipOid = candidate.Repo, candidate.Kind, tip
-				break
-			}
-		}
-		if selectedRepo == "" {
-			// Ambiguity is its own answer: those repositories were never consulted,
-			// so reporting the pin unavailable would claim more than was checked.
-			reason := "mount-witness-unavailable"
-			if ambiguous {
-				reason = "mount-source-ambiguous"
-			} else if len(candidates) == 0 {
-				reason = "mount-pin-unavailable"
-			}
-			out = append(out, unknown(reason, nil, nil))
+		selection := SelectComparison(root, mount, mount.TrackingRef)
+		if selection.Reason != "" {
+			out = append(out, unknown(selection.Reason, nil, nil))
 			continue
 		}
-		comparisonRepository := selectedKind
-		if selectedKind == "store" {
-			comparisonRepository = "managed-store"
-		}
-		witnessProvenance := "unmanaged"
-		if managedTip != "" {
-			witnessProvenance = "managed"
-		}
-		cr, wp := comparisonRepository, witnessProvenance
-		behind, behindOK := countRange(selectedRepo, mount.Pin, tipOid)
-		ahead, aheadOK := countRange(selectedRepo, tipOid, mount.Pin)
-		if !behindOK || !aheadOK {
-			out = append(out, unknown("mount-ancestry-incomplete", &cr, &wp))
+		cr, wp := selection.ComparisonRepository, selection.WitnessProvenance
+		comparison := ComparePins(selection.Repo, mount.Pin, selection.TipOid)
+		if comparison.Reason != "" {
+			out = append(out, unknown(comparison.Reason, &cr, &wp))
 			continue
-		}
-		shallow := RunGit([]string{"-C", selectedRepo, "rev-parse", "--is-shallow-repository"}, "")
-		ancestryComplete := shallow.OK && strings.TrimSpace(string(shallow.Stdout)) == "false"
-		// Both counts positive is either divergence or two unrelated histories, and
-		// only a merge base tells them apart. Exit 1 is the answer "no merge base";
-		// any other failure is the repository unable to answer, never an answer.
-		// Truncated history can also lose a merge base that exists, so `unrelated`
-		// is a claim only complete ancestry makes.
-		disjoint := false
-		if behind > 0 && ahead > 0 {
-			mergeBase := RunGit([]string{"-C", selectedRepo, "merge-base", mount.Pin, tipOid}, "")
-			if !mergeBase.OK && mergeBase.Code != 1 {
-				out = append(out, unknown("mount-ancestry-incomplete", &cr, &wp))
-				continue
-			}
-			disjoint = !mergeBase.OK
-			if disjoint && !ancestryComplete {
-				out = append(out, unknown("mount-ancestry-incomplete", &cr, &wp))
-				continue
-			}
-		}
-		state := "ahead"
-		switch {
-		case behind == 0 && ahead == 0:
-			state = "up-to-date"
-		case behind > 0 && ahead > 0:
-			state = "diverged"
-			if disjoint {
-				state = "unrelated"
-			}
-		case behind > 0:
-			state = "behind"
 		}
 		row := base
-		b, a := behind, ahead
+		b, a := comparison.Behind, comparison.Ahead
 		row.PinReport = PinReport{
-			State:                state,
+			State:                comparison.State,
 			Behind:               &b,
 			Ahead:                &a,
 			ComparedRef:          trackingRefPtr,
 			ComparisonRepository: &cr,
 			WitnessProvenance:    &wp,
-			AncestryComplete:     ancestryComplete,
+			AncestryComplete:     comparison.AncestryComplete,
 			ObservedAt:           observedAt,
 		}
 		out = append(out, row)
@@ -2200,15 +2368,15 @@ func CheckPinReachability(root string, mount MountDecl) (ReachabilityResult, err
 	// Resolve the witness ref: declared, or the source's advertised default branch.
 	witnessRef := mount.TrackingRef
 	if witnessRef == "" {
-		head := RunGit([]string{"ls-remote", "--symref", mount.Source, "HEAD"}, "")
-		if !head.OK {
-			return ReachabilityResult{State: "unknown", Detail: "the source could not be reached"}, nil
+		resolved, errKind := ResolveDefaultRef(mount.Source)
+		if errKind != "" {
+			detail := "the source could not be reached"
+			if errKind == "no-symref" {
+				detail = "source advertises no HEAD symref"
+			}
+			return ReachabilityResult{State: "unknown", Detail: detail}, nil
 		}
-		m := headSymrefRe.FindStringSubmatch(string(head.Stdout))
-		if m == nil {
-			return ReachabilityResult{State: "unknown", Detail: "source advertises no HEAD symref"}, nil
-		}
-		witnessRef = m[1]
+		witnessRef = resolved
 	}
 	adv := RunGit([]string{"ls-remote", mount.Source, witnessRef}, "")
 	if !adv.OK {
@@ -2221,11 +2389,14 @@ func CheckPinReachability(root string, mount MountDecl) (ReachabilityResult, err
 	tip := strings.Split(line, "\t")[0]
 	// Establish ancestry in the resolver store: fetch the witness ref (full history,
 	// no promisor state), then ask whether the pin is an ancestor of its tip.
-	store := filepath.Join(MountsDir(root), "store", Sha256Hex(identity))
+	store, established, err := establishMountsDir(root, filepath.Join(MountsDir(root), "store", Sha256Hex(identity)))
+	if err != nil {
+		return ReachabilityResult{}, err
+	}
+	if !established {
+		return ReachabilityResult{State: "unknown", WitnessRef: &witnessRef, Detail: "the managed store could not be initialized"}, nil
+	}
 	if !isGitRepo(store) {
-		if err := os.MkdirAll(store, 0o755); err != nil {
-			return ReachabilityResult{}, err
-		}
 		init := RunGit([]string{"init", "--bare", "-q", store}, "")
 		if !init.OK {
 			return ReachabilityResult{State: "unknown", WitnessRef: &witnessRef, Detail: "the managed store could not be initialized"}, nil
@@ -2290,7 +2461,7 @@ func FederationEnforcement(root string, m *manifest.Manifest, mode string, taskM
 			return nil, err
 		}
 		if verified == nil || !*verified {
-			message := "mount \"" + mount.Name + "\" projection cannot be verified (no reachable object store); an unverified cache is not evidence"
+			message := "mount \"" + mount.Name + "\" projection cannot be verified (verification prerequisites unavailable: no reachable object store, unresolvable pin, or no writable temp dir); an unverified cache is not evidence"
 			if verified != nil {
 				message = "mount \"" + mount.Name + "\" projection does not match its pin; re-run `leji mounts hydrate`"
 			}

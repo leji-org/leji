@@ -61,7 +61,7 @@ func checkBootProfile(root string, m *manifest.Manifest, fs *[]findings.Finding)
 		return
 	}
 	bootAbs := filepath.Join(root, rel)
-	if !fsx.ResolvesUnder(root, bootAbs) {
+	if !fsx.ResolvedWithinRoot(root, bootAbs) {
 		*fs = append(*fs, findings.New("path-escapes-root", findings.Error, "boot profile resolves outside the layer root", rel))
 		return
 	}
@@ -210,7 +210,7 @@ func checkVendorAdapters(root string, m *manifest.Manifest, fs *[]findings.Findi
 		}
 		// A vendor entrypoint that is a symlink resolving outside the layer root is
 		// not read (matches adopt, which treats such files as absent).
-		if !fsx.ResolvesUnder(root, abs) {
+		if !fsx.ResolvedWithinRoot(root, abs) {
 			continue
 		}
 		text, _ := fsx.ReadText(abs)
@@ -290,7 +290,7 @@ func checkActors(root string, m *manifest.Manifest, fs *[]findings.Finding) {
 		// Containment-checked like the other two implementations: a profile symlink
 		// escaping the layer root must not be read, or a hostile link changes which
 		// actor-conflict findings appear.
-		if !fsx.ResolvesUnder(root, abs) {
+		if !fsx.ResolvedWithinRoot(root, abs) {
 			continue
 		}
 		text, _ := fsx.ReadText(abs)
@@ -316,7 +316,7 @@ func checkAgentsMap(root string, m *manifest.Manifest, fs *[]findings.Finding) {
 			continue
 		}
 		agentAbs := filepath.Join(root, rel)
-		if !fsx.ResolvesUnder(root, agentAbs) {
+		if !fsx.ResolvedWithinRoot(root, agentAbs) {
 			*fs = append(*fs, findings.New("path-escapes-root", findings.Error,
 				fmt.Sprintf("agents.%s profile resolves outside the layer root", role), rel))
 			continue
@@ -347,7 +347,7 @@ func checkBootAgentsDefault(root string, m *manifest.Manifest, fs *[]findings.Fi
 		return
 	}
 	bootAbs := filepath.Join(root, m.BootProfilePath)
-	if !fsx.IsFile(bootAbs) || !fsx.ResolvesUnder(root, bootAbs) {
+	if !fsx.IsFile(bootAbs) || !fsx.ResolvedWithinRoot(root, bootAbs) {
 		return
 	}
 	boot, _ := fsx.ReadText(bootAbs)
@@ -457,7 +457,7 @@ func MountSurfacingFindings(root string, m *manifest.Manifest) []findings.Findin
 	rootAbs, _ := filepath.Abs(root)
 	abs := filepath.Join(root, rel)
 	text := ""
-	readable := fsx.IsFile(abs) && fsx.ResolvesUnder(rootAbs, abs)
+	readable := fsx.IsFile(abs) && fsx.ResolvedWithinRoot(rootAbs, abs)
 	if readable {
 		var err error
 		text, err = fsx.ReadText(abs)
@@ -989,7 +989,7 @@ func ContentFindings(root string, m *manifest.Manifest) []findings.Finding {
 	// Confine the read: a symlinked boot profile escaping root is skipped (the
 	// structural pass already flags it). Content lint is advisory.
 	bootAbs := filepath.Join(root, bootRel)
-	if fsx.IsFile(bootAbs) && fsx.ResolvesUnder(root, bootAbs) {
+	if fsx.IsFile(bootAbs) && fsx.ResolvedWithinRoot(root, bootAbs) {
 		boot, _ := fsx.ReadText(bootAbs)
 		if placeholderRe.MatchString(boot) {
 			out = append(out, findings.New("content-placeholder", findings.Warning,
@@ -1064,12 +1064,12 @@ func ContentFindings(root string, m *manifest.Manifest) []findings.Finding {
 }
 
 // ValidateLayer runs the full layer validation; with content, appends the content lint.
-func ValidateLayer(root string, content bool) Result {
+func ValidateLayer(root string, content bool) (Result, error) {
 	load := manifest.LoadManifest(root)
 	m := load.Manifest
 	fs := load.Findings
 	if m == nil {
-		return Result{Findings: findings.Sort(fs), Manifest: nil}
+		return Result{Findings: findings.Sort(fs), Manifest: nil}, nil
 	}
 
 	level := manifest.ClaimedLevel(m)
@@ -1119,7 +1119,11 @@ func ValidateLayer(root string, content bool) Result {
 			for _, f := range fs {
 				alreadyReported[layer.FindingKey(f)] = true
 			}
-			for _, f := range indexgen.CheckIndex(root, m).Findings {
+			checked, cerr := indexgen.CheckIndex(root, m)
+			if cerr != nil {
+				return Result{}, cerr
+			}
+			for _, f := range checked.Findings {
 				if !alreadyReported[layer.FindingKey(f)] {
 					fs = append(fs, f)
 				}
@@ -1155,7 +1159,7 @@ func ValidateLayer(root string, content bool) Result {
 		fs = append(fs, ContentFindings(root, m)...)
 	}
 
-	return Result{Findings: findings.Sort(fs), Manifest: m}
+	return Result{Findings: findings.Sort(fs), Manifest: m}, nil
 }
 
 func sortedKeys(m map[string]string) []string {

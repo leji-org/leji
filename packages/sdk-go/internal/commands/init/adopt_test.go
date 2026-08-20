@@ -160,7 +160,7 @@ func TestAdoptReusesDocsRootAndMigrates(t *testing.T) {
 	}
 
 	// Non-redirecting entrypoint makes validate error.
-	v := validate.ValidateLayer(dir, false)
+	v := validateLayer(t, dir, false)
 	found := false
 	for _, f := range v.Findings {
 		if f.Rule == "vendor-adapter-redirect" && f.Severity == findings.Error {
@@ -201,7 +201,7 @@ func TestAdoptWireAdaptersConvertsAndValidates(t *testing.T) {
 	if len(load.Manifest.VendorAdapters) != 1 || load.Manifest.VendorAdapters[0] != "CLAUDE.md" {
 		t.Fatalf("vendorAdapters = %v, want [CLAUDE.md]", load.Manifest.VendorAdapters)
 	}
-	v := validate.ValidateLayer(dir, false)
+	v := validateLayer(t, dir, false)
 	errCount := 0
 	for _, f := range v.Findings {
 		if f.Severity == findings.Error {
@@ -312,7 +312,7 @@ func TestAdoptRefusesWhenLayerExists(t *testing.T) {
 func validateErrCount(t *testing.T, dir string) int {
 	t.Helper()
 	n := 0
-	for _, f := range validate.ValidateLayer(dir, false).Findings {
+	for _, f := range validateLayer(t, dir, false).Findings {
 		if f.Severity == findings.Error {
 			n++
 		}
@@ -439,4 +439,18 @@ func TestAdoptRefusesExistingLayerWithoutWireAdapters(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "already has a Leji layer") {
 		t.Fatalf("err = %v, want the existing-layer refusal", err)
 	}
+}
+
+// --- gate helpers -------------------------------------------------------------
+// These commands now carry an error channel, because an operational read failure on
+// an allowed path propagates instead of being swallowed (the reference throws it).
+// A test that does not construct such a failure asserts there is none.
+
+func validateLayer(t *testing.T, root string, content bool) validate.Result {
+	t.Helper()
+	res, err := validate.ValidateLayer(root, content)
+	if err != nil {
+		t.Fatalf("ValidateLayer(%s): %v", root, err)
+	}
+	return res
 }

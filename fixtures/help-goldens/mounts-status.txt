@@ -1,0 +1,28 @@
+leji mounts status: Report each mount's availability, integrity, and pin
+   ancestry.
+
+Usage: leji mounts status [--check-integrity] [--root <dir>] [--json]
+
+Read-only diagnostics for the declared federation mounts: whether the pinned
+projection is present in the cache, and an ancestry-aware pin report against the
+declared witness ref (trackingRef) computed from a reachable local object store:
+up-to-date, behind N, ahead, diverged, unrelated, or unknown, always naming the
+compared ref, the category of repository the comparison ran in
+(comparisonRepository: managed-store, hint, or submodule), whether the witness
+was the resolver's own ref or one it does not own (witnessProvenance), the
+observation time, and ancestry completeness. --check-integrity additionally
+re-derives the projection from the object store and compares it byte-for-byte
+(paths, modes, symlinks) against the cache. Never mutates and never touches the
+network.
+
+Options:
+   --check-integrity   Verify the cached projection byte-for-byte against a
+                       reachable object store.
+
+Global options: see leji --help.
+
+Examples:
+   leji mounts status
+   leji mounts status --check-integrity --json
+
+Full reference: https://leji.org/cli/

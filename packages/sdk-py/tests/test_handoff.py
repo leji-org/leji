@@ -5,7 +5,7 @@ from __future__ import annotations
 from leji.detect import DetectedHost
 from leji.init_cmd import HandoffIO, LaunchResult, handoff_offer
 
-BRIEF = "Read ./docs/.leji/onboarding-brief.md and follow it."
+BRIEF = "Read ./.leji/work/onboarding-brief.md and follow it."
 
 
 def host(host_id: str, name: str, on_path: bool = True) -> DetectedHost:
@@ -115,4 +115,6 @@ def test_returns_false_on_non_clean_exit() -> None:
 def test_threads_layer_root_into_prompt() -> None:
     io, launches = fake_io("y")
     assert handoff_offer({"rootPath": "context/"}, [CLAUDE], True, io) is True
-    assert launches == [("claude", "Read ./context/.leji/onboarding-brief.md and follow it.")]
+    # The onboarding workspace is one tree at the repository root, so the prompt is
+    # the same for a layer rooted anywhere: it never carries a rootPath prefix.
+    assert launches == [("claude", BRIEF)]

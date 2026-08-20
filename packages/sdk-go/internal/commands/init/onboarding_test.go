@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
-	"github.com/leji-org/leji/packages/sdk-go/internal/commands/validate"
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/writeplan"
@@ -47,7 +46,7 @@ func TestInitDryRunWritesNothing(t *testing.T) {
 	if !contains(creates, "leji.json") {
 		t.Fatalf("plan should create leji.json, got %v", creates)
 	}
-	if !contains(creates, "docs/.leji/onboarding-brief.md") {
+	if !contains(creates, ".leji/work/onboarding-brief.md") {
 		t.Fatalf("plan should create the brief, got %v", creates)
 	}
 	var vendor *writeplan.PlanEntry
@@ -67,7 +66,7 @@ func TestInitWritesBriefExcludedFromIndex(t *testing.T) {
 	if _, err := InitLayer(Options{Dir: dir, Yes: true, Level: "indexed", Name: "acme-context"}); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	brief := filepath.Join(dir, "docs", ".leji", "onboarding-brief.md")
+	brief := filepath.Join(dir, ".leji", "work", "onboarding-brief.md")
 	if _, err := os.Stat(brief); err != nil {
 		t.Fatalf("brief not written: %v", err)
 	}
@@ -92,7 +91,7 @@ func TestValidateContentWarnsOnFreshScaffold(t *testing.T) {
 	if _, err := InitLayer(Options{Dir: dir, Yes: true}); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	res := validate.ValidateLayer(dir, true)
+	res := validateLayer(t, dir, true)
 	rules := map[string]bool{}
 	errors := 0
 	for _, f := range res.Findings {
@@ -117,7 +116,7 @@ func TestValidateWithoutContentNoContentFindings(t *testing.T) {
 	if _, err := InitLayer(Options{Dir: dir, Yes: true}); err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	res := validate.ValidateLayer(dir, false)
+	res := validateLayer(t, dir, false)
 	for _, f := range res.Findings {
 		if strings.HasPrefix(f.Rule, "content-") {
 			t.Fatalf("unexpected content finding without --content: %s", f.Rule)
@@ -158,7 +157,7 @@ func TestPopulatedLayerPassesContentLint(t *testing.T) {
 	mustWrite(t, filepath.Join(dir, "docs", "system", "invariants.md"),
 		"---\nsummary: rules\n---\n\n# System Invariants\n\n- Money is integer minor units.\n- Invoices are immutable once sent.\n- The ledger is the source of truth.\n")
 
-	res := validate.ValidateLayer(dir, true)
+	res := validateLayer(t, dir, true)
 	for _, f := range res.Findings {
 		if strings.HasPrefix(f.Rule, "content-") {
 			var got []string
@@ -198,7 +197,7 @@ func TestInitAgentWiresRedirect(t *testing.T) {
 			t.Fatalf("git init: %v", err)
 		}
 	}
-	v := validate.ValidateLayer(dir, false)
+	v := validateLayer(t, dir, false)
 	errCount := 0
 	for _, f := range v.Findings {
 		if f.Severity == findings.Error {
@@ -283,7 +282,7 @@ func TestInitWritesPortableAgentsPointer(t *testing.T) {
 		t.Fatalf("vendorAdapters should be empty, got %v", load.Manifest.VendorAdapters)
 	}
 	gitInit(t, dir)
-	v := validate.ValidateLayer(dir, false)
+	v := validateLayer(t, dir, false)
 	errCount := 0
 	for _, f := range v.Findings {
 		if f.Severity == findings.Error {
@@ -369,7 +368,7 @@ func TestInitAgentCreatesNoVendorAdapter(t *testing.T) {
 	if len(load.Manifest.VendorAdapters) != 0 {
 		t.Fatalf("vendorAdapters should be empty, got %v", load.Manifest.VendorAdapters)
 	}
-	v := validate.ValidateLayer(dir, false)
+	v := validateLayer(t, dir, false)
 	errCount := 0
 	for _, f := range v.Findings {
 		if f.Severity == findings.Error {
@@ -455,7 +454,7 @@ func TestAgentWiresNamedReviewer(t *testing.T) {
 	if !strings.Contains(reviewer, "\nid: reviewer\n") || !strings.Contains(reviewer, "\nrole: reviewer\n") || !strings.Contains(reviewer, "\nhost: codex\n") {
 		t.Fatalf("reviewer profile missing id/role/host:\n%s", reviewer)
 	}
-	v := validate.ValidateLayer(dir, false)
+	v := validateLayer(t, dir, false)
 	errCount := 0
 	for _, f := range v.Findings {
 		if f.Severity == findings.Error {
@@ -574,7 +573,7 @@ func TestAgentAppendsSecondBinding(t *testing.T) {
 	if !strings.Contains(string(body), "\nrole: advisor\n") {
 		t.Fatalf("thought-partner profile missing role: advisor:\n%s", body)
 	}
-	v := validate.ValidateLayer(dir, false)
+	v := validateLayer(t, dir, false)
 	for _, f := range v.Findings {
 		if f.Severity == findings.Error {
 			t.Fatalf("expected no errors: %+v", v.Findings)
@@ -843,7 +842,7 @@ func TestSoloBriefModeStampedWithArtifactRules(t *testing.T) {
 	if _, err := InitLayer(Options{Dir: dir, Yes: true, Mode: "solo"}); err != nil {
 		t.Fatalf("init --mode solo: %v", err)
 	}
-	b, err := os.ReadFile(filepath.Join(dir, "docs", ".leji", "onboarding-brief.md"))
+	b, err := os.ReadFile(filepath.Join(dir, ".leji", "work", "onboarding-brief.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -851,8 +850,8 @@ func TestSoloBriefModeStampedWithArtifactRules(t *testing.T) {
 	if !strings.Contains(brief, "**Working mode:** solo") {
 		t.Fatal("brief missing the solo mode stamp")
 	}
-	if !strings.Contains(brief, "docs/.leji/onboarding-inputs/") {
-		t.Fatal("drop-folder path not rewritten for the root")
+	if !strings.Contains(brief, ".leji/work/onboarding-inputs/") {
+		t.Fatal("drop folder should sit in the workspace role")
 	}
 	if !strings.Contains(brief, "untrusted data") {
 		t.Fatal("artifact consent rules missing")
@@ -906,7 +905,7 @@ func TestOmittedModeAndExplicitTeamIdentical(t *testing.T) {
 	if _, serr := os.Stat(filepath.Join(a, "docs", "domain", "identity.md")); !os.IsNotExist(serr) {
 		t.Fatalf("team scaffolds no identity starter, stat err: %v", serr)
 	}
-	brief, err := os.ReadFile(filepath.Join(a, "docs", ".leji", "onboarding-brief.md"))
+	brief, err := os.ReadFile(filepath.Join(a, ".leji", "work", "onboarding-brief.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1091,11 +1090,11 @@ func TestInitRefusesTrackedLejiWorkspace(t *testing.T) {
 	}
 	dir := t.TempDir()
 	gitInit(t, dir)
-	mustWrite(t, filepath.Join(dir, "docs", ".leji", "stale.md"), "tracked artifact\n")
+	mustWrite(t, filepath.Join(dir, ".leji", "work", "stale.md"), "tracked artifact\n")
 	gitCommitAll(t, dir)
 
 	_, err := InitLayer(Options{Dir: dir, Yes: true, Mode: "solo"})
-	if err == nil || !strings.Contains(err.Error(), "1 file(s) under docs/.leji/ are tracked by git") {
+	if err == nil || !strings.Contains(err.Error(), "1 file(s) under .leji/ are tracked by git") {
 		t.Fatalf("expected the tracked-workspace refusal, got: %v", err)
 	}
 	if _, serr := os.Stat(filepath.Join(dir, "leji.json")); serr == nil {

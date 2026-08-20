@@ -1,28 +1,42 @@
-import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
-import * as http from 'node:http';
 import * as path from 'node:path';
 import { type Finding, finding } from '../lib/findings.js';
-import { isFile, readText, readTextWithin, resolvedWithinRoot, stripSlash, underPath, walkTree } from '../lib/fsx.js';
+import {
+   isFile,
+   openVerifiedSource,
+   readText,
+   readTextWithin,
+   resolvedPath,
+   resolvedWithinRoot,
+   stripSlash,
+   underPath,
+   verifiedTargetRead,
+   walkTree,
+   writeFileGuarded,
+} from '../lib/fsx.js';
 import { parseFrontmatter } from '../lib/frontmatter.js';
+import { LEJI_DIR, VIEWER_REL, servablePath, writableTarget } from '../lib/layout.js';
 import {
    type ScannedProfile,
    resolveAgentProfile,
    resolveCategoryAssignments,
    scanAgentProfiles,
-   scanProfileSet,
+   scanProfileSetWith,
 } from '../lib/layer.js';
 import { mountStatus, type StatusResult } from '../lib/mounts.js';
-import {
-   type Manifest,
-   CATEGORY_IDS,
-   effectiveAgentProfilesPath,
-   effectiveIndexPath,
-   loadManifest,
-} from '../lib/manifest.js';
+import { type Manifest, CATEGORY_IDS, effectiveAgentProfilesPath, effectiveIndexPath } from '../lib/manifest.js';
 import { templatesDir } from '../lib/schemas.js';
 import { byteCompare } from '../lib/text.js';
 import { generateIndex } from './indexgen.js';
+
+/**
+ * The viewer's chrome: the sidebar, the manifest page, the resolved-profile pages,
+ * and the SPA shell in its two flavors, generated into the `.leji/viewer/` role.
+ * Everything here is offline and filesystem-only. The two consumers live beside it
+ * and never merge back into it: `serve.ts` (the local preview, the one module that
+ * speaks HTTP) and `export.ts` (the static export, whose no-network guarantee is
+ * checkable precisely because this module and its own imports reach no socket).
+ */
 
 /** Preview-port precedence: explicit --port, then manifest viewer.port, then 5354 (LEJI on a phone keypad). */
 export function resolveViewerPort(manifest: Manifest, flagPort?: number): number {
@@ -59,16 +73,33 @@ const CATEGORY_EMOJI: Record<string, string> = {
 /** Vendored assets loaded only when mermaid is enabled; skipped otherwise. */
 const MERMAID_ASSETS = new Set(['mermaid.min.js', 'docsify-mermaid.js']);
 
-/** The Leji brand blue, the viewer's default accent when no viewer.theme.primary is set. */
-const DEFAULT_THEME_COLOR = '#223F93';
-const DEFAULT_LOGO = '/assets/leji-logo.svg';
+/** The Leji brand green, the viewer's default accent when no viewer.theme.primary is set. */
+const DEFAULT_THEME_COLOR = '#009F71';
 
-/** A CSS color safe to hand to the page: a hex color or a bare color keyword.
- * The accent reaches a stylesheet as a custom-property value, so anything with
- * punctuation in it is a CSS-injection sink rather than a color. */
-const SAFE_CSS_COLOR = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+)$/;
+/**
+ * The base every URL the generated chrome emits is written against: `'/'` for the
+ * local server (the app root, the served flavor's unchanged contract) and `''` for
+ * an export, whose references then resolve against the page itself so the tree
+ * hosts correctly under a subpath. It is a generation parameter, never a post-hoc
+ * rewrite of emitted HTML: one code path, two invocations. `index.html` is the only
+ * artifact that exists in two flavors — everything else under the chrome is
+ * flavor-neutral.
+ */
+export type ChromeBase = '/' | '';
 
-/** The viewer accent: viewer.theme.primary when it is a plain CSS color, else the
+/** The vendored Leji mark, as the given base addresses it. */
+function defaultLogo(base: ChromeBase): string {
+   return `${base}assets/leji-logo.svg`;
+}
+
+/** The one accent format the viewer accepts: a hex color at a length CSS actually
+ * defines (#RGB, #RGBA, #RRGGBB, #RRGGBBAA). The accent reaches a stylesheet as a
+ * custom-property value, so anything with punctuation in it is a CSS-injection
+ * sink rather than a color; hex-only also keeps one canonical form across the
+ * three SDKs and the schema. */
+const SAFE_CSS_COLOR = /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
+/** The viewer accent: viewer.theme.primary when it is a hex color, else the
  * Leji default with a warning. Never the authored value unchecked. */
 function resolveThemeColor(manifest: Manifest, findings: Finding[]): string {
    const configured = manifest.viewer?.theme?.primary;
@@ -78,10 +109,67 @@ function resolveThemeColor(manifest: Manifest, findings: Finding[]): string {
       finding(
          'viewer-theme-invalid',
          'warning',
-         `viewer.theme.primary "${configured}" is not a plain CSS color (hex or keyword); using ${DEFAULT_THEME_COLOR}`,
+         `viewer.theme.primary "${configured}" is not a hex color (#RGB, #RGBA, #RRGGBB, or #RRGGBBAA); using ${DEFAULT_THEME_COLOR}`,
       ),
    );
    return DEFAULT_THEME_COLOR;
+}
+
+/** The accent as opaque sRGB channels, or null for a value that names no color the
+ * generator can resolve — a keyword, `currentColor`, a malformed hex. Accepts
+ * 3/4/6/8-digit hex, the only form the accent can take; an accent carrying alpha is
+ * composited over white, the viewer's content background, which is the only backdrop
+ * knowable at generation time (the accent itself keeps its authored alpha everywhere
+ * it is used — this composite decides text color, nothing that renders). */
+function parseAccentColor(value: string): { r: number; g: number; b: number } | null {
+   const raw = value.trim().toLowerCase();
+   if (!raw.startsWith('#')) return null;
+   const hex = raw.slice(1);
+   if (!/^[0-9a-f]+$/.test(hex)) return null;
+   const full =
+      hex.length === 3 || hex.length === 4
+         ? [...hex].map((c) => c + c).join('')
+         : hex.length === 6 || hex.length === 8
+           ? hex
+           : null;
+   if (full === null) return null;
+   const channel = (i: number): number => parseInt(full.slice(i * 2, i * 2 + 2), 16);
+   const alpha = full.length === 8 ? channel(3) / 255 : 1;
+   const over = (c: number): number => Math.round(c * alpha + 255 * (1 - alpha));
+   return { r: over(channel(0)), g: over(channel(1)), b: over(channel(2)) };
+}
+
+/** WCAG relative luminance: linearized sRGB channels, weighted. */
+function relativeLuminance(rgb: { r: number; g: number; b: number }): number {
+   const linear = (c: number): number => {
+      const s = c / 255;
+      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+   };
+   return 0.2126 * linear(rgb.r) + 0.7152 * linear(rgb.g) + 0.0722 * linear(rgb.b);
+}
+
+/** WCAG contrast ratio between two relative luminances. */
+function contrastRatio(a: number, b: number): number {
+   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+/**
+ * The mermaid node-text color for an accent, computed here rather than in the
+ * browser: the viewer's boot script sees only what the config block carries, while
+ * this side can resolve every color form viewer.theme.primary accepts. Whichever of
+ * #1a1a1a and #ffffff contrasts more with the accent, or #000000 when neither
+ * clears WCAG AA (4.5:1) — a mid-gray accent, where the extra half-stop of black is
+ * the best text color available. An accent this cannot resolve keeps the dark
+ * default, which is also the boot script's fallback.
+ */
+export function mermaidTextColor(themeColor: string): string {
+   const rgb = parseAccentColor(themeColor);
+   if (rgb === null) return '#1a1a1a';
+   const accent = relativeLuminance(rgb);
+   const onDark = contrastRatio(relativeLuminance({ r: 0x1a, g: 0x1a, b: 0x1a }), accent);
+   const onLight = contrastRatio(1, accent);
+   if (onDark < 4.5 && onLight < 4.5) return '#000000';
+   return onDark >= onLight ? '#1a1a1a' : '#ffffff';
 }
 
 /** Resolve a viewer-configured file path to a rootPath-relative rel. The
@@ -119,11 +207,11 @@ function effectiveHomepage(root: string, manifest: Manifest, findings: Finding[]
 
 /** Resolve the viewer logo URL: a configured path is served from the content mount
  * (or used as-is when absolute); unset falls back to the vendored Leji mark. */
-function resolveLogo(root: string, rootPath: string, logo: string | undefined): string {
-   if (!logo) return DEFAULT_LOGO;
+function resolveLogo(root: string, rootPath: string, logo: string | undefined, base: ChromeBase): string {
+   if (!logo) return defaultLogo(base);
    if (logo.startsWith('/') || /^https?:\/\//.test(logo)) return logo;
    const rel = resolveViewerRel(root, rootPath, logo);
-   return `/content/${rel ?? stripSlash(logo)}`;
+   return `${base}content/${rel ?? stripSlash(logo)}`;
 }
 
 /** Escape text for safe interpolation into HTML element/attribute content. */
@@ -149,7 +237,7 @@ function jsonForScript(value: unknown): string {
       .replaceAll(' ', '\\u2029');
 }
 
-function relativeToRoot(relPath: string, rootPath: string): string | null {
+export function relativeToRoot(relPath: string, rootPath: string): string | null {
    const base = stripSlash(rootPath);
    if (base === '' || base === '.') return relPath;
    if (relPath.startsWith(base + '/')) return relPath.slice(base.length + 1);
@@ -163,9 +251,17 @@ function mdLinkText(s: string): string {
    return s.replace(/[\\[\]<>]/g, '\\$&');
 }
 
-/** Escape a string for a Markdown link destination (`(...)`): backslash, parens. */
+/** Escape a string for a Markdown link destination (`(...)`): backslash, parens.
+ * Destinations are emitted app-root absolute (leading slash): with the viewer's
+ * relativePath routing, a bare rootPath-relative destination would re-resolve
+ * against whatever nested route is current and double-prefix; leading-slash links
+ * are exempt from relative resolution by Docsify's contract. Idempotent: leading
+ * slashes are stripped first, so an already-absolute destination (the sidebar
+ * builders are public API) never becomes `//…`, which Docsify routes as an
+ * external protocol-relative URL. Empty input stays empty, never a bare `/`. */
 function mdLinkDest(s: string): string {
-   return s.replace(/[\\()]/g, '\\$&');
+   const escaped = s.replace(/^\/+/, '').replace(/[\\()]/g, '\\$&');
+   return escaped === '' ? '' : '/' + escaped;
 }
 
 /** A reference doc shown in the browse zone: rootPath-relative path + display title. */
@@ -425,6 +521,10 @@ export function buildSidebarGroups(
    for (const p of scanAgentProfiles(root, manifest)) {
       const rel = relativeToRoot(p.relPath, manifest.rootPath);
       if (rel === null) continue;
+      // A declared profiles directory can name a private role; its files are not
+      // servable, so neither is the label lifted out of one. The route would 404
+      // anyway — this keeps the bytes out of the sidebar that links it.
+      if (!servableSource(root, p.relPath)) continue;
       const name = p.frontmatter?.name;
       const title = typeof name === 'string' && name.trim() !== '' ? name.trim() : sidebarLabel(root, p.relPath, rel);
       agentMembers.push({ rel, title });
@@ -497,8 +597,9 @@ function sidebarLabel(root: string, relPath: string, rootRel: string): string {
 /**
  * The browse zone: every markdown file under rootPath that is NOT governed (in the
  * index) and NOT viewer/layer chrome (boot profile, agent profiles, category index
- * files, overview.md, generated _sidebar.md). The `.leji` viewer dir is skipped by
- * the walk. Returns rootPath-relative nodes for the sidebar tree.
+ * files, overview.md, generated _sidebar.md). Generated artifacts live in the root
+ * `.leji/`, which the walk skips as a dot-dir even when rootPath is `.`. Returns
+ * rootPath-relative nodes for the sidebar tree.
  */
 function referenceTree(root: string, manifest: Manifest, governedPaths: Set<string>): TreeNode[] {
    const rootDirRel = stripSlash(manifest.rootPath) || '.';
@@ -632,11 +733,11 @@ function mermaidLabel(s: string): string {
 export function buildManifestPage(manifest: Manifest, statuses: StatusResult[]): string {
    const title = manifest.viewer?.title ?? manifest.name;
    const lines: string[] = [
-      `# ${esc(title)} — Manifest`,
+      `# ${esc(title)}: Manifest`,
       '',
       "A human-readable view of this layer's `leji.json`.",
       '',
-      '> **Declared** values come straight from the manifest. **Observed** values (mount availability and drift) are read from local projections and Git objects — no network fetch is performed.',
+      '> **Declared** values come straight from the manifest. **Observed** values (mount availability and drift) are read from local projections and Git objects; no network fetch is performed.',
       '',
       '## Identity',
       '',
@@ -650,7 +751,7 @@ export function buildManifestPage(manifest: Manifest, statuses: StatusResult[]):
    if (owner) lines.push(`| Owner | ${esc(owner.name)}${owner.contact ? ` (${codeSpan(owner.contact)})` : ''} |`);
    const claimed = manifest.conformance?.claimedLevel;
    lines.push(
-      `| Conformance | ${claimed ? `claims \`${esc(claimed)}\` — run \`leji conformance\` to verify` : 'no level claimed'} |`,
+      `| Conformance | ${claimed ? `claims \`${esc(claimed)}\` (run \`leji conformance\` to verify)` : 'no level claimed'} |`,
    );
 
    lines.push('', '## Entrypoints', '', '| Purpose | Path |', '| --- | --- |');
@@ -748,12 +849,12 @@ export function buildManifestPage(manifest: Manifest, statuses: StatusResult[]):
       }
       lines.push(
          '',
-         '> `not hydrated` / `unknown` are normal degraded reads — ordinary validation never fails just because a mount is unavailable (opt-in federation enforcement is separate). Run `leji mounts hydrate`, then regenerate the viewer to refresh.',
+         '> `not hydrated` / `unknown` are normal degraded reads; ordinary validation never fails just because a mount is unavailable (opt-in federation enforcement is separate). Run `leji mounts hydrate`, then regenerate the viewer to refresh.',
       );
       const roled = mounts.filter((d) => d.role);
       if (roled.length > 0) {
          lines.push('', '**Roles**', '');
-         for (const d of roled) lines.push(`- **${esc(d.name)}** — ${esc(d.role ?? '')}`);
+         for (const d of roled) lines.push(`- **${esc(d.name)}**: ${esc(d.role ?? '')}`);
       }
    }
    lines.push('');
@@ -775,9 +876,9 @@ function profileValue(value: unknown): string {
  * resolve renders its findings instead: there is no effective profile to show, and
  * presenting the derived file as if there were would be the error the finding names.
  */
-function unresolvedProfilePage(relPath: string, findings: Finding[]): string {
+export function unresolvedProfilePage(relPath: string, findings: Finding[]): string {
    const lines = [
-      `# ${esc(relPath)} — unresolved profile`,
+      `# ${esc(relPath)}: unresolved profile`,
       '',
       `> **This profile does not resolve.** ${codeSpan(relPath)} declares \`inherits\`, and the inheritance cannot be resolved, so the layer has no effective profile for this role. The file on disk is only its own half and is not shown here: a consumer that cannot resolve an inherited profile must not apply the derived file alone.`,
       '',
@@ -807,7 +908,7 @@ function renderResolvedProfile(profiles: ScannedProfile[], derived: ScannedProfi
    const effective = resolved.frontmatter;
    const title = typeof effective.name === 'string' ? effective.name : derivedId;
    const lines: string[] = [
-      `# ${esc(title)} — resolved profile`,
+      `# ${esc(title)}: resolved profile`,
       '',
       `> **Resolved profile.** ${codeSpan(derived.relPath)} declares \`inherits: ${esc(baseId)}\`, so this page is the effective profile: posture from ${codeSpan(baseRel)} first, then this profile's own, with exact duplicates dropped. Every other field is this profile's own; both bodies are operative, base first. The file on disk carries only its own half.`,
       '',
@@ -818,7 +919,7 @@ function renderResolvedProfile(profiles: ScannedProfile[], derived: ScannedProfi
    ];
    for (const [key, value] of Object.entries(effective)) {
       if (!Array.isArray(value)) {
-         lines.push(`- **${esc(key)}** — ${profileValue(value)}`);
+         lines.push(`- **${esc(key)}**: ${profileValue(value)}`);
          continue;
       }
       // Composed posture: label every entry with the profile that supplied it.
@@ -829,7 +930,7 @@ function renderResolvedProfile(profiles: ScannedProfile[], derived: ScannedProfi
       if (value.length === 0) lines.push('   - (empty)');
       for (const entry of value) {
          const source = fromBase.has(JSON.stringify(entry) ?? '') ? baseId : derivedId;
-         lines.push(`   - ${profileValue(entry)} — from \`${esc(source)}\``);
+         lines.push(`   - ${profileValue(entry)} (from \`${esc(source)}\`)`);
       }
    }
    lines.push('', '## Effective body', '');
@@ -848,13 +949,64 @@ function renderResolvedProfile(profiles: ScannedProfile[], derived: ScannedProfi
 /** True when the file at `repoRel` declares `inherits`, so it is one half of a
  * profile and must never reach a reader as the effective one. Manifest-free and
  * total, so the serve path can still classify when nothing else is readable. */
-function declaresInherits(root: string, repoRel: string): boolean {
+export function declaresInherits(root: string, repoRel: string): boolean {
    try {
       const text = readTextWithin(path.resolve(root), path.join(root, repoRel));
       return text !== null && typeof parseFrontmatter(text).data?.inherits === 'string';
    } catch {
       return false;
    }
+}
+
+/**
+ * True when the layer file at `repoRel` may be read into something served or
+ * exported: judged by the servable-roots whitelist as requested AND after symlink
+ * resolution, the same pair of checks `serveFrom` makes on a response. A path that
+ * resolves into a private `.leji/` role fails, however it was spelled.
+ */
+function servableSource(root: string, repoRel: string): boolean {
+   const rootAbs = resolvedPath(path.resolve(root));
+   if (rootAbs === null) return false;
+   const abs = path.join(rootAbs, repoRel);
+   if (!servablePath(rootAbs, abs)) return false;
+   const real = resolvedPath(abs);
+   return real !== null && servablePath(rootAbs, real);
+}
+
+/**
+ * A profile source read the way check-before-act requires: the requested path is judged, its
+ * RESOLVED path is judged, and the bytes come from the descriptor opened on that
+ * resolved path and proved a regular file — so nothing swapped between the check and
+ * the read (a file, or any directory above it, becoming a symlink) changes what is
+ * composed into a served or exported page. Null for anything refused.
+ */
+function servableProfileText(rootAbs: string, repoRel: string): string | null {
+   const abs = path.join(rootAbs, repoRel);
+   if (!servablePath(rootAbs, abs)) return null;
+   const { fd } = openVerifiedSource(
+      abs,
+      (real) => servablePath(rootAbs, real) && (real === rootAbs || real.startsWith(rootAbs + path.sep)),
+   );
+   if (fd === null) return null;
+   try {
+      return fs.readFileSync(fd, 'utf8');
+   } finally {
+      fs.closeSync(fd);
+   }
+}
+
+/**
+ * The profile set as the viewer may render it: every source read through
+ * `servableProfileText`, so no profile living in — or symlinked into — a private
+ * `.leji/` role is composed into a served page or an exported one, and the bytes
+ * composed are the bytes that passed the check. Dropped silently, exactly as the
+ * content walk drops unservable content; the scan itself stays total, so validation
+ * still reports on those files.
+ */
+function servableProfileSet(root: string, manifest: Manifest): ScannedProfile[] {
+   const rootAbs = resolvedPath(path.resolve(root));
+   if (rootAbs === null) return [];
+   return scanProfileSetWith(root, manifest, (relPath) => servableProfileText(rootAbs, relPath));
 }
 
 /**
@@ -875,9 +1027,14 @@ export function resolvedProfilePage(root: string, manifest: Manifest, repoRel: s
       // file's own frontmatter (a profile that inherits nothing is served as-is).
       const bound = Object.values(manifest.agents ?? {}).includes(repoRel);
       if (!bound && !underPath(repoRel, effectiveAgentProfilesPath(manifest))) return null;
+      // The whitelist, judged before this file is read into a page: a profile that
+      // resolves into a private `.leji/` role is not the viewer's to render. Null
+      // hands the request back to the content walk, which refuses it the same way
+      // it refuses any unservable file — this branch never becomes the way in.
+      if (!servableSource(root, repoRel)) return null;
       if (!declaresInherits(root, repoRel)) return null;
       committed = true;
-      const profiles = scanProfileSet(root, manifest);
+      const profiles = servableProfileSet(root, manifest);
       const derived = profiles.find((p) => p.relPath === repoRel);
       if (!derived) {
          return unresolvedProfilePage(repoRel, [
@@ -895,8 +1052,8 @@ export function resolvedProfilePage(root: string, manifest: Manifest, repoRel: s
 
 /** Every inheriting profile as its rootPath-relative viewer path and resolved
  * page, so a static export carries what the local server renders. */
-function resolvedProfilePages(root: string, manifest: Manifest): { rel: string; page: string }[] {
-   const profiles = scanProfileSet(root, manifest);
+export function resolvedProfilePages(root: string, manifest: Manifest): { rel: string; page: string }[] {
+   const profiles = servableProfileSet(root, manifest);
    const out: { rel: string; page: string }[] = [];
    for (const p of profiles) {
       if (typeof p.frontmatter?.inherits !== 'string') continue;
@@ -935,7 +1092,7 @@ ${mapBlock(manifest, entries)}
  * boot-pin replacement), pin-filtered groups, and the homepage-excluded
  * reference tree. Used by generation and by the serve path, which rebuilds it
  * per fetch so a long-running viewer never shows a deleted or moved document. */
-function assembleSidebar(
+export function assembleSidebar(
    root: string,
    manifest: Manifest,
    entries: { id: string; path: string; title: string; category: string; kind?: string; date?: string }[],
@@ -1009,16 +1166,15 @@ function assembleSidebar(
    return buildSidebar(manifest, groups, tree, pins, { bootPinned });
 }
 
-export function generateViewer(root: string, manifest: Manifest): ViewerResult {
-   const result = generateIndex(root, manifest);
-   // Don't project a viewer from a tree that can't be indexed cleanly: surface the
-   // errors and write nothing, the same refusal writeIndex makes.
-   if (result.findings.some((f) => f.severity === 'error')) {
-      return { written: [], findings: result.findings, entries: 0 };
-   }
-   const entries = result.index?.entries ?? [];
-   const findingsEarly: Finding[] = [];
-
+/**
+ * The SPA shell for one flavor of the chrome: the template with this layer's config
+ * baked in, every URL it emits written against `base`. The served flavor (`'/'`) and
+ * the export flavor (`''`) come from this one function, so the export never gets its
+ * HTML rewritten after the fact. `findings` collects the two resolution warnings
+ * (homepage, accent) in their established order; the export invocation discards
+ * them, having already reported the generation run's.
+ */
+export function buildIndexHtml(root: string, manifest: Manifest, base: ChromeBase, findings: Finding[]): string {
    // Display title: viewer.title override, else the context layer name.
    const displayTitle = manifest.viewer?.title ?? manifest.name;
    // The sidebar header. A configured brand logo renders as a centered block (the
@@ -1026,7 +1182,7 @@ export function generateViewer(root: string, manifest: Manifest): ViewerResult {
    // mark renders small and inline beside the title text. Raw <img> HTML inside
    // `name` rather than Docsify's `logo` option (which prepends basePath /content/
    // and 404s). Title is HTML-escaped; the strict CSP (script-src 'self') kills handlers.
-   const logoUrl = htmlEscape(resolveLogo(root, manifest.rootPath, manifest.viewer?.logo));
+   const logoUrl = htmlEscape(resolveLogo(root, manifest.rootPath, manifest.viewer?.logo, base));
    const nameHtml = manifest.viewer?.logo
       ? `<img src="${logoUrl}" alt="${htmlEscape(displayTitle)}" style="max-width:180px;margin:10px auto;display:block;" />`
       : `<img src="${logoUrl}" alt="" style="height:1.7rem;vertical-align:middle;margin-right:0.45rem" />` +
@@ -1035,8 +1191,8 @@ export function generateViewer(root: string, manifest: Manifest): ViewerResult {
    // to the vendored Leji mark.
    const faviconUrl = htmlEscape(
       manifest.viewer?.favicon
-         ? `/content/${resolveViewerRel(root, manifest.rootPath, manifest.viewer.favicon) ?? stripSlash(manifest.viewer.favicon)}`
-         : DEFAULT_LOGO,
+         ? `${base}content/${resolveViewerRel(root, manifest.rootPath, manifest.viewer.favicon) ?? stripSlash(manifest.viewer.favicon)}`
+         : defaultLogo(base),
    );
    // Mermaid on unless explicitly disabled; off omits both scripts and skips copying
    // their assets (~3MB smaller viewer).
@@ -1045,6 +1201,11 @@ export function generateViewer(root: string, manifest: Manifest): ViewerResult {
       ? '\n      <script src="assets/mermaid.min.js"></script>' +
         '\n      <script src="assets/docsify-mermaid.js"></script>'
       : '';
+   // Resolved before the config literal so the mermaid text color can be computed
+   // from the accent; the two resolutions keep their original order, so do the
+   // findings they raise.
+   const homepage = effectiveHomepage(root, manifest, findings);
+   const themeColor = resolveThemeColor(manifest, findings);
    // One pass over the template with a resolver map, never four sequential
    // replaces: a sequential pass re-scans what the previous one substituted, so a
    // manifest string like "{{DOCSIFY_CONFIG}}" in viewer.title or viewer.favicon
@@ -1054,6 +1215,11 @@ export function generateViewer(root: string, manifest: Manifest): ViewerResult {
       FAVICON_URL: faviconUrl,
       DOCSIFY_CONFIG: jsonForScript({
          name: nameHtml,
+         // Where the layer's markdown is mounted. Docsify's own key, so the boot
+         // script configures the router from it rather than hardcoding a root:
+         // '/content/' served, 'content/' exported (resolved against the page, so
+         // the tree hosts under any subpath).
+         basePath: `${base}content/`,
          // Hash navigation for the logo/title link: #/ re-routes to the
          // homepage inside the SPA instead of a full page reload.
          nameLink: '#/',
@@ -1072,16 +1238,35 @@ export function generateViewer(root: string, manifest: Manifest): ViewerResult {
 
          // The homepage is rootPath-relative; teams whose layer has a real
          // landing page point at it instead of the seeded overview.
-         homepage: effectiveHomepage(root, manifest, findingsEarly),
-         themeColor: resolveThemeColor(manifest, findingsEarly),
+         homepage,
+         themeColor,
+         // Mermaid node text, readable against the accent. Computed here because
+         // this side resolves every accepted color form; the boot script's own
+         // hex-only fallback covers viewer trees generated before this field.
+         // Leji's own key, not one Docsify reads, hence the prefix.
+         lejiMermaidTextColor: mermaidTextColor(themeColor),
          // Read by the boot script's powered-by plugin; false removes the mark.
          lejiPoweredBy: manifest.viewer?.poweredBy !== false,
       }),
       MERMAID_SCRIPTS: mermaidScripts,
    };
-   const html = fs
+   return fs
       .readFileSync(path.join(templatesDir(), 'viewer', 'index.html'), 'utf8')
       .replace(/\{\{([A-Z_]+)\}\}/g, (whole, key: string) => substitutions[key] ?? whole);
+}
+
+export function generateViewer(root: string, manifest: Manifest): ViewerResult {
+   const result = generateIndex(root, manifest);
+   // Don't project a viewer from a tree that can't be indexed cleanly: surface the
+   // errors and write nothing, the same refusal writeIndex makes.
+   if (result.findings.some((f) => f.severity === 'error')) {
+      return { written: [], findings: result.findings, entries: 0 };
+   }
+   const entries = result.index?.entries ?? [];
+   const findingsEarly: Finding[] = [];
+
+   // The served flavor: the chrome under `.leji/viewer/` is never export-flavored.
+   const html = buildIndexHtml(root, manifest, '/', findingsEarly);
    const sidebar = assembleSidebar(root, manifest, entries, findingsEarly);
 
    const rootDir = stripSlash(manifest.rootPath) || '.';
@@ -1089,55 +1274,123 @@ export function generateViewer(root: string, manifest: Manifest): ViewerResult {
    const findings: Finding[] = [...result.findings, ...findingsEarly];
    const written: string[] = [];
 
-   // Refuse to write through a symlink escaping the layer root. resolvedWithinRoot
-   // resolves the nearest existing ancestor, so a not-yet-existing target under a
-   // symlinked directory is caught before mkdir/write can escape.
-   const writeWithin = (rel: string, content: string | Buffer): void => {
-      const abs = path.join(root, rel);
-      if (!resolvedWithinRoot(rootAbs, abs)) {
-         findings.push(finding('artifact-parse', 'error', `viewer path ${rel} resolves outside the layer root`, rel));
+   // Check-before-act: the generation target — the `.leji/viewer/` role — is
+   // realpath-resolved and validated BEFORE a single byte is written. A `.leji/viewer`
+   // that resolves into a DIFFERENT private role (`.leji/work/`, `.leji/mounts/`, a
+   // future role), or out of the repository altogether, is refused here, so a
+   // symlinked viewer can never be written through into the trust domain or out of the
+   // tree; only its own directory passes. Unresolvable (permission/I/O error, not mere
+   // absence) fails the check rather than being rebuilt lexically.
+   const resolvedRoot = resolvedPath(rootAbs) ?? rootAbs;
+   const viewerTarget = resolvedPath(path.join(resolvedRoot, VIEWER_REL));
+   const verdict = viewerTarget === null ? null : writableTarget(resolvedRoot, viewerTarget, VIEWER_REL);
+   if (viewerTarget === null || verdict === null || !verdict.ok) {
+      findings.push(
+         finding(
+            'viewer-target-refused',
+            'error',
+            viewerTarget === null
+               ? `refusing to generate the viewer: ${VIEWER_REL}/ cannot be resolved (permission or I/O error); remove the symlink`
+               : verdict!.outsideRoot === true
+                 ? `refusing to generate the viewer: ${VIEWER_REL}/ resolves outside the repository; remove the symlink`
+                 : `refusing to generate the viewer: ${VIEWER_REL}/ resolves into ${LEJI_DIR}/${verdict!.role} (private); remove the symlink`,
+            VIEWER_REL,
+         ),
+      );
+      return { written, findings, entries: 0 };
+   }
+
+   // Every `.leji/viewer/` write goes back through the chokepoint with the viewer's
+   // own role, so each file is judged on its RESOLVED path immediately before it is
+   // written and lands there: the role was validated as a whole above, and this keeps
+   // a symlink planted inside the tree from redirecting a single file elsewhere.
+   const writeViewerFile = (rel: string, content: string | Buffer): void => {
+      const verdict = writeFileGuarded(resolvedRoot, path.join(root, rel), VIEWER_REL, content);
+      if (!verdict.ok) {
+         findings.push(finding('artifact-parse', 'error', `viewer path ${rel} resolves outside ${VIEWER_REL}/`, rel));
          return;
       }
-      fs.mkdirSync(path.dirname(abs), { recursive: true });
-      fs.writeFileSync(abs, content);
       written.push(rel);
    };
 
-   // Contained under rootPath/.leji/viewer/ (gitignored) so it never collides with
-   // the user's own files in the context root.
-   const viewerDir = rootDir === '.' ? '.leji/viewer' : `${rootDir}/.leji/viewer`;
+   // The chrome's role in the unified root `.leji/` (gitignored): outside the
+   // context root whatever rootPath is, so it never collides with the user's own
+   // files and never rides a content walk.
+   const viewerDir = VIEWER_REL;
    for (const [name, content] of [
       ['index.html', html],
       ['_sidebar.md', sidebar],
    ] as const) {
-      writeWithin(`${viewerDir}/${name}`, content);
+      writeViewerFile(`${viewerDir}/${name}`, content);
    }
 
    // Copy vendored viewer assets alongside the page so nothing loads from a remote
    // CDN. The provenance note is documentation, never shipped.
    const assetsSrc = path.join(templatesDir(), 'viewer', 'assets');
    const assetsRel = `${viewerDir}/assets`;
+   // Mermaid off omits its two scripts from the page and their assets here (~3MB).
+   const mermaidEnabled = manifest.viewer?.mermaid !== false;
    for (const asset of fs.readdirSync(assetsSrc).sort()) {
       if (asset === 'PROVENANCE.txt' || asset.startsWith('.')) continue;
       if (!mermaidEnabled && MERMAID_ASSETS.has(asset)) continue;
       const bytes = fs.readFileSync(path.join(assetsSrc, asset));
-      writeWithin(`${assetsRel}/${asset}`, bytes);
+      writeViewerFile(`${assetsRel}/${asset}`, bytes);
    }
 
    // The overview page is user-owned content (not chrome): seeded once, never
    // overwritten. Regeneration refreshes only the marked map block; if the owner
    // removed the markers, the page is left entirely alone.
+   //
+   // Check-before-act: overview.md is content — its target must resolve WITHIN
+   // the layer root AND never into a private `.leji/` role. It is judged on the
+   // RESOLVED path (ownRole `null`: content has no `.leji/` role) BEFORE anything is
+   // read or written, so an overview.md symlinked into `.leji/work/` or
+   // `.leji/mounts/` is refused before the seed or the refresh writes through it —
+   // and the write itself then lands via the guarded-write chokepoint on that path.
    const overviewRel = rootDir === '.' ? 'overview.md' : `${rootDir}/overview.md`;
    const overviewAbs = path.join(root, overviewRel);
-   if (!isFile(overviewAbs)) {
-      writeWithin(overviewRel, buildOverviewSeed(manifest, entries));
-   } else if (resolvedWithinRoot(rootAbs, overviewAbs)) {
-      const existing = readText(overviewAbs);
+   const overviewResolved = resolvedPath(overviewAbs);
+   const overviewVerdict =
+      overviewResolved !== null && resolvedWithinRoot(rootAbs, overviewAbs)
+         ? writableTarget(resolvedRoot, overviewResolved, null)
+         : null;
+   const overviewRead = verifiedTargetRead(resolvedRoot, overviewAbs, null);
+   if (overviewVerdict === null) {
+      findings.push(finding('artifact-parse', 'error', `overview.md resolves outside the layer root`, overviewRel));
+   } else if (!overviewVerdict.ok) {
+      findings.push(
+         finding(
+            'viewer-target-refused',
+            'error',
+            `refusing to write overview.md: it resolves into ${LEJI_DIR}/${overviewVerdict.role} (private); remove the symlink`,
+            overviewRel,
+         ),
+      );
+   } else if (overviewRead.status === 'refused') {
+      // A standing entry that cannot be verified as a regular file inside the layer:
+      // the map is neither seeded through it nor refreshed from bytes read by path.
+      findings.push(
+         finding(
+            'viewer-target-refused',
+            'error',
+            `refusing to write overview.md: it does not resolve to a regular file inside the repository; remove the symlink`,
+            overviewRel,
+         ),
+      );
+   } else if (overviewRead.status === 'absent') {
+      const seeded = writeFileGuarded(resolvedRoot, overviewAbs, null, buildOverviewSeed(manifest, entries));
+      if (seeded.ok) written.push(overviewRel);
+   } else {
+      // The refresh rewrites the page it just read, so those bytes come from the
+      // verified descriptor rather than from a second read by pathname.
+      const existing = overviewRead.bytes.toString('utf8');
       const start = existing.indexOf(MAP_START);
       const end = existing.indexOf(MAP_END);
       if (start >= 0 && end > start) {
          const updated = existing.slice(0, start) + mapBlock(manifest, entries) + existing.slice(end + MAP_END.length);
-         if (updated !== existing) fs.writeFileSync(overviewAbs, updated);
+         if (updated !== existing) {
+            writeFileGuarded(resolvedRoot, overviewAbs, null, updated);
+         }
       } else {
          findings.push(
             finding(
@@ -1154,14 +1407,10 @@ export function generateViewer(root: string, manifest: Manifest): ViewerResult {
    // gitignored viewer dir under a reserved underscore name (collision-free with the
    // user's own files) and served via a dedicated content route (never a committed
    // file at the context root, so no diff churn). Regenerated every run; pinned.
-   writeWithin(`${viewerDir}/_manifest.md`, buildManifestPage(manifest, mountStatus(root, manifest)));
+   writeViewerFile(`${viewerDir}/_manifest.md`, buildManifestPage(manifest, mountStatus(root, manifest)));
 
    return { written, findings, entries: entries.length };
 }
-
-/** Protect-your-context warning shown by `leji viewer build` and embedded in the exported index.html. */
-export const PROTECT_WARNING =
-   'This is your context layer (identity, invariants, decisions, sometimes sensitive internal knowledge). Host the exported folder behind internal authentication, not a public or shared bucket where it could be indexed or leaked. Active file types (.htm, .html, .js, .mjs, .xhtml) are left out of the exported content: a static host would serve them as same-origin documents that execute with no policy.';
 
 /**
  * Extensions a browser would run as an active, same-origin document. Under
@@ -1172,441 +1421,11 @@ export const PROTECT_WARNING =
  * `.svg` is deliberately NOT here. It stays a first-class asset (viewer.logo and
  * viewer.favicon may point at one under the context root) because the inertness
  * comes from the policy, not the content type: every /content/ response carries
- * the sandbox CSP below, so an SVG navigated to or framed lands in an opaque
- * origin with scripting off, and an SVG loaded as an <img> never runs script
- * whatever its type.
+ * the sandbox CSP the serve module sets, so an SVG navigated to or framed lands
+ * in an opaque origin with scripting off, and an SVG loaded as an <img> never
+ * runs script whatever its type.
+ *
+ * Shared by the two consumers of this module: the serve path types these files
+ * inert, and the export leaves them out of the tree entirely.
  */
-const ACTIVE_EXTENSIONS = new Set(['.html', '.htm', '.js', '.mjs', '.xhtml']);
-
-/** The SPA shell's policy, sent as a response header on every chrome response so
- * it holds for documents reached outside the shell too. Mirrors the meta in
- * templates/viewer/index.html; keep the two in step. */
-const CSP_CHROME =
-   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; frame-src 'none'";
-
-/** The policy for everything served out of the layer itself. `sandbox` with no
- * tokens puts a /content/ document in an opaque origin with scripting off, so a
- * governed file framed or opened directly is inert rather than same-origin code. */
-const CSP_CONTENT = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox";
-
-/** The host names the local preview answers to. A missing Host is accepted (an
- * HTTP/1.0 client omits it); anything else is a request that reached the loopback
- * socket under somebody else's name. */
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
-
-/** True when the Host header names the loopback interface: hostname only, since
- * the port a request arrives on is already fixed by the loopback bind. */
-export function loopbackHost(host: string | undefined): boolean {
-   if (host === undefined || host === '') return true;
-   const name = host.startsWith('[') ? host.slice(0, host.indexOf(']') + 1) : host.split(':')[0];
-   return LOOPBACK_HOSTS.has(name.toLowerCase());
-}
-
-/** The first bytes `viewer build` writes into an exported index.html. A target
- * directory carrying this marker is a previous export and may be cleared; any
- * other non-empty directory is somebody's content and is never removed. */
-const EXPORT_MARKER = '<!--\n  Leji viewer (leji viewer build).\n';
-
-/** True when the export may clear `dir`: it is absent, an empty directory, or a
- * previous export. Anything else (a file, a populated directory the exporter did
- * not write) is content the tool has no business deleting. */
-function clearableExport(dir: string): boolean {
-   let stat: fs.Stats;
-   try {
-      stat = fs.statSync(dir);
-   } catch {
-      return true; // absent
-   }
-   if (!stat.isDirectory()) return false;
-   if (fs.readdirSync(dir).length === 0) return true;
-   const index = path.join(dir, 'index.html');
-   return isFile(index) && readText(index).startsWith(EXPORT_MARKER);
-}
-
-export interface BuildResult {
-   out: string;
-   findings: Finding[];
-}
-
-/**
- * Export a self-contained static viewer into `outRel` with the same URL contract
- * the local server serves (chrome at the web root, layer markdown under /content/),
- * so any static host serves it as-is. Regenerates first, then copies chrome and
- * content into a clean output dir. The exported index.html carries the
- * protect-your-context warning as a comment.
- */
-export function buildViewer(root: string, manifest: Manifest, outRel?: string): BuildResult {
-   const gen = generateViewer(root, manifest);
-   const rootAbs = path.resolve(root);
-   const rootDir = stripSlash(manifest.rootPath) || '.';
-   const contentAbs = rootDir === '.' ? rootAbs : path.join(rootAbs, rootDir);
-   const outAbs = outRel === undefined ? path.join(contentAbs, '.leji', 'viewer-dist') : path.resolve(rootAbs, outRel);
-   const outDisplay = path.relative(rootAbs, outAbs);
-
-   // Never run the destructive export when generation failed: the viewer was not
-   // written, and the rm -rf below could otherwise delete an escaped output path.
-   if (gen.findings.some((f) => f.severity === 'error')) {
-      return { out: outDisplay, findings: gen.findings };
-   }
-   // Contain the output before the clean rebuild: it must stay inside the repo and
-   // clear of the context root in BOTH directions. Exporting into governed content
-   // deletes it, and exporting into a directory that holds the context root deletes
-   // the layer itself. The default output lives under the dot-dir the walk skips,
-   // so only a caller-supplied --out is measured against the context root.
-   const insideContent = (child: string, parent: string): boolean => child.startsWith(parent + path.sep);
-   if (
-      outAbs === rootAbs ||
-      outAbs === contentAbs ||
-      !resolvedWithinRoot(rootAbs, outAbs) ||
-      (outRel !== undefined && (insideContent(outAbs, contentAbs) || insideContent(contentAbs, outAbs)))
-   ) {
-      throw new Error(
-         `refusing to build the viewer into "${outRel ?? outDisplay}": --out must be a path inside the repository, and must not be the repository root, the context root, inside the context root, or a directory containing the context root`,
-      );
-   }
-   // Never remove a directory this command did not write: the export clears a
-   // previous export, and refuses anything else that is already occupied.
-   if (!clearableExport(outAbs)) {
-      throw new Error(
-         `refusing to build the viewer into "${outRel ?? outDisplay}": the target exists and is neither empty nor a previous viewer export; remove it or pick another --out`,
-      );
-   }
-   const viewerAbs = path.join(contentAbs, '.leji', 'viewer');
-   const outContent = path.join(outAbs, 'content');
-
-   // Clean rebuild so a removed source file never lingers in the export.
-   fs.rmSync(outAbs, { recursive: true, force: true });
-   fs.mkdirSync(outContent, { recursive: true });
-
-   // Copy content root to /content, skipping ALL dotfiles/dot-dirs and symlinks:
-   // an export is a self-contained snapshot, and a symlink or dot-path (.git,
-   // .secret.md) must never leak into it. Explicit walk, not fs.cpSync, so the
-   // default output dir under the content root isn't copied into itself.
-   const copyContent = (rel: string): void => {
-      const srcDir = rel === '' ? contentAbs : path.join(contentAbs, rel);
-      for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
-         if (entry.name.startsWith('.')) continue;
-         if (entry.isSymbolicLink()) continue;
-         const childRel = rel === '' ? entry.name : `${rel}/${entry.name}`;
-         const childAbs = path.join(contentAbs, childRel);
-         // Second line of defense behind the --out containment above: the export
-         // never walks into itself, whatever the output path turns out to be.
-         if (childAbs === outAbs) continue;
-         if (entry.isDirectory()) {
-            fs.mkdirSync(path.join(outContent, childRel), { recursive: true });
-            copyContent(childRel);
-         } else if (entry.isFile()) {
-            // Active types never ride along: the export is meant to be hosted, and
-            // a static host would serve them as same-origin documents with no policy.
-            if (ACTIVE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
-            fs.copyFileSync(childAbs, path.join(outContent, childRel));
-         }
-      }
-   };
-   copyContent('');
-   // An inheriting agent profile exports resolved, exactly as the local server
-   // renders it: the copied file is only its own half of the profile.
-   for (const { rel, page } of resolvedProfilePages(rootAbs, manifest)) {
-      const target = path.join(outContent, rel);
-      if (!resolvedWithinRoot(outContent, target)) continue;
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, page);
-   }
-   // The generated sidebar is served as if at the content root.
-   fs.copyFileSync(path.join(viewerAbs, '_sidebar.md'), path.join(outContent, '_sidebar.md'));
-   fs.copyFileSync(path.join(viewerAbs, '_manifest.md'), path.join(outContent, '_manifest.md'));
-   // The viewer assets at the web root.
-   fs.cpSync(path.join(viewerAbs, 'assets'), path.join(outAbs, 'assets'), { recursive: true });
-   // index.html at the web root, with the protect-your-context warning prepended.
-   const indexHtml = fs.readFileSync(path.join(viewerAbs, 'index.html'), 'utf8');
-   fs.writeFileSync(
-      path.join(outAbs, 'index.html'),
-      `<!--\n  Leji viewer (leji viewer build).\n  ${PROTECT_WARNING}\n-->\n${indexHtml}`,
-   );
-
-   return { out: outDisplay, findings: gen.findings };
-}
-
-const CONTENT_TYPES: Record<string, string> = {
-   '.html': 'text/html; charset=utf-8',
-   '.md': 'text/markdown; charset=utf-8',
-   '.js': 'text/javascript; charset=utf-8',
-   '.mjs': 'text/javascript; charset=utf-8',
-   '.css': 'text/css; charset=utf-8',
-   '.json': 'application/json; charset=utf-8',
-   '.svg': 'image/svg+xml',
-   '.png': 'image/png',
-   '.jpg': 'image/jpeg',
-   '.jpeg': 'image/jpeg',
-   '.gif': 'image/gif',
-   '.ico': 'image/x-icon',
-   '.txt': 'text/plain; charset=utf-8',
-   '.woff': 'font/woff',
-   '.woff2': 'font/woff2',
-};
-
-/**
- * A request URL path as a clean relative route key. Separators fold to `/` and
- * the path is cleaned against a root, so one request has one route key on any
- * platform — `path.normalize` follows the host and answered differently on
- * Windows, missing every `content/` route test. Canonicalization only; the mount
- * enforces containment.
- */
-export function urlPathToRel(urlPath: string): string {
-   const cleaned = path.posix.normalize('/' + urlPath.replaceAll('\\', '/'));
-   // Trimmed by index rather than by regex. `normalize` has already collapsed every
-   // run of separators, so an anchored `/\/+$/` could only ever match one character
-   // here, but that is an invariant of another function: a linear scan holds on its
-   // own and does not read as a polynomial regex over a request path.
-   let start = 0;
-   let end = cleaned.length;
-   while (start < end && cleaned.charCodeAt(start) === 47) start++;
-   while (end > start && cleaned.charCodeAt(end - 1) === 47) end--;
-   return cleaned.slice(start, end);
-}
-
-/**
- * Serve the viewer at the web root, bound to 127.0.0.1 (local preview, never
- * hosting). Virtual mounts, no symlinks: chrome (rootPath/.leji/viewer/) at `/`,
- * layer markdown (rootPath/) under `/content/`; `/content/_sidebar.md` maps to the
- * generated sidebar in viewer/. The internal .leji path is reachable only through
- * these mounts, never by direct URL. Returns the listening server; port 0 picks free.
- */
-export function serveViewer(
-   root: string,
-   port: number,
-   rootRel = '',
-   opts: { log?: (line: string) => void } = {},
-): Promise<http.Server> {
-   const rootAbs = fs.realpathSync(path.resolve(root));
-   const base = stripSlash(rootRel);
-   const contentAbs = base && base !== '.' ? path.join(rootAbs, base) : rootAbs;
-   // The CLI passes a validated rootPath, but a direct SDK caller could pass an
-   // escaping rootRel (e.g. ".."); refuse to mount content outside the layer root.
-   if (!resolvedWithinRoot(rootAbs, contentAbs)) {
-      throw new Error(`viewer root "${rootRel}" escapes the layer root`);
-   }
-   const viewerAbs = path.join(contentAbs, '.leji', 'viewer');
-
-   // Serve `sub` (a clean relative path) from under `mountRoot`; '' -> index.html.
-   // realpath-contains the resolved target under its mount so a symlink can't escape.
-   // `inert` marks the layer's own content mount, whose files are never given an
-   // active content type however they are named.
-   const serveFrom = (res: http.ServerResponse, mountRoot: string, sub: string, inert = false): void => {
-      let abs = sub === '' ? path.join(mountRoot, 'index.html') : path.join(mountRoot, sub);
-      if (abs !== mountRoot && !abs.startsWith(mountRoot + path.sep)) {
-         res.writeHead(403).end('forbidden');
-         return;
-      }
-      try {
-         if (fs.statSync(abs).isDirectory()) abs = path.join(abs, 'index.html');
-         const real = fs.realpathSync(abs);
-         if (real !== mountRoot && !real.startsWith(mountRoot + path.sep)) {
-            res.writeHead(403).end('forbidden');
-            return;
-         }
-         const body = fs.readFileSync(abs);
-         const ext = path.extname(abs).toLowerCase();
-         res.writeHead(200, {
-            'content-type':
-               inert && ACTIVE_EXTENSIONS.has(ext)
-                  ? 'text/plain; charset=utf-8'
-                  : (CONTENT_TYPES[ext] ?? 'application/octet-stream'),
-         });
-         res.end(body);
-      } catch {
-         res.writeHead(404).end('not found');
-      }
-   };
-
-   // Live-sidebar cache, invalidated by a tree fingerprint: one stat pass over
-   // leji.json + every markdown file under the content root (paths, mtimes,
-   // sizes — no content reads). The common unchanged-tree reload serves the
-   // cached string at stat cost; any create, delete, or edit still lands on the
-   // very next fetch. walkTree skips dotdirs, so the viewer's own artifacts
-   // never invalidate the cache.
-   let sidebarCache: { key: string; body: string; indexJson: string | null } | null = null;
-   const treeFingerprint = (): string => {
-      const parts: string[] = [];
-      const add = (rel: string): void => {
-         try {
-            const st = fs.statSync(path.join(rootAbs, rel));
-            parts.push(`${rel}\u0000${st.mtimeMs}\u0000${st.size}`);
-         } catch {
-            parts.push(`${rel}\u0000gone`);
-         }
-      };
-      add('leji.json');
-      for (const rel of walkTree(rootAbs, base || '.')) add(rel);
-      return parts.join('\n');
-   };
-
-   const server = http.createServer((req, res) => {
-      // Access log: one terse line per request, after the status is known.
-      if (opts.log) {
-         res.on('finish', () => opts.log!(`${req.method ?? 'GET'} ${req.url ?? '/'} ${res.statusCode}`));
-      }
-      // Policy headers ride every response, not just the SPA shell: a document
-      // served straight out of /content/ is same-origin and would otherwise run
-      // with no policy at all. Set before any write; the content mount downgrades
-      // to the inert policy once the route is known.
-      res.setHeader('x-content-type-options', 'nosniff');
-      res.setHeader('content-security-policy', CSP_CHROME);
-      // Loopback binding alone does not stop DNS rebinding: a hostile page whose
-      // name resolves to 127.0.0.1 reaches this server with its own Host. Only the
-      // loopback names the viewer is actually addressed by are answered. The port is
-      // deliberately not part of the test: a rebound request carries the right port
-      // anyway, so matching it adds nothing. Don't "fix" this by checking it.
-      if (!loopbackHost(req.headers.host)) {
-         res.writeHead(403).end('forbidden');
-         return;
-      }
-      let urlPath: string;
-      try {
-         // Concatenated, not resolved against a base: a target beginning with "//"
-         // parses as protocol-relative, which moves its first segment into the host
-         // and loses it. A malformed percent-encoding (e.g. GET /%E0%A4%A) throws
-         // URIError; answer 400 rather than letting it crash the server.
-         urlPath = decodeURIComponent(new URL('http://localhost' + (req.url ?? '/')).pathname);
-      } catch {
-         res.writeHead(400).end('bad request');
-         return;
-      }
-      const rel = urlPathToRel(urlPath);
-      if (rel === 'content' || rel.startsWith('content/')) res.setHeader('content-security-policy', CSP_CONTENT);
-      // Refuse any dotfile or VCS-internal segment in the request path: the .leji
-      // viewer dir is reached only through the mounts below, never by direct URL.
-      if (rel.split(/[/\\]/).some((seg) => seg === '.git' || (seg.startsWith('.') && seg !== '.' && seg !== ''))) {
-         res.writeHead(404).end('not found');
-         return;
-      }
-      // The generated sidebar lives in the viewer dir but is served as if at the
-      // content root, so Docsify's basePath /content/ + _sidebar alias resolves it.
-      // Docsify fetches it once per page load, so it is rebuilt from the live tree
-      // on every request: a long-running server never shows a deleted or moved
-      // document. When the tree is mid-edit and will not index cleanly, fall back
-      // to the last generated artifact rather than failing the dashboard.
-      if (rel === 'content/_sidebar.md') {
-         try {
-            const key = treeFingerprint();
-            if (sidebarCache !== null && sidebarCache.key === key) {
-               res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
-               res.end(sidebarCache.body);
-               return;
-            }
-            const { manifest } = loadManifest(rootAbs);
-            if (manifest) {
-               const idx = generateIndex(rootAbs, manifest);
-               if (!idx.findings.some((f) => f.severity === 'error')) {
-                  const sidebar = assembleSidebar(rootAbs, manifest, idx.index?.entries ?? [], []);
-                  const indexJson = idx.index ? JSON.stringify(idx.index, null, 2) + '\n' : null;
-                  sidebarCache = { key, body: sidebar, indexJson };
-                  res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
-                  res.end(sidebar);
-                  return;
-               }
-            }
-         } catch {
-            // fall through to the generated artifact
-         }
-         serveFrom(res, viewerAbs, '_sidebar.md');
-         return;
-      }
-      // The stored context index is served live (same fingerprint cache as the
-      // sidebar), so per-page classification badges never disagree with the tree.
-      if (rel.startsWith('content/')) {
-         try {
-            const { manifest } = loadManifest(rootAbs);
-            const idxRel = manifest ? relativeToRoot(effectiveIndexPath(manifest), manifest.rootPath) : null;
-            if (manifest && idxRel !== null && rel === `content/${idxRel}`) {
-               const key = treeFingerprint();
-               if (sidebarCache === null || sidebarCache.key !== key) {
-                  const idx = generateIndex(rootAbs, manifest);
-                  if (!idx.findings.some((f) => f.severity === 'error')) {
-                     sidebarCache = {
-                        key,
-                        body: assembleSidebar(rootAbs, manifest, idx.index?.entries ?? [], []),
-                        indexJson: idx.index ? JSON.stringify(idx.index, null, 2) + '\n' : null,
-                     };
-                  }
-               }
-               if (sidebarCache !== null && sidebarCache.key === key && sidebarCache.indexJson !== null) {
-                  res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-                  res.end(sidebarCache.indexJson);
-                  return;
-               }
-            }
-         } catch {
-            // fall through to the stored artifact
-         }
-      }
-      // The generated Manifest page lives in the viewer dir (gitignored chrome) but
-      // is linked from the sidebar and fetched under the content root, like
-      // _sidebar.md. Reserved underscore name; served from the last generation.
-      if (rel === 'content/_manifest.md') {
-         serveFrom(res, viewerAbs, '_manifest.md');
-         return;
-      }
-      if (rel === 'content' || rel.startsWith('content/')) {
-         const sub = rel === 'content' ? '' : rel.slice('content/'.length);
-         // An agent profile that declares `inherits` is served resolved: the file
-         // on disk is one half, and presenting it as the effective profile is the
-         // thing a consumer must not do. So this branch fails closed. If anything
-         // at all goes wrong, a file that declares `inherits` still gets a findings
-         // page; only a file that is not half a profile falls through to disk.
-         if (sub.endsWith('.md')) {
-            const repoRel = base && base !== '.' ? `${base}/${sub}` : sub;
-            let page: string | null = null;
-            try {
-               const { manifest } = loadManifest(rootAbs);
-               page = manifest === null ? null : resolvedProfilePage(rootAbs, manifest, repoRel);
-               if (page === null && manifest === null && declaresInherits(rootAbs, repoRel)) {
-                  page = unresolvedProfilePage(repoRel, [
-                     finding('artifact-parse', 'error', 'the layer manifest could not be read', 'leji.json'),
-                  ]);
-               }
-            } catch (e) {
-               page = declaresInherits(rootAbs, repoRel)
-                  ? unresolvedProfilePage(repoRel, [
-                       finding(
-                          'artifact-parse',
-                          'error',
-                          `the viewer could not resolve this profile: ${(e as Error).message}`,
-                          repoRel,
-                       ),
-                    ])
-                  : null;
-            }
-            if (page !== null) {
-               res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
-               res.end(page);
-               return;
-            }
-         }
-         serveFrom(res, contentAbs, sub, true);
-         return;
-      }
-      // Everything else (`/`, /index.html, /assets/*) is viewer chrome.
-      serveFrom(res, viewerAbs, rel);
-   });
-   return new Promise((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(port, '127.0.0.1', () => resolve(server));
-   });
-}
-
-/**
- * Best-effort open of `url` in the default browser (`--open` / `leji view`). Never
- * throws or blocks; a missing opener is a silent no-op.
- */
-export function openBrowser(url: string): void {
-   const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
-   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
-   try {
-      const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
-      child.on('error', () => {});
-      child.unref();
-   } catch {
-      /* opening the browser is best-effort */
-   }
-}
+export const ACTIVE_EXTENSIONS = new Set(['.html', '.htm', '.js', '.mjs', '.xhtml']);

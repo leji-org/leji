@@ -6,6 +6,7 @@ from typing import Optional
 
 from leji.detect import DetectedHost
 from leji.init_cmd import (
+    RunOptions,
     HandoffIO,
     LaunchResult,
     McpOfferOptions,
@@ -68,8 +69,8 @@ def fake_io(answer: str | list[str], run_results: Optional[list[LaunchResult]] =
         events.append(f"launch:{bin_name}")
         return LaunchResult(started=True)
 
-    def run(bin_name: str, args: list[str], cwd: Optional[str], quiet: bool) -> LaunchResult:
-        runs.append((bin_name, args, cwd, quiet))
+    def run(bin_name: str, args: list[str], cwd: Optional[str], opts: RunOptions) -> LaunchResult:
+        runs.append((bin_name, args, cwd, opts.quiet))
         events.append(f"run:{bin_name}")
         idx = len(runs) - 1
         return results[idx] if idx < len(results) else LaunchResult(started=True)

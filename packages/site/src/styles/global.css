@@ -3,29 +3,37 @@
       stops Chrome auto-dark / dark-mode extensions from inverting the brand. */
    color-scheme: light;
 
-   /* Brand: blue #223F93, gold #FFBD6E. Deep/soft/bright are derived shades of the two. */
-   --blue-deep: #162960;
-   --blue: #223f93;
-   --blue-soft: #3d56a0;
-   --gold: #ffbd6e;
-   /* Text-weight gold for light surfaces. Bright gold is a decorative accent and
-      measures 1.53:1 on paper, far under the 4.5:1 bar; this is 4.82:1. Use --gold
-      for marks on the dark blue band, --gold-ink for text and interactive marks on
-      paper. */
-   --gold-ink: #8a663b;
-   --gold-bright: #ffcd92;
-   --paper: #faf6ef;
-   --paper-edge: #efe7d9;
-   --ink: #20242f;
-   --ink-soft: #555b6e;
-   --line: #d9d0c0;
-   --line-dark: rgba(255, 189, 110, 0.25);
-   --white: #fdfcf9;
+   /* Leji OSS identity. Light neutral is the environment, green is the signal:
+      --leji-canvas carries the page, --leji-brand marks what is Leji, and
+      --leji-deep is spent deliberately on heroes, bands and code, never as a
+      default ground. Tokens are named for the role they play, not the colour
+      they hold, so one value can serve several roles and each role can move
+      without renaming its usages. */
+   --leji-brand: #009f71;
+   --leji-brand-dark: #007d59;
+   --leji-deep: #183d3b;
+   --leji-deepest: #102a29;
+   --leji-accent: #70d8c2;
+   --leji-accent-soft: #e2f5f0;
+   --leji-canvas: #f7f8f5;
+   --leji-surface: #ffffff;
+   --leji-text: #183b32;
+   --leji-text-body: #4d5b56;
+   --leji-text-muted: #76827d;
+   /* Brand green is a brand colour first: at 2.7:1 on the canvas it cannot carry
+      normal-size text. --leji-link is the same hue held to 4.8:1, and it is what
+      links, small labels and interactive marks use on light grounds. */
+   --leji-link: #007d59;
+   --leji-border: #cde5d9;
+   --leji-code-bg: #e8f4ee;
+   /* Decorative hairline for a light band's edges: the accent at low alpha, so
+      the rule tints rather than draws. */
+   --leji-accent-rule: rgba(112, 216, 194, 0.25);
 
-   /* Text tones on the blue surfaces; centralized so the contrast override reaches all */
-   --white-strong: rgba(253, 252, 249, 0.92);
-   --white-soft: rgba(253, 252, 249, 0.84);
-   --white-faint: rgba(253, 252, 249, 0.62);
+   /* Text tones on the deep-green surfaces; centralized so the contrast override reaches all */
+   --white-strong: rgba(255, 255, 255, 0.92);
+   --white-soft: rgba(255, 255, 255, 0.84);
+   --white-faint: rgba(255, 255, 255, 0.62);
 
    /* The column: ~70 characters at the body serif, in rem rather than ch.
       Both units are in use here and the split is deliberate, not drift:
@@ -61,17 +69,27 @@
    /* one size for every multi-line code block, site-wide.
       0.78 keeps the home "manifest" example's longest line on one row. */
    --code-fz: 0.78rem;
+
+   /* The band's full border-box height: SiteHeader's 30px logo row, its 1.05rem
+      padding, and the 3px bottom border the flush variant reserves transparently.
+      The band is sticky, so this is also the strip of viewport that is spoken for
+      — anything pulling up under it or pinning or scrolling into place below it
+      clears the whole painted band, border included, by this much. */
+   --header-h: calc(30px + 2 * 1.05rem + 3px);
 }
 
-/* High-contrast preference: full-opacity tones, darker ink, stronger hairlines */
+/* High-contrast preference: full-opacity tones, darker text, stronger hairlines.
+   Every override is a canonical token value, so the strengthened state stays
+   inside the palette: body text takes the heading tone (11.5:1 on canvas, up
+   from 6.7:1) and the hairline takes the muted tone (3.7:1, up from 1.2:1). */
 @media (prefers-contrast: more) {
    :root {
-      --white-strong: var(--white);
-      --white-soft: var(--white);
-      --white-faint: var(--white);
-      --ink-soft: #343948;
-      --line: #b3a78f;
-      --line-dark: rgba(255, 189, 110, 0.6);
+      --white-strong: var(--leji-surface);
+      --white-soft: var(--leji-surface);
+      --white-faint: var(--leji-surface);
+      --leji-text-body: #183b32;
+      --leji-border: #76827d;
+      --leji-accent-rule: rgba(112, 216, 194, 0.6);
    }
 }
 
@@ -97,8 +115,8 @@ html {
    z-index: 100;
    padding: 0.6rem 1.1rem;
    border-radius: 0 0 7px 7px;
-   background: var(--gold-bright);
-   color: var(--blue-deep);
+   background: var(--leji-accent);
+   color: var(--leji-text);
    font-family: var(--mono);
    font-size: 0.78rem;
    letter-spacing: 0.06em;
@@ -114,14 +132,14 @@ body {
    font-family: var(--serif-text);
    font-size: 17px;
    line-height: 1.65;
-   color: var(--ink);
-   background: var(--paper);
+   color: var(--leji-text);
+   background: var(--leji-canvas);
    -webkit-font-smoothing: antialiased;
 }
 
 ::selection {
-   background: var(--gold);
-   color: var(--blue-deep);
+   background: var(--leji-accent);
+   color: var(--leji-text);
 }
 
 a {
@@ -164,7 +182,7 @@ kbd {
 
 .doc-nav {
    position: sticky;
-   top: 1.5rem;
+   top: calc(var(--header-h) + 1.5rem);
    align-self: start;
    font-size: 0.85rem;
 }
@@ -173,7 +191,7 @@ kbd {
    /* in one column the nav must scroll with the page, not pin over content */
    .doc-nav {
       position: static;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--leji-border);
       padding-bottom: 1.2rem;
    }
 }
@@ -183,7 +201,7 @@ kbd {
    font-size: 0.68rem;
    letter-spacing: 0.14em;
    text-transform: uppercase;
-   color: var(--ink-soft);
+   color: var(--leji-text-body);
    margin: 1.4rem 0 0.5rem;
 }
 
@@ -202,7 +220,7 @@ kbd {
    content: counter(docnav, decimal-leading-zero) ' ';
    font-family: var(--mono);
    font-size: 0.7rem;
-   color: var(--gold-ink);
+   color: var(--leji-link);
 }
 
 .doc-nav a {
@@ -210,7 +228,7 @@ kbd {
    padding: 0.28rem 0.6rem;
    margin-left: -0.6rem;
    text-decoration: none;
-   color: var(--ink-soft);
+   color: var(--leji-text-body);
    border-left: 2px solid transparent;
    border-radius: 0 4px 4px 0;
    transition:
@@ -219,14 +237,16 @@ kbd {
 }
 
 .doc-nav a:hover {
-   color: var(--ink);
-   background: rgba(34, 63, 147, 0.05);
+   color: var(--leji-text);
+   background: rgba(0, 159, 113, 0.06);
 }
 
+/* The current page has to outrank hover, not tie it: hover is a brand wash, the
+   current row is the solid accent-soft chip plus the brand rule in the gutter. */
 .doc-nav a[aria-current='page'] {
-   color: var(--blue);
-   border-left-color: var(--gold);
-   background: rgba(34, 63, 147, 0.06);
+   color: var(--leji-link);
+   border-left-color: var(--leji-brand);
+   background: var(--leji-accent-soft);
    font-weight: 600;
 }
 
@@ -237,7 +257,7 @@ kbd {
 }
 .doc-nav ol.plain a::before {
    content: '·  ';
-   color: var(--gold-ink);
+   color: var(--leji-brand);
 }
 
 /* collapsible groups */
@@ -255,7 +275,7 @@ kbd {
    font-size: 0.68rem;
    letter-spacing: 0.14em;
    text-transform: uppercase;
-   color: var(--ink-soft);
+   color: var(--leji-text-body);
    margin: 1.4rem 0 0.5rem;
    user-select: none;
 }
@@ -263,15 +283,15 @@ kbd {
    display: none;
 }
 .doc-nav summary:hover {
-   color: var(--ink);
+   color: var(--leji-text);
 }
 .doc-nav summary .chev {
    font-size: 1.15em;
-   color: var(--ink-soft);
+   color: var(--leji-text-muted);
    transition: transform 0.15s;
 }
 .doc-nav summary:hover .chev {
-   color: var(--blue);
+   color: var(--leji-brand);
 }
 .doc-nav details[open] > summary .chev {
    transform: rotate(90deg);
@@ -288,7 +308,7 @@ kbd {
    font-weight: 560;
    line-height: 1.12;
    letter-spacing: -0.01em;
-   color: var(--blue-deep);
+   color: var(--leji-text);
    margin: 0 0 1.2rem;
 }
 
@@ -296,7 +316,7 @@ kbd {
    font-family: var(--serif-display);
    font-weight: 580;
    font-size: 1.45rem;
-   color: var(--blue-deep);
+   color: var(--leji-text);
    margin: 2.6rem 0 0.7rem;
 }
 
@@ -309,11 +329,11 @@ kbd {
 .prose h2,
 .prose h3,
 .prose h4 {
-   scroll-margin-top: 1.5rem;
+   scroll-margin-top: calc(var(--header-h) + 1.5rem);
 }
 .prose a.heading-anchor {
    margin-left: 0.4rem;
-   color: var(--gold-ink);
+   color: var(--leji-link);
    font-weight: 400;
    text-decoration: none;
    opacity: 0;
@@ -373,13 +393,13 @@ kbd {
 /* The eyebrow, defined once. Two uses, and they are different instruments:
    .eyebrow classifies a page (what governs it, set by PageHeader), while
    .eyebrow.is-kicker introduces a section's argument on the landing page and
-   earns the gold rule. Anything else is decoration; leave it off. */
+   earns the brand rule. Anything else is decoration; leave it off. */
 .eyebrow {
    font-family: var(--mono);
    font-size: 0.76rem;
    letter-spacing: 0.22em;
    text-transform: uppercase;
-   color: var(--blue);
+   color: var(--leji-link);
    margin: 0 0 1rem;
 }
 .eyebrow.is-kicker {
@@ -392,14 +412,15 @@ kbd {
    content: '';
    width: 1.6rem;
    height: 2px;
-   background: var(--gold);
+   background: var(--leji-brand);
 }
-/* On the dark band the blue disappears; gold carries it instead. */
+/* On the deep-green band the link green disappears into the ground; the mint
+   accent carries it instead. */
 .eyebrow.on-dark {
-   color: var(--gold-bright);
+   color: var(--leji-accent);
 }
 
-/* GFM task lists (the conformance checklist) read as requirement criteria: a gold
+/* GFM task lists (the conformance checklist) read as requirement criteria: a brand
    square, not a checkbox that implies "not done" / "certified". The `- [ ]`
    markdown stays, so GitHub still renders native checkboxes. */
 .prose .contains-task-list {
@@ -424,22 +445,27 @@ kbd {
    width: 0.5rem;
    height: 0.5rem;
    border-radius: 2px;
-   background: var(--gold);
-   box-shadow: 0 0 0 1px rgba(34, 63, 147, 0.22);
+   background: var(--leji-brand);
+   box-shadow: 0 0 0 1px rgba(24, 61, 59, 0.22);
 }
 
+/* Link green carries the word, brand green the underline: two steps of the same
+   hue, so the link reads as brand without dropping to 2.7:1. Hover deepens the
+   word rather than brightening it, because brightening loses contrast here. */
 .prose a {
-   color: var(--blue);
-   text-decoration-color: var(--gold);
+   color: var(--leji-link);
+   text-decoration-color: var(--leji-brand);
    text-underline-offset: 3px;
 }
 .prose a:hover {
-   color: var(--blue-soft);
+   color: var(--leji-text);
 }
 
-.prose code {
+/* Inline code wears the chip everywhere by default; scopes with their own
+   treatment (on-dark ledes, the install bar, schema names, pre blocks) override. */
+code {
    font-size: 0.84em;
-   background: rgba(34, 63, 147, 0.07);
+   background: var(--leji-code-bg);
    border-radius: 4px;
    padding: 0.1em 0.35em;
    /* slash-joined code runs (domain/system/.../decisions) and long paths
@@ -449,8 +475,8 @@ kbd {
 }
 
 .prose pre {
-   /* !important beats Shiki's inline theme background so every code box sits on brand blue */
-   background: var(--blue-deep) !important;
+   /* !important beats Shiki's inline theme background so every code box sits on the deep green */
+   background: var(--leji-deep) !important;
    border-radius: 10px;
    padding: 1.1rem 1.3rem;
    /* wrap long lines (shell invocations, the start-script JSON) instead of
@@ -461,9 +487,11 @@ kbd {
    line-height: 1.6;
 }
 
-.prose pre code {
+pre code {
    background: none;
    padding: 0;
+   border-radius: 0;
+   font-size: inherit;
 }
 
 /* a table wider than the column scrolls inside this box, not the page */
@@ -496,13 +524,13 @@ kbd {
    letter-spacing: 0.1em;
    text-transform: uppercase;
    text-align: left;
-   color: var(--ink-soft);
-   border-bottom: 2px solid var(--blue);
+   color: var(--leji-text-body);
+   border-bottom: 2px solid var(--leji-brand);
    padding: 0.5rem 0.9rem 0.5rem 0;
 }
 
 .prose td {
-   border-bottom: 1px solid var(--line);
+   border-bottom: 1px solid var(--leji-border);
    padding: 0.55rem 0.9rem 0.55rem 0;
    vertical-align: top;
 }
@@ -510,15 +538,15 @@ kbd {
 .prose blockquote {
    margin: 1.4rem 0;
    padding: 0.2rem 1.3rem;
-   border-left: 3px solid var(--gold);
-   background: rgba(255, 189, 110, 0.08);
+   border-left: 3px solid var(--leji-brand);
+   background: var(--leji-accent-soft);
    border-radius: 0 8px 8px 0;
-   color: var(--ink-soft);
+   color: var(--leji-text-body);
 }
 
 /* RFC 2119 keywords get the engraved treatment */
 .prose strong {
-   color: var(--blue-deep);
+   color: var(--leji-text);
 }
 
 /* Step number for a staged guide. Shared by the quickstart and the adoption
@@ -528,8 +556,8 @@ kbd {
    font-family: var(--serif-display);
    font-weight: 620;
    font-size: 0.95rem;
-   color: var(--blue-deep);
-   background: var(--gold);
+   color: var(--leji-text);
+   background: var(--leji-accent);
    padding: 0.1rem 0.6rem;
    border-radius: 999px;
    margin-right: 0.8rem;
@@ -557,7 +585,7 @@ details.fold > summary {
    font-size: 1.02rem;
    font-weight: 600;
    line-height: 1.45;
-   color: var(--ink);
+   color: var(--leji-text);
    transition: color 140ms ease;
 }
 details.fold > summary::-webkit-details-marker {
@@ -565,10 +593,10 @@ details.fold > summary::-webkit-details-marker {
 }
 details.fold > summary:hover,
 details.fold[open] > summary {
-   color: var(--blue);
+   color: var(--leji-link);
 }
 details.fold > summary:focus-visible {
-   outline: 2px solid var(--gold-ink);
+   outline: 2px solid var(--leji-link);
    outline-offset: 3px;
    border-radius: 2px;
 }
@@ -590,14 +618,14 @@ details.fold > summary::before {
    width: 0.5rem;
    font-size: 0.82em;
    line-height: 1.4;
-   color: var(--ink-soft);
+   color: var(--leji-text-body);
    opacity: 0.5;
    transition:
       transform 0.15s,
       opacity 0.15s;
 }
 details.fold > summary:hover::before {
-   color: var(--blue);
+   color: var(--leji-link);
    opacity: 0.9;
 }
 details.fold[open] > summary::before {
@@ -607,7 +635,7 @@ details.fold[open] > summary::before {
 /* Body: indented clear of the chevron so it hangs under the summary text. */
 details.fold > summary ~ * {
    margin-left: 1rem;
-   color: var(--ink-soft);
+   color: var(--leji-text-body);
 }
 details.fold > summary + * {
    margin-top: 0.1rem;
@@ -625,7 +653,7 @@ details.fold > summary + *::before {
    height: 2px;
    margin: 0.15rem 0 0.8rem;
    border-radius: 2px;
-   background: linear-gradient(90deg, var(--gold), rgba(255, 189, 110, 0.06));
+   background: linear-gradient(90deg, var(--leji-brand), rgba(0, 159, 113, 0.06));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -643,14 +671,14 @@ details.fold > summary + *::before {
    gap: 1.5rem;
    margin: 3.5rem 0 0;
    padding-top: 1.6rem;
-   border-top: 1px solid var(--line);
+   border-top: 1px solid var(--leji-border);
 }
 .doc-seq a {
    display: flex;
    flex-direction: column;
    gap: 0.25rem;
    text-decoration: none;
-   color: var(--blue);
+   color: var(--leji-link);
    font-family: var(--serif-text);
    font-size: 1.02rem;
    line-height: 1.4;
@@ -664,16 +692,16 @@ details.fold > summary + *::before {
    font-size: 0.7rem;
    letter-spacing: 0.14em;
    text-transform: uppercase;
-   color: var(--ink-soft);
+   color: var(--leji-text-body);
 }
 .doc-seq a:hover {
-   color: var(--blue-deep);
+   color: var(--leji-text);
 }
 .doc-seq a:hover span {
-   color: var(--gold-ink);
+   color: var(--leji-link);
 }
 .doc-seq a:focus-visible {
-   outline: 2px solid var(--gold-ink);
+   outline: 2px solid var(--leji-link);
    outline-offset: 4px;
    border-radius: 2px;
 }

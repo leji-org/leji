@@ -1,0 +1,51 @@
+{
+  "$schema": "https://leji.org/schemas/v1.0/context-index.schema.json",
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-07-31T12:23:38.263Z",
+  "generator": {
+    "name": "leji",
+    "version": "1.3.1"
+  },
+  "rootPath": "docs/",
+  "entries": [
+    {
+      "id": "adopt-leji",
+      "path": "docs/decisions/0001-adopt-leji.md",
+      "title": "Adopt the Leji context layer",
+      "category": "decisions",
+      "kind": "record",
+      "date": "2026-06-12",
+      "lastModified": "2026-06-17",
+      "contentHash": "sha256:b437b561cccaf7b3"
+    },
+    {
+      "id": "overview",
+      "path": "docs/domain/overview.md",
+      "title": "Overview",
+      "category": "domain",
+      "kind": "intent",
+      "lastModified": "2026-06-17",
+      "contentHash": "sha256:c6ef4da2972e7534",
+      "freshness": {
+        "reviewAfter": "2030-01-01"
+      }
+    }
+  ],
+  "mounts": [
+    {
+      "name": "product-context",
+      "source": "https://github.com/acme/product-context",
+      "pin": "4e974570000000000000000000000000000000aa",
+      "owner": {
+        "name": "Product Owner"
+      },
+      "categories": [
+        "domain"
+      ],
+      "topics": [
+        "product behavior",
+        "product terminology"
+      ]
+    }
+  ]
+}

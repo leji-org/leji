@@ -76,6 +76,28 @@ def _is_chrome(manifest: Manifest, rel: str) -> bool:
     )
 
 
+def _unindexed_in(root: str, manifest: Manifest, governed: set[str]) -> list[str]:
+    """Markdown under rootPath that no category index lists, given the governed set.
+    The one definition of "unindexed"; callers that already resolved the
+    assignments pass them in rather than resolving the tree twice."""
+    root_dir = strip_slash(manifest["rootPath"]) or "."
+    return sorted(
+        rel
+        for rel in walk_tree(root, root_dir)
+        if rel not in governed and not _is_chrome(manifest, rel)
+    )
+
+
+def unindexed_paths(root: str, manifest: Manifest) -> list[str]:
+    """The unindexed set on its own, for callers that need the count without the
+    rest of the health report (the `index` generate nudge). Same machinery as
+    `status_report`, no second walker."""
+    assignments, _findings, _shadowed, _skipped = resolve_category_assignments_with_skips(
+        root, manifest
+    )
+    return _unindexed_in(root, manifest, set(assignments.keys()))
+
+
 def status_report(root: str, manifest: Manifest) -> StatusReport:
     """Build the status report: unindexed reference docs, dangling index entries,
     stale stored-index paths, and shadowed selectors. Pure computation; the CLI
@@ -85,12 +107,7 @@ def status_report(root: str, manifest: Manifest) -> StatusReport:
     )
     governed = set(assignments.keys())
 
-    root_dir = strip_slash(manifest["rootPath"]) or "."
-    unindexed = sorted(
-        rel
-        for rel in walk_tree(root, root_dir)
-        if rel not in governed and not _is_chrome(manifest, rel)
-    )
+    unindexed = _unindexed_in(root, manifest, governed)
 
     dangling = [
         DanglingEntry(index_file=f.path or "", detail=f.message)

@@ -7,6 +7,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import * as vm from 'node:vm';
 import {
    buildSidebar,
    buildManifestPage,
@@ -42,12 +43,30 @@ import { joinUnderRoot, walkMd, underPath } from '../dist/lib/fsx.js';
 import { templatesDir } from '../dist/lib/schemas.js';
 import { excludedFromCategories, scanAgentProfiles, scanCategories } from '../dist/lib/layer.js';
 import { route } from '../dist/lib/route.js';
+import { mermaidTextColor } from '../dist/commands/viewer.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const exampleDir = path.join(repoRoot, 'examples', 'monorepo');
 
 function tmpdir(prefix: string): string {
    return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+/** Every entry under `dir` as `path -> bytes` (symlinks by their target), so a run
+ * that must write nothing can be held to the whole tree rather than to one file. */
+function treeSnapshot(dir: string): Record<string, string> {
+   const out: Record<string, string> = {};
+   const walk = (rel: string): void => {
+      for (const entry of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+         const childRel = rel === '' ? entry.name : `${rel}/${entry.name}`;
+         const abs = path.join(dir, childRel);
+         if (entry.isSymbolicLink()) out[childRel] = `link:${fs.readlinkSync(abs)}`;
+         else if (entry.isDirectory()) walk(childRel);
+         else if (entry.isFile()) out[childRel] = fs.readFileSync(abs).toString('base64');
+      }
+   };
+   walk('');
+   return out;
 }
 
 // The example's git-tracked file list is invariant across a test-file run, so
@@ -872,6 +891,48 @@ test('seedChangelogIfMissing does not re-seed when a changelog already exists', 
    assert.equal(fs.readFileSync(abs, 'utf8'), sentinel, 'existing changelog left untouched');
 });
 
+test('seedChangelogIfMissing treats a dangling changelog link as present, never seeding through it', () => {
+   // `existsSync` follows symlinks, so a dangling changelog link read as absent and the
+   // seed was created at the link's missing destination. The exclusive create judges the
+   // ORIGINAL entry, so any standing entry is the same no-op an existing changelog is.
+   const dir = tmpdir('leji-seed-dangling-');
+   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   const mp = path.join(dir, 'leji.json');
+   const m = JSON.parse(fs.readFileSync(mp, 'utf8'));
+   m.conformance = { ...(m.conformance ?? {}), claimedLevel: 'indexed' };
+   fs.writeFileSync(mp, JSON.stringify(m, null, 2) + '\n');
+   const link = path.join(dir, 'docs', 'context-changelog.json');
+   fs.symlinkSync('never-created.json', link);
+   const { manifest } = loadManifest(dir);
+
+   const result = seedChangelogIfMissing(dir, manifest!);
+
+   assert.equal(result, null, 'a standing entry is never seeded through');
+   assert.equal(
+      fs.existsSync(path.join(dir, 'docs', 'never-created.json')),
+      false,
+      "the dangling link's destination is never created",
+   );
+   assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the planted link is left exactly as it was');
+});
+
+test('seedChangelogIfMissing refuses a changelog link resolving outside the repository', () => {
+   const dir = tmpdir('leji-seed-outlink-');
+   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-seed-outside-link-'));
+   const mp = path.join(dir, 'leji.json');
+   const m = JSON.parse(fs.readFileSync(mp, 'utf8'));
+   m.conformance = { ...(m.conformance ?? {}), claimedLevel: 'indexed' };
+   fs.writeFileSync(mp, JSON.stringify(m, null, 2) + '\n');
+   fs.symlinkSync(path.join(outside, 'context-changelog.json'), path.join(dir, 'docs', 'context-changelog.json'));
+   const { manifest } = loadManifest(dir);
+
+   const result = seedChangelogIfMissing(dir, manifest!);
+
+   assert.equal(result, null, 'nothing seeded through a link that leaves the repository');
+   assert.equal(fs.existsSync(path.join(outside, 'context-changelog.json')), false, 'nothing written outside the root');
+});
+
 test('seedChangelogIfMissing refuses a path escaping the root via a symlinked ancestor', () => {
    const dir = tmpdir('leji-seed-symesc-');
    fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
@@ -977,7 +1038,7 @@ test('buildManifestPage: escapes hostile strings, covers drift states, byte-orde
    );
    assert.ok(page.includes('unrelated'), 'the unrelated drift label is rendered');
    assert.ok(
-      page.includes('**Roles**') && page.includes('- **alpha** — r'),
+      page.includes('**Roles**') && page.includes('- **alpha**: r'),
       'role descriptions move below the table as a per-mount list',
    );
    assert.ok(
@@ -1009,65 +1070,89 @@ test('viewer: generates viewer + sidebar that reflect the layer', () => {
    const { manifest } = loadManifest(dir);
    const result = generateViewer(dir, manifest!);
    assert.deepEqual(result.written, [
-      'docs/.leji/viewer/index.html',
-      'docs/.leji/viewer/_sidebar.md',
-      'docs/.leji/viewer/assets/docsify-copy-code.min.js',
-      'docs/.leji/viewer/assets/docsify-mermaid.js',
-      'docs/.leji/viewer/assets/docsify-sidebar-collapse.min.css',
-      'docs/.leji/viewer/assets/docsify-sidebar-collapse.min.js',
-      'docs/.leji/viewer/assets/docsify.min.js',
-      'docs/.leji/viewer/assets/fonts-licenses.txt',
-      'docs/.leji/viewer/assets/leji-logo.svg',
-      'docs/.leji/viewer/assets/mermaid.min.js',
-      'docs/.leji/viewer/assets/prism-bash.min.js',
-      'docs/.leji/viewer/assets/prism-json.min.js',
-      'docs/.leji/viewer/assets/prism-markdown.min.js',
-      'docs/.leji/viewer/assets/prism-typescript.min.js',
-      'docs/.leji/viewer/assets/roboto-mono-400-latin-ext.woff2',
-      'docs/.leji/viewer/assets/roboto-mono-400-latin.woff2',
-      'docs/.leji/viewer/assets/roboto-mono-400-vietnamese.woff2',
-      'docs/.leji/viewer/assets/search.min.js',
-      'docs/.leji/viewer/assets/source-sans-pro-300-latin-ext.woff2',
-      'docs/.leji/viewer/assets/source-sans-pro-300-latin.woff2',
-      'docs/.leji/viewer/assets/source-sans-pro-300-vietnamese.woff2',
-      'docs/.leji/viewer/assets/source-sans-pro-400-latin-ext.woff2',
-      'docs/.leji/viewer/assets/source-sans-pro-400-latin.woff2',
-      'docs/.leji/viewer/assets/source-sans-pro-400-vietnamese.woff2',
-      'docs/.leji/viewer/assets/source-sans-pro-600-latin-ext.woff2',
-      'docs/.leji/viewer/assets/source-sans-pro-600-latin.woff2',
-      'docs/.leji/viewer/assets/source-sans-pro-600-vietnamese.woff2',
-      'docs/.leji/viewer/assets/viewer-boot.js',
-      'docs/.leji/viewer/assets/vue.css',
-      'docs/.leji/viewer/assets/zoom-image.min.js',
+      '.leji/viewer/index.html',
+      '.leji/viewer/_sidebar.md',
+      '.leji/viewer/assets/docsify-copy-code.min.js',
+      '.leji/viewer/assets/docsify-mermaid.js',
+      '.leji/viewer/assets/docsify-sidebar-collapse.min.css',
+      '.leji/viewer/assets/docsify-sidebar-collapse.min.js',
+      '.leji/viewer/assets/docsify.min.js',
+      '.leji/viewer/assets/leji-logo.svg',
+      '.leji/viewer/assets/mermaid.min.js',
+      '.leji/viewer/assets/prism-bash.min.js',
+      '.leji/viewer/assets/prism-json.min.js',
+      '.leji/viewer/assets/prism-markdown.min.js',
+      '.leji/viewer/assets/prism-typescript.min.js',
+      '.leji/viewer/assets/roboto-mono-400-latin-ext.woff2',
+      '.leji/viewer/assets/roboto-mono-400-latin.woff2',
+      '.leji/viewer/assets/roboto-mono-400-vietnamese.woff2',
+      '.leji/viewer/assets/search.min.js',
+      '.leji/viewer/assets/source-sans-pro-300-latin-ext.woff2',
+      '.leji/viewer/assets/source-sans-pro-300-latin.woff2',
+      '.leji/viewer/assets/source-sans-pro-300-vietnamese.woff2',
+      '.leji/viewer/assets/source-sans-pro-400-latin-ext.woff2',
+      '.leji/viewer/assets/source-sans-pro-400-latin.woff2',
+      '.leji/viewer/assets/source-sans-pro-400-vietnamese.woff2',
+      '.leji/viewer/assets/source-sans-pro-600-latin-ext.woff2',
+      '.leji/viewer/assets/source-sans-pro-600-latin.woff2',
+      '.leji/viewer/assets/source-sans-pro-600-vietnamese.woff2',
+      '.leji/viewer/assets/third-party-licenses.txt',
+      '.leji/viewer/assets/viewer-boot.js',
+      '.leji/viewer/assets/vue.css',
+      '.leji/viewer/assets/zoom-image.min.js',
       'docs/overview.md',
-      'docs/.leji/viewer/_manifest.md',
+      '.leji/viewer/_manifest.md',
    ]);
-   const viewer = path.join(dir, 'docs', '.leji', 'viewer');
+   const viewer = path.join(dir, '.leji', 'viewer');
    // The Manifest page is generated chrome in the viewer dir (reserved underscore
    // name, collision-free) and pinned, like the sidebar.
    const manifestPage = fs.readFileSync(path.join(viewer, '_manifest.md'), 'utf8');
    assert.ok(manifestPage.startsWith('# '), 'manifest page has a title heading');
-   assert.ok(/—\s*Manifest/.test(manifestPage), 'title ends with — Manifest');
+   assert.ok(/:\s*Manifest/.test(manifestPage), 'title ends with ": Manifest"');
    assert.ok(manifestPage.includes('## Identity') && manifestPage.includes('## Entrypoints'), 'core sections present');
    const sidebarMd = fs.readFileSync(path.join(viewer, '_sidebar.md'), 'utf8');
-   assert.ok(sidebarMd.includes('[📄 Manifest](_manifest.md)'), 'Manifest page is pinned in the sidebar');
+   assert.ok(sidebarMd.includes('[📄 Manifest](/_manifest.md)'), 'Manifest page is pinned in the sidebar');
    const html = fs.readFileSync(path.join(viewer, 'index.html'), 'utf8');
    assert.ok(html.includes('acme-billing-context'), 'layer name baked into the JSON config');
    assert.ok(html.includes('viewer-boot.js'), 'boot script (carrying the frontmatter hook) is wired');
    const bootJs = fs.readFileSync(path.join(viewer, 'assets', 'viewer-boot.js'), 'utf8');
    assert.ok(bootJs.includes('stripFrontmatter'), 'frontmatter hook present in the vendored boot script');
-   assert.ok(bootJs.includes("basePath: '/content/'"), 'content mount configured in the boot script');
+   // The content mount is the SDK's value, carried in the config block; the boot
+   // script routes from it instead of hardcoding a root, which is what lets the
+   // export flavor be relative.
+   assert.ok(bootJs.includes('basePath: lejiContentBase'), 'the boot script routes from the generated base');
+   assert.ok(html.includes('"basePath":"/content/"'), 'the served flavor mounts content at the app root');
    assert.ok(html.includes('"homepage":"overview.md"'), 'the overview is the homepage');
    assert.ok(html.includes('<title>acme-billing-context</title>'), 'escaped layer name in title');
    // Default theming: the Leji mark (in the name HTML, served relative to the page so
-   // basePath does not break it) and the brand blue.
+   // basePath does not break it) and the brand green, with the mermaid node-text
+   // color the SDK computed for it (dark, at 5.14:1 against the accent).
    assert.ok(html.includes('/assets/leji-logo.svg'), 'default Leji logo wired into the name');
-   assert.ok(html.includes('"themeColor":"#223F93"'), 'default brand color wired');
+   assert.ok(html.includes('"themeColor":"#009F71"'), 'default brand color wired');
+   assert.ok(
+      html.includes('"lejiMermaidTextColor":"#1a1a1a"'),
+      'the computed mermaid text color travels in the config',
+   );
+   // A configured accent is computed over too, not just the default: a dark accent
+   // flips the mermaid node text to white, end to end through the generator.
+   const darkDir = copyExample();
+   const { manifest: darkManifest } = loadManifest(darkDir);
+   darkManifest!.viewer = { theme: { primary: '#164E42' } };
+   generateViewer(darkDir, darkManifest!);
+   const darkHtml = fs.readFileSync(path.join(darkDir, '.leji', 'viewer', 'index.html'), 'utf8');
+   assert.ok(darkHtml.includes('"themeColor":"#164E42"'), 'configured accent wired');
+   assert.ok(
+      darkHtml.includes('"lejiMermaidTextColor":"#ffffff"'),
+      'the mermaid text color is recomputed for the configured accent',
+   );
    // Mermaid is on by default: the two scripts + their assets are present.
    assert.ok(html.includes('assets/mermaid.min.js'), 'mermaid script wired by default');
    assert.ok(html.includes('assets/docsify-mermaid.js'), 'mermaid plugin wired by default');
    assert.ok(fs.existsSync(path.join(viewer, 'assets', 'mermaid.min.js')), 'mermaid asset copied');
-   assert.ok(fs.existsSync(path.join(viewer, 'assets', 'leji-logo.svg')), 'logo asset vendored');
+   // The mark is vendored by bytes, so its color travels with it: the default logo
+   // wears the brand green, never the retired gold.
+   const logoSvg = fs.readFileSync(path.join(viewer, 'assets', 'leji-logo.svg'), 'utf8');
+   assert.match(logoSvg, /fill="#009F71"/i, 'the vendored mark is Leji green');
    // The vendored assets (core + theme + search/collapse plugins) land alongside
    // the page (no remote CDN).
    assert.ok(fs.existsSync(path.join(viewer, 'assets', 'docsify.min.js')));
@@ -1079,20 +1164,20 @@ test('viewer: generates viewer + sidebar that reflect the layer', () => {
    assert.equal(
       sidebar,
       [
-         '- [🤖 Boot profile](boot-profile.md)',
-         '- [📄 Manifest](_manifest.md)',
+         '- [🤖 Boot profile](/boot-profile.md)',
+         '- [📄 Manifest](/_manifest.md)',
          '',
          '---',
          '',
          '- **🤖 Agents**',
-         '  - [Agent Core](agents/core.md)',
-         '  - [Thought Partner (Codex)](agents/thought-partner.md)',
+         '  - [Agent Core](/agents/core.md)',
+         '  - [Thought Partner (Codex)](/agents/thought-partner.md)',
          '- **📖 Domain**',
-         '  - [Glossary](domain/glossary.md)',
+         '  - [Glossary](/domain/glossary.md)',
          '- **⚙️ System**',
-         '  - [Invariants](system/invariants.md)',
+         '  - [Invariants](/system/invariants.md)',
          '- **🧭 Decisions**',
-         '  - [Adopt the Leji context layer](decisions/0001-adopt-leji.md)',
+         '  - [Adopt the Leji context layer](/decisions/0001-adopt-leji.md)',
          '',
       ].join('\n'),
    );
@@ -1112,7 +1197,7 @@ test('viewer: brand config (logo, primary color, title, favicon, pins) flows int
       pins: ['docs/domain/glossary.md', 'docs/nope.md'],
    };
    const result = generateViewer(dir, manifest!);
-   const viewer = path.join(dir, 'docs', '.leji', 'viewer');
+   const viewer = path.join(dir, '.leji', 'viewer');
    const html = fs.readFileSync(path.join(viewer, 'index.html'), 'utf8');
    // A relative logo path is served from the content mount; absolute/url is used as-is.
    assert.ok(html.includes('/content/assets/brand.svg'), 'configured logo resolved under /content/');
@@ -1121,7 +1206,7 @@ test('viewer: brand config (logo, primary color, title, favicon, pins) flows int
    assert.ok(html.includes('href="/content/assets/icon.svg"'), 'configured favicon resolved under /content/');
    const sidebar = fs.readFileSync(path.join(viewer, '_sidebar.md'), 'utf8');
    const top = sidebar.split('---')[0];
-   assert.ok(top.includes('- [Glossary](domain/glossary.md)'), 'pinned page renders in the top zone');
+   assert.ok(top.includes('- [Glossary](/domain/glossary.md)'), 'pinned page renders in the top zone');
    assert.ok(
       result.findings.some((f) => f.rule === 'viewer-pin-missing' && f.path === 'docs/nope.md'),
       'a missing pin is surfaced, not silently dropped',
@@ -1201,6 +1286,140 @@ test('viewer build: exports a self-contained static folder carrying the protect 
    assert.match(html, /Host the exported folder behind internal authentication/);
 });
 
+test('viewer build: the default output is the dist role of the unified tree', async () => {
+   const dir = copyExample();
+   const { buildViewer } = await import('../dist/index.js');
+   const { manifest } = loadManifest(dir);
+   const r = buildViewer(dir, manifest!);
+   assert.equal(r.out.split(path.sep).join('/'), '.leji/dist', 'the default output is root .leji/dist');
+   assert.ok(fs.existsSync(path.join(dir, '.leji', 'dist', 'index.html')));
+   assert.ok(fs.existsSync(path.join(dir, '.leji', 'dist', 'content', 'boot-profile.md')));
+   // The pre-1.4 locations are never created, and nothing reads or writes a tree
+   // under the context root: a run leaves rootPath/.leji/ absent.
+   assert.ok(!fs.existsSync(path.join(dir, 'docs', '.leji')), 'no tree under the context root');
+   assert.ok(!fs.existsSync(path.join(dir, '.leji', 'viewer-dist')), 'the old output name is not used');
+});
+
+test('viewer build: --out never resolves inside .leji/ except exactly .leji/dist', async () => {
+   const dir = copyExample();
+   const { buildViewer } = await import('../dist/index.js');
+   const { manifest } = loadManifest(dir);
+   // The roles are the tool's own: an export target inside any of them is refused,
+   // including a role this version has never heard of, because the rule denies by
+   // name rather than listing what to protect.
+   for (const target of ['.leji', '.leji/mounts', '.leji/mounts/cache', '.leji/viewer', '.leji/work', '.leji/future']) {
+      assert.throws(() => buildViewer(dir, manifest!, target), /reserved for the tool's own roles/, target);
+   }
+   // The canary bytes a refusal must never have touched: the private roles are still
+   // exactly as planted.
+   fs.mkdirSync(path.join(dir, '.leji', 'mounts', 'store'), { recursive: true });
+   fs.writeFileSync(path.join(dir, '.leji', 'mounts', 'store', 'keep'), 'private\n');
+   assert.throws(() => buildViewer(dir, manifest!, '.leji/mounts'), /reserved for the tool's own roles/);
+   assert.equal(fs.readFileSync(path.join(dir, '.leji', 'mounts', 'store', 'keep'), 'utf8'), 'private\n');
+   // The reservation is exact, not a subtree: `.leji/dist` is a target a caller may
+   // name, and everything under it is not — the export owns that directory whole.
+   for (const nested of ['.leji/dist/subdir', '.leji/dist/a/b']) {
+      assert.throws(() => buildViewer(dir, manifest!, nested), /never a path inside it/, nested);
+   }
+   // Spelling the same target absolutely is the same target: `--out` is resolved
+   // before it is judged, so an absolute path reaches the reservation exactly as a
+   // relative one does.
+   for (const nested of [path.join(dir, '.leji', 'dist', 'subdir'), path.join(dir, '.leji', 'dist', 'a', 'b')]) {
+      assert.throws(() => buildViewer(dir, manifest!, nested), /never a path inside it/, nested);
+   }
+   // The reserved role itself is the one accepted spelling.
+   assert.doesNotThrow(() => buildViewer(dir, manifest!, '.leji/dist'));
+   assert.ok(fs.existsSync(path.join(dir, '.leji', 'dist', 'index.html')));
+});
+
+/** Whether this directory sits on a filesystem that cannot tell `.leji` from
+ * `.LEJI`. Asked of the volume rather than inferred from the platform: a
+ * case-sensitive volume on macOS and a case-insensitive one on Linux both exist. */
+function caseInsensitiveFs(dir: string): boolean {
+   const probe = path.join(dir, 'leji-case-probe');
+   fs.mkdirSync(probe, { recursive: true });
+   try {
+      return fs.existsSync(path.join(dir, 'LEJI-CASE-PROBE'));
+   } finally {
+      fs.rmSync(probe, { recursive: true, force: true });
+   }
+}
+
+test('viewer build: --out is judged in resolved form, not as spelled', async () => {
+   const dir = copyExample();
+   const { buildViewer } = await import('../dist/index.js');
+   const { manifest } = loadManifest(dir);
+   fs.mkdirSync(path.join(dir, '.leji', 'mounts', 'store'), { recursive: true });
+   fs.writeFileSync(path.join(dir, '.leji', 'mounts', 'store', 'keep'), 'private\n');
+   // A symlink is a spelling, not an exemption: what the write would land in is what
+   // the reservation judges, so an ordinary-looking --out that redirects into a
+   // private role is refused exactly as the literal path is.
+   fs.symlinkSync(path.join('.leji', 'mounts'), path.join(dir, 'redirect'));
+   assert.throws(
+      () => buildViewer(dir, manifest!, 'redirect/export'),
+      /reserved for the tool's own roles/,
+      'a redirected --out is refused',
+   );
+   assert.ok(!fs.existsSync(path.join(dir, '.leji', 'mounts', 'export')), 'and nothing was written through it');
+   assert.equal(fs.readFileSync(path.join(dir, '.leji', 'mounts', 'store', 'keep'), 'utf8'), 'private\n');
+   // Where the filesystem cannot tell the two spellings apart, `.LEJI/` names the
+   // reserved role and is refused as one. Where it can, `.LEJI/` is an ordinary
+   // directory name and there is nothing to assert, so the volume decides.
+   if (caseInsensitiveFs(dir)) {
+      assert.throws(
+         () => buildViewer(dir, manifest!, '.LEJI/mounts/export'),
+         /reserved for the tool's own roles/,
+         'a case-variant spelling of a reserved role is the reserved role',
+      );
+      assert.ok(!fs.existsSync(path.join(dir, '.leji', 'mounts', 'export')), 'and nothing was written under it');
+   }
+   // The redirection rule is about the destination, not about symlinks: one that
+   // lands somewhere ordinary still exports.
+   fs.mkdirSync(path.join(dir, 'real-out'));
+   fs.symlinkSync('real-out', path.join(dir, 'link-out'));
+   assert.doesNotThrow(() => buildViewer(dir, manifest!, 'link-out'));
+   assert.ok(fs.existsSync(path.join(dir, 'real-out', 'index.html')), 'the export landed in the resolved target');
+});
+
+test('viewer build: the export flavor is generated, and carries no root-absolute URL', async () => {
+   const dir = copyExample();
+   const { buildViewer } = await import('../dist/index.js');
+   const { manifest } = loadManifest(dir);
+   buildViewer(dir, manifest!);
+   const served = fs.readFileSync(path.join(dir, '.leji', 'viewer', 'index.html'), 'utf8');
+   const exported = fs.readFileSync(path.join(dir, '.leji', 'dist', 'index.html'), 'utf8');
+   // One code path, two flavors: the servable area holds the app-root base, the
+   // export holds the relative one. index.html is the only file that differs.
+   assert.ok(served.includes('"basePath":"/content/"'), 'the served flavor mounts content at the app root');
+   assert.ok(served.includes('href="/assets/leji-logo.svg"'), 'the served favicon is app-root absolute');
+   assert.ok(exported.includes('"basePath":"content/"'), 'the exported flavor mounts content relative to the page');
+   assert.ok(!exported.includes('"basePath":"/content/"'), 'no export-flavored page keeps the app-root base');
+   // The machine-checkable proxy gate for subpath hosting: nothing in the exported
+   // shell — attributes or config — addresses the server root. (Sidebar link
+   // destinations are route strings resolved against basePath, not fetch paths, and
+   // live in _sidebar.md, not here.)
+   const body = exported.slice(exported.indexOf('-->') + 3);
+   assert.equal(
+      (body.match(/(?:href|src)="\/[^"]*"/g) ?? []).join(', '),
+      '',
+      'no root-absolute href/src in the exported shell',
+   );
+   assert.equal(
+      (body.match(/\\"\/(?:content|assets)\/[^\\"]*\\"/g) ?? []).join(', '),
+      '',
+      'no root-absolute URL inside the exported config block',
+   );
+   // The servable area never holds export-flavored bytes, and the two trees agree on
+   // everything else the chrome ships.
+   for (const rel of ['assets/viewer-boot.js', 'assets/docsify.min.js']) {
+      assert.deepEqual(
+         fs.readFileSync(path.join(dir, '.leji', 'dist', rel)),
+         fs.readFileSync(path.join(dir, '.leji', 'viewer', rel)),
+         `${rel} is flavor-neutral`,
+      );
+   }
+});
+
 test('viewer build: refuses an --out inside the context root, leaving governed content intact', async () => {
    const dir = copyExample();
    const { buildViewer } = await import('../dist/index.js');
@@ -1267,7 +1486,7 @@ test('viewer: a hostile manifest string cannot break out of its substitution sit
    // and breaking out of the favicon's href attribute.
    manifest!.viewer = { title: '{{MERMAID_SCRIPTS}}', favicon: '{{DOCSIFY_CONFIG}}' };
    generateViewer(dir, manifest!);
-   const html = fs.readFileSync(path.join(dir, 'docs', '.leji', 'viewer', 'index.html'), 'utf8');
+   const html = fs.readFileSync(path.join(dir, '.leji', 'viewer', 'index.html'), 'utf8');
    assert.ok(html.includes('<title>{{MERMAID_SCRIPTS}}</title>'), 'the title stays a literal');
    assert.ok(html.includes('href="/content/{{DOCSIFY_CONFIG}}"'), 'the favicon stays inside its attribute');
    // The page keeps exactly the scripts the template declares: nothing injected.
@@ -1279,22 +1498,120 @@ test('viewer: a hostile manifest string cannot break out of its substitution sit
    );
 });
 
+/** The one message a rejected accent produces, spelled out here so a change to the
+ * contract's wording fails the suite rather than shipping. */
+function themeWarning(value: string): string {
+   return `viewer.theme.primary "${value}" is not a hex color (#RGB, #RGBA, #RRGGBB, or #RRGGBBAA); using #009F71`;
+}
+
 test('viewer: an unusable viewer.theme.primary is refused, not interpolated', () => {
    const dir = copyExample();
    const { manifest } = loadManifest(dir);
-   manifest!.viewer = { theme: { primary: 'red; } body { display: none } /*' } };
+   const injection = 'red; } body { display: none } /*';
+   manifest!.viewer = { theme: { primary: injection } };
    const result = generateViewer(dir, manifest!);
-   const html = fs.readFileSync(path.join(dir, 'docs', '.leji', 'viewer', 'index.html'), 'utf8');
-   assert.ok(html.includes('"themeColor":"#223F93"'), 'the accent falls back to the default');
-   assert.ok(
-      result.findings.some((f) => f.rule === 'viewer-theme-invalid' && f.severity === 'warning'),
-      'the rejected accent is surfaced, never silently dropped',
-   );
+   const html = fs.readFileSync(path.join(dir, '.leji', 'viewer', 'index.html'), 'utf8');
+   assert.ok(html.includes('"themeColor":"#009F71"'), 'the accent falls back to the default');
+   const warning = result.findings.find((f) => f.rule === 'viewer-theme-invalid' && f.severity === 'warning');
+   assert.ok(warning, 'the rejected accent is surfaced, never silently dropped');
+   assert.equal(warning!.message, themeWarning(injection));
    // A plain color is kept as authored.
    manifest!.viewer = { theme: { primary: '#ff0000' } };
    generateViewer(dir, manifest!);
-   const ok = fs.readFileSync(path.join(dir, 'docs', '.leji', 'viewer', 'index.html'), 'utf8');
+   const ok = fs.readFileSync(path.join(dir, '.leji', 'viewer', 'index.html'), 'utf8');
    assert.ok(ok.includes('"themeColor":"#ff0000"'));
+});
+
+test('viewer: the accent is hex and nothing else', () => {
+   const dir = copyExample();
+   const { manifest } = loadManifest(dir);
+   const vectors: [string, boolean][] = [
+      // The four lengths CSS defines, alpha forms included, case-insensitive.
+      ['#0f7', true],
+      ['#1234', true],
+      ['#009F71', true],
+      ['#AABBCCDD', true],
+      // 5 and 7 digits are no CSS color at all: they used to reach the page as an
+      // unusable accent with no warning, while the mermaid text color silently
+      // defaulted, leaving accent and text computed from different colors.
+      ['#12345', false],
+      ['#1234567', false],
+      // Keywords are not the contract, however real the name: acceptance used to
+      // fall out of the injection guard rather than any design.
+      ['navy', false],
+      ['notacolor', false],
+      ['transparent', false],
+      // A trailing newline does not sneak a hex past the predicate, in any SDK:
+      // the match is against the whole string, never up to a line end.
+      ['#009F71\n', false],
+   ];
+   for (const [accent, accepted] of vectors) {
+      manifest!.viewer = { theme: { primary: accent } };
+      const result = generateViewer(dir, manifest!);
+      const html = fs.readFileSync(path.join(dir, '.leji', 'viewer', 'index.html'), 'utf8');
+      const warnings = result.findings.filter((f) => f.rule === 'viewer-theme-invalid' && f.severity === 'warning');
+      if (accepted) {
+         assert.equal(warnings.length, 0, `${accent} is accepted silently`);
+         assert.ok(html.includes(`"themeColor":"${accent}"`), `${accent} is kept as authored`);
+      } else {
+         assert.equal(warnings.length, 1, `${JSON.stringify(accent)} warns exactly once`);
+         assert.equal(warnings[0].message, themeWarning(accent));
+         assert.ok(html.includes('"themeColor":"#009F71"'), `${JSON.stringify(accent)} falls back to the default`);
+      }
+   }
+});
+
+/** WCAG contrast between two #rrggbb colors, computed here rather than imported:
+ * the numbers below are the assertion, so they are derived independently of the
+ * implementation under test. */
+function contrast(a: string, b: string): number {
+   const luminance = (hex: string): number => {
+      const channel = (i: number): number => {
+         const c = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+         return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
+   };
+   const [x, y] = [luminance(a), luminance(b)];
+   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+test('viewer: the mermaid text color is computed from the accent over every accepted form', () => {
+   // The generator resolves what the boot script cannot: the alpha forms,
+   // composited over the viewer's white content ground.
+   const vectors: [string, string][] = [
+      // The two brand accents, and the mid-gray class where neither #1a1a1a nor
+      // #ffffff clears 4.5:1 and black buys the last half-stop.
+      ['#009F71', '#1a1a1a'],
+      ['#223F93', '#ffffff'],
+      ['#777777', '#000000'],
+      // #RGB expands like the boot script's fallback does.
+      ['#0f7', '#1a1a1a'],
+      // Alpha composites over white, which lightens: the same accent at half alpha
+      // takes dark text, and a black at 47% is light enough for it too.
+      ['#009F7180', '#1a1a1a'],
+      ['#0007', '#1a1a1a'],
+      // Named resolution is gone: navy would take white text if any keyword path
+      // survived, so the dark default here is the proof it does not.
+      ['navy', '#1a1a1a'],
+      // Unresolvable by nature or by typo: the dark default, never a guess.
+      ['currentColor', '#1a1a1a'],
+      ['notacolor', '#1a1a1a'],
+      ['#12345', '#1a1a1a'],
+      // A dark accent takes white; the case of the authored hex does not matter.
+      ['#1A1A1A', '#ffffff'],
+      ['#000080', '#ffffff'],
+   ];
+   for (const [accent, want] of vectors) {
+      assert.equal(mermaidTextColor(accent), want, `${accent} takes ${want}`);
+   }
+   // The default accent's choice is not merely dark, it is accessible: the numeric
+   // ratio is what the rule is about, so it is asserted as a number.
+   assert.ok(contrast('#009F71', '#1a1a1a') >= 4.5, 'the default accent clears WCAG AA against its text color');
+   assert.ok(contrast('#223F93', '#ffffff') >= 4.5, 'a dark accent clears it against white');
+   // The #777777 class: black is chosen because both candidates miss, not because
+   // it wins outright over a passing option.
+   assert.ok(contrast('#777777', '#1a1a1a') < 4.5 && contrast('#777777', '#ffffff') < 4.5, 'both candidates miss');
 });
 
 test('viewer: a sidebar label carrying HTML is escaped, not rendered', () => {
@@ -1302,7 +1619,7 @@ test('viewer: a sidebar label carrying HTML is escaped, not rendered', () => {
    const { manifest } = loadManifest(dir);
    manifest!.viewer = { agentsLabel: '<img src=x onerror=alert(1)>' };
    generateViewer(dir, manifest!);
-   const sidebar = fs.readFileSync(path.join(dir, 'docs', '.leji', 'viewer', '_sidebar.md'), 'utf8');
+   const sidebar = fs.readFileSync(path.join(dir, '.leji', 'viewer', '_sidebar.md'), 'utf8');
    assert.ok(sidebar.includes('\\<img src=x onerror=alert(1)\\>'), 'the angle brackets are escaped');
    assert.ok(!/(^|[^\\])</m.test(sidebar), 'no unescaped angle bracket reaches the sidebar');
 });
@@ -1385,7 +1702,7 @@ test('viewer: mermaid disabled omits the scripts and skips the heavy asset', () 
    const { manifest } = loadManifest(dir);
    manifest!.viewer = { mermaid: false };
    const result = generateViewer(dir, manifest!);
-   const viewer = path.join(dir, 'docs', '.leji', 'viewer');
+   const viewer = path.join(dir, '.leji', 'viewer');
    const html = fs.readFileSync(path.join(viewer, 'index.html'), 'utf8');
    assert.ok(!html.includes('mermaid.min.js'), 'no mermaid script when disabled');
    assert.ok(!html.includes('docsify-mermaid.js'), 'no mermaid plugin when disabled');
@@ -1402,7 +1719,7 @@ test('viewer: init --yes then viewer yields a browsable scaffold', async () => {
    const { manifest } = loadManifest(dir);
    const result = generateViewer(dir, manifest!);
    assert.equal(result.entries, 3);
-   assert.ok(fs.existsSync(path.join(dir, 'docs', '.leji', 'viewer', 'index.html')));
+   assert.ok(fs.existsSync(path.join(dir, '.leji', 'viewer', 'index.html')));
 });
 
 test('init: writes .gitignore with .leji/ (idempotent)', async () => {
@@ -1423,6 +1740,51 @@ test('init: writes .gitignore with .leji/ (idempotent)', async () => {
    // The .gitignore is not part of the written list.
    const result = await init({ dir: tmpdir('leji-gitignore2-'), yes: true });
    assert.ok(!result.written.includes('.gitignore'), '.gitignore is not in the written list');
+});
+
+test('init: a .gitignore symlinked out of the repository is refused, and the target is untouched', async () => {
+   // Previously the one unguarded write in init: the `.leji/` ignore line went out
+   // through whatever `.gitignore` resolved to. It now goes through the chokepoint,
+   // so a planted link out of the tree is a refusal with nothing written through it.
+   const dir = fs.realpathSync(tmpdir('leji-ignore-escape-'));
+   const away = fs.realpathSync(tmpdir('leji-ignore-away-'));
+   const target = path.join(away, 'gitignore');
+   fs.writeFileSync(target, 'node_modules/\n');
+   fs.symlinkSync(target, path.join(dir, '.gitignore'));
+   const { initLayer: init } = await import('../dist/index.js');
+   await assert.rejects(
+      () => init({ dir, yes: true, name: 'demo-context' }),
+      /refusing to write through a symlink that escapes the target/,
+   );
+   assert.equal(fs.readFileSync(target, 'utf8'), 'node_modules/\n', 'the out-of-tree file is byte-untouched');
+   assert.equal(fs.existsSync(path.join(dir, 'leji.json')), false, 'and the refusal came before any layer write');
+});
+
+test('agent: a leji.json rewrite that would escape the repository is refused, and NOTHING is written', async () => {
+   // The other formerly unguarded write: the in-place manifest edit that binds the
+   // agent. Binding is two writes (a profile file and the manifest edit), so the
+   // manifest is judged through the verified read BEFORE either happens: a run that
+   // cannot finish must not half-finish. Nothing is written, anywhere.
+   const dir = fs.realpathSync(copyExample());
+   const away = fs.realpathSync(tmpdir('leji-agent-away-'));
+   const { manifest } = loadManifest(dir);
+   assert.ok(manifest);
+   const manifestAbs = path.join(dir, 'leji.json');
+   const target = path.join(away, 'leji.json');
+   fs.renameSync(manifestAbs, target);
+   fs.symlinkSync(target, manifestAbs);
+   const before = fs.readFileSync(target, 'utf8');
+   const profileAbs = path.join(dir, 'docs', 'agents', 'reviewer.md');
+   assert.equal(fs.existsSync(profileAbs), false, 'the profile does not exist before the run');
+   const snapshot = treeSnapshot(dir);
+   const { addAgent: bind } = await import('../dist/index.js');
+   assert.throws(
+      () => bind(dir, manifest, { name: 'reviewer', role: 'reviewer' }),
+      /refusing to write through a symlink that escapes the target: "leji.json"/,
+   );
+   assert.equal(fs.readFileSync(target, 'utf8'), before, 'the out-of-tree manifest is byte-untouched');
+   assert.equal(fs.existsSync(profileAbs), false, 'the profile was never written');
+   assert.deepEqual(treeSnapshot(dir), snapshot, 'the whole tree is byte-identical to the pre-run snapshot');
 });
 
 test('viewer: serve serves the scaffold on localhost', async () => {
@@ -1454,6 +1816,456 @@ test('viewer: serve serves the scaffold on localhost', async () => {
       assert.notEqual(traversal.status, 200, 'path traversal refused');
    } finally {
       server.close();
+   }
+});
+
+// --- link classes stay inside the router ---
+// A relative link on a nested page used to be resolved by the browser against the
+// server root, leaving the SPA for a URL the server has no route for. The fix has
+// two halves: Docsify's relativePath routing (so a link resolves against the
+// document carrying it, exactly as the same file reads on disk) and generated
+// sidebar destinations emitted app-root absolute (exempt from that resolution).
+// These pin both halves, plus the click paths and the not-found contract.
+
+/** Write `rel` (forward-slashed, repo-relative) under `dir`, creating its parents. */
+function writeUnder(dir: string, rel: string, text: string): void {
+   const abs = path.join(dir, ...rel.split('/'));
+   fs.mkdirSync(path.dirname(abs), { recursive: true });
+   fs.writeFileSync(abs, text);
+}
+
+/** Serve `dir`'s viewer on a free loopback port, returning the server and its port. */
+async function serveOnFreePort(dir: string, rootRel: string): Promise<{ server: http.Server; port: number }> {
+   const { serveViewer: serve } = await import('../dist/index.js');
+   const server = await serve(dir, 0, rootRel);
+   const address = server.address();
+   return { server, port: typeof address === 'object' && address ? address.port : 0 };
+}
+
+test('viewer: every sidebar destination, across all entry classes, is app-root absolute', () => {
+   const dir = copyExample();
+   // One layer carrying every sidebar entry class at once: a pinned boot profile,
+   // the always-pinned Manifest chrome, a user pin, grouped index entries, and
+   // documents nested two directories deep in both the governed and browse zones.
+   writeUnder(dir, 'docs/domain/billing/settlement/netting.md', '# Netting\n');
+   writeUnder(dir, 'docs/notes/team/onboarding/day-one.md', '# Day one\n');
+   const { manifest } = loadManifest(dir);
+   manifest!.viewer = { pins: ['docs/boot-profile.md', 'docs/domain/glossary.md'] };
+   const result = generateViewer(dir, manifest!);
+   assert.deepEqual(
+      result.findings.filter((f) => f.severity === 'error'),
+      [],
+   );
+   const sidebar = fs.readFileSync(path.join(dir, '.leji', 'viewer', '_sidebar.md'), 'utf8');
+   // Each class is present, so the sweep below is not vacuous.
+   for (const dest of [
+      '/boot-profile.md', // the pinned boot profile
+      '/_manifest.md', // generated Manifest chrome
+      '/domain/glossary.md', // a user pin in the top zone
+      '/system/invariants.md', // a grouped index entry
+      '/domain/billing/settlement/netting.md', // grouped, nested two deep
+      '/notes/team/onboarding/day-one.md', // browse zone, nested two deep
+   ]) {
+      assert.ok(sidebar.includes(`](${dest})`), `${dest} is in the sidebar`);
+   }
+   // Every emitted destination, parsed rather than sampled: one bare rel anywhere
+   // in the sidebar re-resolves against whatever nested route is current.
+   const dests = [...sidebar.matchAll(/\]\(([^)]*)\)/g)].map((m) => m[1]);
+   assert.ok(dests.length >= 6, 'the matrix produced links to sweep');
+   for (const dest of dests) assert.ok(dest.startsWith('/'), `sidebar destination ${dest} is app-root absolute`);
+});
+
+test('viewer: a sidebar destination is escaped, app-root absolute, and idempotent', () => {
+   const base = JSON.parse(fs.readFileSync(path.join(exampleDir, 'leji.json'), 'utf8'));
+   // Boot profile outside rootPath: no boot line, so the pin is the first line and
+   // buildSidebar's pins are the thinnest seam emitting one destination per input.
+   const manifest = { ...base, bootProfilePath: 'README.md', rootPath: 'docs/' };
+   // These vectors are shared verbatim with the Go and Python SDKs
+   // (viewer_more_test.go, tests/test_units.py): the three must agree byte for byte.
+   const vectors: [string, string][] = [
+      ['a.md', '/a.md'],
+      ['dir/b.md', '/dir/b.md'],
+      // Already absolute: `//…` would be a protocol-relative external URL to Docsify.
+      ['/a.md', '/a.md'],
+      ['//a.md', '/a.md'],
+      // Degenerate input passes through rather than becoming a bare `/`.
+      ['', ''],
+      ['a(b).md', '/a\\(b\\).md'],
+      ['(x).md', '/\\(x\\).md'],
+      ['a\\b.md', '/a\\\\b.md'],
+   ];
+   for (const [input, want] of vectors) {
+      const sidebar = buildSidebar(manifest, [], [], [{ rel: input, title: 'x' }]);
+      assert.equal(sidebar.split('\n')[0], `- [x](${want})`, `destination for ${JSON.stringify(input)}`);
+   }
+});
+
+test('viewer: a document is served byte-identical, whatever link classes its body carries', async () => {
+   const dir = copyExample();
+   // One instance of every link class a real document mixes. Routing is config plus
+   // the generated sidebar, never a transform over the author's markdown, so the
+   // served bytes are the file's. How an image path resolves under relativePath is
+   // a separate item and is deliberately not asserted here.
+   const body = [
+      '# Links',
+      '',
+      '- [parent](../target.md)',
+      '- [sibling](sibling.md)',
+      '- [root](/root-target.md)',
+      '- [fragment](#fragment)',
+      '- [doc fragment](target.md#fragment)',
+      '- [query](target.md?q=1)',
+      '- [external](https://leji.org/spec)',
+      '',
+      '![x](assets/x.svg)',
+      '',
+      '<img src="assets/x.svg">',
+      '',
+   ].join('\n');
+   writeUnder(dir, 'docs/notes/deep/links.md', body);
+   const { manifest } = loadManifest(dir);
+   generateViewer(dir, manifest!);
+   const { server, port } = await serveOnFreePort(dir, manifest!.rootPath);
+   try {
+      const res = await fetch(`http://127.0.0.1:${port}/content/notes/deep/links.md`);
+      assert.equal(res.status, 200);
+      assert.deepEqual(
+         Buffer.from(await res.arrayBuffer()),
+         fs.readFileSync(path.join(dir, 'docs', 'notes', 'deep', 'links.md')),
+         'the viewer never rewrites document markdown',
+      );
+   } finally {
+      server.close();
+   }
+});
+
+test('viewer: the routing config ships in the served boot script and in the built one', async () => {
+   const dir = copyExample();
+   const { buildViewer } = await import('../dist/index.js');
+   const { manifest } = loadManifest(dir);
+   generateViewer(dir, manifest!);
+   // Both settings live in the boot script's static overlay, not the injected JSON
+   // config block, so the assertion is on the asset text.
+   const assertRouting = (boot: string, where: string): void => {
+      assert.match(boot, /relativePath:\s*true/, `relativePath is on in the ${where} boot script`);
+      assert.match(boot, /notFoundPage:\s*false/, `notFoundPage is off in the ${where} boot script`);
+   };
+   const { server, port } = await serveOnFreePort(dir, manifest!.rootPath);
+   try {
+      const asset = await fetch(`http://127.0.0.1:${port}/assets/viewer-boot.js`);
+      assert.equal(asset.status, 200);
+      assertRouting(await asset.text(), 'served');
+   } finally {
+      server.close();
+   }
+   buildViewer(dir, manifest!, 'out');
+   assertRouting(fs.readFileSync(path.join(dir, 'out', 'assets', 'viewer-boot.js'), 'utf8'), 'built');
+});
+
+/** Resolve a markdown destination the way Docsify's relativePath routing does:
+ * against the linking document's own directory, except a leading-slash
+ * destination, which is app-root (content-root) absolute. */
+function resolveRoute(fromRel: string, dest: string): string {
+   if (dest.startsWith('/')) return dest.slice(1);
+   return path.posix.normalize(path.posix.join(path.posix.dirname(fromRel), dest));
+}
+
+test('viewer: the links a nested page carries resolve to documents the server actually has', async () => {
+   const dir = copyExample();
+   writeUnder(dir, 'docs/practice/feature-workflow.md', '# Feature workflow\n');
+   writeUnder(dir, 'docs/work/spec.md', '# Spec\n');
+   writeUnder(
+      dir,
+      'docs/work/README.md',
+      [
+         '# Work',
+         '',
+         '- [workflow](../practice/feature-workflow.md)',
+         '- [spec](spec.md)',
+         '- [glossary](/domain/glossary.md)',
+         '',
+      ].join('\n'),
+   );
+   const { manifest } = loadManifest(dir);
+   generateViewer(dir, manifest!);
+   const { server, port } = await serveOnFreePort(dir, manifest!.rootPath);
+   try {
+      for (const dest of ['../practice/feature-workflow.md', 'spec.md', '/domain/glossary.md']) {
+         const target = resolveRoute('work/README.md', dest);
+         const res = await fetch(`http://127.0.0.1:${port}/content/${target}`);
+         assert.equal(res.status, 200, `${dest} routes to /content/${target}`);
+      }
+      // The pre-fix escape: the same `../` destination resolved against the server
+      // root instead of the router. The server has no such route, which is exactly
+      // why the link must stay in-app.
+      const escaped = await fetch(`http://127.0.0.1:${port}/practice/feature-workflow.md`);
+      assert.equal(escaped.status, 404, 'leaving the router lands on a URL the server cannot answer');
+   } finally {
+      server.close();
+   }
+});
+
+test('viewer: an unknown document route 404s, and there is no _404.md to chase', async () => {
+   const dir = copyExample();
+   const { manifest } = loadManifest(dir);
+   const result = generateViewer(dir, manifest!);
+   const viewer = path.join(dir, '.leji', 'viewer');
+   // The config disables Docsify's secondary _404.md fetch (pinned by the routing
+   // config test above) and the viewer generates no such page. That the browser
+   // therefore makes exactly one failing request is verified at the browser level,
+   // not here.
+   assert.ok(!fs.existsSync(path.join(viewer, '_404.md')), 'no _404.md in the generated viewer');
+   assert.ok(!result.written.some((w) => w.endsWith('_404.md')), '_404.md is not written anywhere');
+   const { server, port } = await serveOnFreePort(dir, manifest!.rootPath);
+   try {
+      const missing = await fetch(`http://127.0.0.1:${port}/content/does-not-exist.md`);
+      assert.equal(missing.status, 404, 'the missing document itself is the one 404');
+   } finally {
+      server.close();
+   }
+});
+
+// --- a raw-HTML image resolves against its document, like the markdown form ---
+// Docsify's relativePath routing resolves the markdown image form against the
+// document carrying it; a raw-HTML `<img src="assets/x.svg">` passed through
+// untouched, so the browser resolved it against the server root and any nested
+// page 404ed. The boot script now resolves it at render time, leaving the served
+// document bytes alone. The rule is a pure function in the asset, pinned below by
+// golden vectors; that it ships is pinned on both the served and the built script.
+
+/** The canonical viewer boot script's text — the asset both modes ship verbatim. */
+function bootAssetText(): string {
+   return fs.readFileSync(path.join(templatesDir(), 'viewer', 'assets', 'viewer-boot.js'), 'utf8');
+}
+
+/** Cut `function <name>(…) {…}` out of asset source, terminated by its
+ * column-zero closing brace. Marker matching over source is fine here: this is
+ * test tooling reading a file the suite owns, at a shape the suite fixes. */
+function extractFunction(source: string, name: string): string {
+   const start = source.indexOf(`function ${name}(`);
+   assert.notEqual(start, -1, `${name} is declared in the boot asset`);
+   const end = source.indexOf('\n}\n', start);
+   assert.notEqual(end, -1, `${name}'s declaration terminates`);
+   return source.slice(start, end + 3);
+}
+
+test('viewer: the boot asset rewrites exactly the document-relative image srcs', () => {
+   // The fail-without-the-change gate: before the fix no such function exists, and
+   // every rewrite vector below is a src the browser resolved against the server
+   // root. Evaluated in a vm rather than imported: the asset is browser code
+   // shipped verbatim, so the vectors run against the bytes that ship.
+   const context = vm.createContext({ URL });
+   vm.runInContext(extractFunction(bootAssetText(), 'lejiResolveImgSrc'), context);
+   const resolve = (src: string, docDir: string, base = '/content/'): string | null =>
+      vm.runInContext(
+         `lejiResolveImgSrc(${JSON.stringify(src)}, ${JSON.stringify(docDir)}, ${JSON.stringify(base)})`,
+         context,
+      );
+   const vectors: [string, string, string | null][] = [
+      // Rewritten: resolved under the document's own directory, suffixes kept.
+      ['assets/p.svg', 'notes/deep', '/content/notes/deep/assets/p.svg'],
+      ['./assets/p.svg', 'notes/deep', '/content/notes/deep/assets/p.svg'],
+      ['../shared/x.svg', 'notes/deep', '/content/notes/shared/x.svg'],
+      ['a.svg?v=1#f', 'notes/deep', '/content/notes/deep/a.svg?v=1#f'],
+      // Left as authored (null): empty, fragment-only, query-only, root-relative,
+      // backslash-led, protocol-relative, and any scheme reference whatever its case.
+      ['', 'notes/deep', null],
+      ['#f', 'notes/deep', null],
+      ['?q', 'notes/deep', null],
+      ['/x.svg', 'notes/deep', null],
+      ['\\x.svg', 'notes/deep', null],
+      ['//cdn/x.svg', 'notes/deep', null],
+      ['http://x/y.svg', 'notes/deep', null],
+      ['HTTPS://x/y.svg', 'notes/deep', null],
+      ['data:image/svg+xml,x', 'notes/deep', null],
+      ['blob:http://x/y', 'notes/deep', null],
+      // Traversal out of the content mount is refused, never clamped.
+      ['../../../../etc/x.svg', 'notes/deep', null],
+      // Containment vectors from the independent review: the disguises that pass a
+      // literal prefix check but not the server's own canonicalization — encoded
+      // traversal, malformed encoding, and a scheme hidden behind whitespace (the
+      // entry preprocessing makes classification see what the URL parser sees —
+      // edge trim plus tab/LF/CR removed anywhere — so both the padded scheme and
+      // one split by an interior tab, LF, or CR are caught as schemes, including
+      // when they name the synthetic origin the resolution base uses). Legitimate
+      // encoding still rewrites, the emitted src keeps its encoded form, and a
+      // padded relative path still resolves.
+      ['..%2f..%2f..%2fassets/viewer-boot.js', 'notes/deep', null],
+      ['a%5c..%5c..%5c..%5c..%5cx.svg', 'notes/deep', null],
+      ['%zz.svg', 'notes/deep', null],
+      ['\thttps://host/content/x.svg', 'notes/deep', null],
+      [' https://host/content/x.svg', 'notes/deep', null],
+      [' http://leji.invalid/content/x.svg', 'notes/deep', null],
+      ['\thttp://leji.invalid/content/x.svg', 'notes/deep', null],
+      ['h\tttp://leji.invalid/content/x.svg', 'notes/deep', null],
+      ['ht\ntp://leji.invalid/content/x.svg', 'notes/deep', null],
+      ['htt\rp://leji.invalid/content/x.svg', 'notes/deep', null],
+      [' assets/p.svg', 'notes/deep', '/content/notes/deep/assets/p.svg'],
+      ['my%20file.svg', 'notes/deep', '/content/notes/deep/my%20file.svg'],
+   ];
+   for (const [src, docDir, want] of vectors) {
+      assert.equal(resolve(src, docDir), want, `${JSON.stringify(src)} from ${JSON.stringify(docDir)}`);
+   }
+   // The export flavor re-bases the same decisions onto a relative content mount, so
+   // a subpath-hosted page resolves the rewritten src against itself. Classification
+   // is unchanged: what was left as authored stays left as authored.
+   assert.equal(resolve('assets/p.svg', 'notes/deep', 'content/'), 'content/notes/deep/assets/p.svg');
+   assert.equal(resolve('../shared/x.svg', 'notes/deep', 'content/'), 'content/notes/shared/x.svg');
+   assert.equal(resolve('/x.svg', 'notes/deep', 'content/'), null);
+   assert.equal(resolve('../../../../etc/x.svg', 'notes/deep', 'content/'), null);
+});
+
+test('viewer: the boot asset falls back to a WCAG-correct text color, and yields to the config', () => {
+   // The fallback only runs for a viewer tree generated before the SDK computed the
+   // color; correctness still matters, because such a tree is the one nobody
+   // regenerates. Run against the shipped bytes, like the resolver vectors above.
+   const boot = bootAssetText();
+   const context = vm.createContext({ Math });
+   vm.runInContext(extractFunction(boot, 'lejiMermaidTextColor'), context);
+   const pick = (accent: unknown): string =>
+      vm.runInContext(`lejiMermaidTextColor(${JSON.stringify(accent)})`, context);
+   const vectors: [unknown, string][] = [
+      ['#009F71', '#1a1a1a'],
+      ['#223F93', '#ffffff'],
+      // The pre-fix brightness rule put white on this one; both candidates in fact
+      // miss 4.5:1, so black is the readable choice.
+      ['#777777', '#000000'],
+      ['#0f7', '#1a1a1a'],
+      ['#000', '#ffffff'],
+      // The alpha forms, which only the generator composites, and everything no
+      // accent can be — a keyword, malformed hex, nothing — keep the dark default.
+      ['navy', '#1a1a1a'],
+      ['#0007', '#1a1a1a'],
+      ['#12345', '#1a1a1a'],
+      ['', '#1a1a1a'],
+      [null, '#1a1a1a'],
+   ];
+   for (const [accent, want] of vectors) {
+      assert.equal(pick(accent), want, `${JSON.stringify(accent)} takes ${want}`);
+   }
+   // Precedence: the generated field wins whenever the config carries one, so a
+   // freshly generated tree never recomputes a narrower answer in the browser.
+   assert.match(
+      boot,
+      /window\.\$docsify\.lejiMermaidTextColor \|\|\s*lejiMermaidTextColor\(window\.\$docsify\.themeColor\)/,
+      'the config field takes precedence over the local fallback',
+   );
+});
+
+test('viewer: the image resolver ships in the served boot script and in the built one', async () => {
+   const dir = copyExample();
+   const { buildViewer } = await import('../dist/index.js');
+   const { manifest } = loadManifest(dir);
+   generateViewer(dir, manifest!);
+   // The resolver and its render-time hook live in the boot script's static body,
+   // not the injected JSON config block, so the assertion is on the asset text.
+   const assertResolver = (boot: string, where: string): void => {
+      assert.match(boot, /function lejiResolveImgSrc\(/, `the resolver is in the ${where} boot script`);
+      assert.match(boot, /hook\.afterEach\(/, `the render-time hook is registered in the ${where} boot script`);
+      assert.match(boot, /querySelectorAll\('img\[src\]'\)/, `img[src] is walked in the ${where} boot script`);
+   };
+   const { server, port } = await serveOnFreePort(dir, manifest!.rootPath);
+   try {
+      const asset = await fetch(`http://127.0.0.1:${port}/assets/viewer-boot.js`);
+      assert.equal(asset.status, 200);
+      assertResolver(await asset.text(), 'served');
+   } finally {
+      server.close();
+   }
+   buildViewer(dir, manifest!, 'out');
+   assertResolver(fs.readFileSync(path.join(dir, 'out', 'assets', 'viewer-boot.js'), 'utf8'), 'built');
+});
+
+test('viewer: a nested document and the binary asset it links survive both modes verbatim', async () => {
+   const dir = copyExample();
+   const { buildViewer } = await import('../dist/index.js');
+   // A depth-2 document naming a sibling asset directory: the resolver rewrites
+   // that class at render time, in the browser, so the file on the way out — the
+   // document's markdown and the bytes behind the link alike — must be untouched.
+   // Real binary content (NUL and high bytes), so "identical" is a byte claim.
+   const pdf = Buffer.concat([
+      Buffer.from('%PDF-1.4\n'),
+      Buffer.from([0x00, 0xff, 0xfe, 0x0a]),
+      Buffer.from('%%EOF\n'),
+   ]);
+   const doc = ['# Report', '', '[report](assets/r.pdf)', ''].join('\n');
+   writeUnder(dir, 'docs/notes/deep/report.md', doc);
+   const assetAbs = path.join(dir, 'docs', 'notes', 'deep', 'assets', 'r.pdf');
+   fs.mkdirSync(path.dirname(assetAbs), { recursive: true });
+   fs.writeFileSync(assetAbs, pdf);
+   const { manifest } = loadManifest(dir);
+   generateViewer(dir, manifest!);
+   const { server, port } = await serveOnFreePort(dir, manifest!.rootPath);
+   try {
+      const asset = await fetch(`http://127.0.0.1:${port}/content/notes/deep/assets/r.pdf`);
+      assert.equal(asset.status, 200, 'the linked asset is served from under the content mount');
+      assert.deepEqual(Buffer.from(await asset.arrayBuffer()), pdf, 'the served asset is byte-identical');
+      const md = await fetch(`http://127.0.0.1:${port}/content/notes/deep/report.md`);
+      assert.equal(md.status, 200);
+      assert.deepEqual(Buffer.from(await md.arrayBuffer()), Buffer.from(doc), 'the document is served verbatim');
+   } finally {
+      server.close();
+   }
+   buildViewer(dir, manifest!, 'out');
+   assert.deepEqual(
+      fs.readFileSync(path.join(dir, 'out', 'content', 'notes', 'deep', 'assets', 'r.pdf')),
+      pdf,
+      'the exported asset is byte-identical',
+   );
+});
+
+// --- the retired palette never returns to the shipped chrome ---
+// The default viewer chrome and the schema's accent example wore the retired
+// blue/gold before the Leji-green sweep. The canonical files and the copies each
+// SDK vendors are separate bytes on disk (synced by scripts/sync-assets.ts), so a
+// revert, a hand-edited copy, or a tint written in another encoding is a brand
+// regression nothing else here would catch. Both encodings are scanned: the hex
+// forms and the same values as rgb()/rgba() channels.
+const RETIRED_PALETTE: RegExp[] = [
+   /#223f93/i,
+   /#ffbd6e/i,
+   /#162960/i,
+   /#f8f9fa/i,
+   /34\s*,\s*63\s*,\s*147/,
+   /255\s*,\s*189\s*,\s*110/,
+   /22\s*,\s*41\s*,\s*96/,
+];
+
+/** Canonical chrome + schema, then every tree `npm run assets` syncs them into,
+ * plus the per-SDK generators that bake the default accent into their own source
+ * (unsynced bytes, so only a scan of all three catches one SDK reverting alone). */
+const BRANDED_FILES: string[] = [
+   ...[
+      'templates',
+      'packages/sdk/templates',
+      'packages/sdk-py/src/leji/_assets/templates',
+      'packages/sdk-go/internal/assets/templates',
+   ].flatMap((base) =>
+      ['viewer/index.html', 'viewer/assets/vue.css', 'viewer/assets/viewer-boot.js', 'viewer/assets/leji-logo.svg'].map(
+         (rel) => `${base}/${rel}`,
+      ),
+   ),
+   ...[
+      'schemas',
+      'packages/sdk/schemas',
+      'packages/sdk-py/src/leji/_assets/schemas',
+      'packages/sdk-go/internal/assets/schemas',
+      'packages/mcp/assets/schemas',
+   ].map((base) => `${base}/context-manifest.schema.json`),
+   'packages/sdk/src/commands/viewer.ts',
+   'packages/sdk-go/internal/commands/viewer/viewer.go',
+   'packages/sdk-py/src/leji/viewer_cmd.py',
+];
+
+test('viewer: no shipped chrome or schema copy carries the retired palette', () => {
+   for (const rel of BRANDED_FILES) {
+      const abs = path.join(repoRoot, rel);
+      // A moved or renamed copy fails here rather than passing by absence.
+      assert.ok(fs.existsSync(abs), `${rel} exists (the scan covers every synced copy)`);
+      const text = fs.readFileSync(abs, 'utf8');
+      for (const pattern of RETIRED_PALETTE) {
+         assert.ok(!pattern.test(text), `${rel} carries no ${pattern.source}`);
+      }
    }
 });
 
@@ -1557,7 +2369,7 @@ test('viewer: buildSidebar skips an out-of-root boot profile and renders plain e
    ]);
    assert.ok(!sidebar.includes('Boot profile'), 'boot profile outside root is omitted');
    assert.ok(sidebar.includes('- **💰 Finance**'), 'group label is the index-file H1, verbatim, bold');
-   assert.ok(sidebar.includes('  - [Glossary](domain/glossary.md)'), 'entries render as plain links');
+   assert.ok(sidebar.includes('  - [Glossary](/domain/glossary.md)'), 'entries render as plain links');
    assert.ok(!sidebar.includes('lj-rec'), 'no record badges in the sidebar: kind and date are page-chip metadata now');
    assert.ok(!sidebar.includes('Empty group'), 'empty groups are skipped');
 });
@@ -1942,12 +2754,12 @@ test('viewer: homepage, favicon, and pins accept repo-relative and root-relative
    };
    const result = generateViewer(dir, manifest!);
    assert.ok(!result.findings.some((f) => f.rule === 'viewer-path-missing'));
-   const html = fs.readFileSync(path.join(dir, 'docs', '.leji', 'viewer', 'index.html'), 'utf8');
+   const html = fs.readFileSync(path.join(dir, '.leji', 'viewer', 'index.html'), 'utf8');
    assert.ok(html.includes('"homepage":"HOME.md"'), 'repo-relative homepage normalized');
    assert.ok(html.includes('/content/HOME.md'), 'favicon URL normalized under the content mount');
-   const sidebar = fs.readFileSync(path.join(dir, 'docs', '.leji', 'viewer', '_sidebar.md'), 'utf8');
+   const sidebar = fs.readFileSync(path.join(dir, '.leji', 'viewer', '_sidebar.md'), 'utf8');
    assert.ok(
-      sidebar.split('---')[0].includes('](domain/glossary.md)'),
+      sidebar.split('---')[0].includes('](/domain/glossary.md)'),
       'rootPath-relative pin resolves into the top zone',
    );
    // An unresolvable homepage is kept as authored and warned about, never silent.
@@ -1977,8 +2789,10 @@ test('ci --hooks: managed pre-commit hook is created, idempotent, and never clob
    const third = ensureLocalHook(dir);
    assert.equal(third.action, 'manual', 'unmanaged hook is never clobbered');
    assert.equal(third.reason, 'foreign-hook');
-   assert.match(third.snippet ?? '', /"\$LEJI" validate/);
-   assert.match(third.snippet ?? '', /\[ -x "node_modules\/\.bin\/leji" \]/, 'hook prefers the local bin');
+   // The scalar shim is gone: the hook runs the repository's own runner argv,
+   // each element single-quoted for sh. This repo declares nothing, so it is `leji`.
+   assert.match(third.snippet ?? '', /^'leji' validate \|\| exit 1$/m);
+   assert.doesNotMatch(third.snippet ?? '', /node_modules/);
    assert.match(fs.readFileSync(hookPath, 'utf8'), /custom hook/, 'foreign hook untouched');
 });
 
@@ -1995,7 +2809,7 @@ test('ci --hooks: husky (.husky/_) merges a managed block into .husky/pre-commit
    const merged = fs.readFileSync(huskyPre, 'utf8');
    assert.match(merged, /npm test/, 'existing husky content untouched');
    assert.match(merged, /# >>> leji hooks \(managed\) >>>/);
-   assert.match(merged, /"\$LEJI" validate \|\| exit 1/);
+   assert.match(merged, /^'leji' validate \|\| exit 1$/m);
    assert.ok(!fs.existsSync(path.join(dir, '.git', 'hooks', 'pre-commit')), '.git/hooks not written');
    assert.equal(ensureLocalHook(dir).action, 'unchanged', 'rerun is idempotent');
 });
@@ -2042,7 +2856,7 @@ test('ci --hooks: a custom core.hooksPath dir gets a managed hook file', () => {
    const custom = path.join(dir, 'githooks', 'pre-commit');
    assert.ok((fs.statSync(custom).mode & 0o111) !== 0, 'custom hook is executable');
    assert.match(fs.readFileSync(custom, 'utf8'), /# leji pre-commit \(managed\)/);
-   assert.match(fs.readFileSync(custom, 'utf8'), /\[ -x "node_modules\/\.bin\/leji" \]/, 'prefers the local bin');
+   assert.match(fs.readFileSync(custom, 'utf8'), /^'leji' validate \|\| exit 1$/m, 'runs the repository runner');
    assert.ok(!fs.existsSync(path.join(dir, '.git', 'hooks', 'pre-commit')));
 });
 
@@ -2055,7 +2869,7 @@ test('ci --hooks: a core.hooksPath outside the repo is never written, reported m
    assert.equal(r.managed, 'file');
    assert.equal(r.reason, 'outside-root');
    assert.equal(r.path, `${outside}/pre-commit`, 'reports the computed target');
-   assert.match(r.snippet ?? '', /"\$LEJI" validate/);
+   assert.match(r.snippet ?? '', /^'leji' validate \|\| exit 1$/m);
    assert.ok(!fs.existsSync(path.join(outside, 'pre-commit')), 'nothing written outside the repo');
    assert.ok(!fs.existsSync(path.join(dir, '.git', 'hooks', 'pre-commit')));
 });
@@ -2100,10 +2914,11 @@ test('ci: local-first CI variant when the repo declares @leji-org/leji', () => {
    assert.ok(!wf.includes('npx -y @leji-org/leji@1'), 'no floating fallback when the dep is local');
 });
 
-test('ci: a declared dep without an npm lockfile falls back, rather than generating a job that fails', () => {
-   // pnpm, Yarn and Bun repositories can declare the dependency and have no
-   // package-lock.json. The generated `npm ci` would fail before Leji ran.
-   const dir = gitSeedExample('leji-ci-nolock-');
+test('ci: a pnpm repository gets pnpm, never `npm ci`, and an unlocked one falls back', () => {
+   // The generated job installs with the manager the repository actually uses: a
+   // pnpm repo that declares the CLI installs from ITS lockfile and runs the local
+   // binary through pnpm. `npm ci` here would fail before Leji ran.
+   const dir = gitSeedExample('leji-ci-pnpm-');
    fs.writeFileSync(
       path.join(dir, 'package.json'),
       JSON.stringify({ devDependencies: { '@leji-org/leji': '^1.3.0' } }),
@@ -2111,8 +2926,21 @@ test('ci: a declared dep without an npm lockfile falls back, rather than generat
    fs.writeFileSync(path.join(dir, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
    ensureCiWorkflow(dir, 'github');
    const wf = fs.readFileSync(path.join(dir, '.github', 'workflows', 'leji.yml'), 'utf8');
-   assert.ok(!wf.includes('npm ci'), 'no npm ci without an npm lockfile');
-   assert.match(wf, /npx -y @leji-org\/leji@1 validate/, 'falls back to the pinned npx form');
+   assert.ok(!wf.includes('npm ci'), 'no npm ci in a pnpm repository');
+   assert.match(wf, /- run: corepack enable && pnpm install --frozen-lockfile/);
+   assert.match(wf, /- run: pnpm exec leji validate/);
+   assert.ok(!wf.includes('npx -y @leji-org/leji@1'), 'declared + locked is never the fallback');
+
+   // Declared with no lockfile at all: nothing to install from, so the job that
+   // needs no manifest is the honest one.
+   const unlocked = gitSeedExample('leji-ci-nolock-');
+   fs.writeFileSync(
+      path.join(unlocked, 'package.json'),
+      JSON.stringify({ devDependencies: { '@leji-org/leji': '^1.3.0' } }),
+   );
+   ensureCiWorkflow(unlocked, 'github');
+   const fallback = fs.readFileSync(path.join(unlocked, '.github', 'workflows', 'leji.yml'), 'utf8');
+   assert.match(fallback, /npx -y @leji-org\/leji@1 validate/, 'falls back to the pinned npx form');
 });
 
 test('ci: npx @1 fallback when no package.json (or an unparseable one) declares the dep', () => {

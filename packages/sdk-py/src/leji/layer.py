@@ -67,7 +67,11 @@ def excluded_from_categories(manifest: Manifest) -> Callable[[str], bool]:
 
 def _read_text_within(root: str, abs_path: Path) -> Optional[str]:
     """Read a file only when it resolves (following symlinks) within the layer
-    root; mirrors Node's readTextWithin (returns None on escape or missing)."""
+    root; mirrors Node's readTextWithin (returns None on escape or missing).
+
+    Read-side, behind an existence check, so it takes the lenient containment form:
+    see :func:`~leji.fsx.is_contained` for why this port cannot use the fail-closed
+    one here without refusing layers the reference SDK reads."""
     if not abs_path.is_file():
         return None
     if not is_contained(root, abs_path):
@@ -413,21 +417,43 @@ def _scan_frontmatter_artifact(
     return ScannedProfile(rel_path=rel_path, frontmatter=fm.data, body=fm.body, findings=findings)
 
 
+#: How a scan gets one artifact's bytes, and whether it may have them at all. The
+#: default reads by path; a caller composing something it will serve or export
+#: passes a reader that binds the check to the read (check-before-act), and returns None for a
+#: source it refuses — missing, not a regular file, or resolving somewhere it may
+#: not be read from. A refused artifact is dropped from the scan, exactly as the
+#: whitelist filter it replaces dropped it, so validation (which passes no reader)
+#: is unaffected.
+ArtifactReader = Callable[[str], Optional[str]]
+
+
 def _scan_frontmatter_artifacts(
-    root: str, directory: str, schema_name: str, rule: str
+    root: str,
+    directory: str,
+    schema_name: str,
+    rule: str,
+    read: Optional[ArtifactReader] = None,
 ) -> list[ScannedProfile]:
     out: list[ScannedProfile] = []
     for rel_path in walk_md(root, directory):
         if posixpath.basename(rel_path).lower() == "readme.md":
             continue
-        text = (Path(root) / rel_path).read_text(encoding="utf-8")
+        text = (
+            (Path(root) / rel_path).read_text(encoding="utf-8") if read is None else read(rel_path)
+        )
+        if text is None:
+            continue
         out.append(_scan_frontmatter_artifact(text, rel_path, schema_name, rule))
     return out
 
 
-def scan_agent_profiles(root: str, manifest: Manifest) -> list[ScannedProfile]:
+def scan_agent_profiles(
+    root: str, manifest: Manifest, read: Optional[ArtifactReader] = None
+) -> list[ScannedProfile]:
     directory = effective_agent_profiles_path(manifest)
-    return _scan_frontmatter_artifacts(root, directory, "agent-profile", "profile-frontmatter")
+    return _scan_frontmatter_artifacts(
+        root, directory, "agent-profile", "profile-frontmatter", read
+    )
 
 
 def scan_profile_set(root: str, manifest: Manifest) -> list[ScannedProfile]:
@@ -444,13 +470,22 @@ def scan_profile_set(root: str, manifest: Manifest) -> list[ScannedProfile]:
     posture. The agents-map check validates these files too and emits
     byte-identical findings, so ``profile_inheritance_findings`` collapses the pair
     rather than reporting either twice."""
-    profiles = scan_agent_profiles(root, manifest)
+    return scan_profile_set_with(root, manifest)
+
+
+def scan_profile_set_with(
+    root: str, manifest: Manifest, read: Optional[ArtifactReader] = None
+) -> list[ScannedProfile]:
+    """The same scan through a caller's reader — the seam a viewer or export needs
+    and nobody else does. A None reader is :func:`scan_profile_set`'s own
+    read-by-path behavior."""
+    profiles = scan_agent_profiles(root, manifest, read)
     directory = effective_agent_profiles_path(manifest)
     seen = {p.rel_path for p in profiles}
     for rel in (manifest.get("agents") or {}).values():
         if rel in seen or under_path(rel, directory):
             continue
-        text = _read_text_within(root, Path(root) / rel)
+        text = _read_text_within(root, Path(root) / rel) if read is None else read(rel)
         if text is None:
             continue  # missing or escaping: the agents-map check owns that
         seen.add(rel)

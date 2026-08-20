@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .findings import Finding
-from .fsx import is_contained, resolved_within_root
+from .fsx import guard_root, resolved_within_root, verified_target_read, write_file_guarded
 from .gitutil import git_last_modified, git_toplevel
-from .layer import duplicate_id_findings, read_json_artifact, scan_categories
+from .layer import duplicate_id_findings, scan_categories
 from .manifest import Manifest, effective_index_path
 from .schemas import SDK_VERSION, SUPPORTED_LINES, schema_errors
 
@@ -74,13 +74,20 @@ def _str_array(v: Any) -> Optional[list[str]]:
 
 
 def load_stored_index(root: str, manifest: Manifest) -> Optional[dict]:
+    """The stored index, or None when there is none this run can act on. Read through
+    the verified read, not by pathname: generation carries ids out of these bytes into
+    the index it writes back to this same path, so the file that was judged must be
+    the file that is read. Absent, unparsable, or a standing entry that cannot be
+    verified all mean "no stored index" — nothing is carried, and the write chokepoint
+    judges the destination again on its own."""
     rel = effective_index_path(manifest)
-    abs_path = Path(root) / rel
-    # Refuse an artifact whose real path escapes the repo root (e.g. a symlinked
-    # index pointing outside the tree); a layer's index lives inside the layer.
-    if not abs_path.is_file() or not is_contained(root, abs_path):
+    read = verified_target_read(guard_root(root), str(Path(root) / rel), None)
+    if read.status != "regular":
         return None
-    data, _ = read_json_artifact(root, rel)
+    try:
+        data = json.loads(read.text())
+    except (ValueError, UnicodeDecodeError):
+        return None
     return data if isinstance(data, dict) else None
 
 
@@ -264,7 +271,7 @@ def check_index(root: str, manifest: Manifest) -> IndexResult:
             )
         )
         return IndexResult(index=None, findings=findings, stale=True)
-    if not is_contained(root, Path(root) / rel):
+    if not resolved_within_root(root, Path(root) / rel):
         findings.append(
             Finding(
                 "artifact-parse", "error", f"artifact {rel} resolves outside the layer root", rel
@@ -387,7 +394,11 @@ def write_index(root: str, manifest: Manifest) -> IndexResult:
         # Contain before creating any directory: resolved_within_root resolves the
         # nearest existing ancestor, so a symlinked ancestor of this not-yet-existing
         # target is caught before mkdir/write can escape the layer root.
-        if not resolved_within_root(root, abs_path):
+        # The write chokepoint judges the RESOLVED destination immediately before the
+        # write, catching a symlinked ancestor before anything is created under it.
+        if not write_file_guarded(
+            guard_root(root), str(abs_path), None, serialize_index(result.index)
+        ).ok:
             return IndexResult(
                 index=result.index,
                 findings=[
@@ -400,6 +411,4 @@ def write_index(root: str, manifest: Manifest) -> IndexResult:
                     ),
                 ],
             )
-        abs_path.parent.mkdir(parents=True, exist_ok=True)
-        abs_path.write_text(serialize_index(result.index), encoding="utf-8")
     return result

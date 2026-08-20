@@ -2,9 +2,9 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { type Finding, finding } from '../lib/findings.js';
-import { isFile, readText, realpathWithin, resolvedWithinRoot } from '../lib/fsx.js';
+import { guardRoot, isFile, resolvedWithinRoot, verifiedTargetRead, writeFileGuarded } from '../lib/fsx.js';
 import { gitLastModified, gitToplevel } from '../lib/git.js';
-import { duplicateIdFindings, readJsonArtifact, scanCategories } from '../lib/layer.js';
+import { duplicateIdFindings, scanCategories } from '../lib/layer.js';
 import { type Manifest, effectiveIndexPath } from '../lib/manifest.js';
 import { SDK_VERSION, SUPPORTED_LINES, schemaErrors } from '../lib/schemas.js';
 
@@ -89,10 +89,22 @@ function strArray(v: unknown): string[] | undefined {
    return out.length > 0 ? out : undefined;
 }
 
+/** The stored index, or null when there is none this run can act on. Read through
+ * the verified read, not by pathname: generation carries ids out of these bytes into
+ * the index it writes back to this same path, so the file that was judged must be the
+ * file that is read. Absent, unparsable, or a standing entry that cannot be verified
+ * all mean "no stored index" — nothing is carried, and the write chokepoint judges the
+ * destination again on its own. */
 export function loadStoredIndex(root: string, manifest: Manifest): ContextIndex | null {
    const rel = effectiveIndexPath(manifest);
-   if (!isFile(path.join(root, rel))) return null;
-   const { data } = readJsonArtifact(root, rel);
+   const read = verifiedTargetRead(guardRoot(root), path.join(root, rel), null);
+   if (read.status !== 'regular') return null;
+   let data: unknown;
+   try {
+      data = JSON.parse(read.bytes.toString('utf8'));
+   } catch {
+      return null;
+   }
    if (!data || typeof data !== 'object') return null;
    return data as ContextIndex;
 }
@@ -254,7 +266,7 @@ export function checkIndex(root: string, manifest: Manifest): IndexResult {
       findings.push(finding('index-required', 'error', `index ${rel} does not exist; run \`leji index\``, rel));
       return { index: null, findings, stale: true };
    }
-   if (!realpathWithin(path.resolve(root), path.join(root, rel))) {
+   if (!resolvedWithinRoot(path.resolve(root), path.join(root, rel))) {
       findings.push(finding('artifact-parse', 'error', `artifact ${rel} resolves outside the layer root`, rel));
       return { index: null, findings, stale: true };
    }
@@ -400,9 +412,9 @@ export function writeIndex(root: string, manifest: Manifest): IndexResult {
    }
    if (result.index) {
       const abs = path.join(root, rel);
-      // Contain before mkdir: resolvedWithinRoot resolves the nearest existing
-      // ancestor, catching a symlinked ancestor before write can escape the root.
-      if (!resolvedWithinRoot(path.resolve(root), abs)) {
+      // The write chokepoint judges the RESOLVED destination immediately before the
+      // write, catching a symlinked ancestor before anything is created under it.
+      if (!writeFileGuarded(guardRoot(root), abs, null, serializeIndex(result.index)).ok) {
          return {
             index: result.index,
             findings: [
@@ -411,8 +423,6 @@ export function writeIndex(root: string, manifest: Manifest): IndexResult {
             ],
          };
       }
-      fs.mkdirSync(path.dirname(abs), { recursive: true });
-      fs.writeFileSync(abs, serializeIndex(result.index));
    }
    return result;
 }

@@ -181,7 +181,7 @@ func LoadManifest(root string) Load {
 	// Confine the read: a symlinked leji.json that resolves outside the layer root
 	// must not be read (an MCP exposes this read to an agent). Mirrors Node's
 	// readTextWithin.
-	if !fsx.ResolvesUnder(root, abs) {
+	if !fsx.ResolvedWithinRoot(root, abs) {
 		return Load{Manifest: nil, Findings: []findings.Finding{
 			findings.New("manifest-parse", findings.Error, Filename+" resolves outside the layer root", Filename),
 		}}

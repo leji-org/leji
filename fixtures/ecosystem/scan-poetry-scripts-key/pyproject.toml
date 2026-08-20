@@ -1,0 +1,6 @@
+[tool.poetry]
+name = "d"
+version = "0"
+
+[tool.poetry.scripts]
+leji = "leji:main"

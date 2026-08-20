@@ -66,15 +66,30 @@ function isChrome(manifest: Manifest, rel: string): boolean {
    );
 }
 
+/** Markdown under rootPath that no category index lists, given the governed set.
+ * The one definition of "unindexed"; callers that already resolved the
+ * assignments pass them in rather than resolving the tree twice. */
+function unindexedIn(root: string, manifest: Manifest, governed: Set<string>): string[] {
+   const rootDir = stripSlash(manifest.rootPath) || '.';
+   return walkTree(root, rootDir)
+      .filter((rel) => !governed.has(rel) && !isChrome(manifest, rel))
+      .sort();
+}
+
+/** The unindexed set on its own, for callers that need the count without the
+ * rest of the health report (the `index` generate nudge). Same machinery as
+ * `statusReport`, no second walker. */
+export function unindexedPaths(root: string, manifest: Manifest): string[] {
+   const resolved = resolveCategoryAssignments(root, manifest);
+   return unindexedIn(root, manifest, new Set(resolved.assignments.keys()));
+}
+
 /** Pure computation; the CLI renders and decides exit. */
 export function statusReport(root: string, manifest: Manifest): StatusReport {
    const resolved = resolveCategoryAssignments(root, manifest);
    const governed = new Set(resolved.assignments.keys());
 
-   const rootDir = stripSlash(manifest.rootPath) || '.';
-   const unindexed = walkTree(root, rootDir)
-      .filter((rel) => !governed.has(rel) && !isChrome(manifest, rel))
-      .sort();
+   const unindexed = unindexedIn(root, manifest, governed);
 
    const dangling: DanglingEntry[] = resolved.findings
       .filter(

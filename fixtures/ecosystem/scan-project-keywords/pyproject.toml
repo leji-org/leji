@@ -1,0 +1,5 @@
+[project]
+name = "d"
+version = "0"
+keywords = ["leji"]
+dependencies = []

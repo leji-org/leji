@@ -1,0 +1,19 @@
+{
+  "leji": "1.0",
+  "name": "host",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {},
+  "owners": { "primary": { "name": "Host Owner" } },
+  "federation": {
+    "mounts": [
+      {
+        "name": "caf\u00e9-\ud83d\ude00-context",
+        "source": "https://github.com/acme/cafe-context",
+        "pin": "9f1c2e9b8a7f6d5c4b3a2e1d0c9b8a7f6d5c4b3a",
+        "trackingRef": "refs/heads/main",
+        "owner": { "name": "Caf\u00e9 Owner" }
+      }
+    ]
+  }
+}

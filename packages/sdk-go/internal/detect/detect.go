@@ -28,6 +28,28 @@ type HostSpec struct {
 	// McpCheck reports whether the Leji MCP server is already registered (exit 0 =
 	// present); used to skip the install offer when it's already there.
 	McpCheck []string
+	// McpAddUser registers the server for THIS USER, across every project. Nil when
+	// McpAdd is already the user-level form (Codex has no other scope).
+	McpAddUser []string
+	// McpSharedFile is the committed file a shared (project-scope) registration
+	// writes, repository root relative. Only a host whose McpAdd writes into the
+	// repository has one.
+	McpSharedFile string
+	// McpConfig is where a host with no registration command reads its MCP
+	// configuration, for a host Leji can only tell the user about, and which shape
+	// that file takes.
+	McpConfig *MCPConfigLocation
+}
+
+// MCPConfigLocation is one host's MCP configuration file, the scope it covers, and
+// the top-level key that file uses for its server map. `mcpServers` is the common
+// one; VS Code (and GitHub Copilot through it) spells the same map `servers` in
+// `.vscode/mcp.json`, so a client told to paste the common block there ends up with a
+// file the editor ignores.
+type MCPConfigLocation struct {
+	Path  string
+	Scope string // "project" | "user"
+	Shape string // "mcpServers" | "servers"
 }
 
 // MCPServerName and MCPPackage are the registered server name and the npm package
@@ -36,6 +58,27 @@ const (
 	MCPServerName = "leji"
 	MCPPackage    = "@leji-org/mcp"
 )
+
+// McpJSONConfig is the MCP client configuration for the local Leji server, in the
+// shape one client's configuration file takes. The SDK owns these bytes: the MCP
+// package README and the website quote the `mcpServers` form, and a repo test asserts
+// the three of them agree, so the instruction a user reads is one text.
+func McpJSONConfig(shape string) string {
+	return `{
+  "` + shape + `": {
+    "` + MCPServerName + `": { "command": "npx", "args": ["-y", "` + MCPPackage + `"] }
+  }
+}`
+}
+
+// MCPJSONConfig is the common form, the one the README and the website publish.
+var MCPJSONConfig = McpJSONConfig("mcpServers")
+
+// McpCommand renders one host command line as a user would type it: the host
+// binary, then the argv.
+func McpCommand(spec *HostSpec, argv []string) string {
+	return spec.Bins[0] + " " + strings.Join(argv, " ")
+}
 
 // PortableAdapter is the portable discovery adapter. `AGENTS.md` is a cross-host
 // entrypoint convention (stewarded by the Linux Foundation's Agentic AI
@@ -57,6 +100,10 @@ var HostSpecs = []HostSpec{
 		// Project scope writes a committed `.mcp.json` so the whole team gets the server.
 		McpAdd:   []string{"mcp", "add", MCPServerName, "--scope", "project", "--", "npx", "-y", MCPPackage},
 		McpCheck: []string{"mcp", "get", MCPServerName},
+		// User scope is the personal form: it registers for every project of this
+		// user without touching a file the repository commits.
+		McpAddUser:    []string{"mcp", "add", MCPServerName, "--scope", "user", "--", "npx", "-y", MCPPackage},
+		McpSharedFile: ".mcp.json",
 	},
 	{
 		ID:   "codex",
@@ -78,6 +125,7 @@ var HostSpecs = []HostSpec{
 		RepoFiles: []string{".github/copilot-instructions.md"},
 		UserDirs:  []string{},
 		Adapter:   ".github/copilot-instructions.md",
+		McpConfig: &MCPConfigLocation{Path: ".vscode/mcp.json", Scope: "project", Shape: "servers"},
 	},
 	{
 		ID:        "gemini",
@@ -86,6 +134,7 @@ var HostSpecs = []HostSpec{
 		RepoFiles: []string{"GEMINI.md", ".gemini"},
 		UserDirs:  []string{".gemini"},
 		Adapter:   "GEMINI.md",
+		McpConfig: &MCPConfigLocation{Path: ".gemini/settings.json", Scope: "project", Shape: "mcpServers"},
 	},
 	{
 		ID:        "cursor",
@@ -94,6 +143,7 @@ var HostSpecs = []HostSpec{
 		RepoFiles: []string{".cursor/rules", ".cursorrules"},
 		UserDirs:  []string{},
 		Adapter:   ".cursor/rules/leji.md",
+		McpConfig: &MCPConfigLocation{Path: ".cursor/mcp.json", Scope: "project", Shape: "mcpServers"},
 	},
 	{
 		ID:        "windsurf",
@@ -102,6 +152,7 @@ var HostSpecs = []HostSpec{
 		RepoFiles: []string{".windsurf/rules", ".windsurfrules"},
 		UserDirs:  []string{},
 		Adapter:   ".windsurf/rules/leji.md",
+		McpConfig: &MCPConfigLocation{Path: "~/.codeium/windsurf/mcp_config.json", Scope: "user", Shape: "mcpServers"},
 	},
 }
 

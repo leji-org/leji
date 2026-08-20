@@ -1,24 +1,23 @@
-// Package viewer projects the context index into a static Docsify viewer and can
-// serve the repository locally on 127.0.0.1.
+// Package viewer projects the context index into a static Docsify viewer: the
+// chrome generation and the layer helpers both of its consumers share. The two
+// consumers live in their own packages, so what each one drags in is visible in the
+// import graph rather than buried in one file: `commands/serve` keeps the local
+// preview server and every network import with it, and `commands/export` writes the
+// static site — its transitive import set carries no network package at all, which
+// is the structural half of the export's no-network guarantee and is asserted as
+// such.
 package viewer
 
 import (
 	"bytes"
-	"errors"
-	"fmt"
-	"net"
-	"net/http"
-	"net/url"
-	"os"
-	"os/exec"
+	"io"
+	"math"
 	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"unicode"
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/assets"
@@ -28,6 +27,7 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
 	"github.com/leji-org/leji/packages/sdk-go/internal/jsonenc"
 	"github.com/leji-org/leji/packages/sdk-go/internal/layer"
+	"github.com/leji-org/leji/packages/sdk-go/internal/layout"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/mounts"
 )
@@ -78,12 +78,24 @@ var categoryEmoji = map[string]string{
 	"decisions":  "🧭",
 }
 
-// defaultThemeColor is the default accent (Leji brand blue) when no
-// viewer.theme.primary is set; defaultLogo is the vendored Leji mark.
+// defaultThemeColor is the default accent (Leji brand green) when no
+// viewer.theme.primary is set.
+const defaultThemeColor = "#009F71"
+
+// The base every URL the generated chrome emits is written against: "/" for the
+// local server (the app root, the served flavor's unchanged contract) and "" for
+// an export, whose references then resolve against the page itself so the tree
+// hosts correctly under a subpath. It is a generation parameter, never a post-hoc
+// rewrite of emitted HTML: one code path, two invocations. index.html is the only
+// artifact that exists in two flavors — everything else under the chrome is
+// flavor-neutral.
 const (
-	defaultThemeColor = "#223F93"
-	defaultLogo       = "/assets/leji-logo.svg"
+	servedBase = "/"
+	ExportBase = ""
 )
+
+// defaultLogo is the vendored Leji mark, as the given base addresses it.
+func defaultLogo(base string) string { return base + "assets/leji-logo.svg" }
 
 // mermaidAssets are loaded only when mermaid is enabled.
 var mermaidAssets = map[string]bool{
@@ -91,13 +103,16 @@ var mermaidAssets = map[string]bool{
 	"docsify-mermaid.js": true,
 }
 
-// safeCSSColor matches a CSS color safe to hand to the page: a hex color or a
-// bare color keyword. The accent reaches a stylesheet as a custom-property
-// value, so anything with punctuation in it is a CSS-injection sink, not a color.
-var safeCSSColor = regexp.MustCompile(`^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+)$`)
+// safeCSSColor matches the one accent format the viewer accepts: a hex color at a
+// length CSS actually defines (#RGB, #RGBA, #RRGGBB, #RRGGBBAA). The accent reaches
+// a stylesheet as a custom-property value, so anything with punctuation in it is a
+// CSS-injection sink, not a color; hex-only also keeps one canonical form across the
+// three SDKs and the schema. `$` here is end of text — Go's default, no multiline
+// flag — so a trailing newline does not slip a hex through.
+var safeCSSColor = regexp.MustCompile(`^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$`)
 
 // resolveThemeColor returns the viewer accent: viewer.theme.primary when it is a
-// plain CSS color, else the Leji default with a warning. Never the authored value
+// hex color, else the Leji default with a warning. Never the authored value
 // unchecked. Mirrors the Node SDK's resolveThemeColor, warning included.
 func resolveThemeColor(m *manifest.Manifest, fnds *[]findings.Finding) string {
 	if m.Viewer == nil || m.Viewer.Theme == nil || m.Viewer.Theme.Primary == "" {
@@ -108,8 +123,99 @@ func resolveThemeColor(m *manifest.Manifest, fnds *[]findings.Finding) string {
 		return configured
 	}
 	*fnds = append(*fnds, findings.NewNoPath("viewer-theme-invalid", findings.Warning,
-		`viewer.theme.primary "`+configured+`" is not a plain CSS color (hex or keyword); using `+defaultThemeColor))
+		`viewer.theme.primary "`+configured+`" is not a hex color (#RGB, #RGBA, #RRGGBB, or #RRGGBBAA); using `+defaultThemeColor))
 	return defaultThemeColor
+}
+
+// hexDigits matches the bare hex an accent reduces to once the leading `#` is out
+// of the way; the length check follows.
+var hexDigits = regexp.MustCompile(`^[0-9a-f]+$`)
+
+// srgb is an opaque sRGB triple: the form an accent resolves to once any alpha it
+// carried has been composited away.
+type srgb struct{ r, g, b int }
+
+// parseAccentColor resolves the accent to opaque sRGB channels, reporting false for
+// a value that names no color the generator can resolve — a keyword, `currentColor`,
+// a malformed hex. Accepts 3/4/6/8-digit hex, the only form the accent can take; an
+// accent carrying alpha is composited over white, the viewer's content background,
+// which is the only backdrop knowable at generation time (the accent itself keeps
+// its authored alpha everywhere it is used — this composite decides text color,
+// nothing that renders).
+func parseAccentColor(value string) (srgb, bool) {
+	raw := strings.ToLower(strings.TrimSpace(value))
+	hex, ok := strings.CutPrefix(raw, "#")
+	if !ok || !hexDigits.MatchString(hex) {
+		return srgb{}, false
+	}
+	var full string
+	switch len(hex) {
+	case 3, 4:
+		var doubled strings.Builder
+		for _, c := range hex {
+			doubled.WriteRune(c)
+			doubled.WriteRune(c)
+		}
+		full = doubled.String()
+	case 6, 8:
+		full = hex
+	default:
+		return srgb{}, false
+	}
+	channel := func(i int) int {
+		v, _ := strconv.ParseUint(full[i*2:i*2+2], 16, 16)
+		return int(v)
+	}
+	alpha := 1.0
+	if len(full) == 8 {
+		alpha = float64(channel(3)) / 255
+	}
+	over := func(c int) int {
+		return int(math.Round(float64(c)*alpha + 255*(1-alpha)))
+	}
+	return srgb{over(channel(0)), over(channel(1)), over(channel(2))}, true
+}
+
+// relativeLuminance is the WCAG relative luminance: linearized sRGB channels, weighted.
+func relativeLuminance(c srgb) float64 {
+	linear := func(v int) float64 {
+		s := float64(v) / 255
+		if s <= 0.03928 {
+			return s / 12.92
+		}
+		return math.Pow((s+0.055)/1.055, 2.4)
+	}
+	return 0.2126*linear(c.r) + 0.7152*linear(c.g) + 0.0722*linear(c.b)
+}
+
+// contrastRatio is the WCAG contrast ratio between two relative luminances.
+func contrastRatio(a, b float64) float64 {
+	return (math.Max(a, b) + 0.05) / (math.Min(a, b) + 0.05)
+}
+
+// mermaidTextColor is the mermaid node-text color for an accent, computed here
+// rather than in the browser: the viewer's boot script sees only what the config
+// block carries, while this side can resolve every color form viewer.theme.primary
+// accepts. Whichever of #1a1a1a and #ffffff contrasts more with the accent, or
+// #000000 when neither clears WCAG AA (4.5:1) — a mid-gray accent, where the extra
+// half-stop of black is the best text color available. An accent this cannot
+// resolve keeps the dark default, which is also the boot script's fallback.
+// Mirrors the Node SDK's mermaidTextColor.
+func mermaidTextColor(themeColor string) string {
+	c, ok := parseAccentColor(themeColor)
+	if !ok {
+		return "#1a1a1a"
+	}
+	accent := relativeLuminance(c)
+	onDark := contrastRatio(relativeLuminance(srgb{0x1a, 0x1a, 0x1a}), accent)
+	onLight := contrastRatio(1, accent)
+	if onDark < 4.5 && onLight < 4.5 {
+		return "#000000"
+	}
+	if onDark >= onLight {
+		return "#1a1a1a"
+	}
+	return "#ffffff"
 }
 
 var httpURLRe = regexp.MustCompile(`^https?://`)
@@ -132,7 +238,7 @@ func resolveViewerRel(root, rootPath, value string) (string, bool) {
 	if fsx.IsFile(joined) {
 		return clean, true
 	}
-	if stripped, ok := relativeToRoot(clean, rootPath); ok && fsx.IsFile(filepath.Join(root, clean)) {
+	if stripped, ok := RelativeToRoot(clean, rootPath); ok && fsx.IsFile(filepath.Join(root, clean)) {
 		return stripped, true
 	}
 	return "", false
@@ -159,17 +265,17 @@ func effectiveHomepage(root string, m *manifest.Manifest, fnds *[]findings.Findi
 
 // resolveLogo resolves the viewer logo URL: a configured path is served from the
 // content mount (or used as-is when absolute); unset falls back to the vendored mark.
-func resolveLogo(root, rootPath, logo string) string {
+func resolveLogo(root, rootPath, logo, base string) string {
 	if logo == "" {
-		return defaultLogo
+		return defaultLogo(base)
 	}
 	if strings.HasPrefix(logo, "/") || httpURLRe.MatchString(logo) {
 		return logo
 	}
 	if rel, ok := resolveViewerRel(root, rootPath, logo); ok {
-		return "/content/" + rel
+		return base + "content/" + rel
 	}
-	return "/content/" + fsx.StripSlash(logo)
+	return base + "content/" + fsx.StripSlash(logo)
 }
 
 // htmlEscape escapes text for HTML element/attribute content, matching the Node
@@ -184,7 +290,7 @@ func htmlEscape(s string) string {
 	return s
 }
 
-func relativeToRoot(relPath, rootPath string) (string, bool) {
+func RelativeToRoot(relPath, rootPath string) (string, bool) {
 	base := fsx.StripSlash(rootPath)
 	if base == "" || base == "." {
 		return relPath, true
@@ -209,8 +315,19 @@ func mdLinkText(s string) string {
 	return mdLinkTextRe.ReplaceAllString(s, `\$0`)
 }
 
+// Destinations are emitted app-root absolute (leading slash): with the viewer's
+// relativePath routing, a bare rootPath-relative destination would re-resolve
+// against whatever nested route is current and double-prefix; leading-slash links
+// are exempt from relative resolution by Docsify's contract. Idempotent: leading
+// slashes are trimmed first, so an already-absolute destination never becomes
+// `//…`, which Docsify routes as an external protocol-relative URL. Empty input
+// stays empty, never a bare `/`.
 func mdLinkDest(s string) string {
-	return mdLinkDestRe.ReplaceAllString(s, `\$0`)
+	escaped := mdLinkDestRe.ReplaceAllString(strings.TrimLeft(s, "/"), `\$0`)
+	if escaped == "" {
+		return ""
+	}
+	return "/" + escaped
 }
 
 // TreeNode is a reference doc in the browse zone: rootPath-relative path and title.
@@ -361,7 +478,7 @@ func BuildSidebar(m *manifest.Manifest, groups []SidebarGroup, tree []TreeNode, 
 	// Emoji inside the link text so the label stays on one line (links render as
 	// block elements; an emoji outside would wrap above). A pinned boot profile
 	// replaces this default line with the team's own label and position.
-	if boot, ok := relativeToRoot(m.BootProfilePath, m.RootPath); ok && !bootPinned {
+	if boot, ok := RelativeToRoot(m.BootProfilePath, m.RootPath); ok && !bootPinned {
 		topLines = append(topLines, "- ["+bootEmoji+" Boot profile]("+mdLinkDest(boot)+")")
 	}
 	for _, pin := range pins {
@@ -553,7 +670,7 @@ func BuildSidebarGroups(root string, m *manifest.Manifest, entries []indexgen.In
 				if !byPath[relPath] {
 					continue
 				}
-				rel, ok := relativeToRoot(relPath, m.RootPath)
+				rel, ok := RelativeToRoot(relPath, m.RootPath)
 				if !ok {
 					continue
 				}
@@ -570,8 +687,14 @@ func BuildSidebarGroups(root string, m *manifest.Manifest, entries []indexgen.In
 	// viewer.agentsLabel; first in derived order, reorderable by groupOrder).
 	var agentMembers []SidebarEntry
 	for _, p := range layer.ScanAgentProfiles(root, m) {
-		rel, ok := relativeToRoot(p.RelPath, m.RootPath)
+		rel, ok := RelativeToRoot(p.RelPath, m.RootPath)
 		if !ok {
+			continue
+		}
+		// A declared profiles directory can name a private role; its files are not
+		// servable, so neither is the label lifted out of one. The route would 404
+		// anyway — this keeps the bytes out of the sidebar that links it.
+		if !servableSource(root, p.RelPath) {
 			continue
 		}
 		title := ""
@@ -709,9 +832,9 @@ func sidebarLabel(root, relPath, rootRel string) string {
 
 // referenceTree is the browse zone: every markdown file under rootPath that is NOT
 // governed (in the index) and NOT viewer/layer chrome (boot profile, agent
-// profiles, category index files, overview.md, the generated _sidebar.md). The
-// `.leji` viewer dir is skipped by the walk itself. Returned as rootPath-relative
-// nodes.
+// profiles, category index files, overview.md, the generated _sidebar.md).
+// Generated artifacts live in the root `.leji/`, which the walk skips as a dot-dir
+// even when rootPath is ".". Returned as rootPath-relative nodes.
 func referenceTree(root string, m *manifest.Manifest, governedPaths map[string]bool) []TreeNode {
 	rootDirRel := fsx.StripSlash(m.RootPath)
 	if rootDirRel == "" {
@@ -751,7 +874,7 @@ func referenceTree(root string, m *manifest.Manifest, governedPaths map[string]b
 		if rel == overviewRel || rel == sidebarRel || rel == manifestPageRel {
 			continue
 		}
-		r, ok := relativeToRoot(rel, m.RootPath)
+		r, ok := RelativeToRoot(rel, m.RootPath)
 		if !ok {
 			continue
 		}
@@ -942,11 +1065,11 @@ func buildManifestPage(m *manifest.Manifest, statuses []mounts.StatusResult) str
 		title = m.Viewer.Title
 	}
 	lines := []string{
-		"# " + esc(title) + " — Manifest",
+		"# " + esc(title) + ": Manifest",
 		"",
 		"A human-readable view of this layer's `leji.json`.",
 		"",
-		"> **Declared** values come straight from the manifest. **Observed** values (mount availability and drift) are read from local projections and Git objects — no network fetch is performed.",
+		"> **Declared** values come straight from the manifest. **Observed** values (mount availability and drift) are read from local projections and Git objects; no network fetch is performed.",
 		"",
 		"## Identity",
 		"",
@@ -970,7 +1093,7 @@ func buildManifestPage(m *manifest.Manifest, statuses []mounts.StatusResult) str
 		claimed = m.Conformance.ClaimedLevel
 	}
 	if claimed != "" {
-		lines = append(lines, "| Conformance | claims `"+esc(claimed)+"` — run `leji conformance` to verify |")
+		lines = append(lines, "| Conformance | claims `"+esc(claimed)+"` (run `leji conformance` to verify) |")
 	} else {
 		lines = append(lines, "| Conformance | no level claimed |")
 	}
@@ -1125,7 +1248,7 @@ func buildManifestPage(m *manifest.Manifest, statuses []mounts.StatusResult) str
 			}
 			lines = append(lines, "| "+esc(d.Name)+" | "+availability+" | "+drift+" | "+ownerCell+" | "+pinCell+" | "+sourceCell+" |")
 		}
-		lines = append(lines, "", "> `not hydrated` / `unknown` are normal degraded reads — ordinary validation never fails just because a mount is unavailable (opt-in federation enforcement is separate). Run `leji mounts hydrate`, then regenerate the viewer to refresh.")
+		lines = append(lines, "", "> `not hydrated` / `unknown` are normal degraded reads; ordinary validation never fails just because a mount is unavailable (opt-in federation enforcement is separate). Run `leji mounts hydrate`, then regenerate the viewer to refresh.")
 		var roled []manifest.Mount
 		for _, d := range mountList {
 			if d.Role != "" {
@@ -1135,7 +1258,7 @@ func buildManifestPage(m *manifest.Manifest, statuses []mounts.StatusResult) str
 		if len(roled) > 0 {
 			lines = append(lines, "", "**Roles**", "")
 			for _, d := range roled {
-				lines = append(lines, "- **"+esc(d.Name)+"** — "+esc(d.Role))
+				lines = append(lines, "- **"+esc(d.Name)+"**: "+esc(d.Role))
 			}
 		}
 	}
@@ -1160,12 +1283,12 @@ func profileValue(value any) string {
 	return codeSpan(string(encoded))
 }
 
-// unresolvedProfilePage is the page for an agent profile that declares `inherits`
+// UnresolvedProfilePage is the page for an agent profile that declares `inherits`
 // and does not resolve: there is no effective profile to show, and presenting the
 // derived file as if there were would be the error the finding names.
-func unresolvedProfilePage(relPath string, fnds []findings.Finding) string {
+func UnresolvedProfilePage(relPath string, fnds []findings.Finding) string {
 	lines := []string{
-		"# " + esc(relPath) + " — unresolved profile",
+		"# " + esc(relPath) + ": unresolved profile",
 		"",
 		"> **This profile does not resolve.** " + codeSpan(relPath) + " declares `inherits`, and the inheritance cannot be resolved, so the layer has no effective profile for this role. The file on disk is only its own half and is not shown here: a consumer that cannot resolve an inherited profile must not apply the derived file alone.",
 		"",
@@ -1199,7 +1322,7 @@ func renderResolvedProfile(profiles []layer.ScannedProfile, derived layer.Scanne
 	}
 	resolved := layer.ResolveAgentProfile(derived, profiles)
 	if resolved.Frontmatter == nil || resolved.Body == nil {
-		return unresolvedProfilePage(derived.RelPath, resolved.Findings)
+		return UnresolvedProfilePage(derived.RelPath, resolved.Findings)
 	}
 
 	baseID := ""
@@ -1221,7 +1344,7 @@ func renderResolvedProfile(profiles []layer.ScannedProfile, derived layer.Scanne
 		title = name
 	}
 	lines := []string{
-		"# " + esc(title) + " — resolved profile",
+		"# " + esc(title) + ": resolved profile",
 		"",
 		"> **Resolved profile.** " + codeSpan(derived.RelPath) + " declares `inherits: " + esc(baseID) + "`, so this page is the effective profile: posture from " + codeSpan(baseRel) + " first, then this profile's own, with exact duplicates dropped. Every other field is this profile's own; both bodies are operative, base first. The file on disk carries only its own half.",
 		"",
@@ -1234,7 +1357,7 @@ func renderResolvedProfile(profiles []layer.ScannedProfile, derived layer.Scanne
 		value := effective[key]
 		entries, isArray := value.([]any)
 		if !isArray {
-			lines = append(lines, "- **"+esc(key)+"** — "+profileValue(value))
+			lines = append(lines, "- **"+esc(key)+"**: "+profileValue(value))
 			continue
 		}
 		// Composed posture: label every entry with the profile that supplied it.
@@ -1253,7 +1376,7 @@ func renderResolvedProfile(profiles []layer.ScannedProfile, derived layer.Scanne
 			if fromBase[stringifyEntry(entry)] {
 				source = baseID
 			}
-			lines = append(lines, "   - "+profileValue(entry)+" — from `"+esc(source)+"`")
+			lines = append(lines, "   - "+profileValue(entry)+" (from `"+esc(source)+"`)")
 		}
 	}
 	lines = append(lines, "", "## Effective body", "")
@@ -1279,17 +1402,17 @@ func stringifyEntry(v any) string {
 	return string(encoded)
 }
 
-// declaresInherits reports whether the file at repoRel declares `inherits`, so it
+// DeclaresInherits reports whether the file at repoRel declares `inherits`, so it
 // is one half of a profile and must never reach a reader as the effective one.
 // Manifest-free and total, so the serve path can still classify when nothing else
 // is readable.
-func declaresInherits(root, repoRel string) bool {
+func DeclaresInherits(root, repoRel string) bool {
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
 		return false
 	}
 	abs := filepath.Join(root, repoRel)
-	if !fsx.IsFile(abs) || !fsx.ResolvesUnder(rootAbs, abs) {
+	if !fsx.IsFile(abs) || !fsx.ResolvedWithinRoot(rootAbs, abs) {
 		return false
 	}
 	text, err := fsx.ReadText(abs)
@@ -1298,6 +1421,74 @@ func declaresInherits(root, repoRel string) bool {
 	}
 	_, ok := frontmatter.Parse(text).Data["inherits"].(string)
 	return ok
+}
+
+// servableSource reports whether the layer file at repoRel may be read into
+// something served or exported: judged by the servable-roots whitelist as requested
+// AND after symlink resolution, the same pair of checks serveFrom makes on a
+// response. A path that resolves into a private `.leji/` role fails, however it was
+// spelled.
+func servableSource(root, repoRel string) bool {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	rootAbs, ok := fsx.ResolvedPath(abs)
+	if !ok {
+		return false
+	}
+	target := filepath.Join(rootAbs, filepath.FromSlash(repoRel))
+	if !layout.ServablePath(rootAbs, target) {
+		return false
+	}
+	real, ok := fsx.ResolvedPathUnder(rootAbs, target)
+	return ok && layout.ServablePath(rootAbs, real)
+}
+
+// servableProfileText is a profile source read the way check-before-act requires: the requested
+// path is judged, its RESOLVED path is judged, and the bytes come from the descriptor
+// opened on that resolved path and proved a regular file — so nothing swapped between
+// the check and the read (a file, or any directory above it, becoming a symlink)
+// changes what is composed into a served or exported page. ok is false for anything
+// refused.
+func servableProfileText(rootAbs, repoRel string) (string, bool) {
+	abs := filepath.Join(rootAbs, filepath.FromSlash(repoRel))
+	if !layout.ServablePath(rootAbs, abs) {
+		return "", false
+	}
+	src, err := fsx.OpenVerifiedSource(abs, func(real string) bool {
+		return layout.ServablePath(rootAbs, real) &&
+			(real == rootAbs || strings.HasPrefix(real, rootAbs+string(filepath.Separator)))
+	})
+	if err != nil || src.File == nil {
+		return "", false
+	}
+	defer func() { _ = src.File.Close() }()
+	body, rerr := io.ReadAll(src.File)
+	if rerr != nil {
+		return "", false
+	}
+	return string(body), true
+}
+
+// servableProfileSet is the profile set as the viewer may render it: every source
+// read through servableProfileText, so no profile living in — or symlinked into — a
+// private `.leji/` role is composed into a served page or an exported one, and the
+// bytes composed are the bytes that passed the check. Dropped silently, exactly as
+// the content walk drops unservable content; the scan itself stays total, so
+// validation still reports on those files.
+func servableProfileSet(root string, m *manifest.Manifest) []layer.ScannedProfile {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil
+	}
+	rootAbs, ok := fsx.ResolvedPath(abs)
+	if !ok {
+		return nil
+	}
+	return layer.ScanProfileSetWith(root, m, func(relPath string) (string, bool) {
+		return servableProfileText(rootAbs, relPath)
+	})
 }
 
 // ResolvedProfilePage is the page for repoRel when it is an agent profile that
@@ -1323,41 +1514,48 @@ func ResolvedProfilePage(root string, m *manifest.Manifest, repoRel string) (str
 	if !bound && !fsx.UnderPath(repoRel, manifest.EffectiveAgentProfilesPath(m)) {
 		return "", false
 	}
-	if !declaresInherits(root, repoRel) {
+	// The whitelist, judged before this file is read into a page: a profile that
+	// resolves into a private `.leji/` role is not the viewer's to render. Falling
+	// through hands the request back to the content walk, which refuses it the same
+	// way it refuses any unservable file — this branch never becomes the way in.
+	if !servableSource(root, repoRel) {
 		return "", false
 	}
-	profiles := layer.ScanProfileSet(root, m)
+	if !DeclaresInherits(root, repoRel) {
+		return "", false
+	}
+	profiles := servableProfileSet(root, m)
 	for _, p := range profiles {
 		if p.RelPath == repoRel {
 			return renderResolvedProfile(profiles, p), true
 		}
 	}
-	return unresolvedProfilePage(repoRel, []findings.Finding{
+	return UnresolvedProfilePage(repoRel, []findings.Finding{
 		findings.New("artifact-parse", findings.Error, "the profile scan did not reach this file", repoRel),
 	}), true
 }
 
-// resolvedProfilePage is one inheriting profile's rootPath-relative viewer path
-// and resolved page.
-type resolvedPage struct {
-	rel  string
-	page string
+// ResolvedPage is one inheriting profile's rootPath-relative viewer path and
+// resolved page.
+type ResolvedPage struct {
+	Rel  string
+	Page string
 }
 
-// resolvedProfilePages is every inheriting profile as its rootPath-relative viewer
+// ResolvedProfilePages is every inheriting profile as its rootPath-relative viewer
 // path and resolved page, so a static export carries what the local server renders.
-func resolvedProfilePages(root string, m *manifest.Manifest) []resolvedPage {
-	profiles := layer.ScanProfileSet(root, m)
-	var out []resolvedPage
+func ResolvedProfilePages(root string, m *manifest.Manifest) []ResolvedPage {
+	profiles := servableProfileSet(root, m)
+	var out []ResolvedPage
 	for _, p := range profiles {
 		if _, ok := p.Frontmatter["inherits"].(string); !ok {
 			continue
 		}
-		rel, ok := relativeToRoot(p.RelPath, m.RootPath)
+		rel, ok := RelativeToRoot(p.RelPath, m.RootPath)
 		if !ok {
 			continue // outside the context root: not servable
 		}
-		out = append(out, resolvedPage{rel: rel, page: renderResolvedProfile(profiles, p)})
+		out = append(out, ResolvedPage{Rel: rel, Page: renderResolvedProfile(profiles, p)})
 	}
 	return out
 }
@@ -1379,7 +1577,7 @@ func scriptSafeJSON(b []byte) string {
 // key order (JSON.stringify of the object literal), then script-escapes it.
 // Appends the homepage viewer-path-missing warning to fnds when the configured
 // homepage does not resolve.
-func docsifyConfigJSON(root string, m *manifest.Manifest, nameHTML string, fnds *[]findings.Finding) (string, error) {
+func docsifyConfigJSON(root string, m *manifest.Manifest, nameHTML, base string, fnds *[]findings.Finding) (string, error) {
 	var b bytes.Buffer
 	writeStr := func(s string) error {
 		enc, err := jsonenc.Marshal(s)
@@ -1400,22 +1598,30 @@ func docsifyConfigJSON(root string, m *manifest.Manifest, nameHTML string, fnds 
 	if err := writeStr(nameHTML); err != nil {
 		return "", err
 	}
+	// Where the layer's markdown is mounted. Docsify's own key, so the boot script
+	// configures the router from it rather than hardcoding a root: '/content/'
+	// served, 'content/' exported (resolved against the page, so the tree hosts
+	// under any subpath).
+	b.WriteString(`,"basePath":`)
+	if err := writeStr(base + "content/"); err != nil {
+		return "", err
+	}
 	// Hash navigation for the logo/title link: #/ re-routes to the homepage
 	// inside the SPA instead of a full page reload.
 	b.WriteString(`,"nameLink":"#/"`)
 	// Per-page classification badge (top-right chip): the boot script resolves
 	// the current route against the served index using these.
-	idxRel, idxOK := relativeToRoot(manifest.EffectiveIndexPath(m), m.RootPath)
+	idxRel, idxOK := RelativeToRoot(manifest.EffectiveIndexPath(m), m.RootPath)
 	b.WriteString(`,"lejiIndexRel":`)
 	if err := writeNullable(idxRel, idxOK); err != nil {
 		return "", err
 	}
-	bootRel, bootOK := relativeToRoot(m.BootProfilePath, m.RootPath)
+	bootRel, bootOK := RelativeToRoot(m.BootProfilePath, m.RootPath)
 	b.WriteString(`,"lejiBootPath":`)
 	if err := writeNullable(bootRel, bootOK); err != nil {
 		return "", err
 	}
-	agentsRel, agentsOK := relativeToRoot(manifest.EffectiveAgentProfilesPath(m), m.RootPath)
+	agentsRel, agentsOK := RelativeToRoot(manifest.EffectiveAgentProfilesPath(m), m.RootPath)
 	b.WriteString(`,"lejiAgentsPrefix":`)
 	if err := writeNullable(agentsRel, agentsOK); err != nil {
 		return "", err
@@ -1460,6 +1666,14 @@ func docsifyConfigJSON(root string, m *manifest.Manifest, nameHTML string, fnds 
 	if err := writeStr(theme); err != nil {
 		return "", err
 	}
+	// Mermaid node text, readable against the accent. Computed here because this
+	// side resolves every accepted color form; the boot script's own hex-only
+	// fallback covers viewer trees generated before this field. Leji's own key,
+	// not one Docsify reads, hence the prefix.
+	b.WriteString(`,"lejiMermaidTextColor":`)
+	if err := writeStr(mermaidTextColor(theme)); err != nil {
+		return "", err
+	}
 	// Read by the boot script's powered-by plugin; false removes the mark.
 	powered := !(m.Viewer != nil && m.Viewer.PoweredBy != nil && !*m.Viewer.PoweredBy)
 	b.WriteString(`,"lejiPoweredBy":`)
@@ -1468,12 +1682,12 @@ func docsifyConfigJSON(root string, m *manifest.Manifest, nameHTML string, fnds 
 	return scriptSafeJSON(b.Bytes()), nil
 }
 
-// assembleSidebar assembles the current sidebar for a layer entirely in memory:
+// AssembleSidebar assembles the current sidebar for a layer entirely in memory:
 // pins (with boot-pin replacement), pin-filtered groups, and the
 // homepage-excluded reference tree. Used by generation and by the serve path,
 // which rebuilds it per fetch so a long-running viewer never shows a deleted or
 // moved document.
-func assembleSidebar(root string, m *manifest.Manifest, entries []indexgen.IndexEntry, fnds *[]findings.Finding) string {
+func AssembleSidebar(root string, m *manifest.Manifest, entries []indexgen.IndexEntry, fnds *[]findings.Finding) string {
 	governedPaths := map[string]bool{}
 	for _, e := range entries {
 		governedPaths[e.Path] = true
@@ -1492,7 +1706,7 @@ func assembleSidebar(root string, m *manifest.Manifest, entries []indexgen.Index
 			// Pins are repo-relative canonically; a rootPath-relative pin under the
 			// context root is accepted too (same tolerance as homepage/logo/favicon).
 			// repoRel tracks where the file actually lives for reads and comparisons.
-			rel, ok := relativeToRoot(pinPath, m.RootPath)
+			rel, ok := RelativeToRoot(pinPath, m.RootPath)
 			repoRel := pinPath
 			if !ok || !fsx.IsFile(filepath.Join(root, pinPath)) {
 				base := fsx.StripSlash(m.RootPath)
@@ -1560,28 +1774,16 @@ func assembleSidebar(root string, m *manifest.Manifest, entries []indexgen.Index
 	return BuildSidebar(m, groups, tree, pins, bootPinned)
 }
 
-// GenerateViewer writes index.html, _sidebar.md, and the vendored assets into the
-// context root: a Docsify `index.html` and a `_sidebar.md` projected from the
-// index. Presentation is non-normative; this is the reference projection of
-// context-index.json into a browsable surface.
-func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
-	result := indexgen.GenerateIndex(root, m)
-	// Don't project a viewer from a tree that can't be indexed cleanly: surface the
-	// errors and write nothing, the same refusal WriteIndex makes.
-	for _, f := range result.Findings {
-		if f.Severity == findings.Error {
-			return Result{Written: nil, Findings: result.Findings, Entries: 0}, nil
-		}
-	}
-	var entries []indexgen.IndexEntry
-	if result.Index != nil {
-		entries = result.Index.Entries
-	}
-	var findingsEarly []findings.Finding
-
+// BuildIndexHTML is the SPA shell for one flavor of the chrome: the template with
+// this layer's config baked in, every URL it emits written against base. The served
+// flavor ("/") and the export flavor ("") come from this one function, so the export
+// never gets its HTML rewritten after the fact. fnds collects the two resolution
+// warnings (homepage, accent) in their established order; the export invocation
+// discards them, having already reported the generation run's.
+func BuildIndexHTML(root string, m *manifest.Manifest, base string, fnds *[]findings.Finding) (string, error) {
 	htmlBytes, err := assets.FS.ReadFile("templates/viewer/index.html")
 	if err != nil {
-		return Result{}, err
+		return "", err
 	}
 	// Display title: viewer.title override, else the context layer name.
 	displayTitle := m.Name
@@ -1598,7 +1800,7 @@ func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
 		logo = m.Viewer.Logo
 		favicon = m.Viewer.Favicon
 	}
-	logoURL := htmlEscape(resolveLogo(root, m.RootPath, logo))
+	logoURL := htmlEscape(resolveLogo(root, m.RootPath, logo, base))
 	var nameHTML string
 	if logo != "" {
 		nameHTML = `<img src="` + logoURL + `" alt="` + htmlEscape(displayTitle) + `" style="max-width:180px;margin:10px auto;display:block;" />`
@@ -1607,23 +1809,22 @@ func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
 	}
 	// Favicon: a configured path is served from the content mount; unset falls back
 	// to the vendored Leji mark.
-	faviconURL := htmlEscape(defaultLogo)
+	faviconURL := htmlEscape(defaultLogo(base))
 	if favicon != "" {
 		rel, ok := resolveViewerRel(root, m.RootPath, favicon)
 		if !ok {
 			rel = fsx.StripSlash(favicon)
 		}
-		faviconURL = htmlEscape("/content/" + rel)
+		faviconURL = htmlEscape(base + "content/" + rel)
 	}
-	config, err := docsifyConfigJSON(root, m, nameHTML, &findingsEarly)
+	config, err := docsifyConfigJSON(root, m, nameHTML, base, fnds)
 	if err != nil {
-		return Result{}, err
+		return "", err
 	}
 	// Mermaid is on unless explicitly disabled. When off, the scripts are omitted
 	// and their assets not copied (~3MB smaller viewer).
-	mermaidEnabled := m.Viewer == nil || m.Viewer.Mermaid == nil || *m.Viewer.Mermaid
 	mermaidScripts := ""
-	if mermaidEnabled {
+	if mermaidEnabled(m) {
 		mermaidScripts = "\n      <script src=\"assets/mermaid.min.js\"></script>" +
 			"\n      <script src=\"assets/docsify-mermaid.js\"></script>"
 	}
@@ -1637,24 +1838,55 @@ func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
 		"DOCSIFY_CONFIG":  config,
 		"MERMAID_SCRIPTS": mermaidScripts,
 	}
-	page := placeholderRe.ReplaceAllStringFunc(string(htmlBytes), func(whole string) string {
+	return placeholderRe.ReplaceAllStringFunc(string(htmlBytes), func(whole string) string {
 		if v, ok := substitutions[whole[2:len(whole)-2]]; ok {
 			return v
 		}
 		return whole
-	})
-	sidebar := assembleSidebar(root, m, entries, &findingsEarly)
+	}), nil
+}
+
+// mermaidEnabled reports whether the layer keeps mermaid on (the default).
+func mermaidEnabled(m *manifest.Manifest) bool {
+	return m.Viewer == nil || m.Viewer.Mermaid == nil || *m.Viewer.Mermaid
+}
+
+// GenerateViewer writes index.html, _sidebar.md, and the vendored assets into the
+// root `.leji/viewer/` role: a Docsify `index.html` and a `_sidebar.md` projected
+// from the index. Presentation is non-normative; this is the reference projection
+// of context-index.json into a browsable surface.
+func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
+	result, err := indexgen.GenerateIndex(root, m)
+	if err != nil {
+		return Result{}, err
+	}
+	// Don't project a viewer from a tree that can't be indexed cleanly: surface the
+	// errors and write nothing, the same refusal WriteIndex makes.
+	for _, f := range result.Findings {
+		if f.Severity == findings.Error {
+			return Result{Written: nil, Findings: result.Findings, Entries: 0}, nil
+		}
+	}
+	var entries []indexgen.IndexEntry
+	if result.Index != nil {
+		entries = result.Index.Entries
+	}
+	var findingsEarly []findings.Finding
+
+	// The served flavor: the chrome under `.leji/viewer/` is never export-flavored.
+	page, err := BuildIndexHTML(root, m, servedBase, &findingsEarly)
+	if err != nil {
+		return Result{}, err
+	}
+	sidebar := AssembleSidebar(root, m, entries, &findingsEarly)
 
 	rootDir := fsx.StripSlash(m.RootPath)
 	if rootDir == "" {
 		rootDir = "."
 	}
-
-	// The viewer is contained under rootPath/.leji/viewer/ (gitignored) so it never
-	// collides with the user's own files in the context root.
-	viewerDir := ".leji/viewer"
-	if rootDir != "." {
-		viewerDir = rootDir + "/.leji/viewer"
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return Result{}, err
 	}
 
 	var written []string
@@ -1676,7 +1908,8 @@ func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
 		if e.IsDir() || e.Name() == "PROVENANCE.txt" || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
-		if !mermaidEnabled && mermaidAssets[e.Name()] {
+		// Mermaid off omits its two scripts from the page and their assets here (~3MB).
+		if !mermaidEnabled(m) && mermaidAssets[e.Name()] {
 			continue
 		}
 		content, err := assets.FS.ReadFile("templates/viewer/assets/" + e.Name())
@@ -1690,59 +1923,124 @@ func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
 	}
 	findingList := append([]findings.Finding{}, result.Findings...)
 	findingList = append(findingList, findingsEarly...)
-	// Refuse to write through a symlink that escapes the layer root. ResolvesUnder
-	// resolves the nearest existing ancestor, so a not-yet-existing target under a
-	// symlinked directory is caught before mkdir/write can escape. An escaping target
-	// is skipped with an error finding rather than aborting, mirroring Node's writeWithin.
-	for _, f := range files {
-		rel := viewerDir + "/" + f.name
-		abs := filepath.Join(root, rel)
-		if !fsx.ResolvesUnder(root, abs) {
+
+	// Check-before-act: the generation target — the `.leji/viewer/` role — is
+	// realpath-resolved and validated BEFORE a single byte is written. A `.leji/viewer`
+	// that resolves into a DIFFERENT private role (`.leji/work/`, `.leji/mounts/`, a
+	// future role), or out of the repository altogether, is refused here, so a symlinked
+	// viewer can never be written through into the trust domain or out of the tree; only
+	// its own directory passes. Unresolvable (permission/I/O error, not mere absence)
+	// fails the check rather than being rebuilt lexically.
+	resolvedRoot, ok := fsx.ResolvedPath(rootAbs)
+	if !ok {
+		resolvedRoot = rootAbs
+	}
+	viewerTarget, resolvable := fsx.ResolvedPathUnder(resolvedRoot, layout.Abs(resolvedRoot, layout.ViewerRel))
+	verdict := layout.TargetVerdict{Unresolvable: true}
+	if resolvable {
+		verdict = layout.WritableTarget(resolvedRoot, viewerTarget, layout.ViewerRel)
+	}
+	if !verdict.OK {
+		message := "refusing to generate the viewer: " + layout.ViewerRel + "/ resolves into " +
+			layout.LejiDir + "/" + verdict.Role + " (private); remove the symlink"
+		switch {
+		case verdict.Unresolvable:
+			message = "refusing to generate the viewer: " + layout.ViewerRel +
+				"/ cannot be resolved (permission or I/O error); remove the symlink"
+		case verdict.OutsideRoot:
+			message = "refusing to generate the viewer: " + layout.ViewerRel +
+				"/ resolves outside the repository; remove the symlink"
+		}
+		findingList = append(findingList, findings.New("viewer-target-refused", findings.Error, message, layout.ViewerRel))
+		return Result{Written: written, Findings: findingList, Entries: 0}, nil
+	}
+
+	// The chrome's role in the unified root `.leji/` (gitignored): outside the context
+	// root whatever rootPath is, so it never collides with the user's own files and
+	// never rides a content walk. Every write goes back through the chokepoint with the
+	// viewer's own role, so each file is judged on its RESOLVED path immediately before
+	// it is written and lands there: the role was validated as a whole above, and this
+	// keeps a symlink planted inside the tree from redirecting a single file elsewhere.
+	viewerDir := layout.ViewerRel
+	writeViewerFile := func(rel string, content []byte) error {
+		abs := filepath.Join(root, filepath.FromSlash(rel))
+		verdict, err := fsx.WriteFileGuarded(resolvedRoot, abs, layout.ViewerRel, content, fsx.WriteOptions{})
+		if err != nil {
+			return err
+		}
+		if !verdict.OK {
 			findingList = append(findingList, findings.New("artifact-parse", findings.Error,
-				"viewer path "+rel+" resolves outside the layer root", rel))
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			return Result{}, err
-		}
-		if err := os.WriteFile(abs, f.content, 0o644); err != nil {
-			return Result{}, err
+				"viewer path "+rel+" resolves outside "+layout.ViewerRel+"/", rel))
+			return nil
 		}
 		written = append(written, rel)
+		return nil
+	}
+	for _, f := range files {
+		if err := writeViewerFile(viewerDir+"/"+f.name, f.content); err != nil {
+			return Result{}, err
+		}
 	}
 
 	// The overview/home page is user-owned content (not chrome): seeded once, never
 	// overwritten. On regen only the marked map block is refreshed; if the owner
 	// removed the markers, the page is left alone.
+	//
+	// Check-before-act: overview.md is content — its target must resolve WITHIN
+	// the layer root AND never into a private `.leji/` role. It is judged on the
+	// RESOLVED path (no `.leji/` role of its own) BEFORE anything is read or written,
+	// so an overview.md symlinked into `.leji/work/` or `.leji/mounts/` is refused
+	// before the seed or the refresh writes through it — and the write itself then
+	// lands via the guarded-write chokepoint on that path.
 	overviewRel := "overview.md"
 	if rootDir != "." {
 		overviewRel = rootDir + "/overview.md"
 	}
 	overviewAbs := filepath.Join(root, overviewRel)
-	if !fsx.IsFile(overviewAbs) {
-		if !fsx.ResolvesUnder(root, overviewAbs) {
-			findingList = append(findingList, findings.New("artifact-parse", findings.Error,
-				"viewer path "+overviewRel+" resolves outside the layer root", overviewRel))
-		} else {
-			if err := os.MkdirAll(filepath.Dir(overviewAbs), 0o755); err != nil {
-				return Result{}, err
-			}
-			if err := os.WriteFile(overviewAbs, []byte(buildOverviewSeed(m, entries)), 0o644); err != nil {
-				return Result{}, err
-			}
-			written = append(written, overviewRel)
-		}
-	} else if fsx.ResolvesUnder(root, overviewAbs) {
-		existing, err := fsx.ReadText(overviewAbs)
+	overviewResolved, overviewResolvable := fsx.ResolvedPathUnder(resolvedRoot, overviewAbs)
+	overviewVerdict := layout.TargetVerdict{}
+	contained := overviewResolvable && fsx.ResolvedWithinRoot(rootAbs, overviewAbs)
+	if contained {
+		overviewVerdict = layout.WritableTarget(resolvedRoot, overviewResolved, "")
+	}
+	overviewRead, err := fsx.VerifiedTargetRead(resolvedRoot, overviewAbs, "")
+	if err != nil {
+		return Result{}, err
+	}
+	switch {
+	case !contained:
+		findingList = append(findingList, findings.New("artifact-parse", findings.Error,
+			"overview.md resolves outside the layer root", overviewRel))
+	case !overviewVerdict.OK:
+		findingList = append(findingList, findings.New("viewer-target-refused", findings.Error,
+			"refusing to write overview.md: it resolves into "+layout.LejiDir+"/"+overviewVerdict.Role+
+				" (private); remove the symlink", overviewRel))
+	case overviewRead.Status == fsx.ReadRefused:
+		// A standing entry that cannot be verified as a regular file inside the layer:
+		// the map is neither seeded through it nor refreshed from bytes read by path.
+		findingList = append(findingList, findings.New("viewer-target-refused", findings.Error,
+			"refusing to write overview.md: it does not resolve to a regular file inside the repository; "+
+				"remove the symlink", overviewRel))
+	case overviewRead.Status == fsx.ReadAbsent:
+		seeded, err := fsx.WriteFileGuarded(resolvedRoot, overviewAbs, "",
+			[]byte(buildOverviewSeed(m, entries)), fsx.WriteOptions{})
 		if err != nil {
 			return Result{}, err
 		}
+		if seeded.OK {
+			written = append(written, overviewRel)
+		}
+	default:
+		// The refresh rewrites the page it just read, so those bytes come from the
+		// verified descriptor rather than from a second read by pathname.
+		existing := string(overviewRead.Bytes)
 		start := strings.Index(existing, mapStart)
 		end := strings.Index(existing, mapEnd)
 		if start >= 0 && end > start {
 			updated := existing[:start] + mapBlock(m, entries) + existing[end+len(mapEnd):]
 			if updated != existing {
-				if err := os.WriteFile(overviewAbs, []byte(updated), 0o644); err != nil {
+				if _, err := fsx.WriteFileGuarded(resolvedRoot, overviewAbs, "",
+					[]byte(updated), fsx.WriteOptions{}); err != nil {
 					return Result{}, err
 				}
 			}
@@ -1757,266 +2055,14 @@ func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
 	// user's own files) and served via a dedicated content route (never a committed
 	// file at the context root, so no diff churn). Regenerated every run; pinned.
 	manifestStatuses, _ := mounts.MountStatus(root, m, mounts.StatusOptions{})
-	manifestRel := viewerDir + "/_manifest.md"
-	manifestAbs := filepath.Join(root, manifestRel)
-	if !fsx.ResolvesUnder(root, manifestAbs) {
-		findingList = append(findingList, findings.New("artifact-parse", findings.Error,
-			"viewer path "+manifestRel+" resolves outside the layer root", manifestRel))
-	} else {
-		if err := os.MkdirAll(filepath.Dir(manifestAbs), 0o755); err != nil {
-			return Result{}, err
-		}
-		if err := os.WriteFile(manifestAbs, []byte(buildManifestPage(m, manifestStatuses)), 0o644); err != nil {
-			return Result{}, err
-		}
-		written = append(written, manifestRel)
+	if err := writeViewerFile(viewerDir+"/_manifest.md", []byte(buildManifestPage(m, manifestStatuses))); err != nil {
+		return Result{}, err
 	}
 
 	return Result{Written: written, Findings: findingList, Entries: len(entries)}, nil
 }
 
-// ProtectWarning is the protect-your-context warning surfaced by `leji viewer
-// build` (stdout and a comment in the exported index.html).
-const ProtectWarning = "This is your context layer (identity, invariants, decisions, sometimes sensitive internal knowledge). Host the exported folder behind internal authentication, not a public or shared bucket where it could be indexed or leaked. Active file types (.htm, .html, .js, .mjs, .xhtml) are left out of the exported content: a static host would serve them as same-origin documents that execute with no policy."
-
-// exportMarker is the first bytes `viewer build` writes into an exported
-// index.html. A target directory carrying this marker is a previous export and
-// may be cleared; any other non-empty directory is somebody's content.
-const exportMarker = "<!--\n  Leji viewer (leji viewer build).\n"
-
-// clearableExport reports whether the export may clear dir: it is absent, an
-// empty directory, or a previous export. Anything else (a file, a populated
-// directory the exporter did not write) is content the tool must not delete.
-func clearableExport(dir string) bool {
-	info, err := os.Stat(dir)
-	if err != nil {
-		return true // absent
-	}
-	if !info.IsDir() {
-		return false
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	if len(entries) == 0 {
-		return true
-	}
-	index := filepath.Join(dir, "index.html")
-	if !fsx.IsFile(index) {
-		return false
-	}
-	body, err := os.ReadFile(index)
-	if err != nil {
-		return false
-	}
-	return strings.HasPrefix(string(body), exportMarker)
-}
-
-// BuildResult is the result of BuildViewer: the relative output dir and the
-// findings carried over from regeneration.
-type BuildResult struct {
-	Out      string
-	Findings []findings.Finding
-}
-
-// copyOptions tunes copyTree for the two trees the export writes: the layer's
-// content (dotfiles, active types, and the export dir itself all excluded) and
-// the viewer's own vendored assets (copied whole, .js and .svg included).
-type copyOptions struct {
-	skipDotfiles bool   // dot-prefixed entries at every level (.git, .leji, .secret.md)
-	skipActive   bool   // extensions a static host would serve as active documents
-	skipPath     string // an absolute path never descended into (the export itself)
-}
-
-// copyTree recursively copies src to dst, preserving file modes; mirrors Node's
-// copyContent.
-func copyTree(src, dst string, opts copyOptions) error {
-	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, p)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return os.MkdirAll(dst, 0o755)
-		}
-		if opts.skipDotfiles && strings.HasPrefix(filepath.Base(rel), ".") {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		// Second line of defense behind the --out containment in BuildViewer: the
-		// export never walks into itself, whatever the output path turns out to be.
-		if opts.skipPath != "" && p == opts.skipPath {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		// Skip symlinks: reading through one would copy content from outside the layer
-		// into the self-contained export.
-		if info.Mode()&os.ModeSymlink != 0 {
-			return nil
-		}
-		target := filepath.Join(dst, rel)
-		if info.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		// Active types never ride along: the export is meant to be hosted, and a
-		// static host would serve them as same-origin documents with no policy.
-		if opts.skipActive && activeExtensions[strings.ToLower(path.Ext(rel))] {
-			return nil
-		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		return os.WriteFile(target, data, info.Mode().Perm())
-	})
-}
-
-// copyFile copies a single file, preserving its mode.
-func copyFile(src, dst string) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(dst, data, info.Mode().Perm())
-}
-
-// BuildViewer exports a self-contained static viewer into outRel with the same URL
-// contract the local server uses (chrome at the web root, markdown under
-// /content/), so any static host serves it as-is. Regenerates first, then copies
-// chrome and content docs into a clean output dir. The exported index.html carries
-// the protect-your-context warning as a comment.
-func BuildViewer(root string, m *manifest.Manifest, outRel string) (BuildResult, error) {
-	gen, err := GenerateViewer(root, m)
-	if err != nil {
-		return BuildResult{}, err
-	}
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		return BuildResult{}, err
-	}
-	rootDir := fsx.StripSlash(m.RootPath)
-	if rootDir == "" {
-		rootDir = "."
-	}
-	contentAbs := rootAbs
-	if rootDir != "." {
-		contentAbs = filepath.Join(rootAbs, rootDir)
-	}
-	var outAbs string
-	switch {
-	case outRel == "":
-		outAbs = filepath.Join(contentAbs, ".leji", "viewer-dist")
-	case filepath.IsAbs(outRel):
-		outAbs = outRel
-	default:
-		outAbs = filepath.Join(rootAbs, outRel)
-	}
-	outDisplay, err := filepath.Rel(rootAbs, outAbs)
-	if err != nil {
-		return BuildResult{}, err
-	}
-
-	// Never run the destructive export when generation failed (e.g. a symlinked
-	// rootPath escaping the layer): the removal below could delete an escaped path.
-	for _, fnd := range gen.Findings {
-		if fnd.Severity == findings.Error {
-			return BuildResult{Out: outDisplay, Findings: gen.Findings}, nil
-		}
-	}
-	// Contain the output before the removal: it must stay inside the repo and clear
-	// of the context root in BOTH directions. Exporting into governed content deletes
-	// it, and exporting into a directory that holds the context root deletes the layer
-	// itself. The default output lives under the dot-dir the walk skips, so only a
-	// caller-supplied --out is measured against the context root.
-	sep := string(filepath.Separator)
-	collides := outRel != "" &&
-		(strings.HasPrefix(outAbs, contentAbs+sep) || strings.HasPrefix(contentAbs, outAbs+sep))
-	ref := outRel
-	if ref == "" {
-		ref = outDisplay
-	}
-	if outAbs == rootAbs || outAbs == contentAbs || !fsx.ResolvesUnder(rootAbs, outAbs) || collides {
-		return BuildResult{}, errors.New(`refusing to build the viewer into "` + ref + `": --out must be a path inside the repository, and must not be the repository root, the context root, inside the context root, or a directory containing the context root`)
-	}
-	// Never remove a directory this command did not write: the export clears a
-	// previous export, and refuses anything else that is already occupied.
-	if !clearableExport(outAbs) {
-		return BuildResult{}, errors.New(`refusing to build the viewer into "` + ref + `": the target exists and is neither empty nor a previous viewer export; remove it or pick another --out`)
-	}
-	viewerAbs := filepath.Join(contentAbs, ".leji", "viewer")
-	outContent := filepath.Join(outAbs, "content")
-
-	// Clean rebuild so a removed source file never lingers in the export.
-	if err := os.RemoveAll(outAbs); err != nil {
-		return BuildResult{}, err
-	}
-	if err := os.MkdirAll(outContent, 0o755); err != nil {
-		return BuildResult{}, err
-	}
-
-	// Content docs under /content/ (everything except the regenerable .leji/ dir).
-	if err := copyTree(contentAbs, outContent, copyOptions{skipDotfiles: true, skipActive: true, skipPath: outAbs}); err != nil {
-		return BuildResult{}, err
-	}
-	// An inheriting agent profile exports resolved, exactly as the local server
-	// renders it: the copied file is only its own half of the profile.
-	for _, rp := range resolvedProfilePages(rootAbs, m) {
-		target := filepath.Join(outContent, filepath.FromSlash(rp.rel))
-		if !fsx.ResolvesUnder(outContent, target) {
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return BuildResult{}, err
-		}
-		if err := os.WriteFile(target, []byte(rp.page), 0o644); err != nil {
-			return BuildResult{}, err
-		}
-	}
-	// The generated sidebar is served as if at the content root.
-	if err := copyFile(filepath.Join(viewerAbs, "_sidebar.md"), filepath.Join(outContent, "_sidebar.md")); err != nil {
-		return BuildResult{}, err
-	}
-	// The generated Manifest page, likewise served as if at the content root.
-	if err := copyFile(filepath.Join(viewerAbs, "_manifest.md"), filepath.Join(outContent, "_manifest.md")); err != nil {
-		return BuildResult{}, err
-	}
-	// The viewer assets at the web root: vendored chrome, copied whole (its own
-	// scripts and the Leji mark are exactly the active types the content walk drops).
-	if err := copyTree(filepath.Join(viewerAbs, "assets"), filepath.Join(outAbs, "assets"), copyOptions{}); err != nil {
-		return BuildResult{}, err
-	}
-	// index.html at the web root, with the protect-your-context warning prepended.
-	indexHTML, err := os.ReadFile(filepath.Join(viewerAbs, "index.html"))
-	if err != nil {
-		return BuildResult{}, err
-	}
-	prepended := "<!--\n  Leji viewer (leji viewer build).\n  " + ProtectWarning + "\n-->\n" + string(indexHTML)
-	if err := os.WriteFile(filepath.Join(outAbs, "index.html"), []byte(prepended), 0o644); err != nil {
-		return BuildResult{}, err
-	}
-
-	return BuildResult{Out: outDisplay, Findings: gen.Findings}, nil
-}
-
-// activeExtensions are the extensions a browser would run as an active,
+// ActiveExtensions are the extensions a browser would run as an active,
 // same-origin document. Under `/content/` they are served as text/plain instead
 // of their active type, and they are left out of the static export entirely:
 // everything under the content mount is layer material, and layer material is
@@ -2028,398 +2074,10 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string) (BuildResult,
 // the cspContent sandbox below, so an SVG navigated to or framed lands in an
 // opaque origin with scripting off, and an SVG loaded as an <img> never runs
 // script whatever its type.
-var activeExtensions = map[string]bool{
+var ActiveExtensions = map[string]bool{
 	".html":  true,
 	".htm":   true,
 	".js":    true,
 	".mjs":   true,
 	".xhtml": true,
-}
-
-const (
-	// cspChrome is the SPA shell's policy, sent as a response header on every
-	// chrome response so it holds for documents reached outside the shell too.
-	// Mirrors the meta in templates/viewer/index.html; keep the two in step.
-	cspChrome = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; frame-src 'none'"
-	// cspContent is the policy for everything served out of the layer itself.
-	// `sandbox` with no tokens puts a /content/ document in an opaque origin with
-	// scripting off, so a governed file framed or opened directly is inert rather
-	// than same-origin code.
-	cspContent = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox"
-)
-
-// loopbackHosts are the host names the local preview answers to.
-var loopbackHosts = map[string]bool{"localhost": true, "127.0.0.1": true, "[::1]": true}
-
-// loopbackHost reports whether the Host header names the loopback interface:
-// hostname only, since the port a request arrives on is already fixed by the
-// loopback bind. A missing Host is accepted (an HTTP/1.0 client omits it).
-func loopbackHost(host string) bool {
-	if host == "" {
-		return true
-	}
-	name := host
-	if strings.HasPrefix(host, "[") {
-		name = host[:strings.Index(host, "]")+1]
-	} else if i := strings.Index(host, ":"); i >= 0 {
-		name = host[:i]
-	}
-	return loopbackHosts[strings.ToLower(name)]
-}
-
-var contentTypes = map[string]string{
-	".html":  "text/html; charset=utf-8",
-	".md":    "text/markdown; charset=utf-8",
-	".js":    "text/javascript; charset=utf-8",
-	".mjs":   "text/javascript; charset=utf-8",
-	".css":   "text/css; charset=utf-8",
-	".json":  "application/json; charset=utf-8",
-	".svg":   "image/svg+xml",
-	".png":   "image/png",
-	".jpg":   "image/jpeg",
-	".jpeg":  "image/jpeg",
-	".gif":   "image/gif",
-	".ico":   "image/x-icon",
-	".txt":   "text/plain; charset=utf-8",
-	".woff":  "font/woff",
-	".woff2": "font/woff2",
-}
-
-// serveFrom serves `sub` (clean relative path; "" -> index.html) from mountRoot.
-// Lexically contains the target, follows a dir to index.html, then realpath-checks
-// so a symlink can't escape. Mirrors Node: 200 ok, 403 containment violation, 404
-// on any stat/read failure. `inert` marks the layer's own content mount, whose
-// files are never given an active content type however they are named.
-func serveFrom(w http.ResponseWriter, mountRoot, sub string, inert bool) {
-	var abs string
-	if sub == "" {
-		abs = filepath.Join(mountRoot, "index.html")
-	} else {
-		abs = filepath.Join(mountRoot, sub)
-	}
-	if abs != mountRoot && !strings.HasPrefix(abs, mountRoot+string(filepath.Separator)) {
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte("forbidden"))
-		return
-	}
-	if info, err := os.Stat(abs); err == nil && info.IsDir() {
-		abs = filepath.Join(abs, "index.html")
-	}
-	real, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte("not found"))
-		return
-	}
-	if real != mountRoot && !strings.HasPrefix(real, mountRoot+string(filepath.Separator)) {
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte("forbidden"))
-		return
-	}
-	body, err := os.ReadFile(abs)
-	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte("not found"))
-		return
-	}
-	ext := strings.ToLower(path.Ext(abs))
-	ct := contentTypes[ext]
-	if ct == "" {
-		ct = "application/octet-stream"
-	}
-	if inert && activeExtensions[ext] {
-		ct = "text/plain; charset=utf-8"
-	}
-	w.Header().Set("content-type", ct)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(body)
-}
-
-// sidebarCache is the live-sidebar cache entry: the tree fingerprint it was built
-// from, the assembled sidebar, and (when the index generated cleanly) the
-// serialized context index served live for the classification chip.
-type sidebarCache struct {
-	key       string
-	body      string
-	indexJSON string
-	hasIndex  bool
-}
-
-// statusWriter records the status code written so the access log can report it.
-type statusWriter struct {
-	http.ResponseWriter
-	code int
-}
-
-func (w *statusWriter) WriteHeader(code int) {
-	w.code = code
-	w.ResponseWriter.WriteHeader(code)
-}
-
-// newHandler builds the virtual-mount handler: viewer chrome
-// (rootPath/.leji/viewer/) at "/", the layer's markdown (rootPath/) under
-// "/content/". The internal .leji path is reachable only through these mounts.
-// The generated sidebar and the stored context index are served live from the
-// tree (fingerprint-cached), so a long-running viewer never shows a deleted or
-// moved document. logf, when set, receives one terse access-log line per request.
-func newHandler(rootAbs, base, contentAbs, viewerAbs string, logf func(string)) http.Handler {
-	// Live-sidebar cache, invalidated by a tree fingerprint: one stat pass over
-	// leji.json + every markdown file under the content root (paths, mtimes,
-	// sizes — no content reads). The common unchanged-tree reload serves the
-	// cached string at stat cost; any create, delete, or edit still lands on the
-	// very next fetch. WalkTree skips dotdirs, so the viewer's own artifacts
-	// never invalidate the cache.
-	var mu sync.Mutex
-	var cache *sidebarCache
-	treeFingerprint := func() string {
-		var parts []string
-		add := func(rel string) {
-			st, err := os.Stat(filepath.Join(rootAbs, rel))
-			if err != nil {
-				parts = append(parts, rel+"\x00gone")
-				return
-			}
-			parts = append(parts, fmt.Sprintf("%s\x00%d\x00%d", rel, st.ModTime().UnixNano(), st.Size()))
-		}
-		add("leji.json")
-		walkBase := base
-		if walkBase == "" {
-			walkBase = "."
-		}
-		for _, rel := range fsx.WalkTree(rootAbs, walkBase) {
-			add(rel)
-		}
-		return strings.Join(parts, "\n")
-	}
-	// refresh rebuilds the cache for key from the live tree; returns nil when the
-	// manifest is missing or the tree will not index cleanly (callers then fall
-	// back to the generated artifact).
-	refresh := func(key string) *sidebarCache {
-		load := manifest.LoadManifest(rootAbs)
-		if load.Manifest == nil {
-			return nil
-		}
-		idx := indexgen.GenerateIndex(rootAbs, load.Manifest)
-		for _, f := range idx.Findings {
-			if f.Severity == findings.Error {
-				return nil
-			}
-		}
-		var entries []indexgen.IndexEntry
-		if idx.Index != nil {
-			entries = idx.Index.Entries
-		}
-		var discard []findings.Finding
-		c := &sidebarCache{key: key, body: assembleSidebar(rootAbs, load.Manifest, entries, &discard)}
-		if idx.Index != nil {
-			c.indexJSON = indexgen.SerializeIndex(idx.Index)
-			c.hasIndex = true
-		}
-		cache = c
-		return c
-	}
-	serveText := func(w http.ResponseWriter, contentType, body string) {
-		w.Header().Set("content-type", contentType)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(body))
-	}
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Policy headers ride every response, not just the SPA shell: a document
-		// served straight out of /content/ is same-origin and would otherwise run
-		// with no policy at all. Set before any write; the content mount downgrades
-		// to the inert policy once the route is known.
-		w.Header().Set("x-content-type-options", "nosniff")
-		w.Header().Set("content-security-policy", cspChrome)
-		// Loopback binding alone does not stop DNS rebinding: a hostile page whose
-		// name resolves to 127.0.0.1 reaches this server with its own Host. Only the
-		// loopback names the viewer is actually addressed by are answered. The port is
-		// deliberately not part of the test: a rebound request carries the right port
-		// anyway, so matching it adds nothing. Don't "fix" this by checking it.
-		if !loopbackHost(r.Host) {
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte("forbidden"))
-			return
-		}
-		// A malformed percent-encoding leaves RawPath set but Path empty/wrong;
-		// detect a decode error and answer 400 rather than crash.
-		urlPath, err := decodePath(r.URL)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte("bad request"))
-			return
-		}
-		rel := urlPathToRel(urlPath)
-		if rel == "content" || strings.HasPrefix(rel, "content/") {
-			w.Header().Set("content-security-policy", cspContent)
-		}
-		// Refuse any dotfile or VCS-internal segment in the request path: the .leji
-		// viewer dir is reached only through the mounts below.
-		for _, seg := range strings.Split(rel, "/") {
-			if seg == ".git" || (strings.HasPrefix(seg, ".") && seg != "." && seg != "") {
-				w.WriteHeader(http.StatusNotFound)
-				_, _ = w.Write([]byte("not found"))
-				return
-			}
-		}
-		// The generated sidebar lives in the viewer dir but is served as if at the
-		// content root, so Docsify's basePath /content/ + _sidebar alias resolve it.
-		// Docsify fetches it once per page load, so it is rebuilt from the live tree
-		// on every request: a long-running server never shows a deleted or moved
-		// document. When the tree is mid-edit and will not index cleanly, fall back
-		// to the last generated artifact rather than failing the dashboard.
-		if rel == "content/_sidebar.md" {
-			mu.Lock()
-			key := treeFingerprint()
-			c := cache
-			if c == nil || c.key != key {
-				c = refresh(key)
-			}
-			mu.Unlock()
-			if c != nil {
-				serveText(w, "text/markdown; charset=utf-8", c.body)
-				return
-			}
-			serveFrom(w, viewerAbs, "_sidebar.md", false)
-			return
-		}
-		// The stored context index is served live (same fingerprint cache as the
-		// sidebar), so per-page classification badges never disagree with the tree.
-		if strings.HasPrefix(rel, "content/") {
-			load := manifest.LoadManifest(rootAbs)
-			if load.Manifest != nil {
-				if idxRel, ok := relativeToRoot(manifest.EffectiveIndexPath(load.Manifest), load.Manifest.RootPath); ok && rel == "content/"+idxRel {
-					mu.Lock()
-					key := treeFingerprint()
-					c := cache
-					if c == nil || c.key != key {
-						c = refresh(key)
-					}
-					mu.Unlock()
-					if c != nil && c.key == key && c.hasIndex {
-						serveText(w, "application/json; charset=utf-8", c.indexJSON)
-						return
-					}
-				}
-			}
-		}
-		// The generated Manifest page lives in the viewer dir (gitignored chrome) but
-		// is linked from the sidebar and fetched under the content root, like
-		// _sidebar.md. Reserved underscore name; served from the last generation.
-		if rel == "content/_manifest.md" {
-			serveFrom(w, viewerAbs, "_manifest.md", false)
-			return
-		}
-		if rel == "content" || strings.HasPrefix(rel, "content/") {
-			sub := ""
-			if rel != "content" {
-				sub = rel[len("content/"):]
-			}
-			// An agent profile that declares `inherits` is served resolved: the file
-			// on disk is one half, and presenting it as the effective profile is the
-			// thing a consumer must not do. So this branch fails closed. If anything
-			// at all goes wrong, a file that declares `inherits` still gets a findings
-			// page; only a file that is not half a profile falls through to disk.
-			if strings.HasSuffix(sub, ".md") {
-				repoRel := sub
-				if base != "" && base != "." {
-					repoRel = base + "/" + sub
-				}
-				page, served := "", false
-				load := manifest.LoadManifest(rootAbs)
-				if load.Manifest != nil {
-					page, served = ResolvedProfilePage(rootAbs, load.Manifest, repoRel)
-				} else if declaresInherits(rootAbs, repoRel) {
-					page = unresolvedProfilePage(repoRel, []findings.Finding{
-						findings.New("artifact-parse", findings.Error, "the layer manifest could not be read", "leji.json"),
-					})
-					served = true
-				}
-				if served {
-					serveText(w, "text/markdown; charset=utf-8", page)
-					return
-				}
-			}
-			serveFrom(w, contentAbs, sub, true)
-			return
-		}
-		// Everything else (`/`, /index.html, /assets/*) is viewer chrome.
-		serveFrom(w, viewerAbs, rel, false)
-	})
-	if logf == nil {
-		return inner
-	}
-	// Access log: one terse line per request, after the status is known.
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
-		inner.ServeHTTP(sw, r)
-		logf(r.Method + " " + r.URL.RequestURI() + " " + strconv.Itoa(sw.code))
-	})
-}
-
-// decodePath returns the percent-decoded request path, or an error when the
-// encoding is malformed (mirrors Node's decodeURIComponent throwing -> 400).
-func decodePath(u *url.URL) (string, error) {
-	if u.RawPath != "" {
-		return url.PathUnescape(u.RawPath)
-	}
-	return u.Path, nil
-}
-
-// resolveRoot resolves symlinks in root, falling back to its absolute path.
-func resolveRoot(root string) string {
-	rootAbs, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		rootAbs, _ = filepath.Abs(root)
-	}
-	return rootAbs
-}
-
-// urlPathToRel turns a request URL path into a clean relative route key.
-// Separators fold to "/" and the path is cleaned against a root, so one request
-// has one route key on any platform — filepath.Clean follows the host and
-// answered differently on Windows, missing every "content/" route test.
-// Canonicalization only; serveFrom enforces containment.
-func urlPathToRel(urlPath string) string {
-	return strings.TrimLeft(path.Clean("/"+strings.ReplaceAll(urlPath, "\\", "/")), "/")
-}
-
-// Serve serves the viewer at the web root on 127.0.0.1, returning the listener and
-// http.Server. Port 0 picks a free port. rootRel is the context root (e.g. "docs");
-// the viewer is served at "/" and content docs under "/content/". logf, when set,
-// receives one access-log line per request.
-func Serve(root string, port int, rootRel string, logf func(string)) (net.Listener, *http.Server, error) {
-	rootAbs := resolveRoot(root)
-	base := fsx.StripSlash(rootRel)
-	contentAbs := rootAbs
-	if base != "" && base != "." {
-		contentAbs = filepath.Join(rootAbs, base)
-	}
-	// A direct SDK caller could pass an escaping rootRel (e.g. ".."); refuse to mount
-	// content outside the layer root.
-	if !fsx.ResolvesUnder(rootAbs, contentAbs) {
-		return nil, nil, fmt.Errorf("viewer root %q escapes the layer root", rootRel)
-	}
-	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
-	if err != nil {
-		return nil, nil, err
-	}
-	viewerAbs := filepath.Join(contentAbs, ".leji", "viewer")
-	srv := &http.Server{Handler: newHandler(rootAbs, base, contentAbs, viewerAbs, logf)}
-	return ln, srv, nil
-}
-
-// OpenBrowser best-effort opens url in the default browser. Never blocks or fails
-// the caller: a missing opener is a silent no-op.
-func OpenBrowser(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	// Start (don't Wait): spawn detached and ignore any error.
-	_ = cmd.Start()
 }

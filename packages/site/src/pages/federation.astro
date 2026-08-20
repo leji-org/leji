@@ -1,6 +1,7 @@
 ---
 import { Code } from 'astro:components';
 import Doc from '../layouts/Doc.astro';
+import lejiSyntaxTheme from '../styles/shiki-leji.json';
 
 const mounts = `"federation": {
    "mounts": [
@@ -18,9 +19,10 @@ const mounts = `"federation": {
    ]
 }`;
 
-const commands = `leji mounts hydrate --fetch   # materialize each sibling's layer projection at its pin
-leji mounts status            # availability, integrity, and how far each pin is behind
-leji mounts locate <name>     # where a reader should read the sibling from`;
+const commands = `leji mounts hydrate --fetch      # materialize each sibling's layer projection at its pin
+leji mounts status               # availability, integrity, and how far each pin is behind
+leji mounts update-pin <name>    # move one pin forward to the witnessed commit
+leji mounts locate <name>        # where a reader should read the sibling from`;
 ---
 
 <Doc
@@ -64,18 +66,43 @@ leji mounts locate <name>     # where a reader should read the sibling from`;
       still decides who may read it. Mounting makes the relationship and its chosen revision legible to those who
       already have access.
    </p>
-   <div class="federation-code"><Code code={mounts} lang="jsonc" theme="night-owl" wrap /></div>
+   <div class="federation-code"><Code code={mounts} lang="jsonc" theme={lejiSyntaxTheme} wrap /></div>
    <p>
       Pin updates are reviewed changes to <code>leji.json</code>. The host declares the relationship; the sibling keeps
       its own repository, owner, review gate, changelog, and conformance claim.
    </p>
 
    <h2>Working the mounts</h2>
-   <div class="federation-code"><Code code={commands} lang="bash" theme="night-owl" wrap /></div>
+   <div class="federation-code"><Code code={commands} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
    <p>
       Use <code>hydrate --fetch</code> to materialize every projection at its pin, with an explicit network fetch. Use
       <code>status</code> to inspect availability, integrity, and pin staleness. Use <code>locate</code> to get the resolver-managed
       path where a reader should open one sibling.
+   </p>
+   <p>
+      Keeping a mount current is that same loop, once around: <code>hydrate --fetch</code> to observe the sources,
+      <code>status</code> to see how far each pin has fallen behind, <code>update-pin</code> to move one pin forward to the
+      commit the resolver witnessed, then <code>hydrate</code> again to materialize the projection at the new pin. Moving
+      the pin and materializing it are separate acts, so the rewrite is a reviewable diff before any content changes underneath
+      you.
+   </p>
+   <p>
+      <code>update-pin</code> is offline by default: it promotes the last witness a run actually observed, and says so in
+      its output rather than implying freshness. Add <code>--fetch</code> to observe the declared source during the run, which
+      contacts that source and nothing else; if any part of that fails, the run refuses and leaves
+      <code>leji.json</code> untouched. The pin moves forward only. A target that is not a descendant of the current pin is
+      refused unless you name it explicitly with <code>--to &lt;oid&gt;</code> and add
+      <code>--allow-non-fast-forward</code>, which is the flag for the one case that needs it: an upstream branch that
+      was rewritten. That combination is warned about every time, and recorded in the JSON output, because it moves a
+      pin to a commit the current one does not reach. Use <code>--dry-run</code> to see the comparison and the rewrite without
+      rewriting the manifest; combined with <code>--fetch</code> it still performs that flag's store and network acts, so
+      fetched objects and refs do land in the managed store.
+   </p>
+   <p>
+      Only the pin's own bytes are rewritten, so your field order, formatting, and any keys the schema does not model
+      survive the edit unchanged. The cache entry for the old pin is left where it is: it is content-addressed, so it
+      simply stops being referenced. There is no prune command; remove old entries under <code>.leji/mounts/</code> by hand
+      when you want the space back.
    </p>
    <p>
       Hydration publishes no partial projection. The cache sits under <code>.leji/mounts/</code>, which <code>init</code
@@ -122,7 +149,7 @@ leji mounts locate <name>     # where a reader should read the sibling from`;
 
 <style>
    .federation-code :global(.astro-code) {
-      background: var(--blue-deep) !important;
+      background: var(--leji-deep) !important;
       border-radius: 10px;
       padding: 1.2rem 1.4rem;
       font-size: var(--code-fz);

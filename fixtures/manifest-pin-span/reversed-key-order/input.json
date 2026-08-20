@@ -1,0 +1,19 @@
+{
+  "leji": "1.0",
+  "name": "host",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {},
+  "owners": { "primary": { "name": "Host Owner" } },
+  "federation": {
+    "mounts": [
+      {
+        "pin": "4e974570000000000000000000000000000000aa",
+        "owner": { "name": "Product Owner" },
+        "trackingRef": "refs/heads/main",
+        "source": "https://github.com/acme/product-context",
+        "name": "product-context"
+      }
+    ]
+  }
+}

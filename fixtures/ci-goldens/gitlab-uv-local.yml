@@ -1,0 +1,10 @@
+# >>> leji ci (managed) >>>
+leji-validate:
+  stage: .pre
+  image: python:3.12
+  script:
+    # uv is installed unpinned here; pin it if your project pins it.
+    - pip install uv && uv sync --locked
+    - uv run leji validate
+    - uv run leji index --check
+# <<< leji ci (managed) <<<

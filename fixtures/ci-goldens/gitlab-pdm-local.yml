@@ -1,0 +1,10 @@
+# >>> leji ci (managed) >>>
+leji-validate:
+  stage: .pre
+  image: python:3.12
+  script:
+    # pdm is installed unpinned here; pin it if your project pins it.
+    - pip install pdm && pdm install
+    - pdm run leji validate
+    - pdm run leji index --check
+# <<< leji ci (managed) <<<

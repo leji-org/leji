@@ -20,7 +20,7 @@
             markerHeight="11"
             orient="auto-start-reverse"
          >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#223F93"></path>
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#009F71"></path>
          </marker>
       </defs>
 
@@ -135,23 +135,23 @@
       font-size: 13.5px;
       letter-spacing: 0.16em;
       text-transform: uppercase;
-      fill: var(--blue);
+      fill: var(--leji-link);
       text-anchor: middle;
    }
    .spoke {
-      stroke: var(--blue);
+      stroke: var(--leji-brand);
       stroke-width: 1.7;
    }
    .ring {
       fill: none;
-      stroke: rgba(34, 63, 147, 0.4);
+      stroke: rgba(0, 159, 113, 0.45);
       stroke-width: 1.3;
       stroke-dasharray: 5 6;
       animation: cc-ring 4.5s linear infinite;
    }
-   /* gold particles drift along the solid spokes, each at its own tempo */
+   /* brand-green particles drift along the solid spokes, each at its own tempo */
    .spoke-dot {
-      fill: var(--gold);
+      fill: var(--leji-brand);
       animation: cc-dot 3s ease-in-out infinite;
    }
    .spokes circle:nth-of-type(1) {
@@ -171,7 +171,7 @@
       animation-delay: -1.7s;
    }
    .core {
-      fill: var(--gold);
+      fill: var(--leji-accent);
    }
    @keyframes cc-dot {
       0%,
@@ -199,23 +199,25 @@
       font-family: var(--mono);
       font-size: 14px;
       font-weight: 500;
-      fill: var(--blue-deep);
+      fill: var(--leji-text);
       text-anchor: middle;
    }
    .node {
-      fill: var(--blue-deep);
+      fill: var(--leji-deep);
       stroke-width: 1.5;
    }
+   /* Two rings of the same hue keep people and agents apart on one node fill:
+      brand green for the people, the lighter mint for the agents. */
    .node.human {
-      stroke: var(--blue-soft);
+      stroke: var(--leji-brand);
    }
    .node.agent {
-      stroke: var(--gold);
+      stroke: var(--leji-accent);
    }
    .node-label {
       font-family: var(--mono);
       font-size: 12.5px;
-      fill: var(--white);
+      fill: var(--leji-surface);
       text-anchor: middle;
    }
 </style>
