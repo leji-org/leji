@@ -75,14 +75,10 @@ func isChrome(m *manifest.Manifest, rel string) bool {
 		strings.ToLower(path.Base(rel)) == "readme.md"
 }
 
-// StatusReport builds the health report. Pure computation; the CLI renders and decides exit.
-func StatusReport(root string, m *manifest.Manifest) Report {
-	resolved := layer.ResolveCategoryAssignments(root, m, false)
-	governed := map[string]bool{}
-	for p := range resolved.Assignments {
-		governed[p] = true
-	}
-
+// unindexedIn is markdown under rootPath that no category index lists, given the
+// governed set. The one definition of "unindexed"; callers that already resolved
+// the assignments pass them in rather than resolving the tree twice.
+func unindexedIn(root string, m *manifest.Manifest, governed map[string]bool) []string {
 	rootDir := fsx.StripSlash(m.RootPath)
 	if rootDir == "" {
 		rootDir = "."
@@ -95,6 +91,30 @@ func StatusReport(root string, m *manifest.Manifest) Report {
 		unindexed = append(unindexed, rel)
 	}
 	sort.Strings(unindexed)
+	return unindexed
+}
+
+// UnindexedPaths is the unindexed set on its own, for callers that need the count
+// without the rest of the health report (the `index` generate nudge). Same
+// machinery as StatusReport, no second walker.
+func UnindexedPaths(root string, m *manifest.Manifest) []string {
+	resolved := layer.ResolveCategoryAssignments(root, m, false)
+	governed := map[string]bool{}
+	for p := range resolved.Assignments {
+		governed[p] = true
+	}
+	return unindexedIn(root, m, governed)
+}
+
+// StatusReport builds the health report. Pure computation; the CLI renders and decides exit.
+func StatusReport(root string, m *manifest.Manifest) (Report, error) {
+	resolved := layer.ResolveCategoryAssignments(root, m, false)
+	governed := map[string]bool{}
+	for p := range resolved.Assignments {
+		governed[p] = true
+	}
+
+	unindexed := unindexedIn(root, m, governed)
 
 	var dangling []DanglingEntry
 	for _, f := range resolved.Findings {
@@ -107,7 +127,10 @@ func StatusReport(root string, m *manifest.Manifest) Report {
 		}
 	}
 
-	stored := indexgen.LoadStoredIndex(root, m)
+	stored, err := indexgen.LoadStoredIndex(root, m)
+	if err != nil {
+		return Report{}, err
+	}
 	var stale []string
 	for _, e := range storedEntryPaths(stored) {
 		if !governed[e] {
@@ -158,7 +181,7 @@ func StatusReport(root string, m *manifest.Manifest) Report {
 		skippedReadmes = nil
 	}
 
-	return Report{Unindexed: unindexed, Dangling: dangling, Stale: stale, Pending: pending, Shadowed: shadowed, SkippedReadmes: skippedReadmes, Projection: mounts.ComputeSelfProjection(root)}
+	return Report{Unindexed: unindexed, Dangling: dangling, Stale: stale, Pending: pending, Shadowed: shadowed, SkippedReadmes: skippedReadmes, Projection: mounts.ComputeSelfProjection(root)}, nil
 }
 
 func storedEntryPaths(stored map[string]any) []string {

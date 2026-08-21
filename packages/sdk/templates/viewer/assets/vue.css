@@ -1,5 +1,5 @@
 /* Vendored webfonts (self-contained; no CDN). Source Sans Pro: SIL OFL 1.1;
-   Roboto Mono: Apache-2.0. See fonts-licenses.txt. */
+   Roboto Mono: Apache-2.0. See third-party-licenses.txt. */
 @font-face {
   font-family: 'Roboto Mono';
   font-style: normal;
@@ -973,14 +973,16 @@ code .token {
    (see the @font-face rules at the top of this file).
    ========================================================================== */
 :root {
-  --theme-color: #223f93; /* recolors every var(--theme-color) rule above */
-  --leji-blue-deep: #162960;
-  --leji-blue: #223f93;
-  --leji-gold: #ffbd6e;
-  --leji-paper: #f8f9fa;
+  --theme-color: #009f71; /* recolors every var(--theme-color) rule above */
+  --leji-brand: #009f71; /* the Leji mark green: brand moments, never small text */
+  --leji-link: #007d59; /* the accessible green for links and small text */
+  --leji-deep: #164e42;
+  --leji-accent: #78d7b5;
+  --leji-paper: #f7f8f5; /* the brand's light canvas: sidebar, chips, panels */
   --leji-ink: #34495e;
   --leji-ink-soft: #555555;
-  --leji-line: #e0e0e0;
+  --leji-line: #cde5d9; /* the brand's border tone, not a neutral gray */
+  --leji-code-bg: #e8f4ee;
   --leji-caret: #aaaaaa; /* lighter than the ink for the group triangles */
   color-scheme: light;
 }
@@ -1019,7 +1021,7 @@ body {
   color: var(--theme-color);
   text-decoration: none;
 }
-/* Active document: a plain blue text change, nothing else. */
+/* Active document: a plain accent-colored text change, nothing else. */
 .sidebar ul li.active > a {
   color: var(--theme-color) !important;
   border-right: none;
@@ -1098,7 +1100,7 @@ body {
 .search input:focus {
   outline: none;
   border-color: var(--theme-color);
-  box-shadow: 0 0 0 2px rgba(34, 63, 147, 0.12);
+  box-shadow: 0 0 0 2px rgba(0, 159, 113, 0.12);
 }
 .search .results-panel {
   background: var(--leji-paper);
@@ -1137,14 +1139,14 @@ body {
   background-color: var(--leji-paper) !important;
 }
 .leji-powered a {
-  color: var(--leji-blue) !important;
+  color: var(--leji-link) !important;
   text-decoration: none;
 }
 .leji-powered a:hover {
-  color: #162960 !important;
+  color: var(--leji-deep) !important;
 }
 .leji-powered .spark {
-  color: var(--leji-gold);
+  color: var(--leji-brand);
 }
 .leji-powered strong {
   font-weight: 600;
@@ -1154,18 +1156,22 @@ body {
   color: var(--theme-color);
 }
 /* brand-tinted inline code, replacing the stock orange. Scoped away from
-   pre > code so fenced blocks keep the stock panel and token colors. */
+   pre > code so fenced blocks keep the stock token colors. */
 .markdown-section code,
 .markdown-section p code,
 .markdown-section li code {
   color: var(--theme-color);
-  background: rgba(34, 63, 147, 0.07);
+  background: var(--leji-code-bg);
+}
+/* The fenced-code panel takes the same ground, replacing the stock neutral gray. */
+.markdown-section pre {
+  background-color: var(--leji-code-bg);
 }
 .markdown-section pre > code {
   color: #525252;
   background: none;
 }
 .markdown-section blockquote {
-  border-left: 3px solid var(--leji-gold);
+  border-left: 3px solid var(--leji-accent);
   color: var(--leji-ink-soft);
 }

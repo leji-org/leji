@@ -96,7 +96,10 @@ func Report(root string, federation bool) (Result, error) {
 	var fs []findings.Finding
 	m := manifest.LoadManifest(root).Manifest
 
-	validation := validate.ValidateLayer(root, false)
+	validation, verr := validate.ValidateLayer(root, false)
+	if verr != nil {
+		return Result{}, verr
+	}
 	errorsBy := func(rules ...string) []findings.Finding {
 		var out []findings.Finding
 		for _, f := range validation.Findings {
@@ -177,7 +180,10 @@ func Report(root string, federation bool) (Result, error) {
 	add("vendor-redirects", "core", "vendor entrypoint files, if present, redirect to the boot profile",
 		statusPassFail(vendorErrors), firstMsg(vendorErrors))
 
-	indexResult := indexgen.CheckIndex(root, m)
+	indexResult, cerr := indexgen.CheckIndex(root, m)
+	if cerr != nil {
+		return Result{}, cerr
+	}
 	indexStatus := Fail
 	if indexResult.Stale != nil && !*indexResult.Stale {
 		indexStatus = Pass
@@ -455,7 +461,7 @@ func RenderExplain(result Result) string {
 			}
 			detail := ""
 			if b.Detail != "" {
-				detail = " — " + b.Detail
+				detail = ": " + b.Detail
 			}
 			lines = append(lines, fmt.Sprintf("   - %s%s%s", b.Description, detail, how))
 		}

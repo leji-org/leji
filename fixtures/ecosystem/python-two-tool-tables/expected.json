@@ -1,0 +1,41 @@
+{
+  "ecosystem": {
+    "selected": null,
+    "all": [
+      {
+        "ecosystem": "python",
+        "status": "ambiguous-manager",
+        "manifest": "pyproject.toml",
+        "manager": null,
+        "source": null,
+        "evidence": [],
+        "add": null,
+        "runner": null,
+        "directDeclared": false,
+        "lockEvidenced": false,
+        "candidates": [
+          {
+            "manager": "uv",
+            "add": [
+              "uv",
+              "add",
+              "--dev",
+              "leji"
+            ]
+          },
+          {
+            "manager": "poetry",
+            "add": [
+              "poetry",
+              "add",
+              "--group",
+              "dev",
+              "leji"
+            ]
+          }
+        ]
+      }
+    ],
+    "reason": "ambiguous-manager"
+  }
+}

@@ -1,10 +1,10 @@
 {
   "$schema": "https://leji.org/schemas/v1.0/context-index.schema.json",
   "schemaVersion": "1.0",
-  "generatedAt": "2026-07-31T12:23:28.176Z",
+  "generatedAt": "2026-08-21T13:04:16.912Z",
   "generator": {
     "name": "leji",
-    "version": "1.3.1"
+    "version": "1.4.0"
   },
   "rootPath": "docs/",
   "entries": [
@@ -78,6 +78,19 @@
       "contentHash": "sha256:a233a436f4d7a9d6"
     },
     {
+      "id": "commercial-hosted-viewer",
+      "path": "docs/decisions/0007-commercial-hosted-viewer.md",
+      "title": "Commercial hosted viewer and governance language change",
+      "category": "decisions",
+      "kind": "record",
+      "date": "2026-08-08",
+      "lastModified": "2026-08-21",
+      "contentHash": "sha256:eccda61bc46e9045",
+      "links": [
+        "0004-declare-spec-1-0-ga.md"
+      ]
+    },
+    {
       "id": "glossary",
       "path": "docs/domain/glossary.md",
       "title": "Glossary",
@@ -110,10 +123,23 @@
       "category": "practice",
       "kind": "intent",
       "summary": "The two evidence channels for testing the leji CLI against real repositories, LIVE (linked source) and PACKED (installed artifact), and the discipline for using them.",
-      "lastModified": "2026-07-30",
-      "contentHash": "sha256:aefb8ec2bfdb7548",
+      "lastModified": "2026-08-21",
+      "contentHash": "sha256:102eb93537b8d33e",
       "freshness": {
         "reviewAfter": "2026-12-21"
+      }
+    },
+    {
+      "id": "trust-boundary",
+      "path": "docs/practice/trust-boundary.md",
+      "title": "The Trust Boundary",
+      "category": "practice",
+      "kind": "intent",
+      "summary": "What the leji CLI guarantees about where it writes and what it reads, and the one mechanism in each SDK that holds the guarantee.",
+      "lastModified": "2026-08-21",
+      "contentHash": "sha256:c651e5e0d6f2e10f",
+      "freshness": {
+        "reviewAfter": "2027-02-17"
       }
     },
     {
@@ -123,8 +149,8 @@
       "category": "system",
       "kind": "intent",
       "summary": "The constraints every change to this repository lives with.",
-      "lastModified": "2026-07-30",
-      "contentHash": "sha256:fac416a0197fe79b",
+      "lastModified": "2026-08-21",
+      "contentHash": "sha256:3c77b60c6e9ff670",
       "freshness": {
         "reviewAfter": "2027-06-21"
       }

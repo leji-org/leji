@@ -26,6 +26,7 @@ from leji import (
     write_index,
 )
 from leji.conformance import ChecklistItem
+from leji.ecosystem import detect_ecosystem
 from leji.init_cmd import add_agent, ensure_local_hook, entering_adopted
 
 
@@ -54,16 +55,16 @@ def test_init_dry_run_writes_nothing_and_reports_plan(tmp_path: Path) -> None:
 
     creates = [e.rel for e in result.plan if e.status == "create"]
     assert "leji.json" in creates
-    assert "docs/.leji/onboarding-brief.md" in creates
+    assert ".leji/work/onboarding-brief.md" in creates
     # The existing vendor file is detected and explicitly left untouched.
     untouched = next((e for e in result.plan if e.rel == "CLAUDE.md"), None)
     assert untouched is not None and untouched.status == "wont-modify"
 
 
-def test_init_writes_brief_under_dot_dir_excluded_from_index(tmp_path: Path) -> None:
+def test_init_writes_brief_in_workspace_role_excluded_from_index(tmp_path: Path) -> None:
     init_layer(str(tmp_path), yes=True, level="indexed", name="acme-context")
 
-    brief = tmp_path / "docs" / ".leji" / "onboarding-brief.md"
+    brief = tmp_path / ".leji" / "work" / "onboarding-brief.md"
     assert brief.is_file(), "brief is written"
 
     manifest = load_manifest(str(tmp_path)).manifest
@@ -628,8 +629,12 @@ def test_render_write_plan_labels_every_status_and_summarizes_counts() -> None:
     assert re.search(r"1 to create, 1 already present.*1 to convert \(with your consent\)", out)
 
 
-def test_render_detect_handles_no_hosts_case_and_ranked_case() -> None:
-    assert "No coding-agent hosts detected" in render_detect([])
+def test_render_detect_handles_no_hosts_case_and_ranked_case(tmp_path) -> None:
+    # A root with no manifest: the ecosystem line is present in both shapes and says
+    # so, without changing what the host list reports.
+    eco = detect_ecosystem(str(tmp_path))
+    assert "No coding-agent hosts detected" in render_detect([], eco)
+    assert "Ecosystem: none detected" in render_detect([], eco)
     ranked = render_detect(
         [
             DetectedHost(
@@ -650,10 +655,12 @@ def test_render_detect_handles_no_hosts_case_and_ranked_case() -> None:
                 user_config=False,
                 adapter=".cursor/rules/leji.md",
             ),
-        ]
+        ],
+        eco,
     )
     assert re.search(r"confirmed.*Claude Code.*binary on PATH.*CLAUDE\.md", ranked)
     assert "leji init --agent" in ranked
+    assert "Ecosystem: none detected" in ranked
 
 
 def test_render_explain_covers_federated_top_and_all_pass_branches() -> None:
@@ -798,10 +805,10 @@ def test_solo_brief_is_mode_stamped_and_carries_interview_and_artifact_rules(
     tmp_path: Path,
 ) -> None:
     init_layer(str(tmp_path), yes=True, mode="solo")
-    brief = (tmp_path / "docs" / ".leji" / "onboarding-brief.md").read_text(encoding="utf-8")
+    brief = (tmp_path / ".leji" / "work" / "onboarding-brief.md").read_text(encoding="utf-8")
 
     assert "**Working mode:** solo" in brief
-    assert "docs/.leji/onboarding-inputs/" in brief, "drop-folder path rewritten for the root"
+    assert ".leji/work/onboarding-inputs/" in brief, "drop folder sits in the workspace role"
     assert "untrusted data" in brief, "artifact consent rules present"
     assert "<mode>" not in brief, "no unreplaced mode marker"
     assert "<root>/" not in brief, "no unreplaced root marker"
@@ -834,7 +841,7 @@ def test_omitted_mode_and_explicit_mode_team_are_byte_identical(tmp_path: Path) 
     assert not (a / "docs" / "domain" / "identity.md").exists(), (
         "team scaffolds no identity starter"
     )
-    brief = (a / "docs" / ".leji" / "onboarding-brief.md").read_text(encoding="utf-8")
+    brief = (a / ".leji" / "work" / "onboarding-brief.md").read_text(encoding="utf-8")
     assert "**Working mode:** team" in brief, "team brief carries a concrete stamp"
 
 
@@ -914,8 +921,8 @@ def test_adopt_mode_solo_dry_run_writes_nothing_and_plans_the_starters(tmp_path:
 
 def test_init_refuses_while_leji_files_are_tracked_leaving_tree_untouched(tmp_path: Path) -> None:
     _git_init(tmp_path)
-    (tmp_path / "docs" / ".leji").mkdir(parents=True)
-    (tmp_path / "docs" / ".leji" / "stale.md").write_text("tracked artifact\n", encoding="utf-8")
+    (tmp_path / ".leji").mkdir(parents=True)
+    (tmp_path / ".leji" / "stale.md").write_text("tracked artifact\n", encoding="utf-8")
     _git_commit_all(tmp_path)
 
     with pytest.raises(RuntimeError, match="tracked by git"):
@@ -968,7 +975,7 @@ def test_approval_guard_installs_idempotently_preserving_settings(tmp_path: Path
         '        "hooks": [\n'
         "          {\n"
         '            "type": "command",\n'
-        '            "command": "node \\"$CLAUDE_PROJECT_DIR/docs/.leji/hooks/approval-guard.mjs\\""\n'
+        '            "command": "node \\"$CLAUDE_PROJECT_DIR/.leji/work/hooks/approval-guard.mjs\\""\n'
         "          }\n"
         "        ]\n"
         "      }\n"
@@ -980,7 +987,7 @@ def test_approval_guard_installs_idempotently_preserving_settings(tmp_path: Path
     assert settings["existing"] is True, "unrelated settings preserved"
     matchers = [e["matcher"] for e in settings["hooks"]["PreToolUse"]]
     assert matchers == ["Bash", "AskUserQuestion"]
-    assert (tmp_path / "docs" / ".leji" / "hooks" / "approval-guard.mjs").is_file()
+    assert (tmp_path / ".leji" / "work" / "hooks" / "approval-guard.mjs").is_file()
 
 
 # Mirrors onboarding.test.ts "approval guard: blocks until written and printed,
@@ -995,7 +1002,7 @@ def test_approval_guard_blocks_until_written_and_printed_inert_after_onboarding(
     if shutil.which("node") is None:
         pytest.skip("node not on PATH")
     ensure_approval_guard(str(tmp_path), "docs/")
-    leji_dir = tmp_path / "docs" / ".leji"
+    leji_dir = tmp_path / ".leji" / "work"
     script = leji_dir / "hooks" / "approval-guard.mjs"
     (leji_dir / "onboarding-brief.md").write_text("brief", encoding="utf-8")
 
@@ -1132,3 +1139,134 @@ def test_hook_stale_index_message_is_literal_not_executed(tmp_path: Path) -> Non
     assert index_abs.read_text(encoding="utf-8") == before, (
         "the hook regenerated a governed artifact"
     )
+
+
+def _tree_snapshot(directory: Path) -> dict[str, str]:
+    """Every entry under `directory` as `path -> bytes` (symlinks by their target), so a
+    run that must write nothing can be held to the whole tree rather than to one file."""
+    out: dict[str, str] = {}
+
+    def walk(rel: str) -> None:
+        base = directory if rel == "" else directory / rel
+        for entry in sorted(base.iterdir(), key=lambda p: p.name):
+            child = entry.name if rel == "" else f"{rel}/{entry.name}"
+            if entry.is_symlink():
+                out[child] = f"link:{os.readlink(entry)}"
+            elif entry.is_dir():
+                walk(child)
+            elif entry.is_file():
+                out[child] = entry.read_bytes().hex()
+
+    walk("")
+    return out
+
+
+# Mirrors units.test.ts "init: a .gitignore symlinked out of the repository is refused".
+def test_init_refuses_a_gitignore_symlinked_out_of_the_repository(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    # Previously the one unguarded write in init: the `.leji/` ignore line went out
+    # through whatever `.gitignore` resolved to. It now goes through the chokepoint,
+    # so a planted link out of the tree is a refusal with nothing written through it.
+    away = Path(os.path.realpath(tmp_path_factory.mktemp("leji-ignore-away")))
+    target = away / "gitignore"
+    target.write_text("node_modules/\n", encoding="utf-8")
+    (tmp_path / ".gitignore").symlink_to(target)
+
+    with pytest.raises(
+        RuntimeError, match="refusing to write through a symlink that escapes the target"
+    ):
+        init_layer(str(tmp_path), yes=True, name="demo-context")
+
+    assert target.read_text(encoding="utf-8") == "node_modules/\n", (
+        "the out-of-tree file is byte-untouched"
+    )
+    assert not (tmp_path / "leji.json").exists(), "the refusal came before any layer write"
+
+
+# Mirrors units.test.ts "agent: a leji.json rewrite that would escape the repository is
+# refused, and NOTHING is written".
+def test_agent_refuses_an_escaping_manifest_and_writes_nothing(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    # The other formerly unguarded write: the in-place manifest edit that binds the
+    # agent. Binding is two writes (a profile file and the manifest edit), so the
+    # manifest is judged through the verified read BEFORE either happens: a run that
+    # cannot finish must not half-finish. Nothing is written, anywhere.
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    init_layer(str(tmp_path), yes=True, name="demo-context")
+    m = load_manifest(str(tmp_path)).manifest
+    assert m is not None
+    away = Path(os.path.realpath(tmp_path_factory.mktemp("leji-agent-away")))
+    manifest_abs = tmp_path / "leji.json"
+    target = away / "leji.json"
+    manifest_abs.rename(target)
+    manifest_abs.symlink_to(target)
+    before = target.read_text(encoding="utf-8")
+    profile_abs = tmp_path / "docs" / "agents" / "reviewer.md"
+    assert not profile_abs.exists(), "the profile does not exist before the run"
+    snapshot = _tree_snapshot(tmp_path)
+
+    with pytest.raises(
+        RuntimeError,
+        match='refusing to write through a symlink that escapes the target: "leji.json"',
+    ):
+        add_agent(str(tmp_path), m, host=None, name="reviewer")
+
+    assert target.read_text(encoding="utf-8") == before, "the out-of-tree manifest is untouched"
+    assert not profile_abs.exists(), "the profile was never written"
+    assert _tree_snapshot(tmp_path) == snapshot, "the whole tree is byte-identical"
+
+
+# Mirrors onboarding.test.ts "leji agent: a dangling profile name refuses the command,
+# writing neither half".
+def test_agent_dangling_profile_name_refuses_both_halves(tmp_path: Path) -> None:
+    # An existence check follows symlinks, so a dangling profile link read as absent and
+    # the profile was written at the link's destination. Both halves are judged before
+    # either is written, so a refused profile leaves the manifest binding unwritten too.
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    init_layer(str(tmp_path), yes=True, name="demo-context")
+    m = load_manifest(str(tmp_path)).manifest
+    assert m is not None
+    link = tmp_path / "docs" / "agents" / "reviewer.md"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to("never-created.md")
+    before = (tmp_path / "leji.json").read_text(encoding="utf-8")
+
+    with pytest.raises(
+        RuntimeError, match="refusing to write through a symlink that escapes the target"
+    ):
+        add_agent(str(tmp_path), m, host="codex", name="reviewer")
+
+    assert not (tmp_path / "docs" / "agents" / "never-created.md").exists(), (
+        "the dangling link's destination is never created"
+    )
+    assert (tmp_path / "leji.json").read_text(encoding="utf-8") == before, (
+        "the manifest is not rewritten"
+    )
+    assert link.is_symlink(), "the planted link is left exactly as it was"
+
+
+# Mirrors onboarding.test.ts "adopt: a dangling scaffold name is occupied, and the
+# alternate name is scaffolded".
+def test_adopt_dangling_scaffold_name_is_occupied_and_falls_back(tmp_path: Path) -> None:
+    # The scaffold names were picked with an existence check, which follows symlinks: a
+    # dangling boot-profile link read as a free name, and the scaffold would have been
+    # written at the link's missing destination. The standing entry makes the name
+    # occupied, so the alternate is taken exactly as it is for an ordinary existing file.
+    _git_init(tmp_path)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    link = tmp_path / "docs" / "boot-profile.md"
+    link.symlink_to("never-created.md")
+    _git_commit_all(tmp_path)
+
+    res = adopt_layer(str(tmp_path), yes=True)
+
+    assert res.manifest["bootProfilePath"] == "docs/leji-boot-profile.md", (
+        "the alternate name is scaffolded"
+    )
+    assert not (tmp_path / "docs" / "never-created.md").exists(), (
+        "the dangling link's destination is never created"
+    )
+    assert link.is_symlink(), "the planted link is left exactly as it was"

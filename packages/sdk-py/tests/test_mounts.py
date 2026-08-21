@@ -1,10 +1,15 @@
 """Federation mounts resolver tests, mirroring packages/sdk/test/mounts.test.ts."""
 
+import errno
 import hashlib
 import json
 import os
 import shutil
+import stat as statmod
 import subprocess
+import tempfile
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -309,6 +314,37 @@ def test_pin_reachability_reachable_unreachable_off_history_unknown_offline(tmp_
     assert head.witness_ref == "refs/heads/main"
 
 
+def test_fetch_retains_the_pin_by_a_resolver_owned_ref_and_writes_no_fetch_head(
+    tmp_path,
+) -> None:
+    host, sibling, pin = mounted_pair(tmp_path)
+    git(sibling, "config", "uploadpack.allowAnySHA1InWant", "true")
+    manifest = load_manifest(host).manifest
+    assert manifest is not None
+    # main moves past the pin, so neither fetch may leave the version of record to
+    # FETCH_HEAD: only a ref of our own retains it.
+    (sibling / "b.md").write_text("# b\n", encoding="utf-8")
+    git(sibling, "add", "-A")
+    git(sibling, "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "b")
+    with _source_rewrite(sibling):
+        hydrate_mounts(host, manifest, fetch=True)
+    identity = normalize_source("https://github.com/acme/product-context")
+    assert identity is not None
+    store = Path(host) / ".leji" / "mounts" / "store" / sha256_hex(identity)
+    assert git(store, "rev-parse", pin_ref_for(identity, pin)) == pin
+    # Both fetches pass --no-write-fetch-head, so the managed store carries no
+    # per-run record of where the objects came from.
+    assert not (store / "FETCH_HEAD").exists(), "no FETCH_HEAD in the managed store"
+    # And a second --fetch, which refreshes the witness over an existing store, does
+    # not create one either.
+    (sibling / "c.md").write_text("# c\n", encoding="utf-8")
+    git(sibling, "add", "-A")
+    git(sibling, "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "c")
+    with _source_rewrite(sibling):
+        hydrate_mounts(host, manifest, fetch=True)
+    assert not (store / "FETCH_HEAD").exists(), "still none after a witness refresh"
+
+
 def test_conformance_pin_reachable_is_unknown_offline_and_never_awards_federated(
     tmp_path,
 ) -> None:
@@ -580,3 +616,246 @@ def test_two_matching_submodules_are_ambiguous_even_with_a_resolving_candidate(
     # Hydration is unaffected: it takes the first candidate and never reads the flag
     # unless there is none, exactly as the reference does.
     assert find_object_source(host, mount, identity).kind == "hint"
+
+
+# --- verification is read-only: it may not stage inside the tree it verifies ---
+
+
+def deny_writes(directory: Path):
+    """Strip write permission from every directory in the tree; returns the undo. On
+    POSIX this is a real denial for a non-root user. The Windows equivalent is a DENY
+    ACE rather than a mode, which is a named verify-at-build obligation for the
+    cross-platform runner, not something these mode bits stand in for."""
+    saved = [(p, p.stat().st_mode) for p in [directory, *directory.rglob("*")] if p.is_dir()]
+    for p, _mode in saved:
+        p.chmod(0o555)
+
+    def restore() -> None:
+        for p, mode in saved:
+            p.chmod(statmod.S_IMODE(mode))
+
+    return restore
+
+
+def write_denied(directory: Path) -> bool:
+    """Denial is asserted, never assumed: a mode that a root-owned or ACL-governed run
+    ignores would make every "did not write" assertion below vacuous."""
+    probe = directory / ".write-probe"
+    try:
+        probe.write_text("x", encoding="utf-8")
+    except OSError:
+        return True
+    probe.unlink()
+    return False
+
+
+def tree_snapshot(directory: Path, prefix: str = "") -> list[str]:
+    """Paths, types, modes, symlink targets, content and directory mtimes: the whole of
+    what "the tree is byte-for-byte what it was" has to mean here. Content alone would
+    miss a staging directory created and removed between the two reads — its parent's
+    mtime is the only trace that survives."""
+    out: list[str] = []
+    for name in sorted(os.listdir(directory)):
+        abs_path = directory / name
+        rel = name if prefix == "" else f"{prefix}/{name}"
+        st = abs_path.lstat()
+        mode = oct(statmod.S_IMODE(st.st_mode))
+        if statmod.S_ISLNK(st.st_mode):
+            out.append(f"L {rel} {mode} {os.readlink(os.fsencode(abs_path))!r}")
+        elif statmod.S_ISDIR(st.st_mode):
+            out.append(f"D {rel} {mode} {st.st_mtime_ns}")
+            out.extend(tree_snapshot(abs_path, rel))
+        else:
+            digest = hashlib.sha256(abs_path.read_bytes()).hexdigest()
+            out.append(f"F {rel} {mode} {st.st_size} {digest}")
+    return out
+
+
+def verify_residue() -> set[str]:
+    """Staging directories left behind in the OS temp dir. Compared as a delta, since
+    the suite's other tests run against the same temp dir."""
+    return {n for n in os.listdir(tempfile.gettempdir()) if n.startswith("leji-verify-")}
+
+
+def test_check_integrity_verifies_a_write_denied_host_tree_twice_without_touching_it(
+    tmp_path,
+) -> None:
+    # `mounts status --check-integrity` staged its comparison tree inside the host's
+    # own .leji/mounts/, so the read-only diagnostic wrote into the tree it was
+    # diagnosing — and could not run at all where that tree is not writable.
+    host, _sibling, _pin = mounted_pair(tmp_path)
+    manifest = load_manifest(host).manifest
+    assert manifest is not None
+    hydrate_mounts(host, manifest)
+    restore = deny_writes(Path(host))
+    try:
+        assert write_denied(Path(host) / ".leji" / "mounts"), "the mounts dir is write-denied"
+        assert write_denied(Path(host)), "the host root is write-denied"
+        before = tree_snapshot(Path(host))
+        residue_before = verify_residue()
+        # Twice: once proves it runs, twice proves the second run is not consuming
+        # residue the first left behind.
+        assert mount_status(host, manifest, check_integrity=True)[0]["verified"] is True
+        assert mount_status(host, manifest, check_integrity=True)[0]["verified"] is True
+        # The other two callers of the same verification, on the same denied tree.
+        loc = locate_mount(host, manifest, "acme-product-context")
+        assert loc["present"] is True
+        assert loc["verified"] is True
+        assert federation_enforcement(host, manifest, "available", None) == []
+        assert tree_snapshot(Path(host)) == before, "verification wrote into the host tree"
+        assert verify_residue() - residue_before == set(), "staging outlived its verification"
+    finally:
+        restore()
+
+
+def test_two_verifications_at_once_in_one_process_do_not_collide(tmp_path) -> None:
+    """Two threads running rounds of verification of the host's only mount, every round
+    entered through a two-thread rendezvous, with the lagging thread then held back to
+    about half of its last round.
+
+    Both halves earn their place. Without the rendezvous the threads drift into taking
+    turns and never overlap; with the rendezvous alone they run identical work in
+    lockstep, and two threads staging the same content into one shared directory at the
+    same instant still agree — the interleaving that a shared staging directory cannot
+    survive is one thread starting while the other is mid-verification. Threads, so "the
+    same process" is literal: a staging name derived from the pid is one name for both
+    of them."""
+    host, _sibling, _pin = mounted_pair(tmp_path)
+    manifest = load_manifest(host).manifest
+    assert manifest is not None
+    hydrate_mounts(host, manifest)
+    m = manifest["federation"]["mounts"][0]
+    mount = MountDecl(
+        name=m["name"], source=m["source"], pin=m["pin"], tracking_ref=m.get("trackingRef")
+    )
+    residue_before = verify_residue()
+    rounds = 8
+    gate = threading.Barrier(2)
+
+    def verify_rounds(lag: bool) -> list[object]:
+        results: list[object] = []
+        last = 0.040
+        for _ in range(rounds):
+            gate.wait()
+            if lag:
+                time.sleep(max(0.005, last / 2))
+            started_at = time.monotonic()
+            try:
+                results.append(verify_projection(host, mount))
+            except OSError as exc:  # a collision surfaces as ENOENT/ENOTEMPTY
+                results.append(f"raised {exc.errno}")
+            last = time.monotonic() - started_at
+        return results
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        both = list(pool.map(verify_rounds, [False, True]))
+    # Every one of them verified: a shared staging path has one thread deleting or
+    # half-writing the tree the other is comparing, which surfaces as ENOENT,
+    # ENOTEMPTY, or a false verdict on content nobody tampered with.
+    assert both == [[True] * rounds, [True] * rounds]
+    assert verify_residue() - residue_before == set()
+
+
+@contextmanager
+def _mkdtemp_denied():
+    """The allocator seam. An unwritable TMPDIR is not the lever here: ``tempfile``
+    falls back to other candidate directories when TMPDIR is unusable and caches the
+    one it picked, so the test would allocate successfully and never reach the branch
+    it exists to cover. Restored on the way out."""
+    original = tempfile.mkdtemp
+
+    def deny(*_args: object, **_kwargs: object) -> str:
+        raise PermissionError(errno.EACCES, "Permission denied")
+
+    tempfile.mkdtemp = deny  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        tempfile.mkdtemp = original
+
+
+def test_an_unusable_temp_directory_makes_verification_unverifiable_never_in_tree(
+    tmp_path,
+) -> None:
+    host, _sibling, _pin = mounted_pair(tmp_path)
+    manifest = load_manifest(host).manifest
+    assert manifest is not None
+    hydrate_mounts(host, manifest)
+    before = tree_snapshot(Path(host))
+    residue_before = verify_residue()
+    with _mkdtemp_denied():
+        # Unknown: no staging area is a missing prerequisite, exactly like no reachable
+        # object store. It is never a pass, never a failure, and never a reason to fall
+        # back into the host tree.
+        row = mount_status(host, manifest, check_integrity=True)[0]
+        assert row["present"] is True
+        assert row["verified"] is None
+        loc = locate_mount(host, manifest, "acme-product-context")
+        assert loc["present"] is True
+        assert loc["verified"] is False
+        assert "present but not verified" in str(loc["detail"])
+        assert "verification prerequisites are unavailable" in str(loc["detail"])
+        # The diagnostic names the prerequisite that was actually missing rather than
+        # blaming the object store, which is reachable here: a reader told to check
+        # their hint would be reading the wrong end of the failure.
+        findings = federation_enforcement(host, manifest, "available", None)
+        assert len(findings) == 1
+        assert "cannot be verified" in findings[0].message
+        assert "verification prerequisites unavailable" in findings[0].message
+        assert "no writable temp dir" in findings[0].message
+    assert tree_snapshot(Path(host)) == before, "verification fell back into the host tree"
+    assert verify_residue() - residue_before == set(), "nothing was staged"
+
+
+def test_a_reachable_store_without_the_pin_is_unverifiable_and_names_the_prerequisite(
+    tmp_path,
+) -> None:
+    host, _sibling, _pin = mounted_pair(tmp_path)
+    manifest = load_manifest(host).manifest
+    assert manifest is not None
+    hydrate_mounts(host, manifest)
+    # A real repository, reachable, that simply does not contain this pin. The
+    # published projection stays published — its cache key comes from the
+    # declaration, not from whichever store happens to be reachable — so the only
+    # missing prerequisite is the commit the comparison would be made against.
+    other = Path(host).parent / "other"
+    other.mkdir()
+    git(other, "init", "-q", "-b", "main")
+    (other / "unrelated.md").write_text("# unrelated\n", encoding="utf-8")
+    git(other, "add", "-A")
+    git(
+        other,
+        "-c",
+        "user.name=T",
+        "-c",
+        "user.email=t@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "unrelated",
+    )
+    (Path(host) / ".leji" / "mounts.local.json").write_text(
+        json.dumps({"mounts": {"acme-product-context": {"repo": "../other"}}}) + "\n",
+        encoding="utf-8",
+    )
+    m = manifest["federation"]["mounts"][0]
+    mount = MountDecl(
+        name=m["name"], source=m["source"], pin=m["pin"], tracking_ref=m.get("trackingRef")
+    )
+    assert verify_projection(host, mount) is None
+    row = mount_status(host, manifest, check_integrity=True)[0]
+    assert row["present"] is True
+    assert row["verified"] is None
+    loc = locate_mount(host, manifest, "acme-product-context")
+    assert loc["present"] is True
+    assert loc["verified"] is False
+    # The parenthetical is the whole of what makes a projection unverifiable. An
+    # exhaustive-looking list that omits this branch tells the reader their object
+    # store is unreachable when it is reachable and their pin is what is missing.
+    findings = federation_enforcement(host, manifest, "available", None)
+    assert len(findings) == 1
+    assert findings[0].message == (
+        'mount "acme-product-context" projection cannot be verified (verification '
+        "prerequisites unavailable: no reachable object store, unresolvable pin, or "
+        "no writable temp dir); an unverified cache is not evidence"
+    )

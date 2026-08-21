@@ -1,0 +1,8 @@
+{
+  "name": "joiner-app",
+  "private": true,
+  "packageManager": "hexpm@1.0.0",
+  "devDependencies": {
+    "@leji-org/leji": "^1"
+  }
+}

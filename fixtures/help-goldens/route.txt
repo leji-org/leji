@@ -1,0 +1,61 @@
+leji route: Show the governed context a task's scope routes to.
+
+Usage: leji route [--paths <a,b,...>] [--categories <a,b,...>] [--topics
+       <topic>]... [--as-of <YYYY-MM-DD>] [--root <dir>] [--json]
+
+Read-only: given a task's scope (repository-relative paths it reads or changes,
+plus any categories and topics it names), print the slice of governed context
+that scope selects per the Task routing algorithm. Paths select the governed
+entries that contain them or are contained by them, and a path that is itself a
+governed document signals that document's category for decision and mount
+matching without expanding it; only a category the task explicitly names expands
+that category's intent documents and record candidates. Topics select sibling
+mounts and nothing else. Prints the expanded categories and the signalled ones,
+the governed documents (with each document's review horizon and whether it has
+expired), the record candidates a reader loads by judgment, the live decision
+records routed to the task, and the sibling mounts the supplied category and
+topic signals match. It computes the scope-dependent portion only: the boot
+profile's unconditional load set and the active agent profile's requiredRead are
+the caller's baseline and are never emitted here. Reads and reports context; it
+never executes a task.
+
+Details:
+   - --paths and --categories take comma-separated values; either or both may be
+     given.
+   - --topics is repeatable and each occurrence is one whole topic: values are
+     never comma-split and never trimmed, all occurrences accumulate, exact
+     duplicates count once, and an empty occurrence is an error.
+   - A topic matches a mount's declared topics by exact string equality, with no
+     case conversion, normalization, locale, or fuzzy matching. A topic match
+     selects the mount only: it never expands or signals a category, loads no
+     document or record, and routes no decision.
+   - Document expiry is evaluated against --as-of (defaults to today); decisions
+     carry no horizon.
+   - An empty path scope contributes no path matching and notes that path-scoped
+     routing was not evaluated; categories named with --categories are still
+     honored and still expand, and topics named with --topics are still matched.
+     An empty whole scope, no paths, no categories, and no topics, routes only
+     the org-wide unscoped live decisions.
+
+Options:
+   --paths <a,b,...>        Repository-relative paths the task reads or changes.
+                            Selects the entries they reach; signals a category
+                            without expanding it.
+   --categories <a,b,...>   Content categories the task explicitly names. Only
+                            these expand a category's documents and record
+                            candidates.
+   --topics <topic>         A topic the task explicitly names, matched against a
+                            mount's declared topics by exact equality.
+                            Repeatable, one whole topic per occurrence; selects
+                            mounts only.
+   --as-of <YYYY-MM-DD>     Reference date for document expiry (default: today).
+
+Global options: see leji --help.
+
+Examples:
+   leji route --paths src/payments/billing.ts
+   leji route --categories domain,system --json
+   leji route --topics "product surface" --topics billing --json
+   leji route --paths docs/system/invariants.md --as-of 2026-06-27 --json
+
+Full reference: https://leji.org/cli/

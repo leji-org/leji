@@ -13,14 +13,14 @@ import LejiLogo from './LejiLogo.astro';
          <span
             >Created by <a href="https://vuongnguyen.com" target="_blank" rel="noopener">Vuong Nguyen</a> · <span
                class="meta-verbose">Stewarded by{' '}</span
-            ><a href="https://meteordreams.com" target="_blank" rel="noopener">Meteor Dreams</a> · <a
+            ><a href="https://contexing.com" target="_blank" rel="noopener">Contexing</a> · <a
                href="mailto:hello@leji.org">hello@leji.org</a
             ></span
          >
          <span
             >Apache-2.0<span class="meta-verbose"> (code, schemas)</span> · CC-BY-4.0<span class="meta-verbose">
                {' '}(spec prose)</span
-            > · <a href="/trust/">Trust</a> · <a
+            > · <a href="/trust/">Trust</a> · <a href="/trademark/">Trademark</a> · <a
                href="https://github.com/leji-org/leji/blob/main/SECURITY.md"
                target="_blank"
                rel="noopener">Security</a
@@ -33,10 +33,10 @@ import LejiLogo from './LejiLogo.astro';
 <style>
    .site-footer {
       margin-top: 1rem;
-      border-top: 3px solid var(--gold);
+      border-top: 3px solid var(--leji-accent);
       background:
-         radial-gradient(900px 380px at 82% -30%, rgba(255, 189, 110, 0.12), transparent 60%), var(--blue-deep);
-      color: var(--white);
+         radial-gradient(900px 380px at 82% -30%, rgba(112, 216, 194, 0.14), transparent 60%), var(--leji-deep);
+      color: var(--leji-surface);
       position: relative;
       overflow: hidden;
       padding: 2.4rem 0 2rem;
@@ -45,7 +45,7 @@ import LejiLogo from './LejiLogo.astro';
       content: '';
       position: absolute;
       inset: 0;
-      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(255, 189, 110, 0.05) 78px 79px);
+      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(112, 216, 194, 0.06) 78px 79px);
       pointer-events: none;
    }
    .site-footer > * {
@@ -59,7 +59,7 @@ import LejiLogo from './LejiLogo.astro';
       gap: 0.4rem 1.1rem;
    }
    .footer-brand {
-      color: var(--white);
+      color: var(--leji-surface);
       display: inline-flex;
       transform: translateY(4px);
    }
@@ -68,7 +68,7 @@ import LejiLogo from './LejiLogo.astro';
       font-size: 0.78rem;
       letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: var(--gold-bright);
+      color: var(--leji-accent);
    }
    .footer-meaning {
       font-family: var(--serif-display);
@@ -76,14 +76,14 @@ import LejiLogo from './LejiLogo.astro';
       font-weight: 520;
       line-height: 1.3;
       letter-spacing: 0.005em;
-      color: var(--paper);
+      color: var(--leji-canvas);
       margin: 0.9rem 0 0;
       max-width: 40ch;
    }
    .footer-meaning a {
       color: inherit;
       text-decoration: underline;
-      text-decoration-color: rgba(255, 189, 110, 0.4);
+      text-decoration-color: rgba(112, 216, 194, 0.45);
       text-decoration-thickness: 1px;
       text-underline-offset: 3px;
       transition:
@@ -91,14 +91,14 @@ import LejiLogo from './LejiLogo.astro';
          text-decoration-color 0.15s ease;
    }
    .footer-meaning a:hover {
-      color: var(--gold-bright);
-      text-decoration-color: var(--gold-bright);
+      color: var(--leji-accent);
+      text-decoration-color: var(--leji-accent);
    }
 
    .footer-meta {
       margin-top: 1.9rem;
       padding-top: 1.1rem;
-      border-top: 1px solid rgba(255, 189, 110, 0.22);
+      border-top: 1px solid rgba(112, 216, 194, 0.26);
       display: flex;
       justify-content: space-between;
       flex-wrap: wrap;
@@ -111,15 +111,15 @@ import LejiLogo from './LejiLogo.astro';
    .footer-meta a {
       color: var(--white-strong);
       text-decoration: none;
-      border-bottom: 1px solid rgba(255, 189, 110, 0.45);
+      border-bottom: 1px solid rgba(112, 216, 194, 0.5);
       padding-bottom: 1px;
       transition:
          color 0.15s,
          border-color 0.15s;
    }
    .footer-meta a:hover {
-      color: var(--gold-bright);
-      border-color: var(--gold-bright);
+      color: var(--leji-accent);
+      border-color: var(--leji-accent);
    }
    /* small screens: drop "Stewarded by" and the license parentheticals */
    @media (max-width: 600px) {

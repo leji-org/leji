@@ -1,0 +1,40 @@
+leji mounts hydrate: Materialize declared federation mounts into the resolver
+   cache.
+
+Usage: leji mounts hydrate [--fetch] [--root <dir>] [--json]
+
+For each declared federation mount, resolves the pinned commit from a local
+object store (an explicit hint in .leji/mounts.local.json, the resolver-managed
+store, or a unique matching submodule's object database) and extracts the
+sibling's layer projection into the gitignored cache under .leji/mounts/. The
+projection is the deduplicated union of everything the sibling's own manifest
+makes readable at the pin: the root leji.json, the tree under its declared
+context root, its boot profile, its machine index and changelog files when
+present, its agent-profiles and decision-records trees when present, every agent
+profile its agents map binds, every category index file, and every governed path
+its pinned generated index lists, wherever those live. The failure boundary
+follows the same line: a referenced or schema-required file absent at the pin
+(the boot profile, a category index, a bound agent profile, an indexed governed
+path) fails the projection naming the declaring artifact and the missing path,
+while an absent directory or an absent machine artifact contributes nothing and
+fails nothing. The only mutating mounts command, and offline by default: --fetch
+establishes the resolver-managed store for every declared mount, including one a
+hint already resolves, fetching the pin from the declared source, retaining it
+under refs/leji-pin/v1/, and refreshing the managed witness under
+refs/leji-witness/v1/ (the only writer of that namespace, since `mounts status`
+never fetches). Best-effort: an unavailable mount is reported and skipped
+(degraded knowledge, never a failed run); the exit code reflects declaration,
+safety, or projection errors only.
+
+Options:
+   --fetch             Establish the resolver-managed store for every declared
+                       mount: fetch and retain the pin, and refresh the managed
+                       witness ref.
+
+Global options: see leji --help.
+
+Examples:
+   leji mounts hydrate
+   leji mounts hydrate --fetch
+
+Full reference: https://leji.org/cli/

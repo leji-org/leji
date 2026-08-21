@@ -1,0 +1,47 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": []
+  },
+  "conformance": {
+    "exit": 0,
+    "claimedLevel": "core",
+    "verifiedLevel": "core"
+  },
+  "export": {
+    "exit": 0,
+    "findings": [],
+    "out": ".leji/dist",
+    "layout": {
+      "roles": {
+        "viewer": ".leji/viewer/",
+        "dist": ".leji/dist/"
+      },
+      "present": [
+        ".leji/viewer/index.html",
+        ".leji/viewer/_sidebar.md",
+        ".leji/viewer/_manifest.md",
+        ".leji/viewer/assets/",
+        ".leji/dist/index.html",
+        ".leji/dist/assets/",
+        ".leji/dist/content/_sidebar.md",
+        ".leji/dist/content/_manifest.md",
+        ".leji/dist/content/boot-profile.md",
+        ".leji/dist/content/overview.md",
+        ".leji/dist/content/domain/overview.md",
+        ".leji/dist/content/decisions/0001-adopt-leji.md",
+        "docs/overview.md"
+      ],
+      "absent": ["docs/.leji/"],
+      "preserved": []
+    },
+    "rerun": {
+      "byteIdentical": true
+    },
+    "goldenTree": {
+      "status": "baked",
+      "contentDir": "expected-export/content",
+      "manifest": "expected-export.manifest.json"
+    }
+  }
+}

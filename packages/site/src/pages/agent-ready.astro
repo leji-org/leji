@@ -1,0 +1,268 @@
+---
+import { Code } from 'astro:components';
+import Base from '../layouts/Base.astro';
+import SiteHeader from '../components/SiteHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import SectionNav from '../components/SectionNav.astro';
+import PageHeader from '../components/PageHeader.astro';
+import InstallTabs from '../components/InstallTabs.astro';
+import CopyableCode from '../components/CopyableCode.astro';
+import lejiSyntaxTheme from '../styles/shiki-leji.json';
+// The badge shown below is the canonical fixture itself, not a copy: the four
+// files under fixtures/badge/ are the byte oracle the three SDKs are tested
+// against, so the sample on this page cannot drift from what `leji badge` writes.
+// It carries its own role="img", <title> and aria-label, so it needs no wrapper.
+import badgeSvg from '../../../../fixtures/badge/governed.svg?raw';
+
+// The badge markdown exactly as `leji badge` prints it, for one level, so the
+// sample and the tool cannot read differently: the shape is
+// packages/sdk/src/commands/badge.ts (`badgeMarkdown`, `badgeLabel`), and the
+// four canonical lines are fixtures/badge/<level>.md.
+const badgeLine = '[![Leji 1.0 · governed · self-attested](leji-badge.svg)](https://leji.org/agent-ready/)';
+---
+
+<Base
+   title="Agent-ready · Leji"
+   description="Install the Leji CLI and run leji start: your agent boots from the team's context layer. Also what the self-attested conformance badge claims, and how it is generated."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current={Astro.url.pathname} />
+         <main id="content" class="agent-ready-main measured">
+            <section class="hero">
+               <PageHeader kind="guide" />
+               <h1>Your repo, agent-ready in two commands.</h1>
+               <p class="lede">
+                  The badge that most likely brought you here marks a repository whose context layer an agent can boot
+                  from, validated and scored on the maintainer's own machine and self-attested. Making your own repo
+                  agent-ready takes the two commands below.
+               </p>
+               <p class="jump"><a href="#badge">What the badge attests ↓</a></p>
+            </section>
+
+            <section class="cmds" aria-label="The two commands">
+               <div class="cmd">
+                  <p class="cmd-label">01 · Install the CLI</p>
+                  <div class="cmd-install"><InstallTabs /></div>
+               </div>
+               <div class="cmd">
+                  <p class="cmd-label">02 · Enter the context layer</p>
+                  <CopyableCode code="leji start" lang="bash" label="Copy the start command" />
+               </div>
+            </section>
+
+            <p class="fine">
+               No context layer in the repository yet? The <a href="/quickstart/">quickstart</a> walks the fuller path, from
+               adopting an existing repo to scoring the level it claims.
+            </p>
+
+            <section class="what">
+               <h2>What just happened</h2>
+               <ul>
+                  <li>
+                     Your agent opened in the context layer and read the <a href="/spec/boot-profile/">boot profile</a> first,
+                     so its first context is the team's rather than whatever it inferred from the tree.
+                  </li>
+                  <li>
+                     Validation and <a href="/spec/conformance/">conformance scoring</a> run from the package you just installed,
+                     on your own machine, with no service in the loop.
+                  </li>
+                  <li>
+                     The tooling opens no connection of its own, and there is no account, no registry and no hosted
+                     service behind it. What reaches the network, you invoke yourself: the federation fetches contact
+                     the repository you named, and the dependency step at <code>leji init</code> runs your own package manager
+                     on your explicit yes. The agent leji launches is the one you already run, with its own network behavior.
+                  </li>
+               </ul>
+            </section>
+
+            <section class="badge" id="badge">
+               <h2>What the badge attests</h2>
+               <p>
+                  The badge is generated locally: <code>leji badge</code> scores the repository with <code
+                     >leji conformance</code
+                  >, writes the SVG for the level that offline run verified, and prints one markdown line that embeds
+                  it.
+               </p>
+               <CopyableCode code="leji badge" lang="bash" label="Copy the badge command" />
+               <p class="caption">
+                  For a context layer verified at the <code>governed</code> level, the badge is this:
+               </p>
+               <div class="badge-shot" set:html={badgeSvg} />
+               <aside class="attest-note">
+                  <strong>Self-attested</strong> means scored by the repository's own tooling: no registry, no endpoint, no
+                  account. The badge states the level this offline run verified, never more than the context layer claims
+                  and possibly less.
+               </aside>
+               <p class="caption">The markdown line that embeds it in a README:</p>
+               <div class="badge-md"><Code code={badgeLine} lang="markdown" theme={lejiSyntaxTheme} wrap /></div>
+               <p>
+                  The levels are <code>core</code>, <code>indexed</code>, <code>governed</code> and <code
+                     >federated</code
+                  >, each containing the one before it. <a href="/spec/conformance/">The conformance checklist</a> says what
+                  each level asks of a team, and every one of them is reachable with the open specification and the reference
+                  tooling alone.
+               </p>
+               <p>
+                  So the thing to read is the check, not the picture: run <code>leji conformance</code> in the same repository
+                  and see what it reports. <a href="/trust/">Trust</a> covers who maintains Leji, what the 1.0 line promises,
+                  and what happens if the steward disappears.
+               </p>
+            </section>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   /* No top padding: .doc-shell already sets the space above the first line, and
+      every doc page starts its h1 there. */
+   .hero {
+      padding: 0 0 1rem;
+      max-width: 760px;
+   }
+   .lede {
+      font-size: var(--text-lede);
+      line-height: 1.7;
+      color: var(--leji-text-body);
+      max-width: var(--measure-fine);
+      margin: 0;
+   }
+
+   h2 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 1.6rem;
+      line-height: 1.25;
+      color: var(--leji-text);
+      margin: 0 0 0.6rem;
+   }
+
+   p,
+   li {
+      color: var(--leji-text-body);
+   }
+   a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+
+   /* The jump the badge-clicker takes when the attestation is what they came for.
+      Same instrument as the quickstart's "what each level asks of you" link. */
+   .jump {
+      margin: 1.1rem 0 0;
+   }
+   .jump a {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-decoration: none;
+      border-bottom: 1px solid var(--leji-brand);
+      padding-bottom: 2px;
+      white-space: nowrap;
+   }
+   .jump a:hover {
+      color: var(--leji-text);
+      border-color: var(--leji-text);
+   }
+
+   /* The pitch: the two commands, one under the other, nothing between them. */
+   .cmds {
+      margin-top: 1.8rem;
+      display: grid;
+      gap: 1.8rem;
+   }
+   .cmd-label {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-text-body);
+      margin: 0 0 0.6rem;
+   }
+   .cmd-install {
+      background: var(--leji-deep);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      overflow: hidden;
+   }
+
+   .fine {
+      margin: 1.6rem 0 0;
+   }
+
+   .what {
+      margin-top: 3.4rem;
+   }
+   .what ul {
+      margin: 0.6rem 0 0;
+      padding-left: 1.1rem;
+   }
+   .what li {
+      margin: 0.5rem 0;
+   }
+
+   .badge {
+      margin-top: 3.4rem;
+      padding-bottom: 1rem;
+      /* the jump link lands the heading below the sticky header, not under it */
+      scroll-margin-top: calc(var(--header-h) + 1.5rem);
+   }
+   .badge p {
+      margin: 0 0 1.1rem;
+   }
+   .badge .caption {
+      margin: 1.4rem 0 0;
+   }
+   /* The badge at its own size on the page background, which is how it sits in a
+      README: no frame, no scaling, nothing this page adds to it. The face shows the
+      level alone, so the note under it carries what the badge claims. */
+   .badge-shot {
+      margin: 0.9rem 0 1rem;
+   }
+   .badge-shot :global(svg) {
+      display: block;
+   }
+
+   /* Same instrument as the quickstart's map-note: brand rule, accent ground. Kept
+      at body size rather than that page's smaller setting, because this is the
+      section's claim and not marginalia. */
+   .attest-note {
+      margin: 0 0 1.4rem;
+      padding: 0.9rem 1.2rem;
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
+      border-radius: 0 8px 8px 0;
+      color: var(--leji-text-body);
+      line-height: 1.6;
+   }
+   .attest-note strong {
+      color: var(--leji-text);
+   }
+
+   /* The printed markdown is a sample, not a line to copy: one level's wording,
+      whichever level the reader's own run verifies. Hence no copy button. */
+   .badge-md {
+      margin: 0.6rem 0 1.6rem;
+   }
+   .badge-md :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+      margin: 0;
+      overflow-x: auto;
+   }
+</style>

@@ -114,7 +114,7 @@ func TestCompactRejectsInvalidKeep(t *testing.T) {
 	for _, keep := range []int{0, -1, -5} {
 		dir := seedLayer(t, 5)
 		before, _ := os.ReadFile(filepath.Join(dir, filepath.FromSlash(changelogRel)))
-		res := CompactChangelog(dir, loadManifest(t, dir), CompactOptions{Keep: keep, HasKeep: true})
+		res := compactChangelog(t, dir, loadManifest(t, dir), CompactOptions{Keep: keep, HasKeep: true})
 		if res.Folded != 0 || res.Kept != 0 {
 			t.Fatalf("keep=%d should not fold: %+v", keep, res)
 		}
@@ -134,7 +134,7 @@ func TestCompactRejectsInvalidKeep(t *testing.T) {
 func TestCompactRejectsMalformedBefore(t *testing.T) {
 	for _, before := range []string{"2026-1-1", "nope", "2026/01/01", "20260101"} {
 		dir := seedLayer(t, 5)
-		res := CompactChangelog(dir, loadManifest(t, dir), CompactOptions{Before: before, HasBefore: true})
+		res := compactChangelog(t, dir, loadManifest(t, dir), CompactOptions{Before: before, HasBefore: true})
 		if res.Folded != 0 {
 			t.Fatalf("before=%q should not fold", before)
 		}
@@ -152,7 +152,7 @@ func TestCompactMissingChangelogIsRequired(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, filepath.FromSlash(changelogRel))); err != nil {
 		t.Fatal(err)
 	}
-	res := CompactChangelog(dir, loadManifest(t, dir), CompactOptions{Keep: 2, HasKeep: true})
+	res := compactChangelog(t, dir, loadManifest(t, dir), CompactOptions{Keep: 2, HasKeep: true})
 	if res.Folded != 0 || !hasRule(res.Findings, "changelog-required") {
 		t.Fatalf("expected changelog-required, got %+v", res)
 	}
@@ -162,7 +162,7 @@ func TestCompactNoOpWhenNothingFolds(t *testing.T) {
 	// keep larger than the entry count folds nothing.
 	dir := seedLayer(t, 5)
 	before, _ := os.ReadFile(filepath.Join(dir, filepath.FromSlash(changelogRel)))
-	res := CompactChangelog(dir, loadManifest(t, dir), CompactOptions{Keep: 10, HasKeep: true})
+	res := compactChangelog(t, dir, loadManifest(t, dir), CompactOptions{Keep: 10, HasKeep: true})
 	if res.Folded != 0 || len(res.Findings) != 0 || res.Kept != 5 {
 		t.Fatalf("keep>count should be a clean no-op: %+v", res)
 	}
@@ -172,7 +172,7 @@ func TestCompactNoOpWhenNothingFolds(t *testing.T) {
 	}
 
 	// before earlier than every entry also folds nothing.
-	res = CompactChangelog(dir, loadManifest(t, dir), CompactOptions{Before: "2025-01-01", HasBefore: true})
+	res = compactChangelog(t, dir, loadManifest(t, dir), CompactOptions{Before: "2025-01-01", HasBefore: true})
 	if res.Folded != 0 || len(res.Findings) != 0 {
 		t.Fatalf("before earlier than all should be a no-op: %+v", res)
 	}
@@ -180,7 +180,7 @@ func TestCompactNoOpWhenNothingFolds(t *testing.T) {
 
 func TestCompactByKeepFoldsOldest(t *testing.T) {
 	dir := seedLayer(t, 10)
-	res := CompactChangelog(dir, loadManifest(t, dir), CompactOptions{Keep: 4, HasKeep: true})
+	res := compactChangelog(t, dir, loadManifest(t, dir), CompactOptions{Keep: 4, HasKeep: true})
 	if res.Folded != 6 || res.Kept != 5 {
 		t.Fatalf("keep 4 of 10: folded=%d kept=%d", res.Folded, res.Kept)
 	}
@@ -211,7 +211,7 @@ func TestCompactByKeepFoldsOldest(t *testing.T) {
 func TestCompactByBeforeAndBothFlags(t *testing.T) {
 	dir := seedLayer(t, 10)
 	// before only: dates 2026-01-01..05 fold (strictly before 2026-01-06).
-	res := CompactChangelog(dir, loadManifest(t, dir), CompactOptions{Before: "2026-01-06", HasBefore: true})
+	res := compactChangelog(t, dir, loadManifest(t, dir), CompactOptions{Before: "2026-01-06", HasBefore: true})
 	if res.Folded != 5 {
 		t.Fatalf("before only folded=%d", res.Folded)
 	}
@@ -224,7 +224,7 @@ func TestCompactByBeforeAndBothFlags(t *testing.T) {
 	// both flags: intersection of keep 3 (folds e-01..e-07) and before 2026-01-04
 	// (folds e-01..e-03) is e-01..e-03.
 	dir2 := seedLayer(t, 10)
-	res = CompactChangelog(dir2, loadManifest(t, dir2), CompactOptions{Keep: 3, HasKeep: true, Before: "2026-01-04", HasBefore: true})
+	res = compactChangelog(t, dir2, loadManifest(t, dir2), CompactOptions{Keep: 3, HasKeep: true, Before: "2026-01-04", HasBefore: true})
 	if res.Folded != 3 {
 		t.Fatalf("both flags folded=%d", res.Folded)
 	}
@@ -250,7 +250,7 @@ func TestCompactDedupesCompactionID(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(changelogRel)), append(lb, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res := CompactChangelog(dir, loadManifest(t, dir), CompactOptions{Keep: 2, HasKeep: true})
+	res := compactChangelog(t, dir, loadManifest(t, dir), CompactOptions{Keep: 2, HasKeep: true})
 	if res.Folded == 0 {
 		t.Fatal("expected a fold")
 	}
@@ -277,7 +277,7 @@ func TestCompactTiebreakByID(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(changelogRel)), append(lb, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res := CompactChangelog(dir, loadManifest(t, dir), CompactOptions{Keep: 1, HasKeep: true})
+	res := compactChangelog(t, dir, loadManifest(t, dir), CompactOptions{Keep: 1, HasKeep: true})
 	if res.Folded != 2 {
 		t.Fatalf("expected to fold 2, got %d", res.Folded)
 	}
@@ -383,5 +383,113 @@ func TestSerializeChangelogOrdering(t *testing.T) {
 	}
 	if parsed["metadata"].(map[string]any)["source"] != "test" {
 		t.Fatal("extra top-level key dropped")
+	}
+}
+
+func TestSeedChangelogTreatsADanglingLinkAsPresent(t *testing.T) {
+	// A stat follows symlinks, so a dangling changelog link read as absent and the
+	// seed was created at the link's missing destination. The exclusive create judges
+	// the ORIGINAL entry, so any standing entry is the same no-op an existing
+	// changelog is. Mutation that reddens: decide "missing" with a stat again.
+	dir := seedLayer(t, 1)
+	link := filepath.Join(dir, filepath.FromSlash(changelogRel))
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("never-created.json", link); err != nil {
+		t.Fatal(err)
+	}
+
+	rel, err := SeedChangelogIfMissing(dir, loadManifest(t, dir))
+	if err != nil || rel != "" {
+		t.Fatalf("a standing entry is never seeded through, got %q err %v", rel, err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "docs", "never-created.json")); err == nil {
+		t.Fatal("the dangling link's destination must never be created")
+	}
+	st, err := os.Lstat(link)
+	if err != nil || st.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the planted link must be left exactly as it was (%v)", err)
+	}
+}
+
+func TestSeedChangelogRefusesALinkResolvingOutsideTheRepository(t *testing.T) {
+	dir := seedLayer(t, 1)
+	away := t.TempDir()
+	link := filepath.Join(dir, filepath.FromSlash(changelogRel))
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(away, "context-changelog.json"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	rel, err := SeedChangelogIfMissing(dir, loadManifest(t, dir))
+	if err != nil || rel != "" {
+		t.Fatalf("nothing is seeded through a link that leaves the repository, got %q err %v", rel, err)
+	}
+	if _, err := os.Lstat(filepath.Join(away, "context-changelog.json")); err == nil {
+		t.Fatal("nothing may be written outside the root")
+	}
+}
+
+func TestCompactRefusesAChangelogThatIsNotARegularFile(t *testing.T) {
+	// Compaction rewrites what it reads, so the bytes come from the verified read: a
+	// standing entry that is not a regular file is reported as an unreadable artifact
+	// and nothing is written.
+	dir := seedLayer(t, 4)
+	target := filepath.Join(dir, filepath.FromSlash(changelogRel))
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	res := compactChangelog(t, dir, loadManifest(t, dir), CompactOptions{Keep: 1, HasKeep: true})
+	if !hasRule(res.Findings, "artifact-parse") || res.Folded != 0 {
+		t.Fatalf("a non-regular changelog must be refused, got %+v", res)
+	}
+}
+
+// --- gate helpers -------------------------------------------------------------
+// These commands now carry an error channel, because an operational read failure on
+// an allowed path propagates instead of being swallowed (the reference throws it).
+// A test that does not construct such a failure asserts there is none.
+
+func compactChangelog(t *testing.T, root string, m *manifest.Manifest, opts CompactOptions) CompactResult {
+	t.Helper()
+	res, err := CompactChangelog(root, m, opts)
+	if err != nil {
+		t.Fatalf("CompactChangelog(%s): %v", root, err)
+	}
+	return res
+}
+
+func TestCompactPropagatesAnOperationalReadFailure(t *testing.T) {
+	// Compaction rewrites the file it just read. A refusal is an unreadable-artifact
+	// finding; an operational failure on an allowed path is the filesystem failing,
+	// and the reference lets it throw — so it travels out as an error and the command
+	// reports it. Mutation that reddens: turn the error back into a finding.
+	if os.Geteuid() == 0 {
+		t.Skip("running as root bypasses permission bits; the read cannot be made to fail")
+	}
+	dir := seedLayer(t, 4)
+	abs := filepath.Join(dir, filepath.FromSlash(changelogRel))
+	if err := os.Chmod(abs, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chmod(abs, 0o644) }()
+	if f, oerr := os.Open(abs); oerr == nil {
+		_ = f.Close()
+		t.Skip("this platform ignores the mode; the read cannot be made to fail")
+	}
+
+	res, err := CompactChangelog(dir, loadManifest(t, dir), CompactOptions{Keep: 1, HasKeep: true})
+	if err == nil {
+		t.Fatalf("an unreadable changelog must fail the run, got %+v", res)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("the failure must not also be reported as a finding: %+v", res.Findings)
 	}
 }

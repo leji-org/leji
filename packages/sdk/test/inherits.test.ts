@@ -544,7 +544,7 @@ test('viewer: an inheriting profile renders resolved, naming both sources', () =
    assert.ok(page!.includes('docs/agents/core.md'), 'the base source is named');
    assert.ok(page!.includes('docs/agents/thought-partner.md'), 'the derived source is named');
    // Posture entries are labelled with the profile that supplied them.
-   assert.ok(page!.includes('`docs/system/invariants.md` — from `core`'), page!);
+   assert.ok(page!.includes('`docs/system/invariants.md` (from `core`)'), page!);
    assert.ok(page!.includes('from `thought-partner`'), page!);
    // A profile with no inherits is served from disk as authored.
    assert.equal(resolvedProfilePage(dir, manifest!, 'docs/agents/core.md'), null);

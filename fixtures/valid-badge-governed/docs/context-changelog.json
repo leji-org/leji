@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0",
+  "entries": [
+    {
+      "id": "seed-layer",
+      "date": "2026-06-12",
+      "type": "added",
+      "summary": "Seeded the fixture layer.",
+      "paths": [
+        "docs/boot-profile.md"
+      ]
+    }
+  ]
+}

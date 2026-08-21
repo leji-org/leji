@@ -1,0 +1,71 @@
+leji {{version}}: reference CLI for the Leji specification (spec line 1.0)
+
+Usage: leji <command> [options]
+
+Get started:
+   init                Bootstrap a new context layer from the templates.
+   adopt               Adopt Leji into an existing repository.
+   start               Open a coding agent in this context layer, booted from
+                       the boot profile.
+   agent               Bind an additional named agent into an existing context
+                       layer.
+   detect              Detect the coding-agent hosts available on this machine.
+   ci                  Add a CI workflow that runs leji validate and index
+                       --check on every change.
+
+Every day:
+   validate            Validate the context layer: manifest, artifacts,
+                       frontmatter, and lint rules.
+   index               Generate the context index at the declared path, or
+                       verify it is current.
+   status              Report unindexed, dangling, and stale documents in the
+                       context layer.
+   conformance         Score the context layer against its claimed conformance
+                       level.
+   badge               Write the self-attested conformance badge for this
+                       repository.
+   freshness           Report review horizons across category documents and
+                       agent profiles.
+   route               Show the governed context a task's scope routes to.
+   changelog check     Verify the machine changelog: schema and append-only
+                       discipline.
+   changelog compact   Fold the oldest changelog entries into a single
+                       compaction entry.
+
+Federation:
+   mounts hydrate      Materialize declared federation mounts into the resolver
+                       cache.
+   mounts status       Report each mount's availability, integrity, and pin
+                       ancestry.
+   mounts locate       Print resolver state for one mount: projection path, pin,
+                       verification.
+   mounts update-pin   Move a declared mount's pin forward to a witnessed
+                       commit, showing the comparison first.
+
+Viewer and export:
+   viewer              Generate the static viewer for the context layer.
+   viewer serve        Generate the viewer and serve it locally.
+   view                (alias of viewer serve)
+   export              Export the context layer as a self-contained static site.
+   viewer build        (alias of export)
+
+Options:
+   --root <dir>        Repository root to operate on (default: the current
+                       directory). With the Node and Python CLIs, a root that
+                       declares and installs the Leji CLI for that runtime,
+                       meeting the layer's minimum, runs that copy.
+   --json              Machine-readable JSON output instead of human-readable
+                       text.
+   -v, --version       Print the Leji version and exit.
+   -h, --help          Show help and exit.
+
+Exit codes:
+   0  Clean. No errors; warnings are allowed.
+   1  A check did not pass. Usually an error finding was reported; some commands
+      also use it for a negative result with no finding, such as `status
+      --strict` flagging an entry, `mounts locate` finding no hydrated
+      projection, or `start` finding no boot profile.
+   2  Usage error, or an internal failure (e.g. init refusing to overwrite).
+
+Run `leji <command> --help` for a command and its options.
+Full reference: https://leji.org/cli/

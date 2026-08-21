@@ -1,0 +1,9 @@
+# >>> leji ci (managed) >>>
+leji-validate:
+  stage: .pre
+  image: python:3.12
+  script:
+    - pip install 'leji>=1,<2'
+    - leji validate
+    - leji index --check
+# <<< leji ci (managed) <<<

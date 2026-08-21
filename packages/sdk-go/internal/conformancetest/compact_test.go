@@ -80,7 +80,7 @@ func lastEntry(t *testing.T, abs string) map[string]any {
 func TestCompactKeepFoldsOldest(t *testing.T) {
 	dir := seedWithEntries(t, 10)
 	m := loadM(t, dir)
-	result := changelog.CompactChangelog(dir, m, changelog.CompactOptions{Keep: 4, HasKeep: true})
+	result := compactChangelog(t, dir, m, changelog.CompactOptions{Keep: 4, HasKeep: true})
 	if errs := errorFindings(result.Findings); len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -130,7 +130,7 @@ func TestCompactKeepFoldsOldest(t *testing.T) {
 	if errs := errorFindings(check.Findings); len(errs) != 0 {
 		t.Fatalf("append-only errors after compact: %v", errs)
 	}
-	v := validate.ValidateLayer(dir, false)
+	v := validateLayer(t, dir, false)
 	if errs := errorFindings(v.Findings); len(errs) != 0 {
 		t.Fatalf("layer validate errors after compact: %v", errs)
 	}
@@ -139,7 +139,7 @@ func TestCompactKeepFoldsOldest(t *testing.T) {
 func TestCompactBeforeCutoff(t *testing.T) {
 	dir := seedWithEntries(t, 10)
 	m := loadM(t, dir)
-	result := changelog.CompactChangelog(dir, m, changelog.CompactOptions{Before: "2026-01-06", HasBefore: true})
+	result := compactChangelog(t, dir, m, changelog.CompactOptions{Before: "2026-01-06", HasBefore: true})
 	if errs := errorFindings(result.Findings); len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -162,7 +162,7 @@ func TestCompactBothFlagsIntersection(t *testing.T) {
 	m := loadM(t, dir)
 	// --keep 3 marks e-01..e-07 foldable; --before 2026-01-04 marks e-01..e-03.
 	// The intersection (both must accept) is e-01..e-03.
-	result := changelog.CompactChangelog(dir, m, changelog.CompactOptions{
+	result := compactChangelog(t, dir, m, changelog.CompactOptions{
 		Keep: 3, HasKeep: true, Before: "2026-01-04", HasBefore: true,
 	})
 	if result.Folded != 3 {
@@ -180,7 +180,7 @@ func TestCompactNoOp(t *testing.T) {
 	m := loadM(t, dir)
 	abs := filepath.Join(dir, changelogRel)
 	before, _ := os.ReadFile(abs)
-	result := changelog.CompactChangelog(dir, m, changelog.CompactOptions{Keep: 10, HasKeep: true})
+	result := compactChangelog(t, dir, m, changelog.CompactOptions{Keep: 10, HasKeep: true})
 	if result.Folded != 0 {
 		t.Fatalf("folded = %d, want 0", result.Folded)
 	}
@@ -203,7 +203,7 @@ func TestCompactDedupesID(t *testing.T) {
 	first["id"] = "compaction-" + today // collide with the id the compactor will pick
 	writeChangelog(t, abs, log)
 	m := loadM(t, dir)
-	result := changelog.CompactChangelog(dir, m, changelog.CompactOptions{Keep: 2, HasKeep: true})
+	result := compactChangelog(t, dir, m, changelog.CompactOptions{Keep: 2, HasKeep: true})
 	if result.Folded == 0 {
 		t.Fatal("expected folding")
 	}
@@ -216,7 +216,7 @@ func TestCompactDedupesID(t *testing.T) {
 func TestCompactProducesValidJSON(t *testing.T) {
 	dir := seedWithEntries(t, 4)
 	m := loadM(t, dir)
-	changelog.CompactChangelog(dir, m, changelog.CompactOptions{Keep: 1, HasKeep: true})
+	compactChangelog(t, dir, m, changelog.CompactOptions{Keep: 1, HasKeep: true})
 	b, _ := os.ReadFile(filepath.Join(dir, changelogRel))
 	var v any
 	if err := json.Unmarshal(b, &v); err != nil {

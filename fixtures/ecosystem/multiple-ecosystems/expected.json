@@ -1,0 +1,56 @@
+{
+  "ecosystem": {
+    "selected": null,
+    "all": [
+      {
+        "ecosystem": "node",
+        "status": "ok",
+        "manifest": "package.json",
+        "manager": "npm",
+        "source": "lockfile",
+        "evidence": [
+          "package-lock.json"
+        ],
+        "add": [
+          "npm",
+          "i",
+          "-D",
+          "@leji-org/leji"
+        ],
+        "runner": [
+          "npx",
+          "--no-install",
+          "@leji-org/leji"
+        ],
+        "directDeclared": false,
+        "lockEvidenced": true,
+        "candidates": []
+      },
+      {
+        "ecosystem": "python",
+        "status": "ok",
+        "manifest": "pyproject.toml",
+        "manager": "uv",
+        "source": "lockfile",
+        "evidence": [
+          "uv.lock"
+        ],
+        "add": [
+          "uv",
+          "add",
+          "--dev",
+          "leji"
+        ],
+        "runner": [
+          "uv",
+          "run",
+          "leji"
+        ],
+        "directDeclared": false,
+        "lockEvidenced": true,
+        "candidates": []
+      }
+    ],
+    "reason": "multiple-ecosystems"
+  }
+}

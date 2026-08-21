@@ -10,11 +10,15 @@ from pathlib import Path
 import pytest
 
 from leji.cli import main
-from leji.init_cmd import (
-    build_azure_pipeline,
-    build_circleci_config,
-    build_circleci_snippet,
-)
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+GOLDENS = REPO_ROOT / "fixtures" / "ci-goldens"
+
+
+def golden(name: str) -> str:
+    """One committed generated-CI golden: the byte oracle both this port and the
+    reference are checked against."""
+    return (GOLDENS / name).read_text(encoding="utf-8")
 
 
 def run(capsys, argv: list[str]) -> tuple[int, str, str]:
@@ -67,7 +71,7 @@ GITLAB_BLOCK = (
 
 def _seeded_ci_dir(capsys, tmp_path: Path) -> Path:
     layer = tmp_path / "layer"
-    layer.mkdir()
+    layer.mkdir(parents=True)
     main(["init", "--dir", str(layer), "--yes", "--name", "demo"])
     capsys.readouterr()
     return layer
@@ -147,14 +151,30 @@ def test_ci_provider_circleci(capsys, tmp_path: Path) -> None:
     assert code == 0
     assert json.loads(out)["action"] == "created"
     before = cc.read_text(encoding="utf-8")
-    assert before == build_circleci_config(), "created config is byte-exact"
+    assert before == golden("circleci-node-fallback.yml"), "created config is byte-exact"
+    # A file leji generated is leji's to keep current: the re-run recognizes its own
+    # bytes and reports unchanged rather than handing back a snippet for a file the
+    # user never wrote.
     code, out, _ = run(capsys, ["ci", "--root", str(layer), "--provider", "circleci", "--json"])
     assert code == 0
     j = json.loads(out)
-    assert j["action"] == "manual"
+    assert j["action"] == "unchanged"
     assert j["created"] is False
-    assert j["snippet"] == build_circleci_snippet(), "manual snippet is byte-exact"
-    assert cc.read_text(encoding="utf-8") == before, "existing config left untouched"
+    assert cc.read_text(encoding="utf-8") == before, "idempotent byte-for-byte"
+
+    # Someone else's config: never modified, and the snippet comes back to add by hand.
+    foreign = _seeded_ci_dir(capsys, tmp_path / "foreign")
+    fcc = foreign / ".circleci" / "config.yml"
+    fcc.parent.mkdir(parents=True, exist_ok=True)
+    fcc.write_text("version: 2.1\njobs:\n  mine: {}\n", encoding="utf-8")
+    code, out, _ = run(capsys, ["ci", "--root", str(foreign), "--provider", "circleci", "--json"])
+    assert code == 0
+    j = json.loads(out)
+    assert j["action"] == "manual"
+    # The hand-add snippet is the generated config without its two leading lines (the
+    # ownership marker and `version: 2.1`): it claims nothing in a file leji does not own.
+    assert j["snippet"] == "\n".join(golden("circleci-node-fallback.yml").split("\n")[2:])
+    assert fcc.read_text(encoding="utf-8") == "version: 2.1\njobs:\n  mine: {}\n"
 
 
 # Mirrors run.test.ts "ci --provider azure: dedicated pipeline file + activation
@@ -170,7 +190,7 @@ def test_ci_provider_azure(capsys, tmp_path: Path) -> None:
     assert j["created"] is True
     assert j["workflow"] == ".azure-pipelines/leji.yml"
     assert "Azure Pipelines does not auto-run" in j["note"]
-    assert az.read_text(encoding="utf-8") == build_azure_pipeline(), "pipeline file is byte-exact"
+    assert az.read_text(encoding="utf-8") == golden("azure-node-fallback.yml"), "byte-exact"
     code, out, _ = run(capsys, ["ci", "--root", str(d1), "--provider", "azure", "--json"])
     assert code == 0
     assert json.loads(out)["action"] == "unchanged", "idempotent"
@@ -322,8 +342,8 @@ def test_ci_hooks_created_idempotent_never_clobbers(tmp_path: Path) -> None:
     third = ensure_local_hook(str(tmp_path))
     assert third.action == "manual", "unmanaged hook is never clobbered"
     assert third.reason == "foreign-hook"
-    assert '"$LEJI" validate' in (third.snippet or "")
-    assert "node_modules/.bin/leji" in (third.snippet or ""), "hook prefers the local bin"
+    assert "'leji' validate || exit 1" in (third.snippet or "")
+    assert "node_modules" not in (third.snippet or ""), "the scalar shim is gone"
     assert "custom hook" in hook_path.read_text(encoding="utf-8"), "foreign hook untouched"
 
 
@@ -366,7 +386,7 @@ def test_ci_hooks_husky_merges_managed_block(tmp_path: Path) -> None:
     merged = husky_pre.read_text(encoding="utf-8")
     assert "npm test" in merged, "existing husky content untouched"
     assert "# >>> leji hooks (managed) >>>" in merged
-    assert '"$LEJI" validate || exit 1' in merged
+    assert "'leji' validate || exit 1" in merged
     assert not (tmp_path / ".git" / "hooks" / "pre-commit").exists()
     assert ensure_local_hook(str(tmp_path)).action == "unchanged", "rerun is idempotent"
 
@@ -399,7 +419,7 @@ def test_ci_hooks_custom_dir_writes_managed_file(tmp_path: Path) -> None:
     assert r.managed == "file"
     custom = tmp_path / "githooks" / "pre-commit"
     assert "# leji pre-commit (managed)" in custom.read_text(encoding="utf-8")
-    assert "node_modules/.bin/leji" in custom.read_text(encoding="utf-8"), "prefers the local bin"
+    assert "'leji' validate || exit 1" in custom.read_text(encoding="utf-8")
     assert custom.stat().st_mode & 0o111, "custom hook is executable"
     assert not (tmp_path / ".git" / "hooks" / "pre-commit").exists()
 
@@ -438,7 +458,7 @@ def test_ci_hooks_path_outside_repo_is_manual(
     assert r.managed == "file"
     assert r.reason == "outside-root"
     assert r.path == f"{outside}/pre-commit", "reports the computed target"
-    assert '"$LEJI" validate' in (r.snippet or "")
+    assert "'leji' validate || exit 1" in (r.snippet or "")
     assert not (outside / "pre-commit").exists(), "nothing written outside the repo"
     assert not (tmp_path / ".git" / "hooks" / "pre-commit").exists()
 
@@ -476,38 +496,91 @@ def test_ci_hooks_relative_out_of_root_normalized(tmp_path: Path) -> None:
 
 
 # Mirrors units.test.ts "ci: local-first CI variant ..." / "ci: npx @1 fallback ...".
-def test_ci_template_variants_local_vs_npx() -> None:
-    from leji.init_cmd import build_github_workflow
-
-    local = build_github_workflow(True)
-    assert "- run: npm ci" in local
-    assert "npx --no-install @leji-org/leji validate" in local
-    assert "npx -y @leji-org/leji@1" not in local
-    fallback = build_github_workflow(False)
-    assert "npx -y @leji-org/leji@1 validate" in fallback
-    assert "npm ci" not in fallback
-
-
-def test_declares_leji_dep_detection(tmp_path: Path) -> None:
-    from leji.init_cmd import _declares_leji_dep
-
-    assert not _declares_leji_dep(tmp_path), "no package.json"
-    (tmp_path / "package.json").write_text("{ not json", encoding="utf-8")
-    assert not _declares_leji_dep(tmp_path), "unparseable package.json"
-    (tmp_path / "package.json").write_text(
+def test_ci_job_follows_the_repository_manager(capsys, tmp_path: Path) -> None:
+    """The generated job installs with the manager the repository actually uses, and
+    declaring without a lockfile is not enough."""
+    pnpm = _seeded_ci_dir(capsys, tmp_path / "pnpm")
+    (pnpm / "package.json").write_text(
         '{"devDependencies":{"@leji-org/leji":"^1.3.0"}}', encoding="utf-8"
     )
-    assert _declares_leji_dep(tmp_path), "devDependencies entry declares the dep"
-    # A leading UTF-8 BOM is stripped, so a valid manifest is still detected.
-    (tmp_path / "package.json").write_bytes(
-        b"\xef\xbb\xbf" + b'{"dependencies":{"@leji-org/leji":"1.3.0"}}'
+    (pnpm / "pnpm-lock.yaml").write_text("lockfileVersion: 9\n", encoding="utf-8")
+    run(capsys, ["ci", "--root", str(pnpm), "--provider", "github"])
+    wf = (pnpm / ".github" / "workflows" / "leji.yml").read_text(encoding="utf-8")
+    assert "npm ci" not in wf, "no npm ci in a pnpm repository"
+    assert "- run: corepack enable && pnpm install --frozen-lockfile" in wf
+    assert "- run: pnpm exec leji validate" in wf
+    assert "npx -y @leji-org/leji@1" not in wf, "declared + locked is never the fallback"
+
+    unlocked = _seeded_ci_dir(capsys, tmp_path / "unlocked")
+    (unlocked / "package.json").write_text(
+        '{"devDependencies":{"@leji-org/leji":"^1.3.0"}}', encoding="utf-8"
     )
-    assert _declares_leji_dep(tmp_path), "BOM-prefixed manifest declares the dep"
-    # dependencies as a JSON array is not an object -> treated as absent, not an error.
-    (tmp_path / "package.json").write_text('{"dependencies":["@leji-org/leji"]}', encoding="utf-8")
-    assert not _declares_leji_dep(tmp_path), "array dependencies field treated as absent"
-    # A non-finite JSON constant (NaN) fails the strict parse (matches TS/Go) -> absent.
-    (tmp_path / "package.json").write_text(
-        '{"dependencies":{"@leji-org/leji":NaN}}', encoding="utf-8"
-    )
-    assert not _declares_leji_dep(tmp_path), "NaN value fails the strict parse"
+    run(capsys, ["ci", "--root", str(unlocked), "--provider", "github"])
+    fallback = (unlocked / ".github" / "workflows" / "leji.yml").read_text(encoding="utf-8")
+    assert "npx -y @leji-org/leji@1 validate" in fallback
+
+
+def test_node_declaration_through_the_detector(tmp_path: Path) -> None:
+    """The declaration rules, reached only through the detector: the direct
+    package.json read this port used to carry is gone."""
+    from leji.ecosystem import detect_ecosystem
+
+    def declared(pkg: str, name: str) -> bool:
+        root = tmp_path / name
+        root.mkdir()
+        (root / "package.json").write_text(pkg, encoding="utf-8")
+        (root / "package-lock.json").write_text("", encoding="utf-8")
+        report = detect_ecosystem(str(root))
+        assert report.selected is not None
+        return report.selected.direct_declared
+
+    assert not declared("{}", "empty")
+    assert declared('{"devDependencies":{"@leji-org/leji":"^1.3.0"}}', "dev")
+    assert declared('\ufeff{"dependencies":{"@leji-org/leji":"1.3.0"}}', "bom")
+    assert not declared('{"dependencies":["@leji-org/leji"]}', "array")
+    for i, bad in enumerate(["{ not json", '{"dependencies":{"@leji-org/leji":NaN}}']):
+        root = tmp_path / f"bad{i}"
+        root.mkdir()
+        (root / "package.json").write_text(bad, encoding="utf-8")
+        (root / "package-lock.json").write_text("", encoding="utf-8")
+        assert detect_ecosystem(str(root)).reason == "unreadable-manifest"
+
+
+def test_ci_dangling_target_is_refused_never_written_through(capsys, tmp_path: Path) -> None:
+    # Every arm decided presence with an existence check, which follows symlinks: a
+    # dangling workflow link read as absent and the create landed at the link's
+    # destination, a name inside the repository the tool never planned. The verified
+    # read refuses the standing entry instead, in the same words an escaping target gets.
+    for i, (provider, target_rel) in enumerate(
+        [
+            ("github", ".github/workflows/leji.yml"),
+            ("gitlab", ".gitlab-ci.yml"),
+            ("circleci", ".circleci/config.yml"),
+            ("azure", ".azure-pipelines/leji.yml"),
+        ]
+    ):
+        layer = _seeded_ci_dir(capsys, tmp_path / f"dangling-{i}")
+        target = layer / target_rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to("never-created.yml")
+        code, _, err = run(capsys, ["ci", "--root", str(layer), "--provider", provider])
+        assert code == 2, f"{provider}: dangling target refused"
+        assert "refusing to write through a symlink that escapes the target" in err
+        assert not (target.parent / "never-created.yml").exists(), (
+            f"{provider}: the dangling link's destination is never created"
+        )
+        assert target.is_symlink(), f"{provider}: the planted link is left exactly as it was"
+
+
+def test_ci_gitlab_refuses_a_standing_entry_that_is_not_a_regular_file(
+    capsys, tmp_path: Path
+) -> None:
+    # The merge reads the bytes it is about to rewrite through the verified read, so a
+    # target that is not a regular file is the same hard refusal a write to it would be,
+    # reported in the SDK's own words rather than as an OS read error.
+    layer = _seeded_ci_dir(capsys, tmp_path)
+    (layer / "inside-dir").mkdir()
+    (layer / ".gitlab-ci.yml").symlink_to(layer / "inside-dir")
+    code, _, err = run(capsys, ["ci", "--root", str(layer), "--provider", "gitlab"])
+    assert code == 2
+    assert "refusing to write through a symlink that escapes the target" in err

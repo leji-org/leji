@@ -51,7 +51,7 @@ export function buildWritePlan(
       entries.push({
          rel,
          status: 'wont-modify',
-         note: 'existing file, read-only input — Leji will not modify it',
+         note: 'existing file, read-only input; Leji will not modify it',
       });
    }
    return entries;

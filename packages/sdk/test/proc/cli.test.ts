@@ -214,6 +214,98 @@ test('cli index generate writes and reports entries', async () => {
    assert.equal(payload.entries, 3);
 });
 
+// The generate run's closing nudge. The line is spec-pinned byte for byte and
+// identical in all three SDKs, so it is asserted as an exact string, never a
+// pattern; the zero case is asserted as absence.
+const UNINDEXED_LINE = (n: number): string =>
+   `${n} file(s) unindexed: add to a category index or leave as reference deliberately`;
+
+test('cli index generate reports the unindexed count as its last line', async () => {
+   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cli-unindexed-'));
+   fs.cpSync(exampleDir, dir, { recursive: true });
+   // Two markdown files under the governed root that no category index lists.
+   fs.mkdirSync(path.join(dir, 'docs', 'notes'), { recursive: true });
+   fs.writeFileSync(path.join(dir, 'docs', 'notes', 'loose.md'), '# Loose\n');
+   fs.writeFileSync(path.join(dir, 'docs', 'stray.md'), '# Stray\n');
+   const result = await runCli(['index', '--root', dir]);
+   // A nudge, never a gate: the count does not move the exit code.
+   assert.equal(result.code, 0);
+   const lines = result.stdout.split('\n');
+   assert.equal(lines[lines.length - 1], UNINDEXED_LINE(2));
+});
+
+test('cli index generate is quiet when nothing is unindexed', async () => {
+   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cli-indexed-'));
+   fs.cpSync(exampleDir, dir, { recursive: true });
+   const result = await runCli(['index', '--root', dir]);
+   assert.equal(result.code, 0);
+   assert.ok(!result.stdout.includes('unindexed'), `no nudge at zero, got: ${result.stdout}`);
+   const lines = result.stdout.split('\n');
+   assert.match(lines[lines.length - 1], /^ok \(/);
+});
+
+test('cli index --check is unaffected by the unindexed count', async () => {
+   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cli-unindexed-check-'));
+   fs.cpSync(exampleDir, dir, { recursive: true });
+   fs.writeFileSync(path.join(dir, 'docs', 'stray.md'), '# Stray\n');
+   const result = await runCli(['index', '--check', '--root', dir]);
+   assert.equal(result.code, 0);
+   assert.ok(!result.stdout.includes('unindexed'), `--check stays silent, got: ${result.stdout}`);
+});
+
+/** True when `key` appears anywhere in the document, at any depth. Checking the
+ * whole tree rather than the top level alone is what makes the JSON assertion
+ * below hold against a field added later inside summary or a future extra. */
+function hasKeyDeep(value: unknown, key: string): boolean {
+   if (Array.isArray(value)) return value.some((v) => hasKeyDeep(v, key));
+   if (value !== null && typeof value === 'object') {
+      const obj = value as Record<string, unknown>;
+      return key in obj || Object.values(obj).some((v) => hasKeyDeep(v, key));
+   }
+   return false;
+}
+
+test('cli index --json carries no trailing nudge line', async () => {
+   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cli-unindexed-json-'));
+   fs.cpSync(exampleDir, dir, { recursive: true });
+   fs.writeFileSync(path.join(dir, 'docs', 'stray.md'), '# Stray\n');
+   const result = await runCli(['index', '--root', dir, '--json']);
+   assert.equal(result.code, 0);
+   // One document and nothing after it: the payload must still parse whole.
+   const payload = JSON.parse(result.stdout);
+   assert.equal(payload.written, 'docs/context-index.json');
+   // The nudge is text-mode only. The count is not part of the index run's
+   // contract, so no consumer may start reading it off this document — not at
+   // the top level, not tucked into summary or a later extra.
+   assert.ok(!hasKeyDeep(payload, 'unindexed'), `--json must carry no unindexed field, got: ${result.stdout}`);
+});
+
+test('cli index generate prints no nudge when the index write fails', async () => {
+   // Root bypasses permission bits, so the write would succeed; skip there.
+   if (typeof process.getuid === 'function' && process.getuid() === 0) return;
+   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cli-unindexed-denied-'));
+   fs.cpSync(exampleDir, dir, { recursive: true });
+   fs.writeFileSync(path.join(dir, 'docs', 'stray.md'), '# Stray\n');
+   // The nudge would have something to say here: the count is nonzero, so the
+   // silence below is the operational failure's doing and not an empty set.
+   const before = await runCli(['status', '--root', dir, '--json']);
+   assert.ok(JSON.parse(before.stdout).unindexed.length > 0);
+   const target = path.join(dir, 'docs', 'context-index.json');
+   fs.chmodSync(target, 0o444);
+   try {
+      const result = await runCli(['index', '--root', dir]);
+      // An operational failure surfaces its error and nothing else: generation
+      // never completed, so the layer has no count worth reporting.
+      assert.equal(result.code, 2);
+      assert.match(result.stderr, /^leji: /);
+      assert.match(result.stderr, /context-index\.json/);
+      assert.match(result.stderr, /permission denied/i);
+      assert.ok(!result.stdout.includes('unindexed'), `no nudge on a failed write, got: ${result.stdout}`);
+   } finally {
+      fs.chmodSync(target, 0o644); // restore so the temp tree can be cleaned up
+   }
+});
+
 test('cli.json documents exactly the commands the CLI accepts', async () => {
    const cli = JSON.parse(fs.readFileSync(path.join(repoRoot, 'packages', 'sdk', 'cli.json'), 'utf8'));
    const documented: string[] = cli.commands.map((c: { name: string }) => c.name).sort();
@@ -230,7 +322,7 @@ test('cli.json documents exactly the commands the CLI accepts', async () => {
               ? ['--keep', '1']
               : name === 'agent'
                 ? ['--host', 'codex', '--name', 'reviewer']
-                : name === 'mounts locate'
+                : name === 'mounts locate' || name === 'mounts update-pin'
                   ? ['some-mount']
                   : [];
       const result = await runCli([...argv, '--root', dir, ...extra]);
@@ -244,17 +336,20 @@ test('cli.json documents exactly the commands the CLI accepts', async () => {
    assert.deepEqual(documented, [
       'adopt',
       'agent',
+      'badge',
       'changelog check',
       'changelog compact',
       'ci',
       'conformance',
       'detect',
+      'export',
       'freshness',
       'index',
       'init',
       'mounts hydrate',
       'mounts locate',
       'mounts status',
+      'mounts update-pin',
       'route',
       'start',
       'status',
@@ -266,13 +361,22 @@ test('cli.json documents exactly the commands the CLI accepts', async () => {
    ]);
 });
 
-test('cli --help renders from cli.json (commands and the reference link)', async () => {
+test('cli --help renders from cli.json (grouped commands, exit codes, and the reference link)', async () => {
    const help = await runCli(['--help']);
    assert.equal(help.code, 0);
    const cli = JSON.parse(fs.readFileSync(path.join(repoRoot, 'packages', 'sdk', 'cli.json'), 'utf8'));
    for (const c of cli.commands) {
       assert.ok(help.stdout.includes(c.name), `help lists ${c.name}`);
    }
+   // Every group is a section of its own, and an alias sits under its primary
+   // instead of taking a row.
+   for (const g of cli.groups) assert.ok(help.stdout.includes(`\n${g.title}:\n`), `help sections ${g.title}`);
+   const nameCol = Math.max(...cli.commands.map((c: { name: string }) => c.name.length)) + 3;
+   for (const c of cli.commands.filter((c: { aliasOf?: string }) => c.aliasOf)) {
+      assert.ok(help.stdout.includes(`   ${c.name.padEnd(nameCol)}(alias of ${c.aliasOf})`), `help folds ${c.name}`);
+   }
+   assert.match(help.stdout, /\nExit codes:\n/);
+   for (const e of cli.exitCodes) assert.ok(help.stdout.includes(`   ${e.code}  `), `help lists exit ${e.code}`);
    assert.match(help.stdout, /leji\.org\/cli/);
 });
 
@@ -289,13 +393,16 @@ test('cli --help is the trimmed top level: globals only, no per-command flags, p
    assert.match(help.stdout, /Run `leji <command> --help`/);
 });
 
-test('cli <command> --help renders that command: usage, its flags, and examples', async () => {
+test('cli <command> --help renders that command: usage, its own flags, and examples', async () => {
    const help = await runCli(['adopt', '--help']);
    assert.equal(help.code, 0);
    assert.match(help.stdout, /^leji adopt: /);
    assert.match(help.stdout, /Usage: leji adopt /);
    assert.match(help.stdout, /--wire-adapters/); // command-specific flag
-   assert.match(help.stdout, /--root <dir>/); // globals included
+   // The globals are named once, at the top level: repeating them in every command
+   // was the bulk of the old per-command help.
+   assert.ok(!help.stdout.includes('   --root <dir>'), 'globals are not repeated per command');
+   assert.match(help.stdout, /\nGlobal options: see leji --help\.\n/);
    assert.match(help.stdout, /Examples:/);
    assert.match(help.stdout, /leji\.org\/cli/);
 });

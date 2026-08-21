@@ -17,7 +17,14 @@ type Finding struct {
 	Rule     string
 	Severity Severity
 	Path     string
-	Message  string
+	// Line is the 1-based line within Path when the rule locates one (the
+	// rendering lint); 0 when it does not, and then omitted from the JSON.
+	Line int
+	// Construct is the closed-token construct a rule names, when it carries one:
+	// what the three SDKs compare on for `render-unsupported`, message text being
+	// outside the contract. Empty when the rule names none, and then omitted.
+	Construct string
+	Message   string
 	// HasPath distinguishes "no path" from "empty-string path" so the emitted
 	// JSON can omit the field, matching Node/Python.
 	HasPath bool
@@ -36,7 +43,10 @@ type Summary struct {
 	Warnings int `json:"warnings"`
 }
 
-// Sort orders findings by (path, rule, message); stable to mirror JS sort.
+// Sort orders findings by (path, line, rule, construct), message last as the final
+// tie-break; stable to mirror JS sort. The line and construct keys carry the
+// rendering lint's ordering — two constructs reported on one line stay in the same
+// order in all three SDKs — and change nothing for a rule that locates neither.
 func Sort(in []Finding) []Finding {
 	out := make([]Finding, len(in))
 	copy(out, in)
@@ -45,8 +55,14 @@ func Sort(in []Finding) []Finding {
 		if a.Path != b.Path {
 			return a.Path < b.Path
 		}
+		if a.Line != b.Line {
+			return a.Line < b.Line
+		}
 		if a.Rule != b.Rule {
 			return a.Rule < b.Rule
+		}
+		if a.Construct != b.Construct {
+			return a.Construct < b.Construct
 		}
 		return a.Message < b.Message
 	})

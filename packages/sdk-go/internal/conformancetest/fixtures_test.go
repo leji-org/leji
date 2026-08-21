@@ -11,8 +11,6 @@ import (
 	"testing"
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/conformance"
-	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
-	"github.com/leji-org/leji/packages/sdk-go/internal/commands/validate"
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 )
@@ -97,7 +95,7 @@ func TestFixtureValidate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join(fd, name)
 			exp := loadExpected(t, dir)
-			result := validate.ValidateLayer(dir, false)
+			result := validateLayer(t, dir, false)
 
 			var got []string
 			for _, f := range result.Findings {
@@ -199,7 +197,7 @@ func TestFixtureIndexCheck(t *testing.T) {
 			if m == nil {
 				t.Fatalf("manifest must load for indexCheck fixtures: %s", name)
 			}
-			result := indexgen.CheckIndex(dir, m)
+			result := checkIndex(t, dir, m)
 			stale := true
 			if result.Stale != nil {
 				stale = *result.Stale

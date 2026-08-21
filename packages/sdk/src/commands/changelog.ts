@@ -1,8 +1,6 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { type Finding, finding } from '../lib/findings.js';
-import { resolvedWithinRoot } from '../lib/fsx.js';
-import { readJsonArtifact } from '../lib/layer.js';
+import { guardRoot, verifiedTargetRead, writeFileGuarded } from '../lib/fsx.js';
 import { type Manifest, claimedLevel, effectiveChangelogPath, levelAtLeast } from '../lib/manifest.js';
 
 interface ChangelogEntry {
@@ -102,13 +100,17 @@ function today(): string {
  * (lets `leji index` complete the indexed surface for a layer upgraded after init).
  * Returns the seeded path, or null when nothing was written (not indexed, already
  * present, or a symlink would escape the root). Never overwrites.
+ *
+ * "Missing" is decided by the exclusive create itself rather than by a pathname
+ * check, because `existsSync` follows symlinks: a dangling link at the changelog
+ * name reads as absent and the seed would be created at the link's destination. The
+ * exclusive create judges the ORIGINAL entry, so any standing entry is the same
+ * already-present no-op an existing changelog is.
  */
 export function seedChangelogIfMissing(root: string, manifest: Manifest): string | null {
    if (!levelAtLeast(claimedLevel(manifest), 'indexed')) return null;
    const rel = effectiveChangelogPath(manifest);
    const abs = path.join(root, rel);
-   if (fs.existsSync(abs)) return null;
-   if (!resolvedWithinRoot(path.resolve(root), abs)) return null;
    const log: Changelog = {
       $schema: 'https://leji.org/schemas/v1.0/context-changelog.schema.json',
       schemaVersion: '1.0',
@@ -124,8 +126,7 @@ export function seedChangelogIfMissing(root: string, manifest: Manifest): string
          },
       ],
    };
-   fs.mkdirSync(path.dirname(abs), { recursive: true });
-   fs.writeFileSync(abs, serializeChangelog(log));
+   if (!writeFileGuarded(guardRoot(root), abs, null, serializeChangelog(log), { exclusive: true }).ok) return null;
    return rel;
 }
 
@@ -158,9 +159,21 @@ export function compactChangelog(root: string, manifest: Manifest, opts: Compact
          path: rel,
       };
    }
-   const { data, finding: parseFinding } = readJsonArtifact(root, rel);
-   if (parseFinding) return { findings: [parseFinding], folded: 0, kept: 0, path: rel };
-   if (!data) {
+   // Compaction rewrites the file it just read, so the bytes it folds come from the
+   // verified read rather than from a pathname read once and written again: a refusal
+   // (outside the layer root, a private role, an entry that is not a regular file) is
+   // reported exactly as an unreadable artifact, and nothing is written.
+   const rootReal = guardRoot(root);
+   const read = verifiedTargetRead(rootReal, path.join(root, rel), null);
+   if (read.status === 'refused') {
+      return {
+         findings: [finding('artifact-parse', 'error', `artifact ${rel} resolves outside the layer root`, rel)],
+         folded: 0,
+         kept: 0,
+         path: rel,
+      };
+   }
+   if (read.status === 'absent') {
       return {
          findings: [finding('changelog-required', 'error', `changelog ${rel} does not exist`, rel)],
          folded: 0,
@@ -168,7 +181,18 @@ export function compactChangelog(root: string, manifest: Manifest, opts: Compact
          path: rel,
       };
    }
-   const log = data as Changelog;
+   let parsed: unknown;
+   try {
+      parsed = JSON.parse(read.bytes.toString('utf8'));
+   } catch (e) {
+      return {
+         findings: [finding('artifact-parse', 'error', `invalid JSON: ${(e as Error).message}`, rel)],
+         folded: 0,
+         kept: 0,
+         path: rel,
+      };
+   }
+   const log = parsed as Changelog;
    const original = Array.isArray(log.entries)
       ? log.entries.filter((e): e is ChangelogEntry => e !== null && typeof e === 'object')
       : [];
@@ -220,7 +244,7 @@ export function compactChangelog(root: string, manifest: Manifest, opts: Compact
    const next: Changelog = { ...log, entries: [...survivors, compaction] };
 
    const abs = path.join(root, rel);
-   if (!resolvedWithinRoot(path.resolve(root), abs)) {
+   if (!writeFileGuarded(guardRoot(root), abs, null, serializeChangelog(next)).ok) {
       return {
          findings: [finding('artifact-parse', 'error', `changelog path ${rel} resolves outside the layer root`, rel)],
          folded: 0,
@@ -228,8 +252,6 @@ export function compactChangelog(root: string, manifest: Manifest, opts: Compact
          path: rel,
       };
    }
-   fs.mkdirSync(path.dirname(abs), { recursive: true });
-   fs.writeFileSync(abs, serializeChangelog(next));
 
    return { findings: [], folded: folded.length, kept: next.entries.length, path: rel };
 }

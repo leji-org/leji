@@ -1,0 +1,7 @@
+[tool.poetry]
+name = "d"
+version = "0"
+
+[tool.poetry.group.ci.dependencies]
+# leji = "^1.3"
+pytest = "^8.0"

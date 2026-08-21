@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { type Finding, finding } from './findings.js';
-import { exists, isDir, isFile, readText, readTextWithin, realpathWithin, underPath, walkMd } from './fsx.js';
+import { exists, isDir, isFile, readText, readTextWithin, resolvedWithinRoot, underPath, walkMd } from './fsx.js';
 import { parseFrontmatter } from './frontmatter.js';
 import { type DocKind, parseIndexFile } from './indexfile.js';
 import {
@@ -341,23 +341,36 @@ function scanFrontmatterArtifact(
    return { relPath, frontmatter: fm.data, body: fm.body, findings };
 }
 
+/**
+ * How a scan gets one artifact's bytes, and whether it may have them at all. The
+ * default reads by path; a caller composing something it will serve or export passes
+ * a reader that binds the check to the read (check-before-act), and returns null for a source it
+ * refuses — missing, not a regular file, or resolving somewhere it may not be read
+ * from. A refused artifact is dropped from the scan, exactly as the whitelist filter
+ * it replaces dropped it, so validation (which passes no reader) is unaffected.
+ */
+export type ArtifactReader = (relPath: string) => string | null;
+
 function scanFrontmatterArtifacts(
    root: string,
    dir: string,
    schemaName: 'agent-profile' | 'decision-record',
    rule: string,
+   read?: ArtifactReader,
 ): ScannedProfile[] {
    const out: ScannedProfile[] = [];
    for (const relPath of walkMd(root, dir)) {
       if (path.posix.basename(relPath).toLowerCase() === 'readme.md') continue;
-      out.push(scanFrontmatterArtifact(readText(path.join(root, relPath)), relPath, schemaName, rule));
+      const text = read === undefined ? readText(path.join(root, relPath)) : read(relPath);
+      if (text === null) continue;
+      out.push(scanFrontmatterArtifact(text, relPath, schemaName, rule));
    }
    return out;
 }
 
-export function scanAgentProfiles(root: string, manifest: Manifest): ScannedProfile[] {
+export function scanAgentProfiles(root: string, manifest: Manifest, read?: ArtifactReader): ScannedProfile[] {
    const dir = effectiveAgentProfilesPath(manifest);
-   return scanFrontmatterArtifacts(root, dir, 'agent-profile', 'profile-frontmatter');
+   return scanFrontmatterArtifacts(root, dir, 'agent-profile', 'profile-frontmatter', read);
 }
 
 /**
@@ -376,12 +389,21 @@ export function scanAgentProfiles(root: string, manifest: Manifest): ScannedProf
  * reporting either twice.
  */
 export function scanProfileSet(root: string, manifest: Manifest): ScannedProfile[] {
-   const profiles = scanAgentProfiles(root, manifest);
+   return scanProfileSetWith(root, manifest);
+}
+
+/**
+ * The same scan through a caller's reader — the seam a viewer or export needs and
+ * nobody outside this package does, so it stays out of the barrel (`index.ts`)
+ * while {@link scanProfileSet} keeps the surface others build against.
+ */
+export function scanProfileSetWith(root: string, manifest: Manifest, read?: ArtifactReader): ScannedProfile[] {
+   const profiles = scanAgentProfiles(root, manifest, read);
    const dir = effectiveAgentProfilesPath(manifest);
    const seen = new Set(profiles.map((p) => p.relPath));
    for (const rel of Object.values(manifest.agents ?? {})) {
       if (seen.has(rel) || underPath(rel, dir)) continue;
-      const text = readTextWithin(path.resolve(root), path.join(root, rel));
+      const text = read === undefined ? readTextWithin(path.resolve(root), path.join(root, rel)) : read(rel);
       if (text === null) continue; // missing or escaping: the agents-map check owns that
       seen.add(rel);
       profiles.push(scanFrontmatterArtifact(text, rel, 'agent-profile', 'profile-frontmatter'));
@@ -642,7 +664,7 @@ export function readJsonArtifact(root: string, relPath: string): { data: unknown
    if (!isFile(abs)) {
       return { data: null };
    }
-   if (!realpathWithin(path.resolve(root), abs)) {
+   if (!resolvedWithinRoot(path.resolve(root), abs)) {
       return {
          data: null,
          finding: finding('artifact-parse', 'error', `artifact ${relPath} resolves outside the layer root`, relPath),

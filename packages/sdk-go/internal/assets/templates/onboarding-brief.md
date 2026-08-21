@@ -1,9 +1,9 @@
 <!-- Leji onboarding brief. Transient: written by `leji init`/`adopt` so an AI agent
      can populate this context layer from the real repository and its owner. It is not
      canonical context; its finalize step deletes this brief once the layer is populated.
-     It lives under a dot-directory (`<root>/.leji/`, gitignored) alongside the generated
-     viewer and the private onboarding workspace, so it is excluded from the index, the
-     viewer, and the changelog. -->
+     It lives in the gitignored onboarding workspace (`.leji/work/`) at the repository root,
+     beside the generated viewer, so it is excluded from the index, the viewer, and the
+     changelog. -->
 
 # Onboarding brief for the agent
 
@@ -99,7 +99,7 @@ The three file paths:
 2. **Local path**: the owner drags a file into the terminal (which pastes its path) or types a
    path. Read the file in place; do not copy or move it.
 3. **Drop folder**: if the owner says "open the drop folder," create
-   `<root>/.leji/onboarding-inputs/`, run the safety checks in the next section, print its
+   `.leji/work/onboarding-inputs/`, run the safety checks in the next section, print its
    absolute path, and open it in the system file browser where supported. The owner copies
    files in and tells you when they are ready.
 
@@ -114,18 +114,18 @@ Raw artifacts (emails, PDFs, bios, brand documents, writing samples) are **priva
 never content**. They must never enter the governed tree, the index, the changelog, or any
 commit.
 
-**The transient workspace.** Everything artifact-related lives only under `<root>/.leji/`:
+**The transient workspace.** Everything artifact-related lives only under `.leji/work/`:
 
-- `<root>/.leji/onboarding-inputs/` for dropped or copied raw artifacts,
-- `<root>/.leji/onboarding-work/` for temporary extraction scratch, if needed,
-- `<root>/.leji/onboarding-sources.json`, a private source ledger you maintain: for each
+- `.leji/work/onboarding-inputs/` for dropped or copied raw artifacts,
+- `.leji/work/onboarding-work/` for temporary extraction scratch, if needed,
+- `.leji/work/onboarding-sources.json`, a private source ledger you maintain: for each
   artifact record a short display name, kind, where it came from (attachment, external file,
   drop folder), and which sections it informed. No file contents in the ledger.
 
 **Before accepting any artifact**, verify the boundary is intact:
 
-- Confirm `.leji/` is ignored (`git check-ignore <root>/.leji` succeeds).
-- Confirm nothing under `<root>/.leji/` is tracked (`git ls-files <root>/.leji` is empty). If
+- Confirm `.leji/` is ignored (`git check-ignore .leji` succeeds).
+- Confirm nothing under `.leji/` is tracked (`git ls-files .leji` is empty). If
   anything is tracked, stop artifact intake and tell the owner exactly what is tracked; do not
   run `git rm --cached` yourself.
 
@@ -239,7 +239,7 @@ human-readable terms (for example "owner-provided 2025 brand guide"), nothing mo
    markers and `status: proposed` decisions as owner confirmations pending, and `leji status`
    reports what is still unindexed, dangling, or stale.
 7. **Write the proposal, print it, then ask.** Phase 1 ends with the STOP section's two
-   steps, in order: the whole proposal written to `<root>/.leji/proposal.md` and printed as
+   steps, in order: the whole proposal written to `.leji/work/proposal.md` and printed as
    plain text in your reply, then the approval prompt directly after it. Going from tool calls
    straight into the question tool without the printed summary is a protocol violation, not a
    shortcut: the owner must be able to read the full proposal without stepping through the
@@ -285,7 +285,7 @@ samples is a proposal until confirmed. Do not relabel aspiration as voice to byp
 Two steps, strictly ordered, after every draft is written and sanity-checked:
 
 1. **Write and print the confirmation summary.** Write the whole proposal to
-   `<root>/.leji/proposal.md`, first line exactly `# Proposal for approval`, covering the
+   `.leji/work/proposal.md`, first line exactly `# Proposal for approval`, covering the
    load-bearing claims below, then print that same content as plain, readable text in your
    reply. The printed message comes IMMEDIATELY before the approval prompt: no tool calls,
    file edits, or checks in between. Never point at earlier tool output or file diffs as the
@@ -314,14 +314,14 @@ Ask only what you could not verify. A few sharp questions beat a long interview.
 ## Phase 2: finalize (only after the owner confirms)
 
 - Adjust the index files to the owner's calls: promote, downgrade to reference, or recategorize.
-- Remove the onboarding guard if installed: delete `<root>/.leji/hooks/`, the
+- Remove the onboarding guard if installed: delete `.leji/work/hooks/`, the
   `AskUserQuestion` PreToolUse entry it added to `.claude/settings.json`, and the
-  `<root>/.leji/proposal.md` artifact (all transient onboarding machinery, never part of
+  `.leji/work/proposal.md` artifact (all transient onboarding machinery, never part of
   the layer).
 - Replace each `TODO(confirm-…)` with the confirmed wording (or correct it to what the owner said).
 - Flip each confirmed `status: proposed` decision to `status: accepted`.
 - Leave any genuinely-unknown plain `TODO:` in place and call it out.
-- **Leak check** before anything else: nothing under `<root>/.leji/` is tracked; no raw input
+- **Leak check** before anything else: nothing under `.leji/` is tracked; no raw input
   filenames, hashes, or absolute private paths appear in governed documents; no email headers
   or raw excerpts survive in the proposed content.
 - Run `leji index` to regenerate the index, `leji status` to confirm nothing governed is left
@@ -332,11 +332,11 @@ Ask only what you could not verify. A few sharp questions beat a long interview.
   locally on 127.0.0.1, and opens it in the browser. Offer to run it (or hand them the
   command); seeing the layer is what closes the loop for the humans who will rely on it.
 - As your last step, once everything above passes, delete the transient onboarding files:
-  this brief (`<root>/.leji/onboarding-brief.md`), `<root>/.leji/onboarding-inputs/`,
-  `<root>/.leji/onboarding-work/`, and `<root>/.leji/onboarding-sources.json`. They are
+  this brief (`.leji/work/onboarding-brief.md`), `.leji/work/onboarding-inputs/`,
+  `.leji/work/onboarding-work/`, and `.leji/work/onboarding-sources.json`. They are
   scaffolding and private evidence, not context. Never delete or modify the owner's external
-  originals. Leave the rest of `<root>/.leji/` in place (it holds the generated viewer and is
-  gitignored).
+  originals. Leave the rest of `.leji/` in place (it holds the generated viewer and the
+  federation cache, and is gitignored).
 
 In your final report, **quote the owner's confirmation** of the classification, invariants,
 gates, and (in solo mode) the identity and writing-style synthesis. The tool cannot prove a
@@ -345,7 +345,7 @@ conversation happened; your report and the repository's review gate are the reco
 ## Boundaries
 
 Only create or edit files Leji owns under the context root, plus the transient workspace named
-above (`<root>/.leji/onboarding-inputs/`, `onboarding-work/`, `onboarding-sources.json`),
+above (`.leji/work/onboarding-inputs/`, `onboarding-work/`, `onboarding-sources.json`),
 which you create and delete as described. Treat existing `CLAUDE.md`, `AGENTS.md`,
 `.cursor/rules`, `.github/copilot-instructions.md` and similar as **read-only inputs to learn
 from**; never rewrite them, and never wire a vendor redirect without showing the owner the

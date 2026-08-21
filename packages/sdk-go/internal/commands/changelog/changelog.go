@@ -3,8 +3,8 @@
 package changelog
 
 import (
+	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -13,7 +13,6 @@ import (
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
-	"github.com/leji-org/leji/packages/sdk-go/internal/layer"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 )
 
@@ -78,16 +77,20 @@ func today() string {
 // SeedChangelogIfMissing seeds the machine changelog when the layer claims
 // indexed (or higher) and the file is missing; this lets `leji index` complete
 // the indexed surface for a layer upgraded from core. Returns the seeded path,
-// or "" when nothing was written. Never overwrites.
+// or "" when nothing was written (not indexed, already present, or a symlink would
+// escape the root). Never overwrites.
+//
+// "Missing" is decided by the exclusive create itself rather than by a pathname
+// check, because a stat follows symlinks: a dangling link at the changelog name
+// reads as absent and the seed would be created at the link's destination. The
+// exclusive create judges the ORIGINAL entry, so any standing entry is the same
+// already-present no-op an existing changelog is.
 func SeedChangelogIfMissing(root string, m *manifest.Manifest) (string, error) {
 	if !manifest.LevelAtLeast(manifest.ClaimedLevel(m), "indexed") {
 		return "", nil
 	}
 	rel := manifest.EffectiveChangelogPath(m)
 	abs := filepath.Join(root, rel)
-	if fsx.IsFile(abs) || !fsx.ResolvesUnder(root, abs) {
-		return "", nil
-	}
 	log := map[string]any{
 		"$schema":       "https://leji.org/schemas/v1.0/context-changelog.schema.json",
 		"schemaVersion": "1.0",
@@ -103,11 +106,13 @@ func SeedChangelogIfMissing(root string, m *manifest.Manifest) (string, error) {
 			},
 		},
 	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+	verdict, err := fsx.WriteFileGuarded(fsx.GuardRoot(root), abs, "",
+		[]byte(serializeChangelog(log)), fsx.WriteOptions{Exclusive: true})
+	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(abs, []byte(serializeChangelog(log)), 0o644); err != nil {
-		return "", err
+	if !verdict.OK {
+		return "", nil
 	}
 	return rel, nil
 }
@@ -121,7 +126,7 @@ var beforeDateRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 // folded set is always a contiguous run from the oldest end. Folded entries are
 // dropped and a single compaction entry recording the removed count and id range
 // is appended. Survivors keep their original array order.
-func CompactChangelog(root string, m *manifest.Manifest, opts CompactOptions) CompactResult {
+func CompactChangelog(root string, m *manifest.Manifest, opts CompactOptions) (CompactResult, error) {
 	rel := manifest.EffectiveChangelogPath(m)
 	// Validate at the API level too: SDK callers must not fold with keep < 1 or a
 	// malformed `before` date.
@@ -130,25 +135,49 @@ func CompactChangelog(root string, m *manifest.Manifest, opts CompactOptions) Co
 			Findings: []findings.Finding{findings.New("invalid-argument", findings.Error,
 				"keep must be a positive integer", rel)},
 			Folded: 0, Kept: 0, Path: rel,
-		}
+		}, nil
 	}
 	if opts.HasBefore && !beforeDateRe.MatchString(opts.Before) {
 		return CompactResult{
 			Findings: []findings.Finding{findings.New("invalid-argument", findings.Error,
 				"before must be a YYYY-MM-DD date", rel)},
 			Folded: 0, Kept: 0, Path: rel,
-		}
+		}, nil
 	}
-	data, parseFinding := layer.ReadJSONArtifact(root, rel)
-	if parseFinding != nil {
-		return CompactResult{Findings: []findings.Finding{*parseFinding}, Path: rel}
+	// Compaction rewrites the file it just read, so the bytes it folds come from the
+	// verified read rather than from a pathname read once and written again: a refusal
+	// (outside the layer root, a private role, an entry that is not a regular file) is
+	// reported exactly as an unreadable artifact, and nothing is written.
+	rootReal := fsx.GuardRoot(root)
+	// An operational read failure on an allowed path is the filesystem failing rather
+	// than the boundary refusing, so it travels out as an error and the command reports
+	// it, exactly as the reference lets it throw. Only containment, entry kind and
+	// verification become findings.
+	read, err := fsx.VerifiedTargetRead(rootReal, filepath.Join(root, rel), "")
+	if err != nil {
+		return CompactResult{}, err
 	}
-	if data == nil {
+	if read.Status == fsx.ReadRefused {
+		return CompactResult{
+			Findings: []findings.Finding{findings.New("artifact-parse", findings.Error,
+				"artifact "+rel+" resolves outside the layer root", rel)},
+			Path: rel,
+		}, nil
+	}
+	if read.Status == fsx.ReadAbsent {
 		return CompactResult{
 			Findings: []findings.Finding{findings.New("changelog-required", findings.Error,
 				"changelog "+rel+" does not exist", rel)},
 			Path: rel,
-		}
+		}, nil
+	}
+	var data any
+	if err := json.Unmarshal(read.Bytes, &data); err != nil {
+		return CompactResult{
+			Findings: []findings.Finding{findings.New("artifact-parse", findings.Error,
+				"invalid JSON: "+err.Error(), rel)},
+			Path: rel,
+		}, nil
 	}
 	log, ok := data.(map[string]any)
 	if !ok {
@@ -156,7 +185,7 @@ func CompactChangelog(root string, m *manifest.Manifest, opts CompactOptions) Co
 			Findings: []findings.Finding{findings.New("artifact-parse", findings.Error,
 				"changelog is not a JSON object", rel)},
 			Path: rel,
-		}
+		}, nil
 	}
 
 	var original []entry
@@ -188,7 +217,7 @@ func CompactChangelog(root string, m *manifest.Manifest, opts CompactOptions) Co
 	}
 
 	if len(folded) == 0 {
-		return CompactResult{Findings: nil, Folded: 0, Kept: len(original), Path: rel}
+		return CompactResult{Findings: nil, Folded: 0, Kept: len(original), Path: rel}, nil
 	}
 
 	var survivors []entry
@@ -270,27 +299,22 @@ func CompactChangelog(root string, m *manifest.Manifest, opts CompactOptions) Co
 	next["entries"] = nextEntries
 
 	abs := filepath.Join(root, rel)
-	if !fsx.ResolvesUnder(root, abs) {
+	verdict, err := fsx.WriteFileGuarded(rootReal, abs, "", []byte(serializeChangelog(next)), fsx.WriteOptions{})
+	if err != nil {
+		return CompactResult{
+			Findings: []findings.Finding{findings.New("artifact-parse", findings.Error, err.Error(), rel)},
+			Folded:   0, Kept: len(original), Path: rel,
+		}, nil
+	}
+	if !verdict.OK {
 		return CompactResult{
 			Findings: []findings.Finding{findings.New("artifact-parse", findings.Error,
 				"changelog path "+rel+" resolves outside the layer root", rel)},
 			Folded: 0, Kept: len(original), Path: rel,
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return CompactResult{
-			Findings: []findings.Finding{findings.New("artifact-parse", findings.Error, err.Error(), rel)},
-			Folded:   0, Kept: len(original), Path: rel,
-		}
-	}
-	if err := os.WriteFile(abs, []byte(serializeChangelog(next)), 0o644); err != nil {
-		return CompactResult{
-			Findings: []findings.Finding{findings.New("artifact-parse", findings.Error, err.Error(), rel)},
-			Folded:   0, Kept: len(original), Path: rel,
-		}
+		}, nil
 	}
 
-	return CompactResult{Findings: nil, Folded: len(folded), Kept: len(nextEntries), Path: rel}
+	return CompactResult{Findings: nil, Folded: len(folded), Kept: len(nextEntries), Path: rel}, nil
 }
 
 // entryPtr returns a stable identity for an entry map (maps aren't comparable):

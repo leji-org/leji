@@ -1,0 +1,53 @@
+{
+  "name": "leji",
+  "type": "dark",
+  "colors": {
+    "editor.background": "#183D3B",
+    "editor.foreground": "#D6E5E0"
+  },
+  "tokenColors": [
+    {
+      "scope": ["comment", "punctuation.definition.comment"],
+      "settings": { "foreground": "#7FA095", "fontStyle": "italic" }
+    },
+    {
+      "scope": ["string", "string.quoted", "string.template", "punctuation.definition.string"],
+      "settings": { "foreground": "#70D8C2" }
+    },
+    {
+      "scope": ["support.type.property-name", "meta.object-literal.key", "entity.name.tag"],
+      "settings": { "foreground": "#EAF2EF" }
+    },
+    {
+      "scope": [
+        "keyword",
+        "storage",
+        "storage.type",
+        "keyword.control",
+        "entity.name.function",
+        "support.function",
+        "support.function.builtin"
+      ],
+      "settings": { "foreground": "#3ECF9B" }
+    },
+    {
+      "scope": [
+        "constant.numeric",
+        "constant.language",
+        "constant.character",
+        "constant.other",
+        "variable.parameter.option",
+        "string.unquoted.argument"
+      ],
+      "settings": { "foreground": "#D9C9A8" }
+    },
+    {
+      "scope": ["variable", "variable.other", "variable.parameter"],
+      "settings": { "foreground": "#D6E5E0" }
+    },
+    {
+      "scope": ["keyword.operator", "punctuation"],
+      "settings": { "foreground": "#9FB8B0" }
+    }
+  ]
+}

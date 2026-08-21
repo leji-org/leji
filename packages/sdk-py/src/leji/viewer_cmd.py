@@ -1,8 +1,13 @@
-"""Static viewer generation and local preview, mirroring the Node SDK.
+"""Static viewer generation, mirroring the Node SDK: the chrome generation and the
+layer helpers both of its consumers share.
 
 Presentation is non-normative; this is the reference projection of
-context-index.json into a browsable surface (Docsify), plus a localhost-only
-static server so `leji viewer serve` works the same in both ecosystems.
+context-index.json into a browsable surface (Docsify). The two consumers live in
+their own modules, so what each one drags in is visible in the import graph rather
+than buried in one file: ``serve_cmd`` keeps the local preview server and every
+network import with it, and ``export_cmd`` writes the static site — its transitive
+import set carries no network module at all, which is the structural half of the
+export's no-network guarantee and is asserted as such.
 """
 
 from __future__ import annotations
@@ -10,32 +15,47 @@ from __future__ import annotations
 import json
 import os
 import posixpath
-import threading
 import unicodedata
 from dataclasses import dataclass, field
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 import re
 
 from .findings import Finding
 from .frontmatter import parse_frontmatter
-from .fsx import resolved_within_root, strip_slash, under_path, walk_tree
-from .indexgen import generate_index, serialize_index
+from .fsx import (
+    open_verified_source,
+    read_all,
+    resolved_path,
+    resolved_path_under,
+    resolved_within_root,
+    strip_slash,
+    under_path,
+    verified_target_read,
+    walk_tree,
+    write_file_guarded,
+)
+from .indexgen import generate_index
+from .layout import (
+    LEJI_DIR,
+    VIEWER_REL,
+    role_abs,
+    servable_path,
+    writable_target,
+)
 from .layer import (
     ScannedProfile,
     resolve_agent_profile,
     resolve_category_assignments,
     scan_agent_profiles,
-    scan_profile_set,
+    scan_profile_set_with,
 )
 from .manifest import (
     CATEGORY_IDS,
     Manifest,
     effective_agent_profiles_path,
     effective_index_path,
-    load_manifest,
 )
 from .mounts import mount_status, read_text_within
 from .schemas import templates_dir
@@ -67,15 +87,26 @@ CATEGORY_EMOJI = {
 # Vendored assets loaded only when mermaid is enabled; skipped otherwise.
 MERMAID_ASSETS = frozenset({"mermaid.min.js", "docsify-mermaid.js"})
 
-# The Leji brand blue, the viewer's default accent when no viewer.theme.primary is
-# set. DEFAULT_LOGO is the vendored Leji mark.
-DEFAULT_THEME_COLOR = "#223F93"
-DEFAULT_LOGO = "/assets/leji-logo.svg"
+# The Leji brand green, the viewer's default accent when no viewer.theme.primary
+# is set.
+DEFAULT_THEME_COLOR = "#009F71"
 
-# A CSS color safe to hand to the page: a hex color or a bare color keyword. The
-# accent reaches a stylesheet as a custom-property value, so anything with
-# punctuation in it is a CSS-injection sink rather than a color.
-SAFE_CSS_COLOR = re.compile(r"^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+)$")
+# The base every URL the generated chrome emits is written against: "/" for the
+# local server (the app root, the served flavor's unchanged contract) and "" for an
+# export, whose references then resolve against the page itself so the tree hosts
+# correctly under a subpath. It is a generation parameter, never a post-hoc rewrite
+# of emitted HTML: one code path, two invocations. index.html is the only artifact
+# that exists in two flavors — everything else under the chrome is flavor-neutral.
+SERVED_BASE = "/"
+EXPORT_BASE = ""
+
+# The one accent format the viewer accepts: a hex color at a length CSS actually
+# defines (#RGB, #RGBA, #RRGGBB, #RRGGBBAA). The accent reaches a stylesheet as a
+# custom-property value, so anything with punctuation in it is a CSS-injection sink
+# rather than a color; hex-only also keeps one canonical form across the three SDKs
+# and the schema. Matched with fullmatch, never match: `$` would let a trailing
+# newline through where the other SDKs reject it.
+SAFE_CSS_COLOR = re.compile(r"#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
 # The template's `{{NAME}}` substitution sites.
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Z_]+)\}\}")
@@ -87,67 +118,102 @@ PLACEHOLDER_RE = re.compile(r"\{\{([A-Z_]+)\}\}")
 #
 # `.svg` is deliberately NOT here. It stays a first-class asset (viewer.logo and
 # viewer.favicon may point at one under the context root) because the inertness
-# comes from the policy, not the content type: every /content/ response carries the
-# CSP_CONTENT sandbox below, so an SVG navigated to or framed lands in an opaque
+# comes from the policy, not the content type: every /content/ response carries
+# serve_cmd's CSP_CONTENT sandbox, so an SVG navigated to or framed lands in an opaque
 # origin with scripting off, and an SVG loaded as an <img> never runs script
 # whatever its type.
 ACTIVE_EXTENSIONS = frozenset({".html", ".htm", ".js", ".mjs", ".xhtml"})
 
-# The SPA shell's policy, sent as a response header on every chrome response so it
-# holds for documents reached outside the shell too. Mirrors the meta in
-# templates/viewer/index.html; keep the two in step.
-CSP_CHROME = (
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
-    "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; frame-src 'none'"
-)
-
-# The policy for everything served out of the layer itself. `sandbox` with no
-# tokens puts a /content/ document in an opaque origin with scripting off, so a
-# governed file framed or opened directly is inert rather than same-origin code.
-CSP_CONTENT = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox"
-
-# The host names the local preview answers to.
-LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
-
-# C0/C1 control characters, stripped from anything attacker-controlled before it
-# reaches an operator's terminal through the access log.
-_LOG_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
-
-
-def _log_safe(s: str) -> str:
-    """Neutralize control bytes in a logged request line: a raw request target can
-    carry terminal escape sequences, and the access log prints straight to a TTY."""
-    return _LOG_CONTROL_RE.sub("?", s)
-
-
-def _loopback_host(host: Optional[str]) -> bool:
-    """True when the Host header names the loopback interface: hostname only, since
-    the port a request arrives on is already fixed by the loopback bind. A missing
-    Host is accepted (an HTTP/1.0 client omits it)."""
-    if not host:
-        return True
-    name = host[: host.find("]") + 1] if host.startswith("[") else host.split(":")[0]
-    return name.lower() in LOOPBACK_HOSTS
-
 
 def _resolve_theme_color(manifest: Manifest, findings: list[Finding]) -> str:
-    """The viewer accent: viewer.theme.primary when it is a plain CSS color, else
-    the Leji default with a warning. Never the authored value unchecked."""
+    """The viewer accent: viewer.theme.primary when it is a hex color, else the
+    Leji default with a warning. Never the authored value unchecked."""
     configured = ((manifest.get("viewer") or {}).get("theme") or {}).get("primary")
     if not configured:
         return DEFAULT_THEME_COLOR
-    if SAFE_CSS_COLOR.match(configured):
+    if SAFE_CSS_COLOR.fullmatch(configured):
         return configured
     findings.append(
         Finding(
             "viewer-theme-invalid",
             "warning",
-            f'viewer.theme.primary "{configured}" is not a plain CSS color '
-            f"(hex or keyword); using {DEFAULT_THEME_COLOR}",
+            f'viewer.theme.primary "{configured}" is not a hex color '
+            f"(#RGB, #RGBA, #RRGGBB, or #RRGGBBAA); using {DEFAULT_THEME_COLOR}",
         )
     )
     return DEFAULT_THEME_COLOR
+
+
+# The bare hex an accent reduces to once the leading `#` is out of the way; the
+# length check follows.
+HEX_DIGITS = re.compile(r"^[0-9a-f]+$")
+
+
+def _parse_accent_color(value: str) -> Optional[tuple[int, int, int]]:
+    """The accent as opaque sRGB channels, or None for a value that names no color
+    the generator can resolve — a keyword, `currentColor`, a malformed hex. Accepts
+    3/4/6/8 digit hex, the only form the accent can take; an accent carrying alpha is
+    composited over white, the viewer's content background, which is the only backdrop
+    knowable at generation time (the accent itself keeps its authored alpha everywhere
+    it is used — this composite decides text color, nothing that renders)."""
+    raw = value.strip().lower()
+    if not raw.startswith("#"):
+        return None
+    digits = raw[1:]
+    if not HEX_DIGITS.match(digits):
+        return None
+    if len(digits) in (3, 4):
+        full = "".join(c * 2 for c in digits)
+    elif len(digits) in (6, 8):
+        full = digits
+    else:
+        return None
+
+    def channel(i: int) -> int:
+        return int(full[i * 2 : i * 2 + 2], 16)
+
+    alpha = channel(3) / 255 if len(full) == 8 else 1.0
+
+    def over(c: int) -> int:
+        # Python's round() breaks ties to even where the other SDKs break them
+        # upward, so the composite truncates an explicit +0.5 instead.
+        return int(c * alpha + 255 * (1 - alpha) + 0.5)
+
+    return (over(channel(0)), over(channel(1)), over(channel(2)))
+
+
+def _relative_luminance(rgb: tuple[int, int, int]) -> float:
+    """WCAG relative luminance: linearized sRGB channels, weighted."""
+
+    def linear(c: int) -> float:
+        s = c / 255
+        return s / 12.92 if s <= 0.03928 else ((s + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * linear(rgb[0]) + 0.7152 * linear(rgb[1]) + 0.0722 * linear(rgb[2])
+
+
+def _contrast_ratio(a: float, b: float) -> float:
+    """WCAG contrast ratio between two relative luminances."""
+    return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+
+
+def _mermaid_text_color(theme_color: str) -> str:
+    """The mermaid node-text color for an accent, computed here rather than in the
+    browser: the viewer's boot script sees only what the config block carries, while
+    this side can resolve every color form viewer.theme.primary accepts. Whichever of
+    #1a1a1a and #ffffff contrasts more with the accent, or #000000 when neither clears
+    WCAG AA (4.5:1) — a mid-gray accent, where the extra half-stop of black is the best
+    text color available. An accent this cannot resolve keeps the dark default, which
+    is also the boot script's fallback. Mirrors the Node SDK's mermaidTextColor."""
+    rgb = _parse_accent_color(theme_color)
+    if rgb is None:
+        return "#1a1a1a"
+    accent = _relative_luminance(rgb)
+    on_dark = _contrast_ratio(_relative_luminance((0x1A, 0x1A, 0x1A)), accent)
+    on_light = _contrast_ratio(1.0, accent)
+    if on_dark < 4.5 and on_light < 4.5:
+        return "#000000"
+    return "#1a1a1a" if on_dark >= on_light else "#ffffff"
 
 
 def _resolve_viewer_rel(root: str, root_path: str, value: str) -> Optional[str]:
@@ -188,15 +254,20 @@ def _effective_homepage(root: str, manifest: Manifest, findings: list[Finding]) 
     return strip_slash(configured)
 
 
-def _resolve_logo(root: str, root_path: str, logo: Optional[str]) -> str:
+def _default_logo(base: str) -> str:
+    """The vendored Leji mark, as the given base addresses it."""
+    return f"{base}assets/leji-logo.svg"
+
+
+def _resolve_logo(root: str, root_path: str, logo: Optional[str], base: str) -> str:
     """Resolve the viewer logo URL: a configured path is served from the content
     mount (or used as-is when absolute); unset falls back to the vendored mark."""
     if not logo:
-        return DEFAULT_LOGO
+        return _default_logo(base)
     if logo.startswith("/") or re.match(r"^https?://", logo):
         return logo
     rel = _resolve_viewer_rel(root, root_path, logo)
-    return f"/content/{rel if rel is not None else strip_slash(logo)}"
+    return f"{base}content/{rel if rel is not None else strip_slash(logo)}"
 
 
 def resolve_viewer_port(manifest: Manifest, flag_port: Optional[int] = None) -> int:
@@ -259,8 +330,18 @@ def _md_link_text(s: str) -> str:
 
 
 def _md_link_dest(s: str) -> str:
-    """Escape a string for a Markdown link destination (`(...)`): backslash, parens."""
-    return re.sub(r"[\\()]", lambda m: "\\" + m.group(0), s)
+    """Escape a string for a Markdown link destination (`(...)`): backslash, parens.
+    Destinations are emitted app-root absolute (leading slash): with the viewer's
+    relativePath routing, a bare rootPath-relative destination would re-resolve
+    against whatever nested route is current and double-prefix; leading-slash links
+    are exempt from relative resolution by Docsify's contract. Idempotent: leading
+    slashes are stripped first, so an already-absolute destination (the sidebar
+    builders are public API) never becomes `//...`, which Docsify routes as an
+    external protocol-relative URL. Empty input stays empty, never a bare `/`."""
+    escaped = re.sub(r"[\\()]", lambda m: "\\" + m.group(0), s.lstrip("/"))
+    if not escaped:
+        return ""
+    return "/" + escaped
 
 
 @dataclass
@@ -525,6 +606,11 @@ def build_sidebar_groups(root: str, manifest: Manifest, entries: list[dict]) -> 
         rel = _relative_to_root(p.rel_path, manifest["rootPath"])
         if rel is None:
             continue
+        # A declared profiles directory can name a private role; its files are not
+        # servable, so neither is the label lifted out of one. The route would 404
+        # anyway — this keeps the bytes out of the sidebar that links it.
+        if not _servable_source(root, p.rel_path):
+            continue
         name = (p.frontmatter or {}).get("name")
         title = (
             name.strip()
@@ -611,7 +697,8 @@ def _reference_tree(root: str, manifest: Manifest, governed_paths: set[str]) -> 
     """The browse zone: every markdown file under rootPath that is NOT governed
     (in the index), NOT viewer/layer chrome (boot profile, agent profiles, the
     category index files, overview.md, the generated _sidebar.md), and stays under
-    rootPath. The `.leji` viewer dir is skipped by the walk itself."""
+    rootPath. Generated artifacts live in the root `.leji/`, which the walk skips as
+    a dot-dir even when rootPath is `.`."""
     root_dir_rel = strip_slash(manifest["rootPath"]) or "."
     profiles_dir = effective_agent_profiles_path(manifest)
     index_files: set[str] = set()
@@ -787,13 +874,13 @@ def build_manifest_page(manifest: Manifest, statuses: list[dict]) -> str:
     viewer_cfg = manifest.get("viewer") or {}
     title = viewer_cfg.get("title") or manifest["name"]
     lines: list[str] = [
-        f"# {_esc(title)} — Manifest",
+        f"# {_esc(title)}: Manifest",
         "",
         "A human-readable view of this layer's `leji.json`.",
         "",
         "> **Declared** values come straight from the manifest. **Observed** values "
-        "(mount availability and drift) are read from local projections and Git objects "
-        "— no network fetch is performed.",
+        "(mount availability and drift) are read from local projections and Git objects"
+        "; no network fetch is performed.",
         "",
         "## Identity",
         "",
@@ -814,7 +901,7 @@ def build_manifest_page(manifest: Manifest, statuses: list[dict]) -> str:
     claimed = (manifest.get("conformance") or {}).get("claimedLevel")
     if claimed:
         lines.append(
-            f"| Conformance | claims `{_esc(claimed)}` — run `leji conformance` to verify |"
+            f"| Conformance | claims `{_esc(claimed)}` (run `leji conformance` to verify) |"
         )
     else:
         lines.append("| Conformance | no level claimed |")
@@ -934,7 +1021,7 @@ def build_manifest_page(manifest: Manifest, statuses: list[dict]) -> str:
             )
         lines.append("")
         lines.append(
-            "> `not hydrated` / `unknown` are normal degraded reads — ordinary "
+            "> `not hydrated` / `unknown` are normal degraded reads; ordinary "
             "validation never fails just because a mount is unavailable (opt-in "
             "federation enforcement is separate). Run `leji mounts hydrate`, then "
             "regenerate the viewer to refresh."
@@ -943,7 +1030,7 @@ def build_manifest_page(manifest: Manifest, statuses: list[dict]) -> str:
         if roled:
             lines.extend(["", "**Roles**", ""])
             for d in roled:
-                lines.append(f"- **{_esc(d['name'])}** — {_esc(d['role'])}")
+                lines.append(f"- **{_esc(d['name'])}**: {_esc(d['role'])}")
     lines.append("")
     return "\n".join(lines)
 
@@ -978,7 +1065,7 @@ def _unresolved_profile_page(rel_path: str, findings: list[Finding]) -> str:
     authored file. There is no effective profile to show, and presenting the derived
     file as if there were would be the error the finding names."""
     lines = [
-        f"# {_esc(rel_path)} — unresolved profile",
+        f"# {_esc(rel_path)}: unresolved profile",
         "",
         f"> **This profile does not resolve.** {_code_span(rel_path)} declares "
         "`inherits`, and the inheritance cannot be resolved, so the layer has no "
@@ -1018,7 +1105,7 @@ def _render_resolved_profile(profiles: list[ScannedProfile], derived: ScannedPro
     raw_title = effective.get("name")
     title = raw_title if isinstance(raw_title, str) else derived_id
     lines: list[str] = [
-        f"# {_esc(title)} — resolved profile",
+        f"# {_esc(title)}: resolved profile",
         "",
         f"> **Resolved profile.** {_code_span(derived.rel_path)} declares "
         f"`inherits: {_esc(base_id)}`, so this page is the effective profile: posture "
@@ -1034,7 +1121,7 @@ def _render_resolved_profile(profiles: list[ScannedProfile], derived: ScannedPro
     ]
     for key, value in effective.items():
         if not isinstance(value, list):
-            lines.append(f"- **{_esc(key)}** — {_profile_value(value)}")
+            lines.append(f"- **{_esc(key)}**: {_profile_value(value)}")
             continue
         # Composed posture: label every entry with the profile that supplied it.
         base_value = base_fm.get(key)
@@ -1044,7 +1131,7 @@ def _render_resolved_profile(profiles: list[ScannedProfile], derived: ScannedPro
             lines.append("   - (empty)")
         for entry in value:
             source = base_id if _json_value(entry) in from_base else derived_id
-            lines.append(f"   - {_profile_value(entry)} — from `{_esc(source)}`")
+            lines.append(f"   - {_profile_value(entry)} (from `{_esc(source)}`)")
     lines.extend(["", "## Effective body", ""])
     # The resolver's markers stay in the page (they are what a consumer reads); each
     # gets a visible line beside it so the rendered view names its source too.
@@ -1075,6 +1162,63 @@ def _declares_inherits(root: str, repo_rel: str) -> bool:
         return False
 
 
+def _servable_source(root: str, repo_rel: str) -> bool:
+    """True when the layer file at ``repo_rel`` may be read into something served or
+    exported: judged by the servable-roots whitelist as requested AND after symlink
+    resolution, the same pair of checks ``_serve_from`` makes on a response. A path
+    that resolves into a private ``.leji/`` role fails, however it was spelled."""
+    root_abs = resolved_path(str(Path(root).resolve()))
+    if root_abs is None:
+        return False
+    abs_path = role_abs(root_abs, repo_rel)
+    if not servable_path(root_abs, abs_path):
+        return False
+    real = resolved_path_under(root_abs, abs_path)
+    return real is not None and servable_path(root_abs, real)
+
+
+def _servable_profile_text(root_abs: str, repo_rel: str) -> Optional[str]:
+    """A profile source read the way check-before-act requires: the requested path is judged, its
+    RESOLVED path is judged, and the bytes come from the descriptor opened on that
+    resolved path and proved a regular file — so nothing swapped between the check and
+    the read (a file, or any directory above it, becoming a symlink) changes what is
+    composed into a served or exported page. None for anything refused."""
+    abs_path = role_abs(root_abs, repo_rel)
+    if not servable_path(root_abs, abs_path):
+        return None
+    src = open_verified_source(
+        abs_path,
+        lambda real: (
+            servable_path(root_abs, real)
+            and (real == root_abs or real.startswith(root_abs + os.sep))
+        ),
+        root_abs,
+    )
+    if src.fd is None:
+        return None
+    try:
+        return read_all(src.fd).decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    finally:
+        os.close(src.fd)
+
+
+def _servable_profile_set(root: str, manifest: Manifest) -> list[ScannedProfile]:
+    """The profile set as the viewer may render it: every source read through
+    :func:`_servable_profile_text`, so no profile living in — or symlinked into — a
+    private ``.leji/`` role is composed into a served page or an exported one, and the
+    bytes composed are the bytes that passed the check. Dropped silently, exactly as
+    the content walk drops unservable content; the scan itself stays total, so
+    validation still reports on those files."""
+    root_abs = resolved_path(str(Path(root).resolve()))
+    if root_abs is None:
+        return []
+    return scan_profile_set_with(
+        root, manifest, lambda rel_path: _servable_profile_text(root_abs, rel_path)
+    )
+
+
 def resolved_profile_page(root: str, manifest: Manifest, repo_rel: str) -> Optional[str]:
     """The page for ``repo_rel`` when it is an agent profile that declares
     ``inherits``, else None (every other document is served from disk as authored).
@@ -1092,10 +1236,16 @@ def resolved_profile_page(root: str, manifest: Manifest, repo_rel: str) -> Optio
         bound = repo_rel in ((manifest.get("agents") or {}).values())
         if not bound and not under_path(repo_rel, effective_agent_profiles_path(manifest)):
             return None
+        # The whitelist, judged before this file is read into a page: a profile that
+        # resolves into a private `.leji/` role is not the viewer's to render. None
+        # hands the request back to the content walk, which refuses it the same way
+        # it refuses any unservable file — this branch never becomes the way in.
+        if not _servable_source(root, repo_rel):
+            return None
         if not _declares_inherits(root, repo_rel):
             return None
         committed = True
-        profiles = scan_profile_set(root, manifest)
+        profiles = _servable_profile_set(root, manifest)
         derived = next((p for p in profiles if p.rel_path == repo_rel), None)
         if derived is None:
             return _unresolved_profile_page(
@@ -1122,7 +1272,7 @@ def resolved_profile_page(root: str, manifest: Manifest, repo_rel: str) -> Optio
 def _resolved_profile_pages(root: str, manifest: Manifest) -> list[tuple[str, str]]:
     """Every inheriting profile as its rootPath-relative viewer path and resolved
     page, so a static export carries what the local server renders."""
-    profiles = scan_profile_set(root, manifest)
+    profiles = _servable_profile_set(root, manifest)
     out: list[tuple[str, str]] = []
     for p in profiles:
         if not isinstance((p.frontmatter or {}).get("inherits"), str):
@@ -1134,7 +1284,9 @@ def _resolved_profile_pages(root: str, manifest: Manifest) -> list[tuple[str, st
     return out
 
 
-def _docsify_config(root: str, manifest: Manifest, name_html: str, findings: list[Finding]) -> str:
+def _docsify_config(
+    root: str, manifest: Manifest, name_html: str, base: str, findings: list[Finding]
+) -> str:
     """The Docsify config blob in the Node SDK's exact key order, script-escaped.
     Appends the homepage viewer-path-missing warning when the configured homepage
     does not resolve."""
@@ -1146,9 +1298,19 @@ def _docsify_config(root: str, manifest: Manifest, name_html: str, findings: lis
         configured = category_emojis.get(c)
         return configured if configured is not None else CATEGORY_EMOJI[c]
 
+    # Resolved before the dict literal so the mermaid text color can be computed from
+    # the accent; the two resolutions keep their original order, so do the warnings
+    # they raise.
+    homepage = _effective_homepage(root, manifest, findings)
+    theme_color = _resolve_theme_color(manifest, findings)
     return _json_for_script(
         {
             "name": name_html,
+            # Where the layer's markdown is mounted. Docsify's own key, so the boot
+            # script configures the router from it rather than hardcoding a root:
+            # '/content/' served, 'content/' exported (resolved against the page, so
+            # the tree hosts under any subpath).
+            "basePath": f"{base}content/",
             # Hash navigation for the logo/title link: #/ re-routes to the
             # homepage inside the SPA instead of a full page reload.
             "nameLink": "#/",
@@ -1163,9 +1325,13 @@ def _docsify_config(root: str, manifest: Manifest, name_html: str, findings: lis
             "lejiCategories": {c: f"{emoji_for(c)} {CATEGORY_LABELS[c]}" for c in CATEGORY_IDS},
             # The homepage is rootPath-relative; teams whose layer has a real
             # landing page point at it instead of the seeded overview.
-            "homepage": _effective_homepage(root, manifest, findings),
-            # After the homepage above, so the two warnings land in the Node order.
-            "themeColor": _resolve_theme_color(manifest, findings),
+            "homepage": homepage,
+            "themeColor": theme_color,
+            # Mermaid node text, readable against the accent. Computed here because
+            # this side resolves every accepted color form; the boot script's own
+            # hex-only fallback covers viewer trees generated before this field.
+            # Leji's own key, not one Docsify reads, hence the prefix.
+            "lejiMermaidTextColor": _mermaid_text_color(theme_color),
             # Read by the boot script's powered-by plugin; false removes the mark.
             "lejiPoweredBy": viewer_cfg.get("poweredBy") is not False,
         }
@@ -1251,18 +1417,18 @@ def _assemble_sidebar(
     return build_sidebar(manifest, groups, tree, pins, boot_pinned=boot_pinned)
 
 
-def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
-    """Write the Docsify index.html (frontmatter-stripping hook included) and
-    the projected _sidebar.md into the context root."""
-    result = generate_index(root, manifest)
-    # Don't project a viewer from a tree that can't be indexed cleanly (a
-    # category-conflict, a malformed or dangling index entry): surface the errors
-    # and write nothing, the same refusal write_index makes.
-    if any(f.severity == "error" for f in result.findings):
-        return ViewerResult(written=[], findings=result.findings, entries=0)
-    entries = (result.index or {}).get("entries", [])
-    findings_early: list[Finding] = []
+def _mermaid_enabled(manifest: Manifest) -> bool:
+    """True when the layer keeps mermaid on (the default)."""
+    return (manifest.get("viewer") or {}).get("mermaid") is not False
 
+
+def _build_index_html(root: str, manifest: Manifest, base: str, findings: list[Finding]) -> str:
+    """The SPA shell for one flavor of the chrome: the template with this layer's
+    config baked in, every URL it emits written against ``base``. The served flavor
+    (``"/"``) and the export flavor (``""``) come from this one function, so the
+    export never gets its HTML rewritten after the fact. ``findings`` collects the
+    two resolution warnings (homepage, accent) in their established order; the export
+    invocation discards them, having already reported the generation run's."""
     viewer_cfg = manifest.get("viewer") or {}
     # Display title: viewer.title override, else the context layer name.
     display_title = viewer_cfg.get("title") or manifest["name"]
@@ -1272,7 +1438,7 @@ def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
     # `name` rather than Docsify's `logo` option (which prepends basePath /content/
     # and 404s). Title is HTML-escaped; the strict CSP (script-src 'self') kills handlers.
     logo = viewer_cfg.get("logo")
-    logo_url = _html_escape(_resolve_logo(root, manifest["rootPath"], logo))
+    logo_url = _html_escape(_resolve_logo(root, manifest["rootPath"], logo, base))
     if logo:
         name_html = (
             f'<img src="{logo_url}" alt="{_html_escape(display_title)}" '
@@ -1290,18 +1456,17 @@ def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
     if favicon:
         favicon_rel = _resolve_viewer_rel(root, manifest["rootPath"], favicon)
         favicon_url = _html_escape(
-            "/content/" + (favicon_rel if favicon_rel is not None else strip_slash(favicon))
+            f"{base}content/" + (favicon_rel if favicon_rel is not None else strip_slash(favicon))
         )
     else:
-        favicon_url = _html_escape(DEFAULT_LOGO)
-    config = _docsify_config(root, manifest, name_html, findings_early)
+        favicon_url = _html_escape(_default_logo(base))
+    config = _docsify_config(root, manifest, name_html, base, findings)
     # Mermaid is on unless explicitly disabled. When off, the two mermaid scripts
     # are omitted from the page and their assets are not copied (a leaner viewer).
-    mermaid_enabled = viewer_cfg.get("mermaid") is not False
     mermaid_scripts = (
         '\n      <script src="assets/mermaid.min.js"></script>'
         '\n      <script src="assets/docsify-mermaid.js"></script>'
-        if mermaid_enabled
+        if _mermaid_enabled(manifest)
         else ""
     )
     # One pass over the template with a resolver map, never four sequential
@@ -1314,44 +1479,87 @@ def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
         "DOCSIFY_CONFIG": config,
         "MERMAID_SCRIPTS": mermaid_scripts,
     }
-    doc_html = PLACEHOLDER_RE.sub(
+    return PLACEHOLDER_RE.sub(
         lambda m: substitutions.get(m.group(1), m.group(0)),
         (templates_dir() / "viewer" / "index.html").read_text(encoding="utf-8"),
     )
+
+
+def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
+    """Write the Docsify index.html (frontmatter-stripping hook included) and the
+    projected _sidebar.md into the root `.leji/viewer/` role."""
+    result = generate_index(root, manifest)
+    # Don't project a viewer from a tree that can't be indexed cleanly (a
+    # category-conflict, a malformed or dangling index entry): surface the errors
+    # and write nothing, the same refusal write_index makes.
+    if any(f.severity == "error" for f in result.findings):
+        return ViewerResult(written=[], findings=result.findings, entries=0)
+    entries = (result.index or {}).get("entries", [])
+    findings_early: list[Finding] = []
+
+    # The served flavor: the chrome under `.leji/viewer/` is never export-flavored.
+    doc_html = _build_index_html(root, manifest, SERVED_BASE, findings_early)
     sidebar = _assemble_sidebar(root, manifest, entries, findings_early)
 
     root_dir = strip_slash(manifest["rootPath"]) or "."
+    root_abs = str(Path(root).resolve())
     findings: list[Finding] = [*result.findings, *findings_early]
     written: list[str] = []
 
-    # Refuse to write through a symlink that escapes the layer root (a symlinked
-    # content root, or a pre-placed target file). resolved_within_root resolves the
-    # nearest existing ancestor, so a not-yet-existing target under a symlinked
-    # directory is caught before mkdir/write can escape.
-    def write_within(rel: str, content: bytes | str) -> None:
-        abs_path = Path(root) / rel
-        if not resolved_within_root(root, abs_path):
+    # Check-before-act: the generation target — the `.leji/viewer/` role — is
+    # realpath-resolved and validated BEFORE a single byte is written. A `.leji/viewer`
+    # that resolves into a DIFFERENT private role (`.leji/work/`, `.leji/mounts/`, a
+    # future role), or out of the repository altogether, is refused here, so a
+    # symlinked viewer can never be written through into the trust domain or out of the
+    # tree; only its own directory passes. Unresolvable (permission/I/O error, not mere
+    # absence) fails the check rather than being rebuilt lexically.
+    resolved_root = resolved_path(root_abs) or root_abs
+    viewer_target = resolved_path_under(resolved_root, role_abs(resolved_root, VIEWER_REL))
+    verdict = (
+        None if viewer_target is None else writable_target(resolved_root, viewer_target, VIEWER_REL)
+    )
+    if viewer_target is None or verdict is None or not verdict.ok:
+        if verdict is None:
+            message = (
+                f"refusing to generate the viewer: {VIEWER_REL}/ cannot be resolved "
+                "(permission or I/O error); remove the symlink"
+            )
+        elif verdict.outside_root:
+            message = (
+                f"refusing to generate the viewer: {VIEWER_REL}/ resolves outside the "
+                "repository; remove the symlink"
+            )
+        else:
+            message = (
+                f"refusing to generate the viewer: {VIEWER_REL}/ resolves into "
+                f"{LEJI_DIR}/{verdict.role} (private); remove the symlink"
+            )
+        findings.append(Finding("viewer-target-refused", "error", message, VIEWER_REL))
+        return ViewerResult(written=written, findings=findings, entries=0)
+
+    # Every `.leji/viewer/` write goes back through the chokepoint with the viewer's
+    # own role, so each file is judged on its RESOLVED path immediately before it is
+    # written and lands there: the role was validated as a whole above, and this keeps
+    # a symlink planted inside the tree from redirecting a single file elsewhere.
+    def write_viewer_file(rel: str, content: bytes | str) -> None:
+        if not write_file_guarded(resolved_root, str(Path(root) / rel), VIEWER_REL, content).ok:
             findings.append(
                 Finding(
                     "artifact-parse",
                     "error",
-                    f"viewer path {rel} resolves outside the layer root",
+                    f"viewer path {rel} resolves outside {VIEWER_REL}/",
                     rel,
                 )
             )
             return
-        abs_path.parent.mkdir(parents=True, exist_ok=True)
-        if isinstance(content, bytes):
-            abs_path.write_bytes(content)
-        else:
-            abs_path.write_text(content, encoding="utf-8")
         written.append(rel)
 
-    # The viewer is contained under rootPath/.leji/viewer/ (gitignored), so it never
-    # collides with the user's own files in the context root and keeps the layer clean.
-    viewer_dir = ".leji/viewer" if root_dir == "." else f"{root_dir}/.leji/viewer"
+    # The chrome's role in the unified root `.leji/` (gitignored): outside the context
+    # root whatever rootPath is, so it never collides with the user's own files and
+    # never rides a content walk.
+    viewer_dir = VIEWER_REL
     for name, content in (("index.html", doc_html), ("_sidebar.md", sidebar)):
-        write_within(f"{viewer_dir}/{name}", content)
+        write_viewer_file(f"{viewer_dir}/{name}", content)
 
     # Copy every vendored viewer asset (Docsify core, theme, the plugins, and the
     # webfonts) alongside index.html (no remote CDN). The provenance note is
@@ -1361,19 +1569,69 @@ def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
     for asset_path in sorted(p for p in assets_src.iterdir() if p.is_file()):
         if asset_path.name == "PROVENANCE.txt" or asset_path.name.startswith("."):
             continue
-        if not mermaid_enabled and asset_path.name in MERMAID_ASSETS:
+        # Mermaid off omits its two scripts from the page and their assets here (~3MB).
+        if not _mermaid_enabled(manifest) and asset_path.name in MERMAID_ASSETS:
             continue
-        write_within(f"{assets_rel_dir}/{asset_path.name}", asset_path.read_bytes())
+        write_viewer_file(f"{assets_rel_dir}/{asset_path.name}", asset_path.read_bytes())
 
     # The overview/home page is committed, user-owned content (not viewer chrome):
     # seeded once and never overwritten. On regeneration, only the marked map block
     # is refreshed; if the owner removed the markers, the page is left entirely alone.
+    #
+    # Check-before-act: overview.md is content — its target must resolve WITHIN
+    # the layer root AND never into a private `.leji/` role. It is judged on the
+    # RESOLVED path (own role None: content has no `.leji/` role) BEFORE anything is
+    # read or written, so an overview.md symlinked into `.leji/work/` or
+    # `.leji/mounts/` is refused before the seed or the refresh writes through it —
+    # and the write itself then lands via the guarded-write chokepoint on that path.
     overview_rel = "overview.md" if root_dir == "." else f"{root_dir}/overview.md"
     overview_abs = Path(root) / overview_rel
-    if not overview_abs.is_file():
-        write_within(overview_rel, _build_overview_seed(manifest, entries))
-    elif resolved_within_root(root, overview_abs):
-        existing = overview_abs.read_text(encoding="utf-8")
+    overview_resolved = resolved_path_under(resolved_root, str(overview_abs))
+    overview_verdict = (
+        writable_target(resolved_root, overview_resolved, None)
+        if overview_resolved is not None and resolved_within_root(root, overview_abs)
+        else None
+    )
+    overview_read = verified_target_read(resolved_root, str(overview_abs), None)
+    if overview_verdict is None:
+        findings.append(
+            Finding(
+                "artifact-parse",
+                "error",
+                "overview.md resolves outside the layer root",
+                overview_rel,
+            )
+        )
+    elif not overview_verdict.ok:
+        findings.append(
+            Finding(
+                "viewer-target-refused",
+                "error",
+                f"refusing to write overview.md: it resolves into "
+                f"{LEJI_DIR}/{overview_verdict.role} (private); remove the symlink",
+                overview_rel,
+            )
+        )
+    elif overview_read.status == "refused":
+        # A standing entry that cannot be verified as a regular file inside the layer:
+        # the map is neither seeded through it nor refreshed from bytes read by path.
+        findings.append(
+            Finding(
+                "viewer-target-refused",
+                "error",
+                "refusing to write overview.md: it does not resolve to a regular file "
+                "inside the repository; remove the symlink",
+                overview_rel,
+            )
+        )
+    elif overview_read.status == "absent":
+        seed = _build_overview_seed(manifest, entries)
+        if write_file_guarded(resolved_root, str(overview_abs), None, seed).ok:
+            written.append(overview_rel)
+    else:
+        # The refresh rewrites the page it just read, so those bytes come from the
+        # verified descriptor rather than from a second read by pathname.
+        existing = overview_read.text()
         start = existing.find(MAP_START)
         end = existing.find(MAP_END)
         if start >= 0 and end > start:
@@ -1381,7 +1639,7 @@ def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
                 existing[:start] + _map_block(manifest, entries) + existing[end + len(MAP_END) :]
             )
             if updated != existing:
-                overview_abs.write_text(updated, encoding="utf-8")
+                write_file_guarded(resolved_root, str(overview_abs), None, updated)
         else:
             findings.append(
                 Finding(
@@ -1396,572 +1654,8 @@ def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
     # gitignored viewer dir under a reserved underscore name (collision-free with the
     # user's own files) and served via a dedicated content route (never a committed
     # file at the context root, so no diff churn). Regenerated every run; pinned.
-    write_within(
+    write_viewer_file(
         f"{viewer_dir}/_manifest.md", build_manifest_page(manifest, mount_status(root, manifest))
     )
 
     return ViewerResult(written=written, findings=findings, entries=len(entries))
-
-
-# The protect-your-context warning surfaced by `leji viewer build` (in stdout and
-# as a comment in the exported index.html): a context layer is sensitive and the
-# static export should not be hosted somewhere public.
-PROTECT_WARNING = (
-    "This is your context layer (identity, invariants, decisions, sometimes sensitive "
-    "internal knowledge). Host the exported folder behind internal authentication, not a "
-    "public or shared bucket where it could be indexed or leaked. Active file types "
-    "(.htm, .html, .js, .mjs, .xhtml) are left out of the exported content: a static "
-    "host would serve them as same-origin documents that execute with no policy."
-)
-
-# The first bytes `viewer build` writes into an exported index.html. A target
-# directory carrying this marker is a previous export and may be cleared; any other
-# non-empty directory is somebody's content and is never removed.
-EXPORT_MARKER = "<!--\n  Leji viewer (leji viewer build).\n"
-
-
-def _clearable_export(out_abs: Path) -> bool:
-    """True when the export may clear out_abs: it is absent, an empty directory, or a
-    previous export. Anything else (a file, a populated directory the exporter did not
-    write) is content the tool has no business deleting."""
-    if not out_abs.exists():
-        return True
-    if not out_abs.is_dir():
-        return False
-    if not any(out_abs.iterdir()):
-        return True
-    index = out_abs / "index.html"
-    if not index.is_file():
-        return False
-    try:
-        return index.read_text(encoding="utf-8").startswith(EXPORT_MARKER)
-    except (OSError, UnicodeDecodeError):
-        return False
-
-
-@dataclass
-class BuildResult:
-    out: str
-    findings: list[Finding] = field(default_factory=list)
-
-
-def build_viewer(root: str, manifest: Manifest, out_rel: Optional[str] = None) -> BuildResult:
-    """Export a self-contained static viewer into out_rel using the same URL contract
-    the server materializes (chrome at the web root, markdown under /content/), so any
-    static host serves it as-is. Regenerates first, then copies chrome and content docs
-    into a clean output dir; the exported index.html carries the protect warning as a
-    comment."""
-    import shutil
-
-    gen = generate_viewer(root, manifest)
-    root_abs = Path(root).resolve()
-    root_dir = strip_slash(manifest["rootPath"]) or "."
-    content_abs = root_abs if root_dir == "." else root_abs / root_dir
-    if out_rel is None:
-        out_abs = content_abs / ".leji" / "viewer-dist"
-    elif Path(out_rel).is_absolute():
-        out_abs = Path(out_rel)
-    else:
-        out_abs = (root_abs / out_rel).resolve()
-    out_display = os.path.relpath(out_abs, root_abs)
-
-    # Never run the destructive export when generation failed (e.g. a symlinked
-    # rootPath escaping the layer): the viewer was not written, and the rmtree
-    # below would otherwise delete an escaped output path.
-    if any(f.severity == "error" for f in gen.findings):
-        return BuildResult(out=out_display, findings=gen.findings)
-    # Contain the output (custom or default) before the rmtree: it must stay inside
-    # the repo and clear of the context root in BOTH directions. Exporting into
-    # governed content deletes it, and exporting into a directory that holds the
-    # context root deletes the layer itself. The default output lives under the
-    # dot-dir the walk skips, so only a caller-supplied --out is measured against
-    # the context root.
-    ref = out_rel if out_rel is not None else out_display
-    collides = out_rel is not None and (
-        str(out_abs).startswith(str(content_abs) + os.sep)
-        or str(content_abs).startswith(str(out_abs) + os.sep)
-    )
-    if (
-        out_abs == root_abs
-        or out_abs == content_abs
-        or not resolved_within_root(str(root_abs), out_abs)
-        or collides
-    ):
-        raise RuntimeError(
-            f'refusing to build the viewer into "{ref}": --out must be a path inside '
-            "the repository, and must not be the repository root, the context root, "
-            "inside the context root, or a directory containing the context root"
-        )
-    # Never remove a directory this command did not write: the export clears a
-    # previous export, and refuses anything else that is already occupied.
-    if not _clearable_export(out_abs):
-        raise RuntimeError(
-            f'refusing to build the viewer into "{ref}": the target exists and is '
-            "neither empty nor a previous viewer export; remove it or pick another --out"
-        )
-    viewer_abs = content_abs / ".leji" / "viewer"
-    out_content = out_abs / "content"
-
-    # Clean rebuild so a removed source file never lingers in the export.
-    shutil.rmtree(out_abs, ignore_errors=True)
-    out_content.mkdir(parents=True, exist_ok=True)
-
-    # Copy the content root to /content, skipping dotfiles/dot-dirs and symlinks: an
-    # export is a self-contained snapshot, so .git/.env/.secret.md could leak and a
-    # symlink could pull in outside content. Mirrors the Node/Go export (skip any
-    # dot-prefixed segment at every level).
-    def _ignore(directory: str, names: list[str]) -> set[str]:
-        skip: set[str] = set()
-        for name in names:
-            full = Path(directory) / name
-            if name.startswith(".") or full.is_symlink():
-                skip.add(name)
-            # Second line of defense behind the --out containment above: the export
-            # never walks into itself, whatever the output path turns out to be.
-            elif full == out_abs:
-                skip.add(name)
-            # Active types never ride along: the export is meant to be hosted, and a
-            # static host would serve them as same-origin documents with no policy.
-            elif full.is_file() and full.suffix.lower() in ACTIVE_EXTENSIONS:
-                skip.add(name)
-        return skip
-
-    shutil.copytree(content_abs, out_content, ignore=_ignore, dirs_exist_ok=True)
-    # An inheriting agent profile exports resolved, exactly as the local server
-    # renders it: the copied file is only its own half of the profile.
-    for rel, page in _resolved_profile_pages(str(root_abs), manifest):
-        target = out_content / rel
-        if not resolved_within_root(str(out_content), target):
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(page, encoding="utf-8")
-    # The generated sidebar is served as if at the content root.
-    shutil.copy2(viewer_abs / "_sidebar.md", out_content / "_sidebar.md")
-    # The generated Manifest page, likewise served as if at the content root.
-    shutil.copy2(viewer_abs / "_manifest.md", out_content / "_manifest.md")
-    # The viewer assets at the web root.
-    shutil.copytree(viewer_abs / "assets", out_abs / "assets", dirs_exist_ok=True)
-    # index.html at the web root, with the protect-your-context warning prepended.
-    index_html = (viewer_abs / "index.html").read_text(encoding="utf-8")
-    (out_abs / "index.html").write_text(
-        f"<!--\n  Leji viewer (leji viewer build).\n  {PROTECT_WARNING}\n-->\n{index_html}",
-        encoding="utf-8",
-    )
-
-    return BuildResult(out=out_display, findings=gen.findings)
-
-
-CONTENT_TYPES = {
-    ".html": "text/html; charset=utf-8",
-    ".md": "text/markdown; charset=utf-8",
-    ".js": "text/javascript; charset=utf-8",
-    ".mjs": "text/javascript; charset=utf-8",
-    ".css": "text/css; charset=utf-8",
-    ".json": "application/json; charset=utf-8",
-    ".svg": "image/svg+xml",
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".ico": "image/x-icon",
-    ".txt": "text/plain; charset=utf-8",
-    ".woff": "font/woff",
-    ".woff2": "font/woff2",
-}
-
-
-def _url_path_to_rel(url_path: str) -> str:
-    """A request URL path as a clean relative route key.
-
-    Separators fold to "/" and the path is cleaned against a root, so one request
-    has one route key on any platform — os.path.normpath follows the host and
-    answered differently on Windows, missing every "content/" route test.
-    Canonicalization only; the mount enforces containment.
-    """
-    return posixpath.normpath("/" + url_path.replace("\\", "/")).lstrip("/")
-
-
-class _SafeViewerHandler(BaseHTTPRequestHandler):
-    """Virtual-mount handler, no symlinks: the contained viewer chrome
-    (rootPath/.leji/viewer/) is served at `/`, and the layer's markdown
-    (rootPath/) under `/content/`. The internal .leji path is reachable only
-    through these mounts, never by a direct URL. A local preview, not a host.
-
-    The generated sidebar and the stored context index are served live from the
-    tree behind a fingerprint cache, so a long-running viewer never shows a
-    deleted or moved document."""
-
-    root_abs: str = ""
-    base: str = ""
-    content_abs: str = ""
-    viewer_abs: str = ""
-    access_log: Optional[Callable[[str], None]] = None
-    # Live-sidebar cache shared across requests (class attribute on the bound
-    # subclass), guarded by a lock: ThreadingHTTPServer handles concurrently.
-    _cache: Optional[dict] = None
-    _cache_lock: threading.Lock = threading.Lock()
-
-    def log_message(self, *args):  # type: ignore[override]
-        pass
-
-    _status_code: int = 200
-    # The policy sent with the current response: the shell policy by default, the
-    # inert one once the route is known to be under the content mount.
-    _csp: str = CSP_CHROME
-
-    def send_response(self, code, message=None):  # type: ignore[override]
-        self._status_code = code
-        super().send_response(code, message)
-
-    def end_headers(self) -> None:  # type: ignore[override]
-        """Policy headers ride every response, not just the SPA shell: a document
-        served straight out of /content/ is same-origin and would otherwise run with
-        no policy at all. Overridden here so no response path can forget them."""
-        self.send_header("x-content-type-options", "nosniff")
-        self.send_header("content-security-policy", self._csp)
-        super().end_headers()
-
-    def _write_body(self, body: bytes) -> None:
-        """Write a response body, except on HEAD, which carries headers only. Node
-        and Go suppress the body themselves; BaseHTTPRequestHandler does not."""
-        if self.command != "HEAD":
-            self.wfile.write(body)
-
-    def _serve_from(self, mount_root: str, sub: str, inert: bool = False) -> None:
-        # Reject absolute/drive/parent-traversal paths, then realpath + commonpath-contain
-        # before any filesystem access. `inert` marks the layer's own content mount,
-        # whose files are never given an active content type however they are named.
-        #
-        # An embedded NUL (e.g. GET /content/%00) makes every path call below raise
-        # ValueError; Node and Go answer a clean 404, so answer one here rather than
-        # letting the handler blow up.
-        if "\x00" in sub:
-            self.send_response(404)
-            self.end_headers()
-            self._write_body(b"not found")
-            return
-        root_real = os.path.realpath(mount_root)
-        norm = os.path.normpath(sub).replace(os.sep, "/") if sub else ""
-        if norm in (".", "/"):
-            norm = ""
-        if norm and (
-            os.path.isabs(sub)
-            or sub.startswith(("/", "\\"))
-            or re.match(r"^[A-Za-z]:", sub) is not None
-            or norm == ".."
-            or norm.startswith("../")
-        ):
-            self.send_response(403)
-            self.end_headers()
-            self._write_body(b"forbidden")
-            return
-        target = (
-            os.path.join(root_real, "index.html") if norm == "" else os.path.join(root_real, norm)
-        )
-        real = os.path.realpath(target)
-        try:
-            inside = os.path.commonpath([root_real, real]) == root_real
-        except ValueError:
-            inside = False
-        if not inside:
-            self.send_response(403)
-            self.end_headers()
-            self._write_body(b"forbidden")
-            return
-        if os.path.isdir(real):
-            real = os.path.realpath(os.path.join(real, "index.html"))
-            try:
-                inside = os.path.commonpath([root_real, real]) == root_real
-            except ValueError:
-                inside = False
-        if not inside:
-            self.send_response(403)
-            self.end_headers()
-            self._write_body(b"forbidden")
-            return
-        try:
-            with open(real, "rb") as fh:
-                body = fh.read()
-        except OSError:
-            self.send_response(404)
-            self.end_headers()
-            self._write_body(b"not found")
-            return
-        ext = os.path.splitext(real)[1].lower()
-        ct = CONTENT_TYPES.get(ext, "application/octet-stream")
-        if inert and ext in ACTIVE_EXTENSIONS:
-            ct = "text/plain; charset=utf-8"
-        self.send_response(200)
-        self.send_header("content-type", ct)
-        self.end_headers()
-        self._write_body(body)
-
-    def _serve_text(self, content_type: str, body: str) -> None:
-        self.send_response(200)
-        self.send_header("content-type", content_type)
-        self.end_headers()
-        self._write_body(body.encode("utf-8"))
-
-    def _tree_fingerprint(self) -> str:
-        """One stat pass over leji.json + every markdown file under the content
-        root (paths, mtimes, sizes — no content reads). walk_tree skips dotdirs,
-        so the viewer's own artifacts never invalidate the cache."""
-        parts: list[str] = []
-
-        def add(rel: str) -> None:
-            try:
-                st = os.stat(os.path.join(self.root_abs, rel))
-                parts.append(f"{rel}\x00{st.st_mtime_ns}\x00{st.st_size}")
-            except OSError:
-                parts.append(f"{rel}\x00gone")
-
-        add("leji.json")
-        for rel in walk_tree(self.root_abs, self.base or "."):
-            add(rel)
-        return "\n".join(parts)
-
-    def _refresh_cache(self, key: str) -> Optional[dict]:
-        """Rebuild the live cache for key; None when the manifest is missing or
-        the tree will not index cleanly (callers then fall back to the generated
-        artifact)."""
-        load = load_manifest(self.root_abs)
-        if load.manifest is None:
-            return None
-        idx = generate_index(self.root_abs, load.manifest)
-        if any(f.severity == "error" for f in idx.findings):
-            return None
-        entries = (idx.index or {}).get("entries", [])
-        body = _assemble_sidebar(self.root_abs, load.manifest, entries, [])
-        cache = {
-            "key": key,
-            "body": body,
-            "index_json": serialize_index(idx.index) if idx.index is not None else None,
-        }
-        type(self)._cache = cache
-        return cache
-
-    def do_GET(self) -> None:  # noqa: N802
-        from urllib.parse import unquote, urlsplit
-
-        try:
-            self._do_get_inner(unquote, urlsplit)
-        finally:
-            if self.access_log is not None:
-                log = type(self).access_log
-                if log is not None:
-                    # The method and request target are attacker-controlled bytes;
-                    # sanitized so terminal escapes never reach the operator's
-                    # console. Node's parser rejects them outright and Go re-encodes
-                    # the target, so this is the Python leg of the same guarantee.
-                    log(f"{_log_safe(self.command)} {_log_safe(self.path)} {self._status_code}")
-
-    # HEAD answers exactly like GET with the body suppressed (see _write_body), the
-    # way the Node and Go servers do; the default handler would 501 instead.
-    def do_HEAD(self) -> None:  # noqa: N802
-        self.do_GET()
-
-    def _do_get_inner(self, unquote, urlsplit) -> None:
-        # One handler instance serves every request on a kept-alive connection, so
-        # the per-response policy starts from the shell default each time.
-        self._csp = CSP_CHROME
-        # Loopback binding alone does not stop DNS rebinding: a hostile page whose
-        # name resolves to 127.0.0.1 reaches this server with its own Host. Only the
-        # loopback names the viewer is actually addressed by are answered. The port is
-        # deliberately not part of the test: a rebound request carries the right port
-        # anyway, so matching it adds nothing. Don't "fix" this by checking it.
-        if not _loopback_host(self.headers.get("Host")):
-            self.send_response(403)
-            self.end_headers()
-            self._write_body(b"forbidden")
-            return
-        try:
-            # A malformed percent-encoding throws; answer 400 rather than crash.
-            url_path = unquote(urlsplit(self.path).path, errors="strict")
-        except (ValueError, UnicodeDecodeError):
-            self.send_response(400)
-            self.end_headers()
-            self._write_body(b"bad request")
-            return
-        rel = _url_path_to_rel(url_path)
-        # The content mount serves the layer's own files; they get the inert policy.
-        if rel == "content" or rel.startswith("content/"):
-            self._csp = CSP_CONTENT
-        # Refuse any dotfile or VCS-internal segment in the REQUEST path: the .leji
-        # viewer dir is reached only through the mounts below, never by direct URL.
-        for seg in re.split(r"[/\\]", rel):
-            if seg == ".git" or (seg.startswith(".") and seg not in (".", "")):
-                self.send_response(404)
-                self.end_headers()
-                self._write_body(b"not found")
-                return
-        # The generated sidebar lives in the viewer dir but is served as if at the
-        # content root, so Docsify's basePath /content/ + _sidebar alias resolve it.
-        # Docsify fetches it once per page load, so it is rebuilt from the live tree
-        # on every request: a long-running server never shows a deleted or moved
-        # document. When the tree is mid-edit and will not index cleanly, fall back
-        # to the last generated artifact rather than failing the dashboard.
-        if rel == "content/_sidebar.md":
-            try:
-                with type(self)._cache_lock:
-                    key = self._tree_fingerprint()
-                    cache = type(self)._cache
-                    if cache is None or cache["key"] != key:
-                        cache = self._refresh_cache(key)
-                if cache is not None:
-                    self._serve_text("text/markdown; charset=utf-8", cache["body"])
-                    return
-            except Exception:  # noqa: BLE001 - fall through to the generated artifact
-                pass
-            self._serve_from(self.viewer_abs, "_sidebar.md")
-            return
-        # The stored context index is served live (same fingerprint cache as the
-        # sidebar), so per-page classification badges never disagree with the tree.
-        if rel.startswith("content/"):
-            try:
-                load = load_manifest(self.root_abs)
-                idx_rel = (
-                    _relative_to_root(
-                        effective_index_path(load.manifest), load.manifest["rootPath"]
-                    )
-                    if load.manifest is not None
-                    else None
-                )
-                if (
-                    load.manifest is not None
-                    and idx_rel is not None
-                    and rel == f"content/{idx_rel}"
-                ):
-                    with type(self)._cache_lock:
-                        key = self._tree_fingerprint()
-                        cache = type(self)._cache
-                        if cache is None or cache["key"] != key:
-                            cache = self._refresh_cache(key)
-                    if (
-                        cache is not None
-                        and cache["key"] == key
-                        and cache["index_json"] is not None
-                    ):
-                        self._serve_text("application/json; charset=utf-8", cache["index_json"])
-                        return
-            except Exception:  # noqa: BLE001 - fall through to the stored artifact
-                pass
-        # The generated Manifest page lives in the viewer dir (gitignored chrome) but
-        # is linked from the sidebar and fetched under the content root, like
-        # _sidebar.md. Reserved underscore name; served from the last generation.
-        if rel == "content/_manifest.md":
-            self._serve_from(self.viewer_abs, "_manifest.md")
-            return
-        if rel == "content" or rel.startswith("content/"):
-            sub = "" if rel == "content" else rel[len("content/") :]
-            # An agent profile that declares `inherits` is served resolved: the file
-            # on disk is one half, and presenting it as the effective profile is the
-            # thing a consumer must not do. So this branch fails closed. If anything
-            # at all goes wrong, a file that declares `inherits` still gets a findings
-            # page; only a file that is not half a profile falls through to disk.
-            if sub.endswith(".md"):
-                repo_rel = f"{self.base}/{sub}" if self.base and self.base != "." else sub
-                page: Optional[str] = None
-                try:
-                    load = load_manifest(self.root_abs)
-                    page = (
-                        None
-                        if load.manifest is None
-                        else resolved_profile_page(self.root_abs, load.manifest, repo_rel)
-                    )
-                    if (
-                        page is None
-                        and load.manifest is None
-                        and _declares_inherits(self.root_abs, repo_rel)
-                    ):
-                        page = _unresolved_profile_page(
-                            repo_rel,
-                            [
-                                Finding(
-                                    "artifact-parse",
-                                    "error",
-                                    "the layer manifest could not be read",
-                                    "leji.json",
-                                )
-                            ],
-                        )
-                except Exception as e:  # noqa: BLE001 - fail closed, never the raw file
-                    page = (
-                        _unresolved_profile_page(
-                            repo_rel,
-                            [
-                                Finding(
-                                    "artifact-parse",
-                                    "error",
-                                    f"the viewer could not resolve this profile: {e}",
-                                    repo_rel,
-                                )
-                            ],
-                        )
-                        if _declares_inherits(self.root_abs, repo_rel)
-                        else None
-                    )
-                if page is not None:
-                    self._serve_text("text/markdown; charset=utf-8", page)
-                    return
-            self._serve_from(self.content_abs, sub, inert=True)
-            return
-        # Everything else (`/`, /index.html, /assets/*) is viewer chrome.
-        self._serve_from(self.viewer_abs, rel)
-
-
-def serve_viewer(
-    root: str,
-    port: int,
-    root_rel: str = "",
-    log: Optional[Callable[[str], None]] = None,
-) -> ThreadingHTTPServer:
-    """Serve the viewer at the web root, bound to 127.0.0.1 (local preview, never
-    hosting): viewer chrome (rootPath/.leji/viewer/) at `/`, the layer's markdown
-    (rootPath/) under `/content/`, no symlinks. `log`, when set, receives one
-    terse access-log line per request. Caller runs serve_forever() / shutdown()."""
-    root_abs = os.path.realpath(str(Path(root).resolve()))
-    base = strip_slash(root_rel)
-    content_abs = os.path.join(root_abs, base) if base and base != "." else root_abs
-    # The CLI passes a schema-validated rootPath, but a direct SDK caller could pass
-    # an escaping root_rel (e.g. ".."); refuse to mount content outside the layer root.
-    if not resolved_within_root(root_abs, Path(content_abs)):
-        raise ValueError(f'viewer root "{root_rel}" escapes the layer root')
-    viewer_abs = os.path.join(content_abs, ".leji", "viewer")
-    handler_cls = type(
-        "_BoundSafeViewerHandler",
-        (_SafeViewerHandler,),
-        {
-            "root_abs": root_abs,
-            "base": base if base != "." else "",
-            "content_abs": content_abs,
-            "viewer_abs": viewer_abs,
-            "access_log": staticmethod(log) if log is not None else None,
-            "_cache": None,
-            "_cache_lock": threading.Lock(),
-        },
-    )
-    return ThreadingHTTPServer(("127.0.0.1", port), handler_cls)
-
-
-def open_browser(url: str) -> None:
-    """Best-effort open of url in the default browser (--open / `leji view`). Never
-    raises or blocks: opening is a convenience, not part of serving. Mirrors the Node
-    opener (open / cmd start / xdg-open), spawned detached."""
-    import subprocess
-    import sys
-
-    if sys.platform == "darwin":
-        cmd = ["open", url]
-    elif sys.platform.startswith("win"):
-        cmd = ["cmd", "/c", "start", "", url]
-    else:
-        cmd = ["xdg-open", url]
-    try:
-        subprocess.Popen(  # noqa: S603 - fixed opener, url is local
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-    except OSError:
-        pass  # opening the browser is best-effort

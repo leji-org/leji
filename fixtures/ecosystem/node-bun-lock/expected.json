@@ -1,0 +1,55 @@
+{
+  "ecosystem": {
+    "selected": {
+      "ecosystem": "node",
+      "status": "ok",
+      "manifest": "package.json",
+      "manager": "bun",
+      "source": "lockfile",
+      "evidence": [
+        "bun.lock"
+      ],
+      "add": [
+        "bun",
+        "add",
+        "-d",
+        "@leji-org/leji"
+      ],
+      "runner": [
+        "bun",
+        "run",
+        "leji"
+      ],
+      "directDeclared": false,
+      "lockEvidenced": true,
+      "candidates": []
+    },
+    "all": [
+      {
+        "ecosystem": "node",
+        "status": "ok",
+        "manifest": "package.json",
+        "manager": "bun",
+        "source": "lockfile",
+        "evidence": [
+          "bun.lock"
+        ],
+        "add": [
+          "bun",
+          "add",
+          "-d",
+          "@leji-org/leji"
+        ],
+        "runner": [
+          "bun",
+          "run",
+          "leji"
+        ],
+        "directDeclared": false,
+        "lockEvidenced": true,
+        "candidates": []
+      }
+    ],
+    "reason": null
+  }
+}

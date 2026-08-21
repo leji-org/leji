@@ -1,0 +1,5 @@
+{
+  "name": "demo",
+  "private": true,
+  "packageManager": "bun@1.1.30+e1f2a3b4c5"
+}

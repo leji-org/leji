@@ -1,6 +1,6 @@
 {
-  "name": "leji-monorepo",
-  "version": "1.3.1",
+  "name": "@leji-org/monorepo",
+  "version": "1.4.0",
   "private": true,
   "description": "Leji: an open specification for the shared context layer of AI-native teams. Workspace root for the spec, schemas, site, and SDKs.",
   "workspaces": [
@@ -29,8 +29,8 @@
     "assets:check": "node scripts/sync-assets.ts --check",
     "ncu": "npx npm-check-updates --format group --workspaces --root",
     "ncu:u": "npx npm-check-updates -u --workspaces --root && npm install",
-    "lint": "prettier --check \"packages/sdk/src/**/*.ts\" \"packages/sdk/test/**/*.ts\" \"packages/mcp/src/**/*.ts\" \"packages/mcp/test/**/*.ts\" \"packages/create-leji/index.js\" \"packages/site/src/**/*.{ts,astro}\" \"packages/site/astro.config.ts\" \"scripts/*.ts\"",
-    "lint:fix": "prettier --write \"packages/sdk/src/**/*.ts\" \"packages/sdk/test/**/*.ts\" \"packages/mcp/src/**/*.ts\" \"packages/mcp/test/**/*.ts\" \"packages/create-leji/index.js\" \"packages/site/src/**/*.{ts,astro}\" \"packages/site/astro.config.ts\" \"scripts/*.ts\"",
+    "lint": "prettier --check \"packages/sdk/src/**/*.ts\" \"packages/sdk/test/**/*.ts\" \"packages/mcp/src/**/*.ts\" \"packages/mcp/test/**/*.ts\" \"packages/create-leji/*.js\" \"packages/create-leji/test/**/*.js\" \"packages/site/src/**/*.{ts,astro}\" \"packages/site/astro.config.ts\" \"scripts/*.ts\"",
+    "lint:fix": "prettier --write \"packages/sdk/src/**/*.ts\" \"packages/sdk/test/**/*.ts\" \"packages/mcp/src/**/*.ts\" \"packages/mcp/test/**/*.ts\" \"packages/create-leji/*.js\" \"packages/create-leji/test/**/*.js\" \"packages/site/src/**/*.{ts,astro}\" \"packages/site/astro.config.ts\" \"scripts/*.ts\"",
     "lint:all": "npm run lint && npm run lint --workspaces --if-present",
     "parity": "node scripts/parity-test.ts",
     "prepare": "husky"

@@ -1,0 +1,10 @@
+# This repository's contracts are BYTES: golden export trees, vendored viewer
+# assets with hash manifests, canonical badges, byte-mirrored cli.json copies,
+# shared parity fixtures. A checkout that rewrites line endings (core.autocrlf
+# on Windows) breaks byte-identity tests against files git itself altered --
+# first the golden trees, then the vendored assets their hash manifests pin.
+# -text disables conversion for every path: the committed bytes are the
+# checked-out bytes, on every platform. The tree is authored LF except the
+# fixtures that deliberately pin CRLF handling, which is exactly why conversion
+# must stay off.
+* -text

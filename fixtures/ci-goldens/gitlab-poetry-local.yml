@@ -1,0 +1,10 @@
+# >>> leji ci (managed) >>>
+leji-validate:
+  stage: .pre
+  image: python:3.12
+  script:
+    # poetry is installed unpinned here; pin it if your project pins it.
+    - pip install poetry && poetry install
+    - poetry run leji validate
+    - poetry run leji index --check
+# <<< leji ci (managed) <<<

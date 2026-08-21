@@ -24,8 +24,8 @@ const nodes = [
    role="img"
    aria-label="Leji mark: a classical column whose flutes are circuit traces ending in nodes"
 >
-   <path d={iconPath} fill="#FFBD6E"></path>
-   {nodes.map(({ cx, cy }, i) => <circle class={`cover c${i + 1}`} cx={cx} cy={cy} r="43" fill="var(--blue-deep)" />)}
+   <path d={iconPath} fill="#70D8C2"></path>
+   {nodes.map(({ cx, cy }, i) => <circle class={`cover c${i + 1}`} cx={cx} cy={cy} r="43" fill="var(--leji-deep)" />)}
 </svg>
 
 <style>
@@ -50,7 +50,7 @@ const nodes = [
       }
    }
 
-   /* looping variant: covers are blue-deep, so over the blue-deep terminal the
+   /* looping variant: covers are --leji-deep, so over the deep-green terminal the
       conceal/reveal reads as the nodes powering on and off */
    .loop .cover {
       animation: conceal-loop 3.6s ease-in-out infinite;
@@ -69,7 +69,7 @@ const nodes = [
       animation-delay: -0.9s;
    }
    /* gently breathe between revealed (0.26) and half-covered (0.62); the covers
-      never grow back to a full blue circle, so the nodes stay partly lit */
+      never grow back to a full deep-green circle, so the nodes stay partly lit */
    @keyframes conceal-loop {
       0%,
       100% {

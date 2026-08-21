@@ -22,7 +22,7 @@ cd "$ROOT"
 EX="$ROOT/examples/monorepo"          # known-good layer
 INV="$ROOT/fixtures/invalid-bad-profile"  # known-bad layer (findings -> exit 1)
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP" "$ROOT"/packages/sdk/leji-*.tgz "$ROOT"/packages/sdk-py/dist 2>/dev/null' EXIT
+trap 'rm -rf "$TMP" "$ROOT"/packages/sdk/leji-*.tgz "$ROOT"/packages/create-leji/create-leji-*.tgz "$ROOT"/packages/sdk-py/dist 2>/dev/null' EXIT
 
 # Expected version, read from the canonical npm manifest. All three SDKs must
 # report it (the release workflow separately checks tag == each SDK's version).
@@ -44,6 +44,8 @@ no(){ printf "  \033[31mFAIL\033[0m %s\n" "$1"; FAIL=$((FAIL+1)); }
 # chk <expected-exit> <label> -- <cmd...>
 chk(){ local exp="$1" lbl="$2"; shift 3; "$@" >/dev/null 2>&1; local got=$?; [ "$got" = "$exp" ] && ok "$lbl (exit $got)" || no "$lbl (exit $got, want $exp)"; }
 _md5(){ if command -v md5sum >/dev/null 2>&1; then md5sum | awk '{print $1}'; else md5 -q; fi; }
+# The `command` field of a scaffold --json document, read from stdin.
+_jsoncmd(){ node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).command' 2>/dev/null; }
 
 echo "== Layer 0: version coherence + assets sync + build =="
 # All 9 version locations must agree before we build artifacts that bake the
@@ -66,6 +68,30 @@ npm i -g --prefix "$TMP/npm" "$ROOT/$TGZ" >/dev/null 2>&1 && ok "cold install (c
 chk 0 "npm validate (valid layer)"   -- "$NPM" validate --root "$EX"
 chk 1 "npm validate (invalid layer)" -- "$NPM" validate --root "$INV"
 chk 2 "npm bogus command"            -- "$NPM" bogus
+
+echo "== create-leji (cold, offline) =="
+# `npm create leji` is the first command a new adopter runs, and it is the one path
+# where two published packages must resolve each other. Both tarballs go into one
+# dependency graph under --offline, so a resolution that would have reached the
+# registry fails here instead of on an adopter's machine: what is being proved is
+# that create-leji's `@leji-org/leji` range is satisfied by the SDK built alongside
+# it, at this version. The npm cache is the shared one on purpose - the SDK's own
+# runtime dependencies (ajv, yaml) have to come from somewhere, and a throwaway
+# cache turns the leg into an ENOTCACHED failure that says nothing about Leji.
+( cd packages/create-leji && npm pack >/dev/null 2>&1 )
+CTGZ="$(ls -t packages/create-leji/create-leji-*.tgz 2>/dev/null | head -1)"
+[ -n "$CTGZ" ] && ok "npm pack -> $(basename "$CTGZ")" || no "npm pack (create-leji)"
+[ "$(tar tzf "$CTGZ" 2>/dev/null | grep -c 'package/index.js')" -gt 0 ] && ok "tarball has the router" || no "tarball missing index.js"
+CRE="$TMP/create"
+mkdir -p "$CRE"
+npm i --prefix "$CRE" --offline --no-audit --no-fund "$ROOT/$CTGZ" "$ROOT/$TGZ" >/dev/null 2>&1 \
+   && ok "cold install (both tarballs, offline)" || no "cold install (create-leji + SDK, offline)"
+CBIN="$CRE/node_modules/.bin/create-leji"
+CVER="$(node -p "require('$CRE/node_modules/@leji-org/leji/package.json').version" 2>/dev/null)"
+[ "$CVER" = "$VER" ] && ok "create-leji resolves @leji-org/leji $VER (no registry)" || no "create-leji resolved @leji-org/leji '$CVER' (want $VER)"
+mkdir -p "$TMP/new-repo" "$TMP/existing-repo/docs"
+[ "$("$CBIN" "$TMP/new-repo" --yes --dry-run --json 2>/dev/null | _jsoncmd)" = "init" ] && ok "empty directory -> leji init" || no "empty directory did not route to init"
+[ "$("$CBIN" "$TMP/existing-repo" --yes --dry-run --json 2>/dev/null | _jsoncmd)" = "adopt" ] && ok "docs/ directory -> leji adopt" || no "docs/ directory did not route to adopt"
 
 echo "== PyPI artifact =="
 "$PYBIN" -m venv "$TMP/pybuild" >/dev/null 2>&1

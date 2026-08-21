@@ -7,6 +7,10 @@
 
 <One paragraph: what this repository/product is, who it serves, what stage it is at.>
 
+## Setup
+
+For a person preparing a fresh clone before opening an agent: install the repository's dependencies with its package manager, then run `leji start`: it checks that the Leji CLI resolves here, offers your agent's MCP registration and the pre-commit hook, and boots your agent from this profile. An agent already running from this profile has nothing to do here.
+
 ## Loading
 
 Read before any task (keep this set small; it is paid on every task):
@@ -57,3 +61,4 @@ When you change anything in this context layer:
 - Append an entry to `docs/context-changelog.json`: id, date, type, one-line summary, affected paths.
 - Decisions get a record in `docs/decisions/`; copy the shape of an existing one.
 - Regenerate `docs/context-index.json` when files are added, moved, or retitled.
+- **A new file is categorized the moment it is created**: add it to the right category index, or deliberately leave it as an ungoverned reference and say so, in the same change set; the unindexed count (`leji status`) must be a choice, never a surprise. When the right category isn't obvious, ask the layer's owners instead of guessing.

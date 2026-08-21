@@ -1,0 +1,9 @@
+# >>> leji ci (managed) >>>
+leji-validate:
+  stage: .pre
+  image: node:22
+  script:
+    - npm ci
+    - npx --no-install @leji-org/leji validate
+    - npx --no-install @leji-org/leji index --check
+# <<< leji ci (managed) <<<

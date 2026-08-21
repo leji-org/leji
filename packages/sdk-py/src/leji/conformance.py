@@ -485,7 +485,7 @@ def render_explain(result: ConformanceResult) -> str:
                 how = " (evidence unobtainable in this run; unknown never awards the level)"
             else:
                 how = ""
-            detail = f" — {b.detail}" if b.detail else ""
+            detail = f": {b.detail}" if b.detail else ""
             lines.append(f"   - {b.description}{detail}{how}")
     lines.extend(
         [

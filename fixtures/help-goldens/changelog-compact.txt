@@ -1,0 +1,31 @@
+leji changelog compact: Fold the oldest changelog entries into a single
+   compaction entry.
+
+Usage: leji changelog compact [--keep <n>] [--before <YYYY-MM-DD>] [--root
+       <dir>] [--json]
+
+Compacts the oldest end of the machine changelog, folding entries into a single
+compaction entry that records how many were folded and the id range removed.
+
+Details:
+   - Selection: `--keep <n>` folds every entry except the newest n; `--before
+     <date>` folds entries dated before the given day. With both, an entry folds
+     only if it satisfies both (the intersection).
+   - At least one of `--keep` or `--before` is required.
+   - The folded set is always a contiguous run from the oldest end, so the
+     result still satisfies the append-only discipline that `leji changelog
+     check` enforces.
+
+Options:
+   --keep <n>          Keep the newest n entries; fold everything older. Must be
+                       a positive integer.
+   --before <date>     Fold entries dated strictly before this YYYY-MM-DD day.
+
+Global options: see leji --help.
+
+Examples:
+   leji changelog compact --keep 50
+   leji changelog compact --before 2026-01-01
+   leji changelog compact --keep 50 --before 2026-01-01
+
+Full reference: https://leji.org/cli/

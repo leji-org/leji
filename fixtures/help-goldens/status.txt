@@ -1,0 +1,26 @@
+leji status: Report unindexed, dangling, and stale documents in the context
+   layer.
+
+Usage: leji status [--strict] [--root <dir>] [--json]
+
+Informational health report: markdown under the context root that no category
+index lists (reference content), index entries whose listed path does not
+resolve (dangling), and stored-index paths the index files no longer resolve to
+(stale). It also reports shadowed entries and skipped READMEs, which are
+informational only, and whether the context layer at HEAD would project
+completely if a host mounted it (the closure enumerated, the failure detail, or
+no commit to judge). Report-only by default; exit 0. With --strict, exits
+nonzero when an unindexed, dangling, stale, or pending document is flagged
+(shadowed and skipped-README entries never fail the run), for CI use.
+
+Options:
+   --strict            Exit nonzero when an unindexed, dangling, stale, or
+                       pending document is flagged, for CI.
+
+Global options: see leji --help.
+
+Examples:
+   leji status
+   leji status --strict --json
+
+Full reference: https://leji.org/cli/

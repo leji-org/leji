@@ -4,6 +4,7 @@
 import { Code } from 'astro:components';
 import copyIcon from '../assets/copy.svg?raw';
 import checkIcon from '../assets/check.svg?raw';
+import lejiSyntaxTheme from '../styles/shiki-leji.json';
 
 interface Props {
    code: string;
@@ -15,7 +16,7 @@ const { code, lang = 'text', label = 'Copy to clipboard' } = Astro.props;
 ---
 
 <div class="cc" data-copy-code data-copy-label={label}>
-   <Code code={code} lang={lang} theme="night-owl" />
+   <Code code={code} lang={lang} theme={lejiSyntaxTheme} />
    <button type="button" class="cc-copy" aria-label={label}>
       <span class="cc-i cc-i-copy" set:html={copyIcon} />
       <span class="cc-i cc-i-check" set:html={checkIcon} />
@@ -28,7 +29,7 @@ const { code, lang = 'text', label = 'Copy to clipboard' } = Astro.props;
       margin-top: 0.6rem;
    }
    .cc :global(.astro-code) {
-      background: var(--blue-deep) !important;
+      background: var(--leji-deep) !important;
       border-radius: 10px;
       padding: 1rem 1.2rem;
       /* room so long lines never slide under the copy button */
@@ -58,9 +59,9 @@ const { code, lang = 'text', label = 'Copy to clipboard' } = Astro.props;
    }
    .cc-copy:hover,
    .cc-copy:focus-visible {
-      background: rgba(255, 189, 110, 0.18);
-      color: var(--gold-bright);
-      border-color: var(--gold);
+      background: rgba(112, 216, 194, 0.2);
+      color: var(--leji-accent);
+      border-color: var(--leji-accent);
       outline: none;
    }
    .cc-i {
@@ -79,7 +80,7 @@ const { code, lang = 'text', label = 'Copy to clipboard' } = Astro.props;
    }
    .cc-copy.copied .cc-i-check {
       display: block;
-      color: var(--gold-bright);
+      color: var(--leji-accent);
    }
    @media (prefers-reduced-motion: reduce) {
       .cc-copy {

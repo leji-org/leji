@@ -1,0 +1,19 @@
+leji viewer: Generate the static viewer for the context layer.
+
+Usage: leji viewer [--root <dir>] [--json]
+
+Projects the context index into a browsable Docsify viewer: writes a
+frontmatter-stripping index.html, a deterministic _sidebar.md, and the vendored
+viewer assets into the context layer's contained viewer directory. Presentation
+is non-normative; this is the reference projection. Generates only; use `leji
+viewer serve` (or `leji view`) to preview it locally, and `leji export` (spelled
+`leji viewer build` inside the viewer subsystem) to write a self-contained
+static site.
+
+Global options: see leji --help.
+
+Examples:
+   leji viewer
+   leji viewer --json
+
+Full reference: https://leji.org/cli/

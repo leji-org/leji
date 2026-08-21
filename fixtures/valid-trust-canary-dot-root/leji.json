@@ -1,0 +1,23 @@
+{
+  "leji": "1.0",
+  "name": "fixture",
+  "rootPath": ".",
+  "bootProfilePath": "boot-profile.md",
+  "categories": {
+    "domain": {
+      "indexes": [
+        "context/domain.md"
+      ]
+    },
+    "decisions": {
+      "indexes": [
+        "context/decisions.md"
+      ]
+    }
+  },
+  "owners": {
+    "primary": {
+      "name": "Fixture Owner"
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "demo",
+  "private": true,
+  "packageManager": "hermit@1.0.0"
+}

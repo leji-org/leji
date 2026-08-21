@@ -1,0 +1,26 @@
+leji {{version}}: reference CLI for the Leji specification (spec line 1.0)
+
+Usage: leji <command> [options]
+
+Only group:
+   a-command-name-long-enough-to-outgrow-its-bounded-column
+                                 A command name past the name column's upper
+                                 bound, so its summary starts on the next line.
+   short                         A short name, so the same column serves both
+                                 rows.
+   sh                            (alias of short)
+
+Options:
+   --a-global-flag-whose-spelling-runs-out-to-seventy-five-code-points <value>
+                                 A global flag long enough to outgrow the option
+                                 column's upper bound, so the row rule decides
+                                 where its summary goes.
+   --json                        Machine-readable JSON output instead of
+                                 human-readable text.
+
+Exit codes:
+   0    Clean.
+   127  A three-digit code, so the code column widens with the data it holds.
+
+Run `leji <command> --help` for a command and its options.
+Full reference: https://leji.org/cli/

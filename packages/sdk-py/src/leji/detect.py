@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
+from .ecosystem import EcosystemReport, detect_ecosystem, render_ecosystem_line
+
 
 @dataclass(frozen=True)
 class HostSpec:
@@ -36,11 +38,61 @@ class HostSpec:
     # Argv that reports whether the Leji MCP server is already registered (exit 0 =
     # present); used to skip the install offer when it's already there.
     mcp_check: Optional[list[str]] = None
+    # Argv that registers the server for THIS USER, across every project. None when
+    # ``mcp_add`` is already the user-level form (Codex has no other scope).
+    mcp_add_user: Optional[list[str]] = None
+    # The committed file a shared (project-scope) registration writes, repository
+    # root relative. Only a host whose ``mcp_add`` writes into the repository has one.
+    mcp_shared_file: Optional[str] = None
+    # Where a host with no registration command reads its MCP configuration, for a
+    # host Leji can only tell the user about, and which shape that file takes.
+    mcp_config: Optional[McpConfigLocation] = None
+
+
+@dataclass(frozen=True)
+class McpConfigLocation:
+    """One host's MCP configuration file, the scope it covers, and the top-level key
+    that file uses for its server map. ``mcpServers`` is the common one; VS Code (and
+    GitHub Copilot through it) spells the same map ``servers`` in ``.vscode/mcp.json``,
+    so a client told to paste the common block there ends up with a file the editor
+    ignores."""
+
+    path: str
+    scope: str  # "project" | "user"
+    shape: str  # "mcpServers" | "servers"
 
 
 # The registered server name and the npm package behind the local Leji MCP server.
 MCP_SERVER_NAME = "leji"
 MCP_PACKAGE = "@leji-org/mcp"
+
+
+def mcp_json_config(shape: str) -> str:
+    """The MCP client configuration for the local Leji server, in the shape one
+    client's configuration file takes. The SDK owns these bytes: the MCP package README
+    and the website quote the ``mcpServers`` form, and a repo test asserts the three of
+    them agree, so the instruction a user reads is one text."""
+    return (
+        "{\n"
+        f'  "{shape}": {{\n'
+        f'    "{MCP_SERVER_NAME}": {{ "command": "npx", "args": ["-y", "{MCP_PACKAGE}"] }}\n'
+        "  }\n"
+        "}"
+    )
+
+
+# The common form, the one the README and the website publish.
+MCP_JSON_CONFIG = mcp_json_config("mcpServers")
+
+
+def mcp_command(spec: "HostSpec", argv: list[str]) -> str:
+    """One host command line as a user would type it: the host binary, then the argv."""
+    return f"{spec.bins[0]} {' '.join(argv)}"
+
+
+def spec_by_id(host_id: str) -> "Optional[HostSpec]":
+    """The host spec with this id, or None."""
+    return next((s for s in HOST_SPECS if s.id == host_id), None)
 
 
 # The portable discovery adapter. `AGENTS.md` is a cross-host entrypoint
@@ -73,6 +125,20 @@ HOST_SPECS: list[HostSpec] = [
             MCP_PACKAGE,
         ],
         mcp_check=["mcp", "get", MCP_SERVER_NAME],
+        # User scope is the personal form: it registers for every project of this
+        # user without touching a file the repository commits.
+        mcp_add_user=[
+            "mcp",
+            "add",
+            MCP_SERVER_NAME,
+            "--scope",
+            "user",
+            "--",
+            "npx",
+            "-y",
+            MCP_PACKAGE,
+        ],
+        mcp_shared_file=".mcp.json",
     ),
     HostSpec(
         id="codex",
@@ -94,6 +160,7 @@ HOST_SPECS: list[HostSpec] = [
         repo_files=[".github/copilot-instructions.md"],
         user_dirs=[],
         adapter=".github/copilot-instructions.md",
+        mcp_config=McpConfigLocation(path=".vscode/mcp.json", scope="project", shape="servers"),
     ),
     HostSpec(
         id="gemini",
@@ -102,6 +169,9 @@ HOST_SPECS: list[HostSpec] = [
         repo_files=["GEMINI.md", ".gemini"],
         user_dirs=[".gemini"],
         adapter="GEMINI.md",
+        mcp_config=McpConfigLocation(
+            path=".gemini/settings.json", scope="project", shape="mcpServers"
+        ),
     ),
     HostSpec(
         id="cursor",
@@ -110,6 +180,7 @@ HOST_SPECS: list[HostSpec] = [
         repo_files=[".cursor/rules", ".cursorrules"],
         user_dirs=[],
         adapter=".cursor/rules/leji.md",
+        mcp_config=McpConfigLocation(path=".cursor/mcp.json", scope="project", shape="mcpServers"),
     ),
     HostSpec(
         id="windsurf",
@@ -118,6 +189,9 @@ HOST_SPECS: list[HostSpec] = [
         repo_files=[".windsurf/rules", ".windsurfrules"],
         user_dirs=[],
         adapter=".windsurf/rules/leji.md",
+        mcp_config=McpConfigLocation(
+            path="~/.codeium/windsurf/mcp_config.json", scope="user", shape="mcpServers"
+        ),
     ),
 ]
 
@@ -238,20 +312,24 @@ def adapter_content(boot_profile_path: str) -> str:
 
 @dataclass
 class DetectResult:
+    """The agent hosts available to this user, ranked, and the dependency ecosystem
+    of the repository itself."""
+
     hosts: list[DetectedHost]
+    ecosystem: EcosystemReport
 
 
 def detect_layer(root: str) -> DetectResult:
-    """Result of ``detect``: the agent hosts available to this user, ranked."""
-    return DetectResult(hosts=detect_hosts(root))
+    return DetectResult(hosts=detect_hosts(root), ecosystem=detect_ecosystem(root))
 
 
-def render_detect(hosts: list[DetectedHost]) -> str:
+def render_detect(hosts: list[DetectedHost], ecosystem: EcosystemReport) -> str:
     """Human-readable detection report."""
+    eco_line = render_ecosystem_line(ecosystem)
     if not hosts:
         return (
             "No coding-agent hosts detected. Leji works without one; the onboarding "
-            "brief still guides any agent you point at it."
+            "brief still guides any agent you point at it." + "\n\n" + eco_line
         )
     lines = ["Detected agent hosts (strongest signal first):"]
     for h in hosts:
@@ -267,7 +345,10 @@ def render_detect(hosts: list[DetectedHost]) -> str:
         adapter = (
             f"adapter {h.adapter}" if h.adapter else "directory-style adapter (wiring deferred)"
         )
-        lines.append(f"   {h.strength.ljust(16)} {h.name} — {signals}; {adapter}")
+        lines.append(f"   {h.strength.ljust(16)} {h.name}: {signals}; {adapter}")
+    # One line about the repository's own ecosystem: what would declare and run the
+    # CLI here. The full offer block belongs to init/adopt, which can act on it.
+    lines.extend(["", eco_line])
     # --agent names the host Leji launches, and only claude-code and codex accept
     # an inline prompt; suggesting `--agent <name>` for every detected host offered
     # a command the flag rejects.

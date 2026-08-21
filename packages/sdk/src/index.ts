@@ -1,21 +1,18 @@
 import { type Finding, finding, hasErrors, sortFindings, summarize } from './lib/findings.js';
-import { stripSlash } from './lib/fsx.js';
+import { DIST_REL, VIEWER_REL } from './lib/layout.js';
 import { effectiveChangelogPath, effectiveIndexPath, loadManifest } from './lib/manifest.js';
-import { type CliOption, SDK_VERSION, SUPPORTED_LINES, loadCliSpec } from './lib/schemas.js';
+import { type CliCommand, type CliSpec, SDK_VERSION, SUPPORTED_LINES, loadCliSpec } from './lib/schemas.js';
+import { HELP_WIDTH, exitCodeColumn, helpRow, nameColumn, optionColumn, wrap } from './lib/text.js';
 import { checkIndex, generateIndex, writeIndex } from './commands/indexgen.js';
 import { checkChangelogAppendOnly, validateLayer } from './commands/validate.js';
 import { compactChangelog, seedChangelogIfMissing } from './commands/changelog.js';
 import { conformanceReport, renderExplain } from './commands/conformance.js';
-import {
-   PROTECT_WARNING,
-   buildViewer,
-   generateViewer,
-   openBrowser,
-   resolveViewerPort,
-   serveViewer,
-} from './commands/viewer.js';
+import { type BadgeResult, DEFAULT_BADGE_OUT, badgeLabel, badgeRun } from './commands/badge.js';
+import { type BuildResult, PROTECT_WARNING, buildViewer } from './commands/export.js';
+import { generateViewer, resolveViewerPort } from './commands/viewer.js';
+import { openBrowser, serveViewer } from './commands/serve.js';
 import { freshnessReport } from './commands/freshness.js';
-import { statusReport } from './commands/status.js';
+import { statusReport, unindexedPaths } from './commands/status.js';
 import {
    addAgent,
    adoptLayer,
@@ -31,16 +28,41 @@ import {
    ensureApprovalGuard,
    ensureLocalHook,
    offerApprovalGuard,
+   offerDependency,
+   dependencyAddFailed,
    offerMcpInstall,
    initLayer,
+   bootProfileReady,
+   defaultHandoffIo,
+   resolveStartHost,
 } from './commands/init.js';
+import {
+   checkDocument,
+   colorDecision,
+   offerPreflightFixes,
+   renderPreflight,
+   runPreflight,
+} from './commands/preflight.js';
 import { detectLayer, renderDetect } from './commands/detect.js';
 import { detectHosts } from './lib/detect.js';
+import {
+   type EcosystemReport,
+   detectEcosystem,
+   renderEcosystemBlock,
+   renderEcosystemLine,
+   runnerArgv,
+} from './lib/ecosystem.js';
 import { gitOriginUrl } from './lib/git.js';
 import { renderWritePlan } from './lib/writeplan.js';
 import { CATEGORY_IDS, type CategoryId } from './lib/manifest.js';
 import { route } from './lib/route.js';
 import { federationEnforcement, hydrateMounts, locateMount, mountStatus } from './lib/mounts.js';
+import {
+   type UpdatePinResult,
+   MOUNT_UPDATE_PIN_REASONS,
+   shortOid,
+   updatePinRun,
+} from './commands/mounts-update-pin.js';
 
 export { validateLayer } from './commands/validate.js';
 export { checkIndex, generateIndex, writeIndex } from './commands/indexgen.js';
@@ -49,15 +71,17 @@ export { compactChangelog, seedChangelogIfMissing, serializeChangelog } from './
 export { conformanceReport, renderExplain } from './commands/conformance.js';
 export {
    buildSidebar,
-   buildViewer,
    buildLayerMap,
    buildManifestPage,
    generateViewer,
    resolveViewerPort,
    resolvedProfilePage,
-   serveViewer,
-   urlPathToRel,
 } from './commands/viewer.js';
+export { badgeLabel, badgeMarkdown, badgeRun, renderBadge, DEFAULT_BADGE_OUT, OUT_RULE } from './commands/badge.js';
+export { buildViewer } from './commands/export.js';
+export { MOUNT_UPDATE_PIN_REASONS, updatePinRun } from './commands/mounts-update-pin.js';
+export type { UpdatePinAction, UpdatePinResult, UpdatePinOptions } from './commands/mounts-update-pin.js';
+export { serveViewer, urlPathToRel } from './commands/serve.js';
 export { profileInheritanceFindings, resolveAgentProfile, scanProfileSet } from './lib/layer.js';
 export type { ResolvedProfile, ScannedProfile } from './lib/layer.js';
 export { freshnessReport } from './commands/freshness.js';
@@ -90,8 +114,39 @@ export type {
    RoutedMount,
    DecisionMatch,
 } from './lib/route.js';
-export { detectHosts, resolveHostId, adapterContent, HOST_SPECS } from './lib/detect.js';
-export { loadManifest, validateManifestObject } from './lib/manifest.js';
+export {
+   detectHosts,
+   resolveHostId,
+   adapterContent,
+   HOST_SPECS,
+   MCP_JSON_CONFIG,
+   mcpCommand,
+   mcpJsonConfig,
+} from './lib/detect.js';
+export { bootProfileReady, hookStatus, resolveStartHost, startHosts } from './commands/init.js';
+export type { HookOwnership, HookState, HookStatus } from './commands/init.js';
+export { offerPreflightFixes, renderPreflight, runPreflight } from './commands/preflight.js';
+export type {
+   Check,
+   CheckId,
+   CheckStatus,
+   PreflightOptions,
+   PreflightOfferOptions,
+   PreflightResult,
+} from './commands/preflight.js';
+export { dependencyAddFailed, offerDependency } from './commands/init.js';
+export type { DependencyOffer, DependencyOfferOptions } from './commands/init.js';
+export { detectEcosystem, renderEcosystemBlock, renderEcosystemLine, runnerArgv } from './lib/ecosystem.js';
+export type {
+   EcoCandidate,
+   EcoReason,
+   EcoResult,
+   EcoSource,
+   EcoStatus,
+   EcosystemId,
+   EcosystemReport,
+} from './lib/ecosystem.js';
+export { loadManifest, replaceMountPinInManifestText, validateManifestObject } from './lib/manifest.js';
 export { SDK_VERSION, SUPPORTED_LINES, loadCliSpec } from './lib/schemas.js';
 export type { Finding, Severity } from './lib/findings.js';
 export type { Manifest, ManifestLoad, ConformanceLevel, CategoryId } from './lib/manifest.js';
@@ -99,6 +154,7 @@ export type { CliSpec, CliOption } from './lib/schemas.js';
 export type { ContextIndex, IndexEntry } from './commands/indexgen.js';
 export type { CompactOptions, CompactResult } from './commands/changelog.js';
 export type { ConformanceResult, ChecklistItem } from './commands/conformance.js';
+export type { BadgeAction, BadgeResult } from './commands/badge.js';
 export type { FreshnessReport } from './commands/freshness.js';
 export type { StatusReport, DanglingEntry } from './commands/status.js';
 export type {
@@ -115,43 +171,76 @@ export type {
    StartOutcome,
 } from './commands/init.js';
 
-/** Top-level help, generated from cli.json so it can't drift. Lists commands and
- * global options only; per-command options live in `leji <command> --help`. */
-export function renderUsage(): string {
-   const spec = loadCliSpec();
+/** Top-level help, generated from cli.json so it can't drift: the commands by group,
+ * the global options, and the exit codes. Per-command options live in
+ * `leji <command> --help`. */
+export function renderUsage(spec: CliSpec = loadCliSpec()): string {
    const out: string[] = [
-      `leji ${SDK_VERSION}: reference CLI for the Leji specification (spec line ${SUPPORTED_LINES.join(', ')})`,
+      // Every emitted field goes through the wrapper, including the ones no current
+      // value is long enough to overflow: a longer version string or group title must
+      // not be what discovers that a line was never wrapped.
+      ...wrap(
+         `leji ${SDK_VERSION}: reference CLI for the Leji specification (spec line ${SUPPORTED_LINES.join(', ')})`,
+         HELP_WIDTH,
+         0,
+         3,
+      ),
       '',
-      `Usage: ${spec.usage}`,
-      '',
-      'Commands:',
+      ...wrap(`Usage: ${spec.usage}`, HELP_WIDTH, 0, 7),
    ];
-   const cmdWidth = Math.max(...spec.commands.map((c) => c.name.length)) + 3;
-   for (const c of spec.commands) out.push(`   ${c.name.padEnd(cmdWidth)}${c.summary}`);
 
-   const optWidth = Math.max(...spec.globalOptions.map((o) => o.flags.length)) + 3;
+   // One name column across every group, so the summaries line up down the whole
+   // list rather than jumping per section.
+   const cmdCol = nameColumn(spec.commands.map((c) => c.name));
+   const primaries = spec.commands.filter((c) => !c.aliasOf);
+   const aliasesOf = (name: string) => spec.commands.filter((c) => c.aliasOf === name);
+   for (const g of spec.groups) {
+      out.push('', ...wrap(`${g.title}:`, HELP_WIDTH, 0, 0));
+      for (const c of primaries.filter((c) => c.group === g.id)) {
+         out.push(...helpRow(c.name, cmdCol, c.summary));
+         // An alias earns a line under its primary, not a row of its own: it is the
+         // same command, and repeating the summary reads as a second one. It keeps the
+         // name column, so the right-hand column stays straight down the whole list.
+         for (const a of aliasesOf(c.name)) out.push(...helpRow(a.name, cmdCol, `(alias of ${c.name})`));
+      }
+   }
+
+   const optCol = optionColumn(spec.globalOptions.map((o) => o.flags));
    out.push('', 'Options:');
-   for (const o of spec.globalOptions) out.push(`   ${o.flags.padEnd(optWidth)}${o.summary}`);
+   for (const o of spec.globalOptions) out.push(...helpRow(o.flags, optCol, o.summary));
+
+   // The meaning hangs under itself, like every other two-column block here, so a
+   // continuation line is never mistaken for another code.
+   const codeCol = exitCodeColumn(spec.exitCodes.map((e) => String(e.code)));
+   out.push('', 'Exit codes:');
+   for (const e of spec.exitCodes) out.push(...helpRow(String(e.code), codeCol, e.meaning));
 
    out.push('', 'Run `leji <command> --help` for a command and its options.', 'Full reference: https://leji.org/cli/');
    return out.join('\n');
 }
 
-/** Per-command help, generated from cli.json. Returns null for an unknown command
- * so the caller falls back to top-level usage. */
-export function renderCommandHelp(name: string): string | null {
-   const spec = loadCliSpec();
-   const cmd = spec.commands.find((c) => c.name === name);
+/** Per-command help, generated from cli.json: this command's own options only, with
+ * the globals one pointer away. Returns null for an unknown command so the caller
+ * falls back to top-level usage. */
+export function renderCommandHelp(name: string, spec: CliSpec = loadCliSpec()): string | null {
+   const cmd: CliCommand | undefined = spec.commands.find((c) => c.name === name);
    if (!cmd) return null;
-   const out: string[] = [`leji ${cmd.name}: ${cmd.summary}`, '', `Usage: ${cmd.usage}`, '', cmd.description];
+   const out: string[] = [
+      ...wrap(`leji ${cmd.name}: ${cmd.summary}`, HELP_WIDTH, 0, 3),
+      '',
+      ...wrap(`Usage: ${cmd.usage}`, HELP_WIDTH, 0, 7),
+   ];
+   for (const para of cmd.description.split(/\n[ \t]*\n/)) out.push('', ...wrap(para, HELP_WIDTH, 0, 0));
    if (cmd.details && cmd.details.length > 0) {
       out.push('', 'Details:');
-      for (const d of cmd.details) out.push(`   - ${d}`);
+      for (const d of cmd.details) out.push(...wrap(`- ${d}`, HELP_WIDTH, 3, 5));
    }
-   const opts: CliOption[] = [...spec.globalOptions, ...cmd.options];
-   const optWidth = Math.max(...opts.map((o) => o.flags.length)) + 3;
-   out.push('', 'Options:');
-   for (const o of opts) out.push(`   ${o.flags.padEnd(optWidth)}${o.summary}`);
+   if (cmd.options.length > 0) {
+      const optCol = optionColumn(cmd.options.map((o) => o.flags));
+      out.push('', 'Options:');
+      for (const o of cmd.options) out.push(...helpRow(o.flags, optCol, o.summary));
+   }
+   out.push('', 'Global options: see leji --help.');
    if (cmd.examples && cmd.examples.length > 0) {
       out.push('', 'Examples:');
       for (const e of cmd.examples) out.push(`   ${e}`);
@@ -176,6 +265,7 @@ interface Flags {
    hooks: boolean;
    explain: boolean;
    fetch: boolean;
+   allowNonFastForward: boolean;
    checkIntegrity: boolean;
    help: boolean;
    version: boolean;
@@ -198,6 +288,7 @@ interface Flags {
    topics?: string[];
    asOf?: string;
    federation?: string;
+   to?: string;
 }
 
 /** A following token that is itself a flag (not a bare "-") cannot be a flag's
@@ -240,10 +331,42 @@ function expandEqualsFlags(argv: string[]): string[] {
    return out;
 }
 
+/**
+ * The repository root this argv lands on, decided ONCE and used by everything that
+ * has to agree about it: the parse below, and the installed executable's hand-off to
+ * a repository's own pinned CLI, which must select the same repository the command
+ * would then operate on. Same scan as the parse (`--flag=value` expanded, every
+ * declared value flag consuming its own value, the literal `--` ending our flags),
+ * so `--root` is read from the same token stream rather than from a second reading
+ * of it. Last `--root` wins; the default is the current directory.
+ *
+ * Null when the scan cannot tell: a value flag with no value, or one whose value is
+ * itself a flag, is the usage error `parseFlags` reports, and a root guessed out of
+ * a malformed command line is exactly the wrong thing to hand an invocation to.
+ */
+export function effectiveRoot(argv: string[]): string | null {
+   const expanded = expandEqualsFlags(argv);
+   let root = '.';
+   for (let i = 0; i < expanded.length; i++) {
+      const arg = expanded[i];
+      if (arg === '--') break; // host pass-through: never our flags
+      if (!VALUE_FLAGS.has(arg)) continue;
+      const value = expanded[++i];
+      if (value === undefined || isFlagToken(value)) return null;
+      if (arg !== '--root') continue;
+      if (value === '') return null; // `--root ""` is the usage error, not a root
+      root = value;
+   }
+   return root;
+}
+
 function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: string } {
+   // The root comes from the shared scan, never from a second derivation here: the
+   // wrapper that may hand this invocation to another CLI reads the same one.
+   const root = effectiveRoot(argv) ?? '.';
    argv = expandEqualsFlags(argv);
    const flags: Flags = {
-      root: '.',
+      root,
       json: false,
       check: false,
       strict: false,
@@ -256,6 +379,7 @@ function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: str
       hooks: false,
       explain: false,
       fetch: false,
+      allowNonFastForward: false,
       checkIntegrity: false,
       help: false,
       version: false,
@@ -278,9 +402,10 @@ function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: str
             break;
          }
          case '--root': {
+            // The value is validated here; the root itself was decided by
+            // `effectiveRoot` above, so the two can never disagree.
             const v = argv[++i];
             if (!v || isFlagToken(v)) return { flags, rest, error: '--root requires a value' };
-            flags.root = v;
             break;
          }
          case '--dir': {
@@ -388,6 +513,20 @@ function parseFlags(argv: string[]): { flags: Flags; rest: string[]; error?: str
          case '--fetch':
             flags.fetch = true;
             break;
+         case '--allow-non-fast-forward':
+            flags.allowNonFastForward = true;
+            break;
+         case '--to': {
+            const v = argv[++i];
+            if (!v || isFlagToken(v)) return { flags, rest, error: '--to requires a value' };
+            // The schema's own pin shape: a full commit id, never an abbreviation
+            // and never a revision expression, so all three SDKs accept one spelling.
+            if (!/^[0-9a-f]{40}$/.test(v) && !/^[0-9a-f]{64}$/.test(v)) {
+               return { flags, rest, error: '--to must be a full 40- or 64-character lowercase hex commit id' };
+            }
+            flags.to = v;
+            break;
+         }
          case '--federation': {
             const v = argv[++i];
             if (!v || isFlagToken(v)) return { flags, rest, error: '--federation requires a value' };
@@ -473,6 +612,7 @@ const VALUE_FLAGS = new Set([
    '--topics',
    '--as-of',
    '--federation',
+   '--to',
 ]);
 
 function flagTokens(flagsStr: string): string[] {
@@ -521,7 +661,8 @@ function allowedFlagsFor(command: string, sub: string | undefined): Set<string> 
 
 function printFindings(findings: Finding[]): void {
    for (const f of sortFindings(findings)) {
-      const where = f.path ? ` ${f.path}` : '';
+      // A rule that locates a line says so, so a reader can go to it.
+      const where = f.path ? ` ${f.path}${f.line === undefined ? '' : `:${f.line}`}` : '';
       console.log(`${f.severity === 'error' ? 'error  ' : 'warning'} ${f.rule}${where}: ${f.message}`);
    }
 }
@@ -607,6 +748,32 @@ function isCalendarDate(v: string): boolean {
    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
 }
 
+/**
+ * The one `--json` document `init` and `adopt` emit: a single object, like every
+ * other command's, carrying what the run wrote and the repository's dependency
+ * ecosystem. `--json` is non-interactive by construction, so nothing here can have
+ * prompted or run a package manager; the report is what a consumer acts on.
+ */
+function emitScaffold(
+   command: 'init' | 'adopt',
+   findings: Finding[],
+   written: string[],
+   ecosystem: EcosystemReport,
+   dryRun = false,
+): number {
+   const sorted = sortFindings(findings);
+   const summary = summarize(sorted);
+   const ok = summary.errors === 0;
+   console.log(
+      JSON.stringify(
+         { command, ok, findings: sorted, summary, ...(dryRun ? { dryRun } : {}), written, ecosystem },
+         null,
+         2,
+      ),
+   );
+   return ok ? 0 : 1;
+}
+
 function reportScaffoldIndex(findings: Finding[]): number {
    if (!hasErrors(findings)) return 0;
    console.log('');
@@ -616,6 +783,191 @@ function reportScaffoldIndex(findings: Finding[]): number {
          '      The scaffold is in place; fix the findings above and run `leji index`.',
    );
    return 1;
+}
+
+/**
+ * The `index` generate run's closing nudge. Byte-identical in all three SDKs and
+ * quiet at zero: a layer with nothing unindexed says nothing.
+ */
+function printUnindexedNudge(count: number): void {
+   if (count <= 0) return;
+   console.log(`${count} file(s) unindexed: add to a category index or leave as reference deliberately`);
+}
+
+/**
+ * The one export run, reached by both of its names: `leji export` (the front door)
+ * and `leji viewer build` (the viewer subsystem's name for the same operation,
+ * beside `viewer serve`). One code path, so the two are byte-identical by
+ * construction — same default output, same JSON document, same exits.
+ *
+ * Exits: `0` written (warnings allowed), `1` an error finding — or, under
+ * `--strict`, a lint finding — with the target left byte-untouched, `2` a usage
+ * error or a refusal (thrown, and rendered by the caller's catch).
+ */
+function runExport(flags: Flags): number {
+   const { manifest, findings } = loadManifest(flags.root);
+   // A failure before the pipeline can run (an unreadable manifest) reports in the
+   // command's OWN document, never the generic one: a `--json` consumer parses one
+   // shape under every outcome and either name.
+   if (!manifest) return reportExport(flags, { out: flags.out ?? DIST_REL, findings, wrote: false });
+   return reportExport(flags, buildViewer(flags.root, manifest, flags.out, { strict: flags.strict }));
+}
+
+/** The one export report, for every outcome the pipeline can reach. */
+function reportExport(flags: Flags, r: BuildResult): number {
+   const sorted = sortFindings(r.findings);
+   if (flags.json) {
+      // The canonical JSON document for this command, under either name.
+      console.log(
+         JSON.stringify(
+            { command: 'export', ok: r.wrote, out: r.out, findings: sorted, warning: PROTECT_WARNING },
+            null,
+            2,
+         ),
+      );
+      return r.wrote ? 0 : 1;
+   }
+   if (!r.wrote) {
+      const s = summarize(sorted);
+      printFindings(sorted);
+      console.log(
+         `failed (${s.errors} error${s.errors === 1 ? '' : 's'}, ${s.warnings} warning${s.warnings === 1 ? '' : 's'}${flags.strict ? '; strict, nothing written' : ''})`,
+      );
+      return 1;
+   }
+   // Human mode says where the export went and repeats the protect-your-context
+   // warning, which is the part a person must act on before hosting it.
+   console.log(`Exported the static viewer to ${r.out}/`);
+   console.log(`\n${PROTECT_WARNING}`);
+   return 0;
+}
+
+/**
+ * The one `leji badge` report, for every outcome the command can reach. The JSON
+ * document is the shared `emit()` shape plus the badge's own fields, emitted under
+ * success and refusal alike so a consumer parses one document; the human channel
+ * says what was written and hands over the markdown line to paste.
+ *
+ * Exits: `0` the badge is written or already current, `1` a conformance error
+ * finding or nothing machine-verified in this run, `2` a `--out` usage error
+ * (rendered by the caller, with no level reported) or a refusal to overwrite a file
+ * that is not a badge of this contract.
+ */
+function reportBadge(flags: Flags, r: BadgeResult): number {
+   const findings = sortFindings(r.findings);
+   const summary = summarize(findings);
+   const ok = summary.errors === 0;
+   const code = r.refusal !== undefined ? 2 : ok ? 0 : 1;
+   if (flags.json) {
+      console.log(
+         JSON.stringify(
+            {
+               command: 'badge',
+               ok,
+               findings,
+               summary,
+               out: r.out,
+               level: r.level,
+               claimedLevel: r.claimedLevel,
+               verifiedLevel: r.verifiedLevel,
+               markdown: r.markdown,
+               action: r.action,
+            },
+            null,
+            2,
+         ),
+      );
+      if (r.refusal !== undefined) console.error(`leji: ${r.refusal}`);
+      return code;
+   }
+   if (r.refusal !== undefined) {
+      console.error(`leji: ${r.refusal}`);
+      return 2;
+   }
+   if (!ok) {
+      printFindings(findings);
+      console.log('Run leji conformance --explain.');
+      return 1;
+   }
+   const verb = r.action === 'wrote' ? 'Wrote' : r.action === 'overwrote' ? 'Overwrote' : 'Unchanged';
+   console.log(`${verb} ${r.out}: ${badgeLabel(r.level!)}`);
+   // The badge states what this run verified, so a claim it did not reach is said
+   // out loud rather than quietly dropped.
+   if (r.claimedLevel !== null && r.claimedLevel !== r.verifiedLevel) {
+      console.log(
+         `Claimed ${r.claimedLevel}; this offline run verified ${r.verifiedLevel} (leji conformance --federation=verify checks the claim).`,
+      );
+   }
+   console.log('\nAdd it to your README (paths are relative to the repository root):\n');
+   console.log(r.markdown!.trimEnd());
+   return 0;
+}
+
+/**
+ * Render one `mounts update-pin` run. The comparison is shown first, then what the
+ * run did with it, then the follow-up act this command deliberately does not
+ * perform. Every string is Leji-authored: git's stderr never reaches output.
+ */
+function reportUpdatePin(flags: Flags, r: UpdatePinResult): number {
+   // An internal refusal after validation carries no document at all: there is no
+   // outcome to report, only the act this run would not perform.
+   if (r.writeError !== undefined) {
+      console.error(`leji: ${r.writeError}`);
+      return 2;
+   }
+   const findings = sortFindings(r.findings);
+   const summary = summarize(findings);
+   const ok = summary.errors === 0;
+   if (flags.json) {
+      console.log(
+         JSON.stringify(
+            {
+               command: 'mounts update-pin',
+               ok,
+               findings,
+               summary,
+               mount: r.mount,
+               pinReport: r.pinReport,
+               action: r.action,
+               override: r.override,
+               ...(r.reason === undefined ? {} : { reason: r.reason }),
+            },
+            null,
+            2,
+         ),
+      );
+      return ok ? 0 : 1;
+   }
+   const rep = r.pinReport;
+   if (rep !== null && rep.state !== 'unknown' && r.mount.to !== null && r.mount.from !== null) {
+      // Offline, the witness is the last one successfully observed — never a claim
+      // that the source was looked at during this run.
+      const observed = flags.fetch ? '' : ' (last observed witness; run with --fetch to observe the source)';
+      console.log(
+         `${r.mount.name} @ ${shortOid(r.mount.from)} → ${shortOid(r.mount.to)} · pin: ${rep.state} ` +
+            `(behind ${rep.behind}, ahead ${rep.ahead}) · via ${rep.comparisonRepository}${observed}`,
+      );
+   }
+   const overridden = r.override ? ' (non-fast-forward, overridden)' : '';
+   const from12 = r.mount.from === null ? '' : shortOid(r.mount.from);
+   const to12 = r.mount.to === null ? '' : shortOid(r.mount.to);
+   switch (r.action) {
+      case 'updated':
+         console.log(`Updated leji.json: ${r.mount.name} pin ${from12} → ${to12}${overridden}`);
+         // Moving the pin is one act; materializing the new projection is another.
+         console.log(`Run leji mounts hydrate${flags.fetch ? '' : ' --fetch'} to hydrate the new pin.`);
+         break;
+      case 'unchanged':
+         console.log(`Unchanged: ${r.mount.name} pin ${from12} is already the target`);
+         break;
+      case 'dry-run':
+         console.log(`Would update leji.json: ${r.mount.name} pin ${from12} → ${to12} (dry run)${overridden}`);
+         break;
+      case 'refused':
+         console.log(`Refused: ${MOUNT_UPDATE_PIN_REASONS[r.reason ?? ''] ?? r.reason}`);
+         break;
+   }
+   return ok ? 0 : 1;
 }
 
 function emit(command: string, findings: Finding[], json: boolean, extra: Record<string, unknown> = {}): number {
@@ -685,7 +1037,8 @@ export async function run(argv: string[]): Promise<number> {
    // was accepted by two implementations out of three.
    {
       const expected =
-         (TWO_WORD_COMMANDS.has(command) && sub ? 2 : 1) + (command === 'mounts' && sub === 'locate' ? 1 : 0);
+         (TWO_WORD_COMMANDS.has(command) && sub ? 2 : 1) +
+         (command === 'mounts' && (sub === 'locate' || sub === 'update-pin') ? 1 : 0);
       // `view` has its own usage message for a stray subcommand, and it is the more
       // useful one; let that case fall through to it.
       if (command !== 'view' && rest.length > expected) {
@@ -745,11 +1098,17 @@ export async function run(argv: string[]): Promise<number> {
             // and has no changelog yet, seed it (the changelog is otherwise only
             // written by `init --level indexed`). No-op at core or when present.
             const seededChangelog = wrote ? seedChangelogIfMissing(flags.root, manifest) : undefined;
-            return emit('index', [...findings, ...result.findings], flags.json, {
+            const code = emit('index', [...findings, ...result.findings], flags.json, {
                ...(wrote ? { written: effectiveIndexPath(manifest) } : {}),
                entries: wrote ? (result.index?.entries.length ?? 0) : 0,
                ...(seededChangelog ? { changelog: seededChangelog } : {}),
             });
+            // A generate run ends by naming what the layer governs but does not
+            // index. A nudge, never a gate: the exit code is emit's alone, and
+            // nothing is printed when the count is zero. Text output only; --json
+            // carries one document and nothing after it.
+            if (!flags.json) printUnindexedNudge(unindexedPaths(flags.root, manifest).length);
+            return code;
          }
          case 'changelog': {
             if (sub === 'check') {
@@ -940,7 +1299,7 @@ export async function run(argv: string[]): Promise<number> {
                             : item.status === 'not-applicable'
                               ? 'n/a    '
                               : 'manual ';
-                  console.log(`${mark} [${item.level}] ${item.description}${item.detail ? ` — ${item.detail}` : ''}`);
+                  console.log(`${mark} [${item.level}] ${item.description}${item.detail ? `: ${item.detail}` : ''}`);
                }
                console.log('');
                if (flags.explain) console.log(renderExplain(result) + '\n');
@@ -962,13 +1321,39 @@ export async function run(argv: string[]): Promise<number> {
             });
          }
          case 'mounts': {
-            if (sub !== 'hydrate' && sub !== 'status' && sub !== 'locate') {
-               console.error('leji: usage: leji mounts <hydrate|status|locate>\n');
+            if (sub !== 'hydrate' && sub !== 'status' && sub !== 'locate' && sub !== 'update-pin') {
+               console.error('leji: usage: leji mounts <hydrate|status|locate|update-pin>\n');
                console.error(USAGE);
                return 2;
             }
+            // Argument shape is settled before anything on disk is read: a usage
+            // error is never contingent on a manifest loading.
+            if (sub === 'update-pin') {
+               if (!rest[2]) {
+                  console.error('leji: usage: leji mounts update-pin <name> [--to <oid>]\n');
+                  console.error(USAGE);
+                  return 2;
+               }
+               if (flags.allowNonFastForward && flags.to === undefined) {
+                  console.error('leji: --allow-non-fast-forward is valid only with an explicit --to <oid>\n');
+                  console.error(USAGE);
+                  return 2;
+               }
+            }
             const { manifest, findings } = loadManifest(flags.root);
             if (!manifest) return emit(`mounts ${sub}`, findings, flags.json);
+            if (sub === 'update-pin') {
+               return reportUpdatePin(
+                  flags,
+                  updatePinRun(flags.root, manifest, {
+                     name: rest[2],
+                     to: flags.to,
+                     allowNonFastForward: flags.allowNonFastForward,
+                     fetch: flags.fetch,
+                     dryRun: flags.dryRun,
+                  }),
+               );
+            }
             if (sub === 'hydrate') {
                const r = hydrateMounts(flags.root, manifest, { fetch: flags.fetch });
                if (r.fatal) {
@@ -1046,6 +1431,19 @@ export async function run(argv: string[]): Promise<number> {
             }
             return 0;
          }
+         case 'badge': {
+            const result = badgeRun(flags.root, flags.out ?? DEFAULT_BADGE_OUT);
+            // A rejected `--out` is a usage error, in the CLI's usage-error form and
+            // ahead of every level the command could have reported.
+            if (result.usageError !== undefined) {
+               console.error(`leji: ${result.usageError}\n`);
+               console.error(USAGE);
+               return 2;
+            }
+            return reportBadge(flags, result);
+         }
+         case 'export':
+            return runExport(flags);
          case 'view':
          case 'viewer': {
             // `leji view` is an alias for `leji viewer serve` that also opens the
@@ -1061,27 +1459,7 @@ export async function run(argv: string[]): Promise<number> {
                console.error(USAGE);
                return 2;
             }
-            if (command === 'viewer' && sub === 'build') {
-               const { manifest, findings } = loadManifest(flags.root);
-               if (!manifest) return emit('viewer build', findings, flags.json);
-               const r = buildViewer(flags.root, manifest, flags.out);
-               if (r.findings.some((f) => f.severity === 'error')) {
-                  return emit('viewer build', r.findings, flags.json);
-               }
-               if (flags.json) {
-                  console.log(
-                     JSON.stringify(
-                        { command: 'viewer build', ok: true, out: r.out, warning: PROTECT_WARNING },
-                        null,
-                        2,
-                     ),
-                  );
-               } else {
-                  console.log(`Exported the static viewer to ${r.out}/`);
-                  console.log(`\n${PROTECT_WARNING}`);
-               }
-               return 0;
-            }
+            if (command === 'viewer' && sub === 'build') return runExport(flags);
             const wantServe = isAlias || sub === 'serve';
             const wantOpen = flags.open || isAlias;
             const { manifest, findings } = loadManifest(flags.root);
@@ -1100,7 +1478,7 @@ export async function run(argv: string[]): Promise<number> {
                  : 0;
             if (!wantServe || code !== 0) {
                if (!flags.json && code === 0) {
-                  const dir = `${stripSlash(manifest.rootPath) || '.'}/.leji/viewer/`;
+                  const dir = `${VIEWER_REL}/`;
                   console.log(`viewer ready (${result.entries} entries) → ${dir}   serve: leji view`);
                }
                return code;
@@ -1122,16 +1500,20 @@ export async function run(argv: string[]): Promise<number> {
             return 0;
          }
          case 'ci': {
+            // One detection for the whole command: the hook and the CI job both run
+            // what a clean install of this repository provides.
+            const ecosystem = detectEcosystem(flags.root);
             if (flags.hooks) {
                const { manifest, findings } = loadManifest(flags.root);
                if (!manifest) return emit('ci', findings, flags.json);
-               const h = ensureLocalHook(flags.root);
+               const h = ensureLocalHook(flags.root, runnerArgv(ecosystem));
                if (flags.json) {
                   const out: Record<string, unknown> = { command: 'ci', ok: true, hook: h.path, action: h.action };
                   if (h.action === 'manual') {
                      out.reason = h.reason;
                      out.snippet = h.snippet;
                   }
+                  out.ecosystem = ecosystem;
                   console.log(JSON.stringify(out, null, 2));
                } else if (h.action === 'manual') {
                   const lead =
@@ -1154,6 +1536,7 @@ export async function run(argv: string[]): Promise<number> {
                      `${h.action === 'unchanged' ? 'Hook already current' : 'Wrote'} ${h.path} (validate + index --check before every commit; per-clone, delete to opt out).`,
                   );
                }
+               if (!flags.json) console.log(renderEcosystemLine(ecosystem));
                return 0;
             }
             // No --provider: infer from the origin remote (a GitLab repo must
@@ -1177,7 +1560,7 @@ export async function run(argv: string[]): Promise<number> {
             }
             const { manifest, findings } = loadManifest(flags.root);
             if (!manifest) return emit('ci', findings, flags.json);
-            const r = ensureCiWorkflow(flags.root, provider as CiProvider);
+            const r = ensureCiWorkflow(flags.root, provider as CiProvider, ecosystem);
             if (flags.json) {
                const out: Record<string, unknown> = {
                   command: 'ci',
@@ -1189,6 +1572,7 @@ export async function run(argv: string[]): Promise<number> {
                };
                if (r.action === 'manual') out.snippet = r.snippet;
                if (r.note) out.note = r.note;
+               out.ecosystem = ecosystem;
                console.log(JSON.stringify(out, null, 2));
             } else {
                switch (r.action) {
@@ -1202,12 +1586,15 @@ export async function run(argv: string[]): Promise<number> {
                      console.log(`${r.path} already present; nothing to do.`);
                      break;
                   case 'manual':
+                     // Not leji's file: it was written by hand, or a generated one was
+                     // edited. Either way the edit is the opt-out, and it is honored.
                      console.log(
-                        `${r.path} already exists; not modifying it. Add this to your CircleCI config:\n\n${r.snippet}`,
+                        `${r.path} already exists and was not generated by leji; not modifying it. Add this yourself:\n\n${r.snippet}`,
                      );
                      break;
                }
                if (r.note) console.log(r.note);
+               console.log(renderEcosystemLine(ecosystem));
             }
             return 0;
          }
@@ -1221,21 +1608,17 @@ export async function run(argv: string[]): Promise<number> {
             if (!manifest) return emit('agent', findings, flags.json);
             const r = addAgent(flags.root, manifest, { host: flags.host, name: flags.name, role: flags.role });
             if (flags.json) {
-               console.log(
-                  JSON.stringify(
-                     {
-                        command: 'agent',
-                        ok: true,
-                        name: r.name,
-                        role: r.role,
-                        host: r.hostId ?? null,
-                        profile: r.profilePath,
-                        created: { profile: r.profileCreated, manifest: r.manifestChanged },
-                     },
-                     null,
-                     2,
-                  ),
-               );
+               const out: Record<string, unknown> = {
+                  command: 'agent',
+                  ok: true,
+                  name: r.name,
+                  role: r.role,
+                  host: r.hostId ?? null,
+                  profile: r.profilePath,
+                  created: { profile: r.profileCreated, manifest: r.manifestChanged },
+               };
+               if (r.note) out.note = r.note;
+               console.log(JSON.stringify(out, null, 2));
             } else {
                const lines: string[] = [];
                lines.push(r.profileCreated ? `Wrote ${r.profilePath}` : `${r.profilePath} already present`);
@@ -1245,6 +1628,7 @@ export async function run(argv: string[]): Promise<number> {
                      ? `Bound agent "${r.name}" (${roleHost}) in leji.json`
                      : `agent "${r.name}" already bound in leji.json; nothing to do.`,
                );
+               if (r.note) lines.push(r.note);
                console.log(lines.join('\n'));
             }
             return 0;
@@ -1253,28 +1637,101 @@ export async function run(argv: string[]): Promise<number> {
             const { manifest, findings } = loadManifest(flags.root);
             if (!manifest) return emit('start', findings, flags.json);
             const detected = detectHosts({ root: flags.root });
-            const interactive = !flags.yes && Boolean(process.stdin.isTTY);
+            // The repository's own ecosystem, read once: the preflight probes the
+            // runner it names, and the JSON document reports it.
+            const ecosystem = detectEcosystem(flags.root);
+            // --json is a single-document mode, so it is never interactive: nothing
+            // prompts, nothing launches, and no repair can run under it.
+            const interactive = !flags.yes && !flags.json && Boolean(process.stdin.isTTY);
+            // The boot profile is checked first, before any report or prompt: a layer
+            // whose entrypoint is missing has nothing to enter.
+            if (!bootProfileReady(flags.root, manifest)) {
+               if (flags.json) {
+                  console.log(
+                     JSON.stringify(
+                        { command: 'start', ok: false, ready: false, error: 'boot-missing', checks: [], ecosystem },
+                        null,
+                        2,
+                     ),
+                  );
+               } else {
+                  console.error(
+                     `leji: boot profile ${manifest.bootProfilePath} is missing or invalid; run leji validate`,
+                  );
+               }
+               return 1;
+            }
+            // The host is resolved BEFORE the report, so the MCP rows answer for the
+            // host this run actually targets. An --agent naming no launchable host
+            // throws here, exactly as it did inside enterLayer: a usage error.
+            const io = defaultHandoffIo();
+            const host = await resolveStartHost({ detected, agent: flags.agent, interactive, io });
+            const preflight = runPreflight({
+               root: flags.root,
+               manifest,
+               host,
+               detected,
+               report: ecosystem,
+               io,
+            });
+            if (flags.json) {
+               // Report only: the launch-selection arguments are accepted and have no
+               // effect, and a gap is reported rather than blocking (`ready` is the
+               // scriptable signal).
+               console.log(
+                  JSON.stringify(
+                     {
+                        command: 'start',
+                        ok: true,
+                        ready: preflight.ready,
+                        // Projected, never the raw checks: the document publishes four keys,
+                        // and a field the renderer needs is not one of them.
+                        checks: preflight.checks.map(checkDocument),
+                        ecosystem,
+                     },
+                     null,
+                     2,
+                  ),
+               );
+               return 0;
+            }
+            // The one place color is decided: a terminal question, asked at the boundary and
+            // injected, so the block itself never consults the process.
+            const color = colorDecision(Boolean(process.stdout.isTTY), process.env);
+            console.log('\n' + renderPreflight(preflight.checks, { color }));
+            await offerPreflightFixes({
+               root: flags.root,
+               host,
+               result: preflight,
+               runner: runnerArgv(ecosystem),
+               interactive,
+               io,
+            });
             const outcome = await enterLayer({
                root: flags.root,
                manifest,
                detected,
                agent: flags.agent,
+               host,
                interactive,
                hostArgs: flags.hostArgs,
+               io,
             });
-            if (outcome === 'boot-missing') {
-               console.error(`leji: boot profile ${manifest.bootProfilePath} is missing or invalid; run leji validate`);
-               return 1;
-            }
             if (outcome === 'fallback') console.log(enteringViaBoot(manifest, flags.hostArgs));
             return 0;
          }
          case 'detect': {
             const result = detectLayer(flags.root);
             if (flags.json) {
-               console.log(JSON.stringify({ command: 'detect', ok: true, hosts: result.hosts }, null, 2));
+               console.log(
+                  JSON.stringify(
+                     { command: 'detect', ok: true, hosts: result.hosts, ecosystem: result.ecosystem },
+                     null,
+                     2,
+                  ),
+               );
             } else {
-               console.log(renderDetect(result.hosts));
+               console.log(renderDetect(result));
             }
             return 0;
          }
@@ -1289,7 +1746,11 @@ export async function run(argv: string[]): Promise<number> {
                agent: flags.agent,
                mode: flags.mode,
             });
+            // The repository's own dependency ecosystem, read once and reported by
+            // every output mode: the human block, the JSON document, and the offer.
+            const ecosystem = detectEcosystem(result.root);
             if (result.dryRun) {
+               if (flags.json) return emitScaffold('adopt', result.findings, [], ecosystem, true);
                // A wire-only run scaffolds nothing, so "Adopting the existing
                // repository" misnames it: the layer is already there and the plan
                // beneath is entrypoint conversions.
@@ -1300,12 +1761,20 @@ export async function run(argv: string[]): Promise<number> {
                );
                console.log('\n' + renderWritePlan(result.plan));
                console.log('\nNo files written (--dry-run). Re-run without --dry-run to apply.');
+               console.log('\n' + renderEcosystemBlock(ecosystem));
                return 0;
             }
+            if (flags.json) return emitScaffold('adopt', result.findings, result.written, ecosystem);
             console.log(`\nWrote ${result.written.length} files (context root: ${result.detectedRoot}):`);
             for (const rel of result.written) console.log(`   ${rel}`);
             const indexFailed = reportScaffoldIndex(result.findings);
-            const interactive = !flags.yes && Boolean(process.stdin.isTTY);
+            // --json is a single-document mode, so it is never interactive: nothing
+            // prompts, and no package manager can run under it.
+            const interactive = !flags.yes && !flags.json && Boolean(process.stdin.isTTY);
+            // A wire-only run scaffolds no layer, so it makes no declaration offer.
+            const dependency = result.wiredOnly
+               ? null
+               : await offerDependency({ root: result.root, report: ecosystem, interactive });
             const mcp = await offerMcpInstall({
                root: result.root,
                detected: result.detected,
@@ -1332,7 +1801,9 @@ export async function run(argv: string[]): Promise<number> {
             ) {
                console.log(enteringAdopted(result));
             }
-            return indexFailed;
+            // The layer is written either way; a consented add that failed means the
+            // durable setup this run promised was not reached, and the exit says so.
+            return indexFailed || (dependency !== null && dependencyAddFailed(dependency)) ? 1 : 0;
          }
          case 'init': {
             const result = await initLayer({
@@ -1345,18 +1816,23 @@ export async function run(argv: string[]): Promise<number> {
                agent: flags.agent,
                mode: flags.mode,
             });
+            const ecosystem = detectEcosystem(result.root);
             if (result.dryRun) {
+               if (flags.json) return emitScaffold('init', result.findings, [], ecosystem, true);
                console.log('\n' + renderWritePlan(result.plan));
                console.log('\nNo files written (--dry-run). Re-run without --dry-run to create them.');
+               console.log('\n' + renderEcosystemBlock(ecosystem));
                return 0;
             }
+            if (flags.json) return emitScaffold('init', result.findings, result.written, ecosystem);
             console.log(`\nWrote ${result.written.length} files:`);
             for (const rel of result.written) console.log(`   ${rel}`);
             // The index could not be generated: the scaffold is on disk but its
             // generated CI would fail, so say why and exit nonzero rather than
             // report a success the layer does not have.
             const indexFailed = reportScaffoldIndex(result.findings);
-            const interactive = !flags.yes && Boolean(process.stdin.isTTY);
+            const interactive = !flags.yes && !flags.json && Boolean(process.stdin.isTTY);
+            const dependency = await offerDependency({ root: result.root, report: ecosystem, interactive });
             const mcp = await offerMcpInstall({
                root: result.root,
                detected: result.detected,
@@ -1383,7 +1859,7 @@ export async function run(argv: string[]): Promise<number> {
             ) {
                console.log(enteringTheLayer(result.manifest, result.mode));
             }
-            return indexFailed;
+            return indexFailed || dependencyAddFailed(dependency) ? 1 : 0;
          }
          default:
             console.error(`leji: unknown command "${command}"\n`);

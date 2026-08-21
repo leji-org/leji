@@ -166,6 +166,15 @@ interface Scenario {
    args: string[];
    /** Extra env vars merged into the run (e.g. test-only fault injection). */
    env?: Record<string, string>;
+   /** A second argv naming the same operation. Run over its own copy of the same
+    * setup in every SDK and compared to that SDK's own run of `args`, so the two
+    * names are proved co-equal per SDK as well as across them. */
+   alias?: string[];
+   /** Tokens appended to `args`, computed from the prepared run directory: for a
+    * case whose argument names a commit the setup itself made. Every setup that
+    * uses one pins its commit dates and identity, so all three captures compute
+    * the same tokens. */
+   extraArgs?: (dir: string) => string[];
 }
 
 function nodeRun(args: string[], cwd: string): void {
@@ -890,6 +899,19 @@ function vanishedId(dir: string): void {
    fs.rmSync(old);
    fs.writeFileSync(path.join(dir, 'docs', 'domain', 'renamed-glossary.md'), content);
 }
+/** The example layer plus two markdown files under the governed root that no
+ * category index lists, so the `index` generate run ends with its unindexed
+ * count. The line is spec-pinned byte for byte, so any wording, pluralization or
+ * dash divergence between the SDKs fails here. The zero case is the plain
+ * `index generate` scenario: the example layer is fully indexed and must stay
+ * silent in all three. */
+function unindexedUnderRoot(dir: string): void {
+   copyExample(dir);
+   fs.mkdirSync(path.join(dir, 'docs', 'notes'), { recursive: true });
+   fs.writeFileSync(path.join(dir, 'docs', 'notes', 'loose.md'), '# Loose\n');
+   fs.writeFileSync(path.join(dir, 'docs', 'stray.md'), '# Stray\n');
+}
+
 /** Seeded layer with a pre-existing .gitlab-ci.yml (trailing newline) for the merge case. */
 function seedLayerWithGitlab(dir: string): void {
    seedLayer(dir);
@@ -1013,7 +1035,7 @@ function seedLayerTempSymlink(rel: string): (dir: string) => void {
    };
 }
 /** The example layer whose contained viewer dir (rootPath/.leji) is a symlink
- * escaping the root: viewer generation refuses every write, so `viewer build` must
+ * escaping the root: viewer generation refuses every write, so `export` must
  * abort with findings before any destructive cleanup (not report success). */
 function symlinkedViewerDir(dir: string): void {
    copyExample(dir);
@@ -1152,6 +1174,973 @@ function hooksLinkedWorktree(dir: string): void {
    git('worktree', 'add', '-q', path.join(dir, 'wt'));
 }
 
+/** A shared fixture copied in and committed. `leji badge` reports the level this
+ * offline run verified, and the indexed changelog item is `unknown` without a
+ * committed baseline, so an uncommitted copy of a governed fixture badges `core`.
+ * Every badge scenario over a fixture therefore runs `real` and commits first. */
+function gitFixture(name: string): (dir: string) => void {
+   return (dir) => {
+      fs.cpSync(path.join(repoRoot, 'fixtures', name), dir, { recursive: true });
+      const git = (...a: string[]): void => {
+         execFileSync('git', a, { cwd: dir, env: { ...realEnv, GIT_DIR: undefined }, stdio: 'ignore' });
+      };
+      git('init', '-q');
+      git('add', '-A');
+      git('-c', 'user.name=Parity Tester', '-c', 'user.email=parity@example.com', 'commit', '-q', '-m', 'seed');
+   };
+}
+/** A committed governed layer whose `leji-badge.svg` is the *previous* level's
+ * canonical badge: the level-change regeneration path. The tool recognizes its own
+ * output by bytes alone, so this one overwrites where a foreign file refuses. */
+function badgeStale(dir: string): void {
+   gitFixture('valid-badge-governed-regen')(dir);
+   fs.copyFileSync(path.join(repoRoot, 'fixtures', 'badge', 'indexed.svg'), path.join(dir, 'leji-badge.svg'));
+}
+/** A committed layer carrying a file at the badge path that is not a badge: the
+ * refusal, which must leave those bytes exactly as they are in all three. */
+function badgeForeignFile(dir: string): void {
+   gitLayer(dir);
+   fs.writeFileSync(path.join(dir, 'leji-badge.svg'), 'not a badge\n');
+}
+/** A committed layer whose badge target is a DANGLING symlink inside the repository:
+ * a standing entry, never an absence, so the run refuses rather than writing through
+ * it — and the link's destination is never created. */
+function badgeTargetDangling(dir: string): void {
+   gitLayer(dir);
+   fs.symlinkSync('never-created.svg', path.join(dir, 'leji-badge.svg'));
+}
+
+const BADGE_SCENARIOS_ENABLED = true;
+const BADGE_SCENARIOS: Scenario[] = [
+   // --- badge (real: the level a badge states needs a git baseline) ---
+   { name: 'badge on a committed layer', mode: 'real', setup: gitLayer, args: ['badge'] },
+   { name: 'badge --out docs/badge.svg', mode: 'real', setup: gitLayer, args: ['badge', '--out', 'docs/badge.svg'] },
+   { name: 'badge --json', mode: 'real', setup: gitLayer, args: ['badge', '--json'] },
+   // The badge states what this offline run verified, never the claim: a declared
+   // mount leaves `pin-reachable` unknown, so a federated claim badges `governed`.
+   {
+      name: 'badge caps a federated claim at the verified level',
+      mode: 'real',
+      setup: gitFixture('valid-badge-federated-capped'),
+      args: ['badge', '--json'],
+   },
+   // A claim the run refutes writes nothing at all (exit 1), rather than badging
+   // the lower level: the findings are the answer, not a downgrade.
+   {
+      name: 'badge on a failing claim',
+      mode: 'real',
+      setup: gitFixture('invalid-governed-no-profile'),
+      args: ['badge'],
+   },
+   { name: 'badge regenerates a stale badge', mode: 'real', setup: badgeStale, args: ['badge'] },
+   { name: 'badge refuses a foreign file', mode: 'real', setup: badgeForeignFile, args: ['badge'] },
+   // A standing entry that is not a regular file inside the repository is refused as
+   // the ordinary badge document at exit 2, and nothing is created through the link.
+   {
+      name: 'badge refuses a dangling target link',
+      mode: 'real',
+      setup: badgeTargetDangling,
+      args: ['badge', '--json'],
+   },
+   // An accepted `--out` is echoed back in its canonical POSIX form — `.` segments
+   // dropped — and that form is what stdout, the JSON and the markdown all carry.
+   {
+      name: 'badge --out ./x.svg canonicalizes',
+      mode: 'real',
+      setup: gitLayer,
+      args: ['badge', '--out', './x.svg', '--json'],
+   },
+   // `--out` takes a repository-relative POSIX `.svg` path over [A-Za-z0-9._/-] and
+   // nothing else; `.leji/` is tool domain and never a badge target. Each rejection
+   // is exit 2, and the tree compare asserts nothing is written.
+   { name: 'badge --out .leji/x.svg (reject)', setup: seedLayer, args: ['badge', '--out', '.leji/x.svg'] },
+   { name: 'badge --out ../x.svg (reject)', setup: seedLayer, args: ['badge', '--out', '../x.svg'] },
+   { name: 'badge --out absolute (reject)', setup: seedLayer, args: ['badge', '--out', '/abs.svg'] },
+   { name: 'badge --out with a backslash (reject)', setup: seedLayer, args: ['badge', '--out', 'a\\b.svg'] },
+   { name: 'badge --out a non-svg (reject)', setup: seedLayer, args: ['badge', '--out', 'x.png'] },
+   // No endpoint, URL, host, token or destination parameter exists on this command.
+   { name: 'badge --endpoint (reject)', setup: seedLayer, args: ['badge', '--endpoint', 'x'] },
+];
+
+// --- F9: the trust boundary (absolute containment, standing entries, verified reads) ---
+// Every setup below plants its symlink with a FIXED target — an absolute path outside
+// any layer, or a relative name that never resolves — so the planted link is
+// byte-identical in all three captures and the tree snapshots stay comparable. What
+// they pin is the refusal: identical exit, identical bytes, and a tree that shows the
+// link exactly as it was planted with nothing created through it.
+
+// A directory that exists outside any layer root. A `.leji/` role aliased here is the
+// former relocate/publish alias, refused now by absolute containment.
+const ESCAPE_DIR = '/etc';
+/** The example layer whose default export role is symlinked OUT of the repository. */
+function distSymlinkedOutside(dir: string): void {
+   copyExample(dir);
+   fs.mkdirSync(path.join(dir, '.leji'), { recursive: true });
+   fs.symlinkSync(ESCAPE_DIR, path.join(dir, '.leji', 'dist'));
+}
+/** The example layer whose `--out published` target is symlinked out of the tree. */
+function outSymlinkedOutside(dir: string): void {
+   copyExample(dir);
+   fs.symlinkSync(ESCAPE_DIR, path.join(dir, 'published'));
+}
+/** The example layer whose viewer role is symlinked out of the repository: generation
+ * refuses the role, so the export aborts before any destructive cleanup. */
+function viewerSymlinkedOutside(dir: string): void {
+   copyExample(dir);
+   fs.mkdirSync(path.join(dir, '.leji'), { recursive: true });
+   fs.symlinkSync(ESCAPE_DIR, path.join(dir, '.leji', 'viewer'));
+}
+/** The example layer whose default output entry is a DANGLING symlink: a standing
+ * entry, never an absence, so the build refuses before resolving it and the link's
+ * destination is never created. */
+function distDangling(dir: string): void {
+   copyExample(dir);
+   fs.mkdirSync(path.join(dir, '.leji'), { recursive: true });
+   fs.symlinkSync(path.join('..', 'site'), path.join(dir, '.leji', 'dist'));
+}
+/** The same for a caller `--out` that is otherwise a legal target. */
+function outDangling(dir: string): void {
+   copyExample(dir);
+   fs.symlinkSync('elsewhere', path.join(dir, 'published'));
+}
+/** An occupied `--out` whose marker file is a symlink OUT of the repository: the
+ * marker that authorizes a recursive clear is read through the verified read, so a
+ * source the rule refuses is not a previous export and the tree is refused rather
+ * than deleted. */
+function outMarkerSymlinked(dir: string): void {
+   copyExample(dir);
+   const out = path.join(dir, 'site');
+   fs.mkdirSync(out, { recursive: true });
+   fs.symlinkSync(ESCAPE_TARGET, path.join(out, 'index.html'));
+}
+/** An empty repository whose `.gitignore` is a symlink escaping the root: the ignore
+ * line init merges goes through the chokepoint, so the write is refused and no layer
+ * is scaffolded. */
+function gitignoreSymlinkedOutside(dir: string): void {
+   fs.symlinkSync(ESCAPE_TARGET, path.join(dir, '.gitignore'));
+}
+/** An empty repository whose leji.json name is a dangling symlink: the exclusive
+ * create judges the standing entry, so this is the already-exists refusal and the
+ * link's destination is never created. */
+function manifestNameDangling(dir: string): void {
+   fs.symlinkSync('never-created.json', path.join(dir, 'leji.json'));
+}
+/** A seeded layer whose agent profile name is a dangling symlink: both halves of the
+ * binding are judged before either is written, so neither is. */
+function agentProfileDangling(dir: string): void {
+   seedLayer(dir);
+   fs.mkdirSync(path.join(dir, 'docs', 'agents'), { recursive: true });
+   fs.symlinkSync('never-created.md', path.join(dir, 'docs', 'agents', 'reviewer.md'));
+}
+/** A seeded layer whose agent-profiles directory is symlinked out of the repository. */
+function agentProfilesDirOutside(dir: string): void {
+   seedLayer(dir);
+   fs.rmSync(path.join(dir, 'docs', 'agents'), { recursive: true, force: true });
+   fs.symlinkSync(ESCAPE_DIR, path.join(dir, 'docs', 'agents'));
+}
+/** A seeded layer whose manifest is symlinked out of the repository, as `agent` meets
+ * it: the manifest it would splice and write back is not inside the tree. */
+function agentManifestOutside(dir: string): void {
+   seedLayer(dir);
+   fs.rmSync(path.join(dir, 'leji.json'), { force: true });
+   fs.symlinkSync(ESCAPE_TARGET, path.join(dir, 'leji.json'));
+}
+/** The example layer with a standing entry at overview.md that is not a regular file:
+ * the map is neither seeded through it nor refreshed from bytes read by pathname. */
+function overviewStanding(plant: (abs: string) => void): (dir: string) => void {
+   return (dir) => {
+      copyExample(dir);
+      const abs = path.join(dir, 'docs', 'overview.md');
+      fs.rmSync(abs, { recursive: true, force: true });
+      plant(abs);
+   };
+}
+/** A layer claiming indexed whose changelog name is a dangling symlink: the seed's
+ * exclusive create treats any standing entry as already present. */
+function indexedDanglingChangelog(dir: string): void {
+   indexedNoChangelog(dir);
+   fs.symlinkSync('never-created.json', path.join(dir, 'docs', 'context-changelog.json'));
+}
+/** A seeded layer whose CI target is a dangling symlink, per provider: presence is
+ * decided by the verified read, so the create never lands at the link's destination. */
+function ciTargetDangling(rel: string): (dir: string) => void {
+   return (dir) => {
+      seedLayer(dir);
+      const abs = path.join(dir, rel);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.symlinkSync('never-created.yml', abs);
+   };
+}
+/** An adopted repository whose vendor entrypoint is a dangling symlink: unverifiable
+ * as a regular file inside the repository, so the wiring run treats it as absent. */
+function adoptedWithDanglingEntrypoint(dir: string): void {
+   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'Always run tests.\n');
+   nodeRun(['adopt', '--yes'], dir);
+   fs.rmSync(path.join(dir, 'CLAUDE.md'), { force: true });
+   fs.symlinkSync('never-created.md', path.join(dir, 'CLAUDE.md'));
+}
+/** The federated host whose private mounts role is symlinked into ANOTHER private
+ * role: the store, cache entry and staging destinations go through the chokepoint, so
+ * the projection is never materialized through the planted link. */
+function mountsRoleAliasedIntoAnotherRole(dir: string): void {
+   mountedFederatedHost(dir);
+   fs.rmSync(path.join(dir, '.leji', 'mounts'), { recursive: true, force: true });
+   fs.mkdirSync(path.join(dir, '.leji', 'work', 'planted'), { recursive: true });
+   fs.symlinkSync(path.join('work', 'planted'), path.join(dir, '.leji', 'mounts'));
+}
+/** The same alias, pointing out of the repository. */
+function mountsRoleAliasedOutside(dir: string): void {
+   mountedFederatedHost(dir);
+   fs.rmSync(path.join(dir, '.leji', 'mounts'), { recursive: true, force: true });
+   fs.symlinkSync(ESCAPE_DIR, path.join(dir, '.leji', 'mounts'));
+}
+
+// --- F3: `mounts update-pin` (held until the ports land) ----------------------
+// The pin move is the one federation command that WRITES the manifest, so these
+// scenarios compare the written tree as closely as the output: a refusal must leave
+// leji.json byte-identical in all three, and an update must change exactly the pin.
+
+/** A managed store holding the pin and NO witness at all: the row-1 operand is
+ * there and the row-2 walk finds nothing that resolves the ref. */
+function storeWithoutWitness(dir: string): void {
+   mountedFederatedHost(dir);
+   fs.rmSync(path.join(dir, '.leji', 'mounts.local.json'));
+   const sib = path.join(dir, 'sibling');
+   const pin = git(sib, 'rev-parse', 'HEAD');
+   const srcKey = sha256hex(ACME_SOURCE);
+   const store = path.join(dir, '.leji', 'mounts', 'store', srcKey);
+   fs.mkdirSync(store, { recursive: true });
+   git(dir, 'init', '--bare', '-q', store);
+   git(store, 'fetch', sib, `+${pin}:refs/leji-parity/pin-objects`);
+   git(store, 'update-ref', `refs/leji-pin/v1/${srcKey}/${pin}`, pin);
+   git(store, 'update-ref', '-d', 'refs/leji-parity/pin-objects');
+   fs.rmSync(path.join(store, 'FETCH_HEAD'), { force: true });
+}
+
+/** The witness is one commit ahead of the pin, but the store holds both as shallow
+ * roots: it can count, and cannot say whether one reaches the other. */
+function managedShallowBehind(dir: string): void {
+   mountedFederatedHost(dir);
+   fs.rmSync(path.join(dir, '.leji', 'mounts.local.json'));
+   const sib = path.join(dir, 'sibling');
+   const pin = git(sib, 'rev-parse', 'HEAD');
+   commitIn(sib, 'later.md');
+   const srcKey = sha256hex(ACME_SOURCE);
+   const store = path.join(dir, '.leji', 'mounts', 'store', srcKey);
+   fs.mkdirSync(store, { recursive: true });
+   git(dir, 'init', '--bare', '-q', store);
+   git(sib, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
+   git(
+      store,
+      'fetch',
+      '--depth',
+      '1',
+      `file://${sib}`,
+      `+refs/heads/main:refs/leji-witness/v1/${srcKey}/${sha256hex('refs/heads/main')}`,
+   );
+   git(store, 'fetch', '--depth', '1', `file://${sib}`, pin);
+   git(store, 'update-ref', `refs/leji-pin/v1/${srcKey}/${pin}`, pin);
+   fs.rmSync(path.join(store, 'FETCH_HEAD'), { force: true });
+}
+
+/** The declared source is a locator no test may reach, so `--fetch` scenarios route
+ * it at git's own level. The mirror lives at a FIXED path outside the run directory
+ * — the scenario env has to name it as a constant, and the tree snapshot covers the
+ * run directory alone — and every capture rebuilds it from its own sibling, whose
+ * commit ids the pinned dates make identical anyway. */
+const UPDATE_PIN_SOURCE = path.join(os.tmpdir(), 'leji-parity-update-pin-source');
+function publishUpdatePinSource(dir: string): void {
+   fs.rmSync(UPDATE_PIN_SOURCE, { recursive: true, force: true });
+   git(dir, 'clone', '-q', '--bare', path.join(dir, 'sibling'), UPDATE_PIN_SOURCE);
+   git(UPDATE_PIN_SOURCE, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
+}
+/** The host resolves the pin through a hint only; the source is reachable. */
+function fetchableHintOnly(dir: string): void {
+   managedBehindHintOnly(dir);
+   publishUpdatePinSource(dir);
+}
+/** `managedBehind` without the store: the witness moved on, and only the hint
+ * resolves anything until `--fetch` establishes the managed store. */
+function managedBehindHintOnly(dir: string): void {
+   mountedFederatedHost(dir);
+   commitIn(path.join(dir, 'sibling'), 'later.md');
+}
+/** No trackingRef declared at all, with a reachable source: `--fetch` has to
+ * resolve the advertised default branch and report it. */
+function fetchableWitnessless(dir: string): void {
+   fetchableHintOnly(dir);
+   const mp = path.join(dir, 'leji.json');
+   fs.writeFileSync(mp, fs.readFileSync(mp, 'utf8').replace(/\s*"trackingRef": "refs\/heads\/main",\n/, '\n'));
+}
+/** The store already holds the pin, so retention succeeds without the network and
+ * the witness refresh is the act that fails. */
+function fetchUnreachableWithStore(dir: string): void {
+   storeWithoutWitness(dir);
+}
+const UPDATE_PIN_FETCH_ENV = {
+   GIT_CONFIG_COUNT: '1',
+   GIT_CONFIG_KEY_0: `url.${UPDATE_PIN_SOURCE}.insteadOf`,
+   GIT_CONFIG_VALUE_0: ACME_SOURCE,
+};
+const UPDATE_PIN_UNREACHABLE_ENV = {
+   GIT_CONFIG_COUNT: '1',
+   GIT_CONFIG_KEY_0: `url.${UPDATE_PIN_SOURCE}-never-created.insteadOf`,
+   GIT_CONFIG_VALUE_0: ACME_SOURCE,
+};
+
+/** The witness tip the setup left on the sibling's main: what `--to` names. */
+const siblingTip = (dir: string): string => git(path.join(dir, 'sibling'), 'rev-parse', 'refs/heads/main');
+const ABSENT_OID = 'f'.repeat(40);
+const UP = ['mounts', 'update-pin', 'acme-product-context'];
+
+const UPDATE_PIN_SCENARIOS_ENABLED = true;
+const UPDATE_PIN_SCENARIOS: Scenario[] = [
+   // --- the offline matrix ---
+   { name: 'mounts update-pin (witness ahead, human)', mode: 'real', setup: managedBehind, args: UP },
+   { name: 'mounts update-pin --json (witness ahead)', mode: 'real', setup: managedBehind, args: [...UP, '--json'] },
+   {
+      name: 'mounts update-pin --json (already the target)',
+      mode: 'real',
+      setup: managedUpToDate,
+      args: [...UP, '--json'],
+   },
+   {
+      name: 'mounts update-pin --json (diverged, refused)',
+      mode: 'real',
+      setup: managedDiverged,
+      args: [...UP, '--json'],
+   },
+   {
+      name: 'mounts update-pin --json (unrelated, refused)',
+      mode: 'real',
+      setup: managedUnrelated,
+      args: [...UP, '--json'],
+   },
+   {
+      name: 'mounts update-pin --json (no witness resolves)',
+      mode: 'real',
+      setup: storeWithoutWitness,
+      args: [...UP, '--json'],
+   },
+   {
+      name: 'mounts update-pin --json (no reachable pin)',
+      mode: 'real',
+      setup: unresolvedMount,
+      args: [...UP, '--json'],
+   },
+   {
+      name: 'mounts update-pin --json (shallow store, ancestry incomplete)',
+      mode: 'real',
+      setup: managedShallowBehind,
+      args: [...UP, '--json'],
+   },
+   {
+      name: 'mounts update-pin --json (no trackingRef, offline)',
+      mode: 'real',
+      setup: witnesslessMount,
+      args: [...UP, '--json'],
+   },
+   {
+      name: 'mounts update-pin --json (unknown mount)',
+      mode: 'real',
+      setup: managedBehind,
+      args: ['mounts', 'update-pin', 'no-such-mount', '--json'],
+   },
+   {
+      name: 'mounts update-pin --json (--dry-run writes nothing)',
+      mode: 'real',
+      setup: managedBehind,
+      args: [...UP, '--dry-run', '--json'],
+   },
+   // --- an explicit target, and the narrow override ---
+   {
+      name: 'mounts update-pin --json (--to a held descendant)',
+      mode: 'real',
+      setup: managedBehind,
+      args: [...UP, '--json', '--to'],
+      extraArgs: (dir) => [siblingTip(dir)],
+   },
+   {
+      name: 'mounts update-pin --json (--to=<oid>, the attached spelling)',
+      mode: 'real',
+      setup: managedBehind,
+      args: [...UP, '--json'],
+      extraArgs: (dir) => [`--to=${siblingTip(dir)}`],
+   },
+   {
+      name: 'mounts update-pin --json (--to nothing holds)',
+      mode: 'real',
+      setup: managedBehind,
+      args: [...UP, '--json', '--to', ABSENT_OID],
+   },
+   {
+      name: 'mounts update-pin --json (--to + --allow-non-fast-forward on a diverged pin)',
+      mode: 'real',
+      setup: managedDiverged,
+      args: [...UP, '--json', '--allow-non-fast-forward', '--to'],
+      extraArgs: (dir) => [siblingTip(dir)],
+   },
+   {
+      // A dry run still exercises the override: same warning, same override:true,
+      // and the manifest is byte-identical in all three.
+      name: 'mounts update-pin --json (--dry-run with the non-fast-forward override)',
+      mode: 'real',
+      setup: managedDiverged,
+      args: [...UP, '--json', '--dry-run', '--allow-non-fast-forward', '--to'],
+      extraArgs: (dir) => [siblingTip(dir)],
+   },
+   // --- `--fetch`: the declared source, and nothing else ---
+   {
+      name: 'mounts update-pin --json (--fetch establishes the managed comparison)',
+      mode: 'real',
+      setup: fetchableHintOnly,
+      args: [...UP, '--fetch', '--json'],
+      env: UPDATE_PIN_FETCH_ENV,
+   },
+   {
+      name: 'mounts update-pin --json (--fetch --dry-run: the store acts happen, the rewrite does not)',
+      mode: 'real',
+      setup: fetchableHintOnly,
+      args: [...UP, '--fetch', '--dry-run', '--json'],
+      env: UPDATE_PIN_FETCH_ENV,
+   },
+   {
+      name: 'mounts update-pin --json (--fetch resolves the advertised default ref)',
+      mode: 'real',
+      setup: fetchableWitnessless,
+      args: [...UP, '--fetch', '--json'],
+      env: UPDATE_PIN_FETCH_ENV,
+   },
+   {
+      name: 'mounts update-pin --json (--fetch cannot retain the current pin, refused)',
+      mode: 'real',
+      setup: unresolvedMount,
+      args: [...UP, '--fetch', '--json'],
+      env: UPDATE_PIN_UNREACHABLE_ENV,
+   },
+   {
+      name: 'mounts update-pin --json (--fetch cannot refresh the witness, refused)',
+      mode: 'real',
+      setup: fetchUnreachableWithStore,
+      args: [...UP, '--fetch', '--json'],
+      env: UPDATE_PIN_UNREACHABLE_ENV,
+   },
+   // --- the command surface: every rejection, in all three ---
+   { name: 'mounts update-pin (missing name)', mode: 'real', setup: managedBehind, args: ['mounts', 'update-pin'] },
+   { name: 'mounts update-pin (surplus positional)', mode: 'real', setup: managedBehind, args: [...UP, 'extra'] },
+   {
+      name: 'mounts update-pin --allow-non-fast-forward alone (reject)',
+      mode: 'real',
+      setup: managedBehind,
+      args: [...UP, '--allow-non-fast-forward'],
+   },
+   { name: 'mounts update-pin --to xyz (reject)', setup: seedLayer, args: [...UP, '--to', 'xyz'] },
+   { name: 'mounts update-pin --to (missing value)', setup: seedLayer, args: [...UP, '--to'] },
+   {
+      name: 'mounts update-pin --to (an abbreviated id, reject)',
+      setup: seedLayer,
+      args: [...UP, '--to', '7d3f2a19c4e8'],
+   },
+   { name: 'mounts update-pin --to (uppercase hex, reject)', setup: seedLayer, args: [...UP, '--to', 'A'.repeat(40)] },
+   { name: 'mounts update-pin --to (41 hex, reject)', setup: seedLayer, args: [...UP, '--to', '0'.repeat(41)] },
+   {
+      name: 'mounts update-pin --to (64 hex, accepted shape)',
+      mode: 'real',
+      setup: managedBehind,
+      args: [...UP, '--json', '--to', '0'.repeat(64)],
+   },
+   { name: 'mounts update-pin --endpoint (reject)', setup: seedLayer, args: [...UP, '--endpoint', 'x'] },
+   { name: 'mounts update-pin --check-integrity (reject)', setup: seedLayer, args: [...UP, '--check-integrity'] },
+   { name: 'mounts status --to (reject)', setup: seedLayer, args: ['mounts', 'status', '--to', '0'.repeat(40)] },
+   {
+      name: 'mounts status --allow-non-fast-forward (reject)',
+      setup: seedLayer,
+      args: ['mounts', 'status', '--allow-non-fast-forward'],
+   },
+   // The sub-guard's accepted and rejected spellings, in one place.
+   { name: 'mounts update-pin --help', setup: seedLayer, args: ['mounts', 'update-pin', '--help'] },
+   { name: 'mounts updatepin (reject)', setup: seedLayer, args: ['mounts', 'updatepin', 'x'] },
+   { name: 'mounts update-pins (reject)', setup: seedLayer, args: ['mounts', 'update-pins', 'x'] },
+   { name: 'mounts Update-Pin (reject)', setup: seedLayer, args: ['mounts', 'Update-Pin', 'x'] },
+   { name: 'mounts update (reject)', setup: seedLayer, args: ['mounts', 'update', 'x'] },
+   { name: 'mounts (bare, reject)', setup: seedLayer, args: ['mounts'] },
+];
+
+/**
+ * Planted dependency roots for the `detect` ecosystem scenarios. Each is one of
+ * the miniature repositories `fixtures/ecosystem/` pins, planted here so that the
+ * three CLIs are compared on the same human line and the same `--json` block —
+ * the fixtures pin what the report SAYS, these pin that all three say it
+ * identically. Lockfiles are presence-only, so every one of them is empty.
+ */
+const ECOSYSTEM_ROOTS: { name: string; plant: (dir: string) => void }[] = [
+   {
+      name: 'npm lockfile, CLI declared',
+      plant: (d) => {
+         fs.writeFileSync(
+            path.join(d, 'package.json'),
+            '{\n  "name": "demo",\n  "devDependencies": { "@leji-org/leji": "^1" }\n}\n',
+         );
+         fs.writeFileSync(path.join(d, 'package-lock.json'), '');
+      },
+   },
+   {
+      name: 'pnpm lockfile, CLI undeclared',
+      plant: (d) => {
+         fs.writeFileSync(path.join(d, 'package.json'), '{\n  "name": "demo"\n}\n');
+         fs.writeFileSync(path.join(d, 'pnpm-lock.yaml'), '');
+      },
+   },
+   {
+      name: 'uv',
+      plant: (d) => {
+         fs.writeFileSync(path.join(d, 'pyproject.toml'), '[project]\nname = "demo"\nversion = "0.1.0"\n');
+         fs.writeFileSync(path.join(d, 'uv.lock'), '');
+      },
+   },
+   {
+      name: 'go 1.24, tool declared',
+      plant: (d) =>
+         fs.writeFileSync(
+            path.join(d, 'go.mod'),
+            'module example.com/demo\n\ngo 1.24.0\n\ntool github.com/leji-org/leji/packages/sdk-go/cmd/leji\n',
+         ),
+   },
+   {
+      name: 'two Node lockfiles',
+      plant: (d) => {
+         fs.writeFileSync(path.join(d, 'package.json'), '{\n  "name": "demo"\n}\n');
+         fs.writeFileSync(path.join(d, 'package-lock.json'), '');
+         fs.writeFileSync(path.join(d, 'yarn.lock'), '');
+      },
+   },
+   {
+      name: 'Node and Python',
+      plant: (d) => {
+         fs.writeFileSync(path.join(d, 'package.json'), '{\n  "name": "demo"\n}\n');
+         fs.writeFileSync(path.join(d, 'package-lock.json'), '');
+         fs.writeFileSync(path.join(d, 'pyproject.toml'), '[project]\nname = "demo"\nversion = "0.1.0"\n');
+         fs.writeFileSync(path.join(d, 'uv.lock'), '');
+      },
+   },
+   { name: 'no manifest', plant: () => {} },
+];
+
+const ECOSYSTEM_SCENARIOS: Scenario[] = ECOSYSTEM_ROOTS.flatMap((root) => [
+   { name: `detect --json (${root.name})`, setup: root.plant, args: ['detect', '--json'] },
+   { name: `detect (${root.name})`, setup: root.plant, args: ['detect'] },
+]);
+
+/**
+ * The declaration step over the same planted roots. `--yes` is never a consent, so
+ * no package manager runs in any of these: what is compared is the block all three
+ * SDKs print, the plan-then-block order under `--dry-run`, and the single `--json`
+ * document. A divergence here is a divergence in the words an adopter is told to
+ * run, which is the whole contract of the step.
+ */
+/** `adopt` reaches the same declaration step as `init`, from a repository that
+ * already has docs: same block, same suppression under `--json`, and it must not
+ * diverge between the two commands or across the SDKs. */
+const ADOPT_SCENARIOS: Scenario[] = ECOSYSTEM_ROOTS.flatMap((root) => {
+   const setup = (d: string): void => {
+      fs.mkdirSync(path.join(d, 'docs'), { recursive: true });
+      fs.writeFileSync(path.join(d, 'docs', 'README.md'), '# Docs\n');
+      root.plant(d);
+   };
+   return [
+      { name: `adopt --yes (${root.name})`, setup, args: ['adopt', '--yes'] },
+      { name: `adopt --yes --json (${root.name})`, setup, args: ['adopt', '--yes', '--json'] },
+   ];
+});
+
+const DEPENDENCY_SCENARIOS: Scenario[] = ECOSYSTEM_ROOTS.flatMap((root) => [
+   {
+      name: `init --yes (${root.name})`,
+      setup: root.plant,
+      args: ['init', '--yes', '--name', 'demo-context'],
+   },
+   {
+      name: `init --yes --dry-run (${root.name})`,
+      setup: root.plant,
+      args: ['init', '--yes', '--dry-run', '--name', 'demo-context'],
+   },
+   {
+      name: `init --yes --json (${root.name})`,
+      setup: root.plant,
+      args: ['init', '--yes', '--json', '--name', 'demo-context'],
+   },
+]);
+
+/**
+ * `leji ci` over planted roots, for every provider. What is compared is the
+ * generated bytes (the file tree is part of every capture), the action reported,
+ * and the ownership decision: an owned legacy file is upgraded, a foreign one is
+ * left alone with a snippet. Nothing here runs a package manager or a CI tool.
+ */
+const CI_ROOTS: { name: string; plant: (dir: string) => void }[] = [
+   {
+      name: 'pnpm declared + locked',
+      plant: (d) => {
+         fs.writeFileSync(path.join(d, 'package.json'), '{\n  "devDependencies": { "@leji-org/leji": "^1" }\n}\n');
+         fs.writeFileSync(path.join(d, 'pnpm-lock.yaml'), '');
+      },
+   },
+   {
+      name: 'npm declared + locked',
+      plant: (d) => {
+         fs.writeFileSync(path.join(d, 'package.json'), '{\n  "devDependencies": { "@leji-org/leji": "^1" }\n}\n');
+         fs.writeFileSync(path.join(d, 'package-lock.json'), '');
+      },
+   },
+   {
+      name: 'uv declared + locked',
+      plant: (d) => {
+         fs.writeFileSync(
+            path.join(d, 'pyproject.toml'),
+            '[project]\nname = "demo"\nversion = "0.1.0"\ndependencies = ["leji"]\n',
+         );
+         fs.writeFileSync(path.join(d, 'uv.lock'), '');
+      },
+   },
+   {
+      name: 'go 1.24 tool declared',
+      plant: (d) =>
+         fs.writeFileSync(
+            path.join(d, 'go.mod'),
+            'module example.com/demo\n\ngo 1.24.0\n\ntool github.com/leji-org/leji/packages/sdk-go/cmd/leji\n',
+         ),
+   },
+   {
+      name: 'undeclared',
+      plant: (d) => {
+         fs.writeFileSync(path.join(d, 'package.json'), '{\n  "name": "demo"\n}\n');
+         fs.writeFileSync(path.join(d, 'package-lock.json'), '');
+      },
+   },
+   { name: 'no manifest', plant: () => {} },
+];
+
+const CI_PROVIDER_NAMES = ['github', 'gitlab', 'circleci', 'azure'] as const;
+
+/** Where each provider's generated artifact lives, and what an existing file at
+ * that path can be. Ownership is provider-scoped, so every plant has to be too: a
+ * legacy GitHub workflow sitting at the Azure path is a FOREIGN file there. */
+const CI_TARGET: Record<(typeof CI_PROVIDER_NAMES)[number], string> = {
+   github: '.github/workflows/leji.yml',
+   gitlab: '.gitlab-ci.yml',
+   circleci: '.circleci/config.yml',
+   azure: '.azure-pipelines/leji.yml',
+};
+
+function writeAt(dir: string, rel: string, body: string): void {
+   const abs = path.join(dir, rel);
+   fs.mkdirSync(path.dirname(abs), { recursive: true });
+   fs.writeFileSync(abs, body);
+}
+
+function goldenBytes(name: string): string {
+   return fs.readFileSync(path.join(repoRoot, 'fixtures', 'ci-goldens', name), 'utf8');
+}
+
+/** A repository that declares the CLI, so the upgrade lands on a manager job that
+ * differs from whatever was standing there. */
+function declaredPnpm(d: string): void {
+   fs.writeFileSync(path.join(d, 'package.json'), '{\n  "devDependencies": { "@leji-org/leji": "^1" }\n}\n');
+   fs.writeFileSync(path.join(d, 'pnpm-lock.yaml'), '');
+}
+
+/** Ownership scenarios, one per provider: what leji generated in 1.3.x is upgraded;
+ * what someone else wrote is never touched. GitLab owns a marked block inside a
+ * shared file, so its two cases are a foreign pipeline WITH our block (merged in
+ * place) and a foreign pipeline without one (block appended). */
+const CI_OWNERSHIP_SCENARIOS: Scenario[] = CI_PROVIDER_NAMES.flatMap((provider) => {
+   const owned: Scenario =
+      provider === 'gitlab'
+         ? {
+              name: 'ci --provider gitlab (foreign job plus our block)',
+              setup: (d) => {
+                 seedLayer(d);
+                 declaredPnpm(d);
+                 writeAt(
+                    d,
+                    CI_TARGET.gitlab,
+                    'stages:\n  - test\n\ntheirs:\n  stage: test\n  script:\n    - echo mine\n\n' +
+                       goldenBytes('gitlab-node-fallback.yml'),
+                 );
+              },
+              args: ['ci', '--provider', 'gitlab'],
+           }
+         : {
+              name: `ci --provider ${provider} (legacy owned file at its own path)`,
+              setup: (d) => {
+                 seedLayer(d);
+                 declaredPnpm(d);
+                 writeAt(d, CI_TARGET[provider], goldenBytes(`legacy-1.3-${provider}-fallback.yml`));
+              },
+              args: ['ci', '--provider', provider],
+           };
+   const foreign: Scenario = {
+      name: `ci --provider ${provider} (foreign file at its own path)`,
+      setup: (d) => {
+         seedLayer(d);
+         declaredPnpm(d);
+         writeAt(
+            d,
+            CI_TARGET[provider],
+            provider === 'gitlab'
+               ? 'stages:\n  - test\ntheirs:\n  script:\n    - echo mine\n'
+               : 'name: someone-elses-pipeline\n',
+         );
+      },
+      args: ['ci', '--provider', provider],
+   };
+   // A file another provider's generator wrote is foreign here: same bytes, wrong
+   // path, never replaced.
+   const crossed: Scenario[] =
+      provider === 'gitlab'
+         ? []
+         : [
+              {
+                 name: `ci --provider ${provider} (another provider's legacy bytes at this path)`,
+                 setup: (d) => {
+                    seedLayer(d);
+                    declaredPnpm(d);
+                    const other = provider === 'github' ? 'circleci' : 'github';
+                    writeAt(d, CI_TARGET[provider], goldenBytes(`legacy-1.3-${other}-local.yml`));
+                 },
+                 args: ['ci', '--provider', provider],
+              },
+           ];
+   return [owned, foreign, ...crossed];
+});
+
+const CI_SCENARIOS: Scenario[] = CI_ROOTS.flatMap((root) =>
+   CI_PROVIDER_NAMES.map((provider) => ({
+      name: `ci --provider ${provider} (${root.name})`,
+      setup: (d: string) => {
+         seedLayer(d);
+         root.plant(d);
+      },
+      args: ['ci', '--provider', provider],
+   })),
+);
+
+/** `ci --hooks` needs a real git repository, so it runs in the real-env mode the
+ * git-backed scenarios use. The hook body carries the detected runner. */
+const CI_HOOK_SCENARIOS: Scenario[] = [
+   {
+      name: 'ci --hooks (pnpm declared)',
+      mode: 'real',
+      setup: (d) => {
+         gitInitSeeded(d);
+         fs.writeFileSync(path.join(d, 'package.json'), '{\n  "devDependencies": { "@leji-org/leji": "^1" }\n}\n');
+         fs.writeFileSync(path.join(d, 'pnpm-lock.yaml'), '');
+      },
+      args: ['ci', '--hooks'],
+   },
+   {
+      name: 'ci --hooks (go tool declared)',
+      mode: 'real',
+      setup: (d) => {
+         gitInitSeeded(d);
+         fs.writeFileSync(
+            path.join(d, 'go.mod'),
+            'module example.com/demo\n\ngo 1.24.0\n\ntool github.com/leji-org/leji/packages/sdk-go/cmd/leji\n',
+         );
+      },
+      args: ['ci', '--hooks'],
+   },
+];
+
+// --- `leji start` preflight (fixtures/start-preflight) ------------------------
+// Each case is ONE argv over a seeded root: the state is set up, the CLI reports it,
+// and the three SDKs must print the same bytes. No case is a multi-step harness and
+// no case is produced by one CLI for the others; the "after fixes" state is seeded
+// like every other one. Every run gets a PATH of its OWN stubs plus git, so what the
+// probe and host detection find is exactly what the case declares and never whatever
+// the machine running the suite has installed.
+
+/** A stub directory: one `sh` script per name, plus a link to the real git. */
+function startStubs(spec: Record<string, string>): string {
+   const dir = mkAbs('leji-parity-start-');
+   for (const [name, body] of Object.entries(spec)) {
+      fs.writeFileSync(path.join(dir, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+   }
+   fs.symlinkSync(path.join(gitDir(), 'git'), path.join(dir, 'git'));
+   return dir;
+}
+
+const VERSION_STUB = 'echo 1.4.0';
+const OLD_VERSION_STUB = 'echo 0.9.3';
+
+/** The bin shim a Node package manager's install puts in the tree. The `cli` probe
+ * executes this file directly and never asks a package manager to run a script for it,
+ * so a declared Node fixture answers through this and through nothing else. */
+function installNodeBin(dir: string, body: string): void {
+   const binDir = path.join(dir, 'node_modules', '.bin');
+   fs.mkdirSync(binDir, { recursive: true });
+   fs.writeFileSync(path.join(binDir, 'leji'), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+}
+
+/** The CLI resolves and answers; one host is on PATH and reports the server as
+ * unregistered. The ordinary joiner state. `leji` here is the AMBIENT binary, what an
+ * undeclared repository reaches; a declared Node repository answers through its own
+ * installed shim instead, which the setup writes into the tree. */
+const STUBS_RESOLVABLE = startStubs({ leji: VERSION_STUB, claude: 'exit 1' });
+/** Nothing answers: every probe fails closed. */
+const STUBS_UNRESOLVABLE = startStubs({ claude: 'exit 1' });
+/** A resolvable CLI older than the minimum for the layer's spec line. */
+const STUBS_OLD = startStubs({ leji: OLD_VERSION_STUB, claude: 'exit 1' });
+/** Two launchable hosts and no `--agent`: the unresolved MCP row. */
+const STUBS_TWO_HOSTS = startStubs({ leji: VERSION_STUB, claude: 'exit 1', codex: 'exit 1' });
+/** The state after the personal fixes: the host reports the server registered. */
+const STUBS_REGISTERED = startStubs({ leji: VERSION_STUB, claude: 'exit 0' });
+/** The Python and Go variants, where the runner is the manager's own. */
+const STUBS_UV = startStubs({ uv: VERSION_STUB, leji: VERSION_STUB, claude: 'exit 1' });
+const STUBS_GO = startStubs({ go: VERSION_STUB, leji: VERSION_STUB, claude: 'exit 1' });
+
+/** One seeded root from `fixtures/start-preflight/`, committed, with the state a
+ * committed fixture cannot carry: the installed Node bin shim (`node_modules` is not
+ * committable), the git-side hooks configuration, and an installed clone hook. Every
+ * one of them is written statically, by a file copy or a `git config`, never by running
+ * a CLI, so no implementation ever produces another's input. */
+function preflightFixture(
+   name: string,
+   after?: (dir: string) => void,
+   shim: string | null = VERSION_STUB,
+): (dir: string) => void {
+   return (dir) => {
+      fs.cpSync(path.join(repoRoot, 'fixtures', 'start-preflight', name), dir, { recursive: true });
+      const pkg = path.join(dir, 'package.json');
+      if (shim !== null && fs.existsSync(pkg) && fs.readFileSync(pkg, 'utf8').includes('@leji-org/leji')) {
+         installNodeBin(dir, shim);
+      }
+      const git = (...a: string[]): void => {
+         execFileSync('git', a, { cwd: dir, env: { ...realEnv, GIT_DIR: undefined }, stdio: 'ignore' });
+      };
+      git('init', '-q');
+      git('add', '-A');
+      git('-c', 'user.name=Parity Tester', '-c', 'user.email=parity@example.com', 'commit', '-q', '-m', 'seed');
+      after?.(dir);
+   };
+}
+
+/** `core.hooksPath` pointing at a directory inside the working tree: husky's, or a
+ * plain `githooks/`. Both are committed state, so both are shared gaps. */
+function hooksPathAt(value: string): (dir: string) => void {
+   return (dir) => execFileSync('git', ['config', 'core.hooksPath', value], { cwd: dir, stdio: 'ignore' });
+}
+
+/** The clone hook already installed. The bytes come from the committed golden the CI
+ * generator is checked against, copied in as a file: the "after the fixes" state is
+ * seeded like every other one, never produced by running one CLI for the other two. */
+function installedHook(dir: string): void {
+   const hooks = path.join(dir, '.git', 'hooks');
+   fs.mkdirSync(hooks, { recursive: true });
+   const target = path.join(hooks, 'pre-commit');
+   fs.copyFileSync(path.join(repoRoot, 'fixtures', 'ci-goldens', 'hook-npm.sh'), target);
+   fs.chmodSync(target, 0o755);
+}
+
+/** Enabled with the Go and Python ports: the definitions were the contract, and all
+ * three implementations now satisfy it. */
+const START_PREFLIGHT_SCENARIOS_ENABLED = true;
+
+/** One state, both output modes: the human block and the machine document. */
+function startCases(name: string, setup: (dir: string) => void, stubs: string): Scenario[] {
+   return [
+      { name: `start (${name})`, mode: 'real', setup, args: ['start'], env: { PATH: stubs } },
+      { name: `start --json (${name})`, mode: 'real', setup, args: ['start', '--json'], env: { PATH: stubs } },
+   ];
+}
+
+const START_PREFLIGHT_SCENARIOS: Scenario[] = [
+   ...startCases('declared, resolvable', preflightFixture('node-declared'), STUBS_RESOLVABLE),
+   // No installed shim at all: the row says the CLI is not installed here, and no
+   // package manager is invoked to find out.
+   ...startCases('declared, not installed', preflightFixture('node-declared', undefined, null), STUBS_UNRESOLVABLE),
+   // Installed, but the shim itself fails: the same fail-closed row, one step later.
+   ...startCases('declared, unresolvable', preflightFixture('node-declared', undefined, 'exit 1'), STUBS_UNRESOLVABLE),
+   ...startCases(
+      'declared, below the spec line minimum',
+      preflightFixture('node-declared', undefined, OLD_VERSION_STUB),
+      STUBS_OLD,
+   ),
+   ...startCases('undeclared', preflightFixture('node-undeclared'), STUBS_RESOLVABLE),
+   ...startCases('several hosts, no --agent', preflightFixture('node-declared'), STUBS_TWO_HOSTS),
+   ...startCases('.mcp.json present', preflightFixture('node-mcp-json'), STUBS_RESOLVABLE),
+   ...startCases('hook shared via husky', preflightFixture('husky', hooksPathAt('.husky/_')), STUBS_RESOLVABLE),
+   ...startCases(
+      'hooksPath inside the worktree',
+      preflightFixture('githooks', hooksPathAt('githooks')),
+      STUBS_RESOLVABLE,
+   ),
+   ...startCases('after the fixes', preflightFixture('node-mcp-json', installedHook), STUBS_REGISTERED),
+   ...startCases('uv', preflightFixture('python-uv'), STUBS_UV),
+   ...startCases('go tool', preflightFixture('go-tool'), STUBS_GO),
+   // `--agent` pins the host the MCP rows answer for, in both modes.
+   {
+      name: 'start --agent claude-code --json (declared)',
+      mode: 'real',
+      setup: preflightFixture('node-declared'),
+      args: ['start', '--agent', 'claude-code', '--json'],
+      env: { PATH: STUBS_TWO_HOSTS },
+   },
+   {
+      name: 'start --agent bogus --json (usage error)',
+      mode: 'real',
+      setup: preflightFixture('node-declared'),
+      args: ['start', '--agent', 'bogus', '--json'],
+      env: { PATH: STUBS_RESOLVABLE },
+   },
+];
+
+// --- hand-off to a repository's own CLI (fixtures/handoff) --------------------
+// What the three CLIs can be compared on here is the NON-delegating outcome only: a
+// successful hand-off is per-runtime by construction (a Node repository's installed
+// copy is a Node CLI, and only the Node CLI would reach it), so it is proved in each
+// SDK's own suite over these same committed roots. What every runtime owes, and what
+// these cases assert, is that a repository which does not qualify is answered by the
+// CLI that was invoked, byte for byte identically.
+
+/** One seeded root from `fixtures/handoff/`, with the installed state a committed
+ * fixture cannot carry: `node_modules` is not committable, so the package metadata,
+ * its entry, and the manager's bin shim are written here, statically. */
+function handoffFixture(name: string, version: string | null): (dir: string) => void {
+   return (dir) => {
+      fs.cpSync(path.join(repoRoot, 'fixtures', 'handoff', name), dir, { recursive: true });
+      if (version === null) return;
+      const pkgDir = path.join(dir, 'node_modules', '@leji-org', 'leji');
+      const entry = path.join(pkgDir, 'dist', 'cli.js');
+      fs.mkdirSync(path.dirname(entry), { recursive: true });
+      // The marker no case here may reach: if one ever does, its output is nothing
+      // any of the three CLIs prints, so the comparison fails loudly.
+      fs.writeFileSync(entry, "#!/usr/bin/env node\nconsole.log('handoff:node');\nprocess.exit(3);\n", {
+         mode: 0o755,
+      });
+      fs.writeFileSync(
+         path.join(pkgDir, 'package.json'),
+         JSON.stringify({ name: '@leji-org/leji', version, bin: { leji: 'dist/cli.js' } }, null, 2) + '\n',
+      );
+      const binDir = path.join(dir, 'node_modules', '.bin');
+      fs.mkdirSync(binDir, { recursive: true });
+      fs.symlinkSync(path.relative(binDir, entry), path.join(binDir, 'leji'));
+   };
+}
+
+const HANDOFF_SCENARIOS: Scenario[] = [
+   // Installed, but never declared: the repository asked for nothing.
+   { name: '--version (handoff: undeclared)', setup: handoffFixture('node-undeclared', '1.4.0'), args: ['--version'] },
+   // Declared and installed, but older than the layer's spec line requires.
+   {
+      name: '--version (handoff: below the minimum)',
+      setup: handoffFixture('node-below-minimum', '0.9.3'),
+      args: ['--version'],
+   },
+   // Go declares the tool and has no installed executable: the not-applicable branch.
+   { name: '--version (handoff: go tool)', setup: handoffFixture('go-tool', null), args: ['--version'] },
+];
+
 const SCENARIOS: Scenario[] = [
    // --- init / adopt (neutralized) ---
    { name: 'init core', setup: () => {}, args: ['init', '--yes', '--name', 'demo-context'] },
@@ -1179,6 +2168,14 @@ const SCENARIOS: Scenario[] = [
    },
    { name: 'agent with no manifest', setup: () => {}, args: ['agent', '--host', 'codex', '--name', 'reviewer'] },
    { name: 'agent without --host (resident, no vendor file)', setup: seedLayer, args: ['agent', '--name', 'porter'] },
+   // The agents.default selects-vs-loads guidance must be byte-identical across
+   // SDKs, in the human line and in the JSON `note` field alike.
+   { name: 'agent --name default (selects-vs-loads note)', setup: seedLayer, args: ['agent', '--name', 'default'] },
+   {
+      name: 'agent --name default --json (note field)',
+      setup: seedLayer,
+      args: ['agent', '--name', 'default', '--json'],
+   },
    {
       name: 'init --dry-run with existing vendor file',
       setup: (d) => fs.writeFileSync(path.join(d, 'CLAUDE.md'), 'pre-existing config\n'),
@@ -1296,6 +2293,17 @@ const SCENARIOS: Scenario[] = [
       args: ['adopt', '--yes'],
    },
    { name: 'detect --json (no hosts)', setup: () => {}, args: ['detect', '--json'] },
+   // `detect` also reports the repository's own dependency ecosystem, so both of
+   // its output forms are compared over planted roots.
+   ...ECOSYSTEM_SCENARIOS,
+   // The declaration offer prints in every mode except --json, and runs nothing
+   // under --yes: all three SDKs must say the same words in the same order.
+   ...DEPENDENCY_SCENARIOS,
+   ...ADOPT_SCENARIOS,
+   // The generated CI job and hook: bytes, action, and the ownership decision.
+   ...CI_SCENARIOS,
+   ...CI_OWNERSHIP_SCENARIOS,
+   ...CI_HOOK_SCENARIOS,
    { name: 'start with no manifest', setup: () => {}, args: ['start'] },
    // --- working mode (solo / team) ---
    { name: 'init --mode solo', setup: () => {}, args: ['init', '--yes', '--mode', 'solo', '--name', 'demo-context'] },
@@ -1879,7 +2887,12 @@ const SCENARIOS: Scenario[] = [
    },
    { name: 'index --check federated host', setup: copyFederatedHost, args: ['index', '--check'] },
    { name: 'conformance federated host --json', setup: copyFederatedHost, args: ['conformance', '--json'] },
+   // The unindexed nudge, both cases: this layer is fully indexed, so the run ends
+   // at the `ok (...)` summary and no SDK may add a line; the pair below carries
+   // the nonzero count, whose line is compared byte for byte like any other stdout.
    { name: 'index generate', setup: copyExample, args: ['index'] },
+   { name: 'index generate (unindexed count reported)', setup: unindexedUnderRoot, args: ['index'] },
+   { name: 'index --json (unindexed count, no trailing line)', setup: unindexedUnderRoot, args: ['index', '--json'] },
    { name: 'index generate (in-repo symlinked md skipped)', setup: symlinkedMdInCategory, args: ['index'] },
    { name: 'index generate (id vanished warning)', setup: vanishedId, args: ['index'] },
    { name: 'index --check', setup: copyExample, args: ['index', '--check'] },
@@ -2327,31 +3340,153 @@ const SCENARIOS: Scenario[] = [
       },
       args: ['viewer'],
    },
-   { name: 'viewer build (static export)', setup: copyExample, args: ['viewer', 'build', '--out', 'site'] },
-   { name: 'viewer build default out (.leji/viewer-dist)', setup: copyExample, args: ['viewer', 'build'] },
+   { name: 'export --out site (static export)', setup: copyExample, args: ['export', '--out', 'site'] },
+   { name: 'export default out (.leji/dist)', setup: copyExample, args: ['export'] },
    {
       // The static export writes the RESOLVED page for an inheriting profile, so the
       // viewer artifacts are byte-compared like any other written tree. The resolved
       // page rides the two scenarios above (the example layer's profile inherits and
       // resolves); this one pins the other half — a profile that does not resolve
       // exports its findings page, never the derived file as if it were effective.
-      name: 'viewer build (unresolved inheriting profile exports a findings page)',
+      name: 'export (unresolved inheriting profile exports a findings page)',
       setup: inheritsTarget('nope'),
-      args: ['viewer', 'build'],
+      args: ['export'],
    },
    {
-      name: 'viewer build --out ../escape (reject)',
+      name: 'export --out ../escape (reject)',
       setup: copyExample,
-      args: ['viewer', 'build', '--out', '../escape'],
+      args: ['export', '--out', '../escape'],
    },
-   { name: 'viewer build --out . (root, reject)', setup: copyExample, args: ['viewer', 'build', '--out', '.'] },
+   { name: 'export --out . (root, reject)', setup: copyExample, args: ['export', '--out', '.'] },
    {
-      name: 'viewer build --out absolute (reject)',
+      name: 'export --out absolute (reject)',
       setup: copyExample,
-      args: ['viewer', 'build', '--out', '/tmp/leji-parity-out-abs'],
+      args: ['export', '--out', '/tmp/leji-parity-out-abs'],
    },
-   { name: 'viewer build skips a symlinked content file', setup: symlinkInContent, args: ['viewer', 'build'] },
-   { name: 'viewer build aborts on an escaping viewer dir', setup: symlinkedViewerDir, args: ['viewer', 'build'] },
+   { name: 'export skips a symlinked content file', setup: symlinkInContent, args: ['export'] },
+   { name: 'export aborts on an escaping viewer dir', setup: symlinkedViewerDir, args: ['export'] },
+   // The two names are one operation (A2): each SDK's `viewer build` run must match
+   // its own `export` run byte for byte, and all three must agree with each other.
+   {
+      name: 'export and viewer build are the same operation (alias equivalence)',
+      setup: copyExample,
+      args: ['export'],
+      alias: ['viewer', 'build'],
+   },
+   // --- F9: the trust boundary, command by command ---
+   {
+      name: 'export (.leji/dist symlinked out of the repository)',
+      setup: distSymlinkedOutside,
+      args: ['export'],
+   },
+   {
+      name: 'export --out published (symlinked out of the repository)',
+      setup: outSymlinkedOutside,
+      args: ['export', '--out', 'published'],
+   },
+   {
+      name: 'viewer (.leji/viewer symlinked out of the repository)',
+      setup: viewerSymlinkedOutside,
+      args: ['viewer'],
+   },
+   {
+      name: 'export (.leji/viewer symlinked out of the repository)',
+      setup: viewerSymlinkedOutside,
+      args: ['export'],
+   },
+   {
+      name: 'export (dangling .leji/dist refused before it is resolved)',
+      setup: distDangling,
+      args: ['export'],
+   },
+   {
+      name: 'export --out published (dangling symlink refused)',
+      setup: outDangling,
+      args: ['export', '--out', 'published'],
+   },
+   {
+      name: 'export --out site (an escaping index.html is not a previous export)',
+      setup: outMarkerSymlinked,
+      args: ['export', '--out', 'site'],
+   },
+   {
+      name: 'viewer (overview.md is a dangling symlink)',
+      setup: overviewStanding((abs) => fs.symlinkSync('never-created.md', abs)),
+      args: ['viewer'],
+   },
+   {
+      name: 'viewer (overview.md is a directory)',
+      setup: overviewStanding((abs) => fs.mkdirSync(abs)),
+      args: ['viewer'],
+   },
+   {
+      name: 'init (.gitignore symlinked out of the repository)',
+      setup: gitignoreSymlinkedOutside,
+      args: ['init', '--yes', '--name', 'demo-context'],
+   },
+   {
+      name: 'init (a dangling leji.json is an existing layer)',
+      setup: manifestNameDangling,
+      args: ['init', '--yes', '--name', 'demo-context'],
+   },
+   {
+      name: 'agent (a dangling profile name writes neither half)',
+      setup: agentProfileDangling,
+      args: ['agent', '--host', 'codex', '--name', 'reviewer'],
+   },
+   {
+      name: 'agent (agent-profiles dir symlinked out of the repository)',
+      setup: agentProfilesDirOutside,
+      args: ['agent', '--host', 'codex', '--name', 'reviewer'],
+   },
+   {
+      name: 'agent (leji.json symlinked out of the repository)',
+      setup: agentManifestOutside,
+      args: ['agent', '--host', 'codex', '--name', 'reviewer'],
+   },
+   {
+      name: 'index (a dangling changelog link is already present)',
+      setup: indexedDanglingChangelog,
+      args: ['index'],
+   },
+   {
+      name: 'ci --provider github (dangling target refused)',
+      setup: ciTargetDangling('.github/workflows/leji.yml'),
+      args: ['ci', '--provider', 'github'],
+   },
+   {
+      name: 'ci --provider gitlab (dangling target refused)',
+      setup: ciTargetDangling('.gitlab-ci.yml'),
+      args: ['ci', '--provider', 'gitlab'],
+   },
+   {
+      name: 'ci --provider circleci (dangling target refused)',
+      setup: ciTargetDangling('.circleci/config.yml'),
+      args: ['ci', '--provider', 'circleci'],
+   },
+   {
+      name: 'ci --provider azure (dangling target refused)',
+      setup: ciTargetDangling('.azure-pipelines/leji.yml'),
+      args: ['ci', '--provider', 'azure'],
+   },
+   {
+      name: 'adopt --wire-adapters (a dangling vendor entrypoint is absent)',
+      mode: 'real',
+      setup: adoptedWithDanglingEntrypoint,
+      args: ['adopt', '--yes', '--wire-adapters'],
+   },
+   {
+      name: 'mounts hydrate (.leji/mounts aliased into another private role)',
+      mode: 'real',
+      setup: mountsRoleAliasedIntoAnotherRole,
+      args: ['mounts', 'hydrate', '--json'],
+   },
+   {
+      name: 'mounts hydrate (.leji/mounts aliased out of the repository)',
+      mode: 'real',
+      setup: mountsRoleAliasedOutside,
+      args: ['mounts', 'hydrate', '--json'],
+   },
    {
       name: 'symlinked agent outside profiles dir (validate)',
       setup: symlinkedAgentOutsideProfiles,
@@ -2382,6 +3517,9 @@ const SCENARIOS: Scenario[] = [
    // ("-- <host flags…>"), so it is the one fixture that catches a help renderer
    // measuring column width in bytes rather than runes.
    { name: 'start --help', setup: () => {}, args: ['start', '--help'] },
+   // An alias has help of its own (`view` is `viewer serve`), so the renderer that
+   // folds it into one line in the top-level list must still resolve it here.
+   { name: 'view --help', setup: () => {}, args: ['view', '--help'] },
    { name: 'index file with rejected path shapes', setup: seedLayerBadIndexPaths, args: ['validate'] },
    // Input the documented contract forbids. These silently produced a plausible,
    // empty result before: the caller could not tell "nothing routes here" from "you
@@ -2518,6 +3656,10 @@ const SCENARIOS: Scenario[] = [
    { name: 'validate on a committed git layer', mode: 'real', setup: gitLayer, args: ['validate'] },
    { name: 'conformance on a committed git layer', mode: 'real', setup: gitLayer, args: ['conformance', '--json'] },
    { name: 'changelog check on a committed git layer', mode: 'real', setup: gitLayer, args: ['changelog', 'check'] },
+   ...(BADGE_SCENARIOS_ENABLED ? BADGE_SCENARIOS : []),
+   ...(UPDATE_PIN_SCENARIOS_ENABLED ? UPDATE_PIN_SCENARIOS : []),
+   ...(START_PREFLIGHT_SCENARIOS_ENABLED ? START_PREFLIGHT_SCENARIOS : []),
+   ...HANDOFF_SCENARIOS,
 ];
 
 function firstDiff(a: string, b: string): string {
@@ -2542,7 +3684,8 @@ function capture(runner: Runner, sc: Scenario, env: NodeJS.ProcessEnv): Captured
    const dir = path.join(mkAbs(`leji-parity-`), 'repo');
    fs.mkdirSync(dir);
    sc.setup(dir);
-   const r = runner(sc.args, dir, sc.env ? { ...env, ...sc.env } : env);
+   const argv = sc.extraArgs ? [...sc.args, ...sc.extraArgs(dir)] : sc.args;
+   const r = runner(argv, dir, sc.env ? { ...env, ...sc.env } : env);
    // Absolute run-dir paths in output (e.g. `mounts locate`) are per-capture by
    // construction; normalize so byte comparison sees the same text. `observedAt`
    // is the second declared non-deterministic field (after the index's
@@ -2580,11 +3723,21 @@ function main(): number {
    let failures = 0;
    for (const sc of SCENARIOS) {
       const env = sc.mode === 'real' ? realEnv : neutralEnv;
-      const ref = capture(runners.node, sc, env);
-      const problems = [
-         ...diffProblems(ref, capture(runners.go, sc, env), 'go'),
-         ...diffProblems(ref, capture(runners.py, sc, env), 'py'),
-      ];
+      const captures: Record<string, Captured> = {
+         node: capture(runners.node, sc, env),
+         go: capture(runners.go, sc, env),
+         py: capture(runners.py, sc, env),
+      };
+      const ref = captures.node;
+      const problems = [...diffProblems(ref, captures.go, 'go'), ...diffProblems(ref, captures.py, 'py')];
+      if (sc.alias) {
+         const aliased: Scenario = { ...sc, args: sc.alias };
+         for (const sdk of Object.keys(runners)) {
+            problems.push(
+               ...diffProblems(captures[sdk], capture(runners[sdk], aliased, env), `${sdk} \`${sc.alias.join(' ')}\``),
+            );
+         }
+      }
       if (problems.length === 0) {
          console.log(`PASS  ${sc.name}`);
       } else {

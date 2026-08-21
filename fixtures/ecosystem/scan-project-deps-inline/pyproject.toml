@@ -1,0 +1,4 @@
+[project]
+name = "d"
+version = "0"
+dependencies = ["requests", "leji>=1"]

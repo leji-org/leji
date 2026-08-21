@@ -182,7 +182,7 @@ func TestCLIViewerServeHint(t *testing.T) {
 	if !strings.Contains(out, "serve: leji view") {
 		t.Fatalf("expected serve hint, got: %s", out)
 	}
-	if !strings.Contains(out, "viewer ready (3 entries) → docs/.leji/viewer/") {
+	if !strings.Contains(out, "viewer ready (3 entries) → .leji/viewer/") {
 		t.Fatalf("expected the terse viewer-ready line, got: %s", out)
 	}
 }
@@ -306,5 +306,51 @@ func TestCLIIndexJSONWrites(t *testing.T) {
 	}
 	if !strings.Contains(out, "\"entries\"") {
 		t.Fatalf("expected entries in json: %s", out)
+	}
+}
+
+func TestCLIOperationalReadFailuresExitTwoOnTheGenericErrorPath(t *testing.T) {
+	// An operational read failure on an allowed, contained artifact is the filesystem
+	// failing rather than the boundary refusing: the reference throws it, the CLI
+	// prints `leji: <msg>` and exits 2. Every command that reads an artifact it is
+	// about to act on reports it the same way — never as a finding, never as a
+	// silently degraded run. Mutation that reddens: swallow the error in
+	// LoadStoredIndex, CompactChangelog or clearableExport.
+	if os.Geteuid() == 0 {
+		t.Skip("running as root bypasses permission bits; the read cannot be made to fail")
+	}
+	for _, c := range []struct {
+		name string
+		rel  string
+		argv []string
+	}{
+		{"index --check", "docs/context-index.json", []string{"index", "--check"}},
+		{"index", "docs/context-index.json", []string{"index"}},
+		{"status", "docs/context-index.json", []string{"status"}},
+		{"validate", "docs/context-index.json", []string{"validate"}},
+		{"conformance", "docs/context-index.json", []string{"conformance"}},
+		{"changelog compact", "docs/context-changelog.json", []string{"changelog", "compact", "--keep", "1"}},
+	} {
+		dir := copyExample(t)
+		abs := filepath.Join(dir, filepath.FromSlash(c.rel))
+		if _, err := os.Stat(abs); err != nil {
+			t.Fatalf("%s: the example layer must carry %s: %v", c.name, c.rel, err)
+		}
+		if err := os.Chmod(abs, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		if f, oerr := os.Open(abs); oerr == nil {
+			_ = f.Close()
+			_ = os.Chmod(abs, 0o644)
+			t.Skip("this platform ignores the mode; the read cannot be made to fail")
+		}
+		code, out, errs := captureRun(t, append(append([]string{}, c.argv...), "--root", dir))
+		_ = os.Chmod(abs, 0o644)
+		if code != 2 {
+			t.Fatalf("%s: exit %d, want 2 (stdout %q, stderr %q)", c.name, code, out, errs)
+		}
+		if !strings.HasPrefix(errs, "leji: ") || !strings.Contains(errs, "permission denied") {
+			t.Fatalf("%s: stderr must be the generic error path, got %q", c.name, errs)
+		}
 	}
 }

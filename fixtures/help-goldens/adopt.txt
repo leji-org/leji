@@ -1,0 +1,60 @@
+leji adopt: Adopt Leji into an existing repository.
+
+Usage: leji adopt [--dir <path>] [--yes] [--mode <solo|team>] [--agent <name>]
+       [--wire-adapters] [--no-agents] [--dry-run] [--json]
+
+Brings Leji into a repository that already has docs and agent config.
+
+Details:
+   - Reuses an existing `docs/` root, migrates any vendor entrypoints
+     (`CLAUDE.md`, `AGENTS.md`, and so on) into the context layer without
+     modifying the originals, and seeds the scaffold.
+   - Writes a generated index, so the adopted context layer is ready for the CI
+     job `leji ci` writes. The index is a requirement of `indexed`, not of
+     `core`; a hand-authored core context layer without one still conforms.
+   - `--wire-adapters` converts those entrypoints to one-line redirects, after
+     migrating their content.
+   - When no `AGENTS.md` exists, writes a pointer-only one (the portable
+     entrypoint many agent hosts read) redirecting to the boot profile;
+     `--no-agents` skips it, and an existing file is never touched.
+   - `--mode solo` (a team of one) also seeds identity and writing-style
+     starters and points the onboarding brief at the owner interview; existing
+     files are never overwritten.
+   - Refuses when a `leji.json` exists, `--dry-run` included: a repository that
+     already has a context layer has nothing to adopt. Also refuses when the git
+     tree has uncommitted changes, which `--dry-run` is exempt from because it
+     writes nothing.
+   - Reports the repository's dependency ecosystem (its package manager, from
+     the manifest and lockfiles present) and how to declare the Leji CLI as a
+     dev dependency there, so a clean install brings `leji`; on a real terminal
+     it offers to run that manager's own add command, and only on your explicit
+     yes. `--yes`, a non-TTY and `--json` print the command instead of running
+     it, and leji never edits a manifest or lockfile itself.
+   - Also backs `npm create leji` on a repository that already carries docs or
+     an agent entrypoint.
+
+Options:
+   --dir <path>        Target directory (default: the current directory).
+   --yes, -y           Accept all defaults; run non-interactively.
+   --mode <mode>       Working mode: solo (team of one; seeds identity +
+                       writing-style starters) or team (default).
+   --agent <name>      Host to open in the context layer after the command
+                       (claude-code or codex). Selects the handoff host; the
+                       interactive flow may separately offer to register the MCP
+                       server or install the approval guard, each disclosed and
+                       consented to.
+   --wire-adapters     Convert present vendor entrypoints to redirects
+                       (consented; content migrated first).
+   --no-agents         Skip generating the portable AGENTS.md pointer (default:
+                       written when absent).
+   --dry-run           Print the write plan and exit without changing anything.
+
+Global options: see leji --help.
+
+Examples:
+   leji adopt
+   leji adopt --dry-run
+   leji adopt --mode solo
+   leji adopt --wire-adapters
+
+Full reference: https://leji.org/cli/

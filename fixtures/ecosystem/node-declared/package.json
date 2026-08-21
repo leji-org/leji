@@ -1,0 +1,7 @@
+{
+  "name": "demo",
+  "private": true,
+  "devDependencies": {
+    "@leji-org/leji": "^1.3.1"
+  }
+}

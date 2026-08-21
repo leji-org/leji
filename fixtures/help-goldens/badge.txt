@@ -1,0 +1,28 @@
+leji badge: Write the self-attested conformance badge for this repository.
+
+Usage: leji badge [--root <dir>] [--out <path>] [--json]
+
+Writes one SVG (default: leji-badge.svg at the repository root) and prints the
+markdown line that embeds it. Self-attested: the badge states the level `leji
+conformance` verified in this offline run, never more than the layer claims and
+possibly less, and a claim this run could not confirm is named beside it.
+Nothing is sent anywhere and no service or registry is involved; the bytes are
+constants, and the file is yours to commit. A run with an error finding, or one
+that verified no level at all, writes nothing and exits 1. An existing target is
+replaced only when its bytes are a badge this command wrote, which is how a
+level change regenerates; any other file is left untouched and the run refuses.
+
+Options:
+   --out <path>        Where to write the badge (default: leji-badge.svg). A
+                       repository-relative POSIX path over [A-Za-z0-9._/-] with
+                       no ".." segment, ending .svg, resolving inside the
+                       repository and never inside .leji/.
+
+Global options: see leji --help.
+
+Examples:
+   leji badge
+   leji badge --out docs/badge.svg
+   leji badge --json
+
+Full reference: https://leji.org/cli/

@@ -1,0 +1,7 @@
+{
+  "note": "The addressed name is spelled with a \\uXXXX escape and an astral surrogate-pair escape; escapes decode for comparison only and the raw spelling survives.",
+  "mount": "café-😀-context",
+  "from": "4e974570000000000000000000000000000000aa",
+  "to": "9f1c2e9b8a7f6d5c4b3a2e1d0c9b8a7f6d5c4b3a",
+  "outcome": "replaced"
+}

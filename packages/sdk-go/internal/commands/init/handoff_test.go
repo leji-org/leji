@@ -10,7 +10,7 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 )
 
-const briefPrompt = "Read ./docs/.leji/onboarding-brief.md and follow it."
+const briefPrompt = "Read ./.leji/work/onboarding-brief.md and follow it."
 
 func detectedHost(id, name string, onPath bool) detect.DetectedHost {
 	strength := detect.ProjectPresent
@@ -194,7 +194,9 @@ func TestHandoffOfferLaunchFailureFallsBack(t *testing.T) {
 	}
 }
 
-func TestHandoffOfferThreadsRoot(t *testing.T) {
+// The onboarding workspace is one tree at the repository root, so the prompt is the
+// same for a layer rooted anywhere: it never carries a rootPath prefix.
+func TestHandoffOfferNamesRootWorkspaceWhateverTheLayerRoot(t *testing.T) {
 	hio, launches := fakeIO("y", cleanExit)
 	ok, err := HandoffOffer(&manifest.Manifest{RootPath: "context/"}, []detect.DetectedHost{claudeHost}, true, hio, &strings.Builder{}, "", "", McpOfferOutcome{})
 	if err != nil {
@@ -203,9 +205,9 @@ func TestHandoffOfferThreadsRoot(t *testing.T) {
 	if !ok {
 		t.Fatal("should launch")
 	}
-	want := "claude Read ./context/.leji/onboarding-brief.md and follow it."
+	want := "claude Read ./.leji/work/onboarding-brief.md and follow it."
 	if (*launches)[0] != want {
-		t.Fatalf("root not threaded: got %q", (*launches)[0])
+		t.Fatalf("workspace prompt: got %q", (*launches)[0])
 	}
 }
 
@@ -242,8 +244,8 @@ func fakeMcpIO(answer string, runResults []LaunchResult) (*HandoffIO, *[]string,
 			questions = append(questions, q)
 			return answer
 		},
-		Run: func(bin string, args []string, cwd string, quiet bool) LaunchResult {
-			runs = append(runs, recordedRun{bin: bin, args: args, cwd: cwd, quiet: quiet})
+		Run: func(bin string, args []string, cwd string, opts RunOptions) LaunchResult {
+			runs = append(runs, recordedRun{bin: bin, args: args, cwd: cwd, quiet: opts.Quiet})
 			res := LaunchResult{Started: true}
 			if idx < len(runResults) {
 				res = runResults[idx]
@@ -341,8 +343,8 @@ func fakeFlowIO(answers []string, runResults []LaunchResult) (*HandoffIO, *[]str
 			events = append(events, "launch:"+bin)
 			return LaunchResult{Started: true}
 		},
-		Run: func(bin string, args []string, cwd string, quiet bool) LaunchResult {
-			runs = append(runs, recordedRun{bin: bin, args: args, cwd: cwd, quiet: quiet})
+		Run: func(bin string, args []string, cwd string, opts RunOptions) LaunchResult {
+			runs = append(runs, recordedRun{bin: bin, args: args, cwd: cwd, quiet: opts.Quiet})
 			events = append(events, "run:"+bin)
 			res := LaunchResult{Started: true}
 			if runIdx < len(runResults) {

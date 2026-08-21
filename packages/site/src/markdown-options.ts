@@ -2,6 +2,7 @@ import type { SatteriMarkdownProcessorOptions, SatteriProcessorOptions } from '@
 import { satteriMdLinks } from './satteri-md-links';
 import { satteriTableScroll } from './satteri-table-scroll';
 import { satteriHeadingAnchors } from './satteri-heading-anchors';
+import lejiSyntaxTheme from './styles/shiki-leji.json';
 
 export const markdownProcessorOptions = {
    hastPlugins: [satteriMdLinks, satteriTableScroll, satteriHeadingAnchors],
@@ -13,5 +14,5 @@ export const markdownProcessorOptions = {
 
 export const markdownRenderOptions = {
    ...markdownProcessorOptions,
-   shikiConfig: { theme: 'night-owl' },
+   shikiConfig: { theme: lejiSyntaxTheme },
 } satisfies SatteriMarkdownProcessorOptions;

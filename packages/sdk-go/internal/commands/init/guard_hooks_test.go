@@ -8,6 +8,7 @@ package initcmd
 
 import (
 	"encoding/json"
+	"github.com/leji-org/leji/packages/sdk-go/internal/ecosystem"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,14 +37,14 @@ func TestCiProviderInferenceFromOriginRemote(t *testing.T) {
 
 func TestEnsureLocalHookCreatedIdempotentNeverClobbers(t *testing.T) {
 	dir := gitInitRepo(t)
-	first, err := EnsureLocalHook(dir)
+	first, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if first.Action != "created" {
 		t.Fatalf("first action = %q, want created", first.Action)
 	}
-	second, err := EnsureLocalHook(dir)
+	second, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -61,18 +62,18 @@ func TestEnsureLocalHookCreatedIdempotentNeverClobbers(t *testing.T) {
 	if err := os.WriteFile(hookPath, []byte("#!/bin/sh\necho custom hook\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	third, err := EnsureLocalHook(dir)
+	third, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if third.Action != "manual" || third.Reason != "foreign-hook" {
 		t.Fatalf("third = %q/%q, want manual/foreign-hook", third.Action, third.Reason)
 	}
-	if !strings.Contains(third.Snippet, "\"$LEJI\" validate") {
-		t.Fatalf("manual snippet missing the gate: %q", third.Snippet)
+	if !strings.Contains(third.Snippet, "'leji' validate || exit 1") {
+		t.Fatalf("manual snippet missing the quoted-runner gate: %q", third.Snippet)
 	}
-	if !strings.Contains(third.Snippet, "node_modules/.bin/leji") {
-		t.Fatalf("manual snippet should prefer the local bin: %q", third.Snippet)
+	if strings.Contains(third.Snippet, "node_modules") {
+		t.Fatalf("the scalar shim is gone: %q", third.Snippet)
 	}
 	got, _ := os.ReadFile(hookPath)
 	if !strings.Contains(string(got), "custom hook") {
@@ -82,10 +83,30 @@ func TestEnsureLocalHookCreatedIdempotentNeverClobbers(t *testing.T) {
 
 func TestEnsureLocalHookRequiresGitRepo(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := EnsureLocalHook(dir); err == nil ||
+	if _, err := EnsureLocalHook(dir, nil); err == nil ||
 		err.Error() != "not a git repository (no .git directory); hooks need one" {
 		t.Fatalf("expected the no-git error, got %v", err)
 	}
+}
+
+// writeFile and readFile are the two file helpers these tests plant and assert with.
+func writeFile(t *testing.T, abs, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readFile(t *testing.T, abs string) string {
+	t.Helper()
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func gitInitRepo(t *testing.T) string {
@@ -115,7 +136,7 @@ func TestEnsureLocalHookHuskyMergesManagedBlock(t *testing.T) {
 	if err := os.WriteFile(huskyPre, []byte("#!/bin/sh\nnpm test\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r, err := EnsureLocalHook(dir)
+	r, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -135,7 +156,7 @@ func TestEnsureLocalHookHuskyMergesManagedBlock(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".git", "hooks", "pre-commit")); err == nil {
 		t.Fatal(".git/hooks/pre-commit should not be written")
 	}
-	again, err := EnsureLocalHook(dir)
+	again, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -148,7 +169,7 @@ func TestEnsureLocalHookHuskyMergesManagedBlock(t *testing.T) {
 func TestEnsureLocalHookHuskyCreatesFileWhenAbsent(t *testing.T) {
 	dir := gitInitRepo(t)
 	setHooksPath(t, dir, ".husky/_")
-	r, err := EnsureLocalHook(dir)
+	r, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -177,7 +198,7 @@ func TestEnsureLocalHookHuskyCreatesFileWhenAbsent(t *testing.T) {
 func TestEnsureLocalHookDirectHuskyV8ModeCorrection(t *testing.T) {
 	dir := gitInitRepo(t)
 	setHooksPath(t, dir, ".husky")
-	first, err := EnsureLocalHook(dir)
+	first, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,7 +209,7 @@ func TestEnsureLocalHookDirectHuskyV8ModeCorrection(t *testing.T) {
 	if info, _ := os.Stat(huskyPre); info.Mode()&0o111 == 0 {
 		t.Fatal("created hook is not executable")
 	}
-	second, err := EnsureLocalHook(dir)
+	second, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -198,7 +219,7 @@ func TestEnsureLocalHookDirectHuskyV8ModeCorrection(t *testing.T) {
 	if err := os.Chmod(huskyPre, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	third, err := EnsureLocalHook(dir)
+	third, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -210,58 +231,76 @@ func TestEnsureLocalHookDirectHuskyV8ModeCorrection(t *testing.T) {
 	}
 }
 
-// Mirrors units.test.ts "ci: local-first CI variant ..." / "ci: npx @1 fallback ...".
-func TestCiTemplateVariantsLocalVsNpx(t *testing.T) {
-	gh := BuildGithubWorkflow(true)
-	if !strings.Contains(gh, "- run: npm ci") || !strings.Contains(gh, "npx --no-install @leji-org/leji validate") {
-		t.Fatalf("local github variant missing npm ci / --no-install:\n%s", gh)
+// Mirrors units.test.ts "ci: a pnpm repository gets pnpm, never `npm ci`, and an
+// unlocked one falls back": the generated job installs with the manager the
+// repository actually uses, and declaring without a lockfile is not enough.
+func TestCiJobFollowsTheRepositoryManager(t *testing.T) {
+	declared := `{"devDependencies":{"@leji-org/leji":"^1.3.0"}}`
+
+	pnpmDir := gitInitRepo(t)
+	writeFile(t, filepath.Join(pnpmDir, "package.json"), declared)
+	writeFile(t, filepath.Join(pnpmDir, "pnpm-lock.yaml"), "lockfileVersion: 9\n")
+	if _, err := EnsureCiWorkflow(pnpmDir, "github", nil); err != nil {
+		t.Fatalf("ci: %v", err)
 	}
-	if strings.Contains(gh, "npx -y @leji-org/leji@1") {
-		t.Fatal("local github variant should not use the npx @1 fallback")
+	wf := readFile(t, filepath.Join(pnpmDir, CIWorkflowPath))
+	if strings.Contains(wf, "npm ci") {
+		t.Fatalf("no npm ci in a pnpm repository:\n%s", wf)
 	}
-	if fb := BuildGithubWorkflow(false); !strings.Contains(fb, "npx -y @leji-org/leji@1 validate") || strings.Contains(fb, "npm ci") {
-		t.Fatalf("fallback github variant wrong:\n%s", fb)
+	if !strings.Contains(wf, "- run: corepack enable && pnpm install --frozen-lockfile") ||
+		!strings.Contains(wf, "- run: pnpm exec leji validate") {
+		t.Fatalf("expected the pnpm job:\n%s", wf)
+	}
+	if strings.Contains(wf, "npx -y @leji-org/leji@1") {
+		t.Fatalf("declared + locked is never the fallback:\n%s", wf)
+	}
+
+	// Declared with no lockfile at all: nothing to install from, so the job that
+	// needs no manifest is the honest one.
+	unlocked := gitInitRepo(t)
+	writeFile(t, filepath.Join(unlocked, "package.json"), declared)
+	if _, err := EnsureCiWorkflow(unlocked, "github", nil); err != nil {
+		t.Fatalf("ci: %v", err)
+	}
+	if fb := readFile(t, filepath.Join(unlocked, CIWorkflowPath)); !strings.Contains(fb, "npx -y @leji-org/leji@1 validate") {
+		t.Fatalf("expected the pinned npx fallback:\n%s", fb)
 	}
 }
 
-func TestDeclaresLejiDepDetection(t *testing.T) {
-	dir := t.TempDir()
-	if declaresLejiDep(dir) {
-		t.Fatal("no package.json should not declare the dep")
+// The declaration rules, reached only through the detector: the direct
+// package.json read this port used to carry is gone, and the eligibility path is
+// the only way in.
+func TestNodeDeclarationThroughTheDetector(t *testing.T) {
+	declared := func(pkg string) bool {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "package.json"), pkg)
+		writeFile(t, filepath.Join(dir, "package-lock.json"), "")
+		report := ecosystem.Detect(dir)
+		if report.Selected == nil {
+			t.Fatalf("expected a selected manager for %q", pkg)
+		}
+		return report.Selected.DirectDeclared
 	}
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{ not json"), 0o644); err != nil {
-		t.Fatal(err)
+	if declared("{}") {
+		t.Fatal("an empty manifest declares nothing")
 	}
-	if declaresLejiDep(dir) {
-		t.Fatal("unparseable package.json should not declare the dep")
-	}
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"devDependencies":{"@leji-org/leji":"^1.3.0"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if !declaresLejiDep(dir) {
+	if !declared(`{"devDependencies":{"@leji-org/leji":"^1.3.0"}}`) {
 		t.Fatal("devDependencies entry should declare the dep")
 	}
-	// A leading UTF-8 BOM is stripped, so a valid manifest is still detected.
-	bom := append([]byte{0xEF, 0xBB, 0xBF}, []byte(`{"dependencies":{"@leji-org/leji":"1.3.0"}}`)...)
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), bom, 0o644); err != nil {
-		t.Fatal(err)
+	if !declared("\ufeff" + `{"dependencies":{"@leji-org/leji":"1.3.0"}}`) {
+		t.Fatal("a BOM-prefixed manifest should still declare the dep")
 	}
-	if !declaresLejiDep(dir) {
-		t.Fatal("BOM-prefixed manifest should still declare the dep")
+	if declared(`{"dependencies":["@leji-org/leji"]}`) {
+		t.Fatal("an array dependencies field is treated as absent")
 	}
-	// dependencies as a JSON array is not an object -> treated as absent, not an error.
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":["@leji-org/leji"]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if declaresLejiDep(dir) {
-		t.Fatal("array dependencies field should be treated as absent")
-	}
-	// A non-finite JSON constant (NaN) fails the strict parse -> not declared.
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"@leji-org/leji":NaN}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if declaresLejiDep(dir) {
-		t.Fatal("a NaN value should fail the strict parse")
+	// Unparseable, and a non-finite JSON constant: unreadable, never "not declared".
+	for _, bad := range []string{"{ not json", `{"dependencies":{"@leji-org/leji":NaN}}`} {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "package.json"), bad)
+		writeFile(t, filepath.Join(dir, "package-lock.json"), "")
+		if r := ecosystem.Detect(dir); r.Reason == nil || *r.Reason != "unreadable-manifest" {
+			t.Fatalf("%q should be unreadable-manifest", bad)
+		}
 	}
 }
 
@@ -269,7 +308,7 @@ func TestDeclaresLejiDepDetection(t *testing.T) {
 // its exec bit is mode-corrected".
 func TestEnsureLocalHookStandaloneModeCorrection(t *testing.T) {
 	dir := gitInitRepo(t)
-	first, err := EnsureLocalHook(dir)
+	first, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -280,13 +319,13 @@ func TestEnsureLocalHookStandaloneModeCorrection(t *testing.T) {
 	if info, _ := os.Stat(hookPath); info.Mode()&0o111 == 0 {
 		t.Fatal("created hook is not executable")
 	}
-	if second, _ := EnsureLocalHook(dir); second.Action != "unchanged" {
+	if second, _ := EnsureLocalHook(dir, nil); second.Action != "unchanged" {
 		t.Fatalf("second action = %q, want unchanged", second.Action)
 	}
 	if err := os.Chmod(hookPath, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	third, err := EnsureLocalHook(dir)
+	third, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -303,7 +342,7 @@ func TestEnsureLocalHookStandaloneModeCorrection(t *testing.T) {
 func TestEnsureLocalHookRelativeOutOfRootNormalized(t *testing.T) {
 	dir := gitInitRepo(t)
 	setHooksPath(t, dir, "../sibling-ext/.husky/_")
-	r, err := EnsureLocalHook(dir)
+	r, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -323,7 +362,7 @@ func TestEnsureLocalHookRelativeOutOfRootNormalized(t *testing.T) {
 func TestEnsureLocalHookCustomDirWritesManagedFile(t *testing.T) {
 	dir := gitInitRepo(t)
 	setHooksPath(t, dir, "githooks")
-	r, err := EnsureLocalHook(dir)
+	r, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -352,7 +391,7 @@ func TestEnsureLocalHookHooksPathOutsideRepoIsManual(t *testing.T) {
 	dir := gitInitRepo(t)
 	outside := t.TempDir()
 	setHooksPath(t, dir, outside)
-	r, err := EnsureLocalHook(dir)
+	r, err := EnsureLocalHook(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -362,8 +401,8 @@ func TestEnsureLocalHookHooksPathOutsideRepoIsManual(t *testing.T) {
 	if r.Path != outside+"/pre-commit" {
 		t.Fatalf("path = %q, want %q", r.Path, outside+"/pre-commit")
 	}
-	if !strings.Contains(r.Snippet, "\"$LEJI\" validate") {
-		t.Fatalf("manual snippet missing the gate: %q", r.Snippet)
+	if !strings.Contains(r.Snippet, "'leji' validate || exit 1") {
+		t.Fatalf("manual snippet missing the quoted-runner gate: %q", r.Snippet)
 	}
 	if _, err := os.Stat(filepath.Join(outside, "pre-commit")); err == nil {
 		t.Fatal("nothing should be written outside the repo")
@@ -436,7 +475,7 @@ func TestApprovalGuardInstallsIdempotentlyPreservesSettings(t *testing.T) {
 		"        \"hooks\": [\n" +
 		"          {\n" +
 		"            \"type\": \"command\",\n" +
-		"            \"command\": \"node \\\"$CLAUDE_PROJECT_DIR/docs/.leji/hooks/approval-guard.mjs\\\"\"\n" +
+		"            \"command\": \"node \\\"$CLAUDE_PROJECT_DIR/.leji/work/hooks/approval-guard.mjs\\\"\"\n" +
 		"          }\n" +
 		"        ]\n" +
 		"      }\n" +
@@ -467,7 +506,7 @@ func TestApprovalGuardInstallsIdempotentlyPreservesSettings(t *testing.T) {
 	if strings.Join(matchers, ",") != "Bash,AskUserQuestion" {
 		t.Fatalf("matchers = %v, want [Bash AskUserQuestion]", matchers)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "docs", ".leji", "hooks", "approval-guard.mjs")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".leji", "work", "hooks", "approval-guard.mjs")); err != nil {
 		t.Fatal("guard script not written")
 	}
 }
@@ -480,7 +519,7 @@ func TestApprovalGuardBlocksUntilWrittenAndPrintedInertAfterOnboarding(t *testin
 	if _, err := EnsureApprovalGuard(dir, "docs/"); err != nil {
 		t.Fatal(err)
 	}
-	lejiDir := filepath.Join(dir, "docs", ".leji")
+	lejiDir := filepath.Join(dir, ".leji", "work")
 	script := filepath.Join(lejiDir, "hooks", "approval-guard.mjs")
 	if err := os.WriteFile(filepath.Join(lejiDir, "onboarding-brief.md"), []byte("brief"), 0o644); err != nil {
 		t.Fatal(err)
@@ -548,10 +587,12 @@ func TestHookStaleIndexMessageIsLiteralNotExecuted(t *testing.T) {
 		t.Skip("no sh")
 	}
 	dir := gitInitRepo(t)
-	if _, err := EnsureLocalHook(dir); err != nil {
+	if _, err := EnsureLocalHook(dir, nil); err != nil {
 		t.Fatalf("EnsureLocalHook: %v", err)
 	}
-	binDir := filepath.Join(dir, "node_modules", ".bin")
+	// The hook runs the runner argv; this repository declares nothing, so that is
+	// the `leji` on PATH. The stub goes there rather than into node_modules.
+	binDir := filepath.Join(dir, "stubbin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +602,7 @@ func TestHookStaleIndexMessageIsLiteralNotExecuted(t *testing.T) {
 		"case \"$1$2\" in\n" +
 		"  validate) exit 0 ;;\n" +
 		"  index--check) exit 1 ;;\n" +
-		"  index) echo regenerated > \"$(dirname \"$0\")/../../ran-index\"; exit 0 ;;\n" +
+		"  index) echo regenerated > \"$(dirname \"$0\")/../ran-index\"; exit 0 ;;\n" +
 		"esac\n" +
 		"exit 0\n"
 	if err := os.WriteFile(filepath.Join(binDir, "leji"), []byte(stub), 0o755); err != nil {
@@ -570,6 +611,7 @@ func TestHookStaleIndexMessageIsLiteralNotExecuted(t *testing.T) {
 
 	cmd := exec.Command("sh", filepath.Join(".git", "hooks", "pre-commit"))
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "PATH="+binDir)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	err := cmd.Run()

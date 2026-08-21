@@ -1,86 +1,124 @@
 {
-   "$schema": "https://leji.org/schemas/v1.0/context-changelog.schema.json",
-   "schemaVersion": "1.0",
-   "entries": [
-      {
-         "id": "release-1-0-0",
-         "date": "2026-06-12",
-         "type": "added",
-         "summary": "Initial public release: specification 1.0.0 (9 normative documents, adoption guides, rationale), the v1.0 schema line (5 schemas), templates, two reference examples, and the reference SDKs (leji on npm and PyPI, the Go module packages/sdk-go, create-leji) with validate, index, changelog check, freshness, conformance, init, and docs, all at 1.0.0.",
-         "paths": [
-            "spec/",
-            "schemas/",
-            "templates/",
-            "examples/",
-            "adoption/",
-            "rationale/",
-            "packages/sdk/",
-            "packages/sdk-py/",
-            "packages/sdk-go/",
-            "packages/create-leji/",
-            "fixtures/"
-         ],
-         "proposedBy": "Vuong Nguyen",
-         "approvedBy": "Vuong Nguyen"
-      },
-      {
-         "id": "release-1-1-0",
-         "date": "2026-06-18",
-         "type": "added",
-         "summary": "Agent onboarding for the reference SDKs (spec and schemas unchanged, still the v1.0 line; all three SDKs to 1.1.0, backward compatible): leji adopt brings an existing repository into a context layer; leji detect and init --agent wire a coding-agent redirect; init writes an onboarding brief and --dry-run previews writes; validate --content and conformance --explain report what is unfinished; leji changelog compact folds old entries; undeclared machine paths resolve to rootPath defaults for a minimal leji.json.",
-         "paths": [
-            "templates/",
-            "packages/sdk/",
-            "packages/sdk-py/",
-            "packages/sdk-go/",
-            "packages/create-leji/",
-            "scripts/",
-            "fixtures/"
-         ],
-         "proposedBy": "Vuong Nguyen",
-         "approvedBy": "Vuong Nguyen"
-      },
-      {
-         "id": "release-1-2-0",
-         "date": "2026-06-19",
-         "type": "added",
-         "summary": "Schema and naming hardening before public launch and adoption, plus new surfaces (spec stays on the v1.0 line; all reference packages to 1.2.0): @leji-org/mcp serves spec/schemas and read-only validate/conformance tools; new leji agent, start, and ci commands (ci targets GitHub, GitLab, CircleCI, or Azure DevOps via --provider); leji viewer / viewer serve / viewer build / view replace leji docs; manifest viewer naming and viewer-export security are finalized while the spec has no public adopters yet.",
-         "paths": [
-            "schemas/",
-            "templates/",
-            "packages/sdk/",
-            "packages/sdk-py/",
-            "packages/sdk-go/",
-            "packages/mcp/",
-            "packages/create-leji/",
-            "packages/site/",
-            "scripts/",
-            ".github/"
-         ],
-         "proposedBy": "Vuong Nguyen",
-         "approvedBy": "Vuong Nguyen"
-      },
-      {
-         "id": "release-1-3-0",
-         "date": "2026-07-30",
-         "type": "changed",
-         "summary": "Content-model revision and the GA freeze of spec 1.0 (frozen from this release; all reference packages to 1.3.0): categories map to curated index files instead of content paths, every governed document is intent or a record, federation moves to resolver-hydrated pinned mounts whose projection is the closure of the sibling manifest's readable surface (status reports self-projectability), a task path selects and signals rather than expands, conformance reports four distinct outcomes and judges the directory it is given, and an optional actors registry binds a role to several participants with a command per role under one prompt-placeholder template rule. Migration from 1.2: replace categories.<id>.paths with categories.<id>.indexes pointing at index files that declare the old paths in leji-index blocks.",
-         "paths": [
-            "spec/",
-            "schemas/",
-            "packages/sdk/",
-            "packages/sdk-py/",
-            "packages/sdk-go/",
-            "packages/mcp/",
-            "packages/create-leji/",
-            "templates/",
-            "fixtures/",
-            "scripts/",
-            "adoption/",
-            "docs/"
-         ],
-         "proposedBy": "Vuong Nguyen",
-         "approvedBy": "Vuong Nguyen"
-      }
-   ]
+  "$schema": "https://leji.org/schemas/v1.0/context-changelog.schema.json",
+  "schemaVersion": "1.0",
+  "entries": [
+    {
+      "id": "release-1-0-0",
+      "date": "2026-06-12",
+      "type": "added",
+      "summary": "Initial public release: specification 1.0.0 (9 normative documents, adoption guides, rationale), the v1.0 schema line (5 schemas), templates, two reference examples, and the reference SDKs (leji on npm and PyPI, the Go module packages/sdk-go, create-leji) with validate, index, changelog check, freshness, conformance, init, and docs, all at 1.0.0.",
+      "paths": [
+        "spec/",
+        "schemas/",
+        "templates/",
+        "examples/",
+        "adoption/",
+        "rationale/",
+        "packages/sdk/",
+        "packages/sdk-py/",
+        "packages/sdk-go/",
+        "packages/create-leji/",
+        "fixtures/"
+      ],
+      "proposedBy": "Vuong Nguyen",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "release-1-1-0",
+      "date": "2026-06-18",
+      "type": "added",
+      "summary": "Agent onboarding for the reference SDKs (spec and schemas unchanged, still the v1.0 line; all three SDKs to 1.1.0, backward compatible): leji adopt brings an existing repository into a context layer; leji detect and init --agent wire a coding-agent redirect; init writes an onboarding brief and --dry-run previews writes; validate --content and conformance --explain report what is unfinished; leji changelog compact folds old entries; undeclared machine paths resolve to rootPath defaults for a minimal leji.json.",
+      "paths": [
+        "templates/",
+        "packages/sdk/",
+        "packages/sdk-py/",
+        "packages/sdk-go/",
+        "packages/create-leji/",
+        "scripts/",
+        "fixtures/"
+      ],
+      "proposedBy": "Vuong Nguyen",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "release-1-2-0",
+      "date": "2026-06-19",
+      "type": "added",
+      "summary": "Schema and naming hardening before public launch and adoption, plus new surfaces (spec stays on the v1.0 line; all reference packages to 1.2.0): @leji-org/mcp serves spec/schemas and read-only validate/conformance tools; new leji agent, start, and ci commands (ci targets GitHub, GitLab, CircleCI, or Azure DevOps via --provider); leji viewer / viewer serve / viewer build / view replace leji docs; manifest viewer naming and viewer-export security are finalized while the spec has no public adopters yet.",
+      "paths": [
+        "schemas/",
+        "templates/",
+        "packages/sdk/",
+        "packages/sdk-py/",
+        "packages/sdk-go/",
+        "packages/mcp/",
+        "packages/create-leji/",
+        "packages/site/",
+        "scripts/",
+        ".github/"
+      ],
+      "proposedBy": "Vuong Nguyen",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "release-1-3-0",
+      "date": "2026-07-30",
+      "type": "changed",
+      "summary": "Content-model revision and the GA freeze of spec 1.0 (frozen from this release; all reference packages to 1.3.0): categories map to curated index files instead of content paths, every governed document is intent or a record, federation moves to resolver-hydrated pinned mounts whose projection is the closure of the sibling manifest's readable surface (status reports self-projectability), a task path selects and signals rather than expands, conformance reports four distinct outcomes and judges the directory it is given, and an optional actors registry binds a role to several participants with a command per role under one prompt-placeholder template rule. Migration from 1.2: replace categories.<id>.paths with categories.<id>.indexes pointing at index files that declare the old paths in leji-index blocks.",
+      "paths": [
+        "spec/",
+        "schemas/",
+        "packages/sdk/",
+        "packages/sdk-py/",
+        "packages/sdk-go/",
+        "packages/mcp/",
+        "packages/create-leji/",
+        "templates/",
+        "fixtures/",
+        "scripts/",
+        "adoption/",
+        "docs/"
+      ],
+      "proposedBy": "Vuong Nguyen",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "release-1-3-1",
+      "date": "2026-07-31",
+      "type": "fixed",
+      "summary": "Patch release: two Windows-only viewer defects (POSIX route keys, docs-root casing as named on disk) and a protocol-relative request fix, plus the federation guide and a documentation pass; no specification, schema, or manifest change; all reference packages move to 1.3.1 together.",
+      "paths": [
+        "packages/sdk/",
+        "packages/sdk-py/",
+        "packages/sdk-go/",
+        "packages/site/",
+        "adoption/",
+        "fixtures/"
+      ],
+      "proposedBy": "Vuong Nguyen",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "release-1-4-0",
+      "date": "2026-08-21",
+      "type": "added",
+      "summary": "The OSS feature program: leji export, leji badge, mounts update-pin, rendering parity, one root .leji/ layout, ecosystem-aware adoption, the pinned-CLI hand-off, the start preflight, grouped help, and the Contexing stewardship disclosure; no normative specification or schema change; all packages move to 1.4.0 together.",
+      "paths": [
+        "packages/sdk/",
+        "packages/sdk-py/",
+        "packages/sdk-go/",
+        "packages/mcp/",
+        "packages/create-leji/",
+        "packages/site/",
+        "templates/",
+        "fixtures/",
+        "adoption/",
+        "docs/",
+        "scripts/",
+        ".github/"
+      ],
+      "proposedBy": "Vuong Nguyen",
+      "approvedBy": "Vuong Nguyen"
+    }
+  ]
 }

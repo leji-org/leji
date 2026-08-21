@@ -69,11 +69,11 @@ const first = runtimes[0];
       color: var(--white-soft);
    }
    .it-tab.active {
-      color: var(--gold-bright);
-      border-bottom-color: var(--gold);
+      color: var(--leji-accent);
+      border-bottom-color: var(--leji-accent);
    }
    .it-tab:focus-visible {
-      outline: 2px solid var(--gold);
+      outline: 2px solid var(--leji-accent);
       outline-offset: 2px;
       border-radius: 4px;
    }
@@ -97,6 +97,8 @@ const first = runtimes[0];
    }
    .it-cmd {
       font-family: var(--mono);
+      background: none;
+      padding: 0;
       font-size: 0.82rem;
       line-height: 1.6;
       color: var(--white-strong);
@@ -106,7 +108,7 @@ const first = runtimes[0];
       min-width: 0;
    }
    .it-prompt {
-      color: var(--gold);
+      color: var(--leji-accent);
    }
    .it-copy {
       flex-shrink: 0;
@@ -126,9 +128,9 @@ const first = runtimes[0];
    }
    .it-copy:hover,
    .it-copy:focus-visible {
-      background: rgba(255, 189, 110, 0.18);
-      color: var(--gold-bright);
-      border-color: var(--gold);
+      background: rgba(112, 216, 194, 0.2);
+      color: var(--leji-accent);
+      border-color: var(--leji-accent);
       outline: none;
    }
    .it-i {
@@ -147,7 +149,7 @@ const first = runtimes[0];
    }
    .it-copy.copied .it-i-check {
       display: block;
-      color: var(--gold-bright);
+      color: var(--leji-accent);
    }
 
    @media (prefers-reduced-motion: reduce) {

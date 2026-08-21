@@ -1,0 +1,32 @@
+leji export: Export the context layer as a self-contained static site.
+
+Usage: leji export [--out <dir>] [--strict] [--root <dir>] [--json]
+
+Regenerates the viewer chrome, then writes the static site from the layer on
+disk (default: .leji/dist/, kept out of git), complete on its own and servable
+as-is, including under a subpath. Everything the site needs travels with it:
+nothing is read from anywhere but the layer when it is written, and nothing is
+read from anywhere but the site's own files when it is opened. `leji viewer
+build` is the viewer subsystem's name for this same operation, beside `leji
+viewer serve`; both names are permanently supported and behave identically. A
+custom --out must resolve inside the repository, and never inside .leji/ except
+exactly .leji/dist. The exported index.html warns that a context layer is
+sensitive and belongs behind internal authentication, not in a public bucket.
+
+Options:
+   --out <dir>         Output directory for the export (default: .leji/dist;
+                       must resolve inside the repository, and never inside
+                       .leji/ except exactly .leji/dist).
+   --strict            Fail the export on any lint finding and write nothing,
+                       leaving an existing export untouched. Without it, lint
+                       findings are reported as warnings and the export is still
+                       written.
+
+Global options: see leji --help.
+
+Examples:
+   leji export
+   leji export --out site
+   leji export --strict --json
+
+Full reference: https://leji.org/cli/

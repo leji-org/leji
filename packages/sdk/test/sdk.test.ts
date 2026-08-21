@@ -130,6 +130,22 @@ test('init emits no machine block (core), the minimal manifest', async () => {
    assert.ok(fs.existsSync(path.join(dir, 'docs', 'agents', 'core.md')));
 });
 
+test('the scaffolded core profile fills its escalation placeholder', async () => {
+   const dir = gitTmpdir();
+   const result = await initLayer({ dir, yes: true });
+   const owner = result.manifest.owners.primary.name;
+   const core = fs.readFileSync(path.join(dir, 'docs', 'agents', 'core.md'), 'utf8');
+   assert.ok(
+      core.includes(`Ask the primary owner (${owner}) whenever mustAskWhen applies`),
+      'the escalation line names the owner',
+   );
+   // Nothing angle-bracketed survives into the written profile: a `<...>` in an agent
+   // profile is exactly what `leji validate --content` flags as a placeholder. The owner
+   // name is removed first because git with no identity yields `<named owner>`, which is
+   // the manifest's own fallback rather than an unfilled template slot.
+   assert.equal(core.replaceAll(owner, '').includes('<'), false, core);
+});
+
 test('indexed init: no machine key, yet the index and changelog are written at the defaults', async () => {
    const dir = gitTmpdir();
    const result = await initLayer({ dir, yes: true, level: 'indexed', name: 'acme-context' });

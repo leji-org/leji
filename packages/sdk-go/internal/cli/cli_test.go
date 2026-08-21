@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,17 @@ import (
 	initcmd "github.com/leji-org/leji/packages/sdk-go/internal/commands/init"
 	"github.com/leji-org/leji/packages/sdk-go/internal/schemas"
 )
+
+// ciGolden reads one committed generated-CI golden: the byte oracle both this port
+// and the reference are checked against.
+func ciGolden(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "fixtures", "ci-goldens", name))
+	if err != nil {
+		t.Fatalf("ci golden %s: %v", name, err)
+	}
+	return string(data)
+}
 
 func repoRoot(t *testing.T) string {
 	t.Helper()
@@ -293,6 +305,169 @@ func TestCLIIndexCheckJSONStale(t *testing.T) {
 	}
 }
 
+// unindexedLine is the generate run's closing nudge. Spec-pinned byte for byte
+// and identical in all three SDKs, so it is asserted as an exact string, never a
+// pattern; the zero case is asserted as absence.
+func unindexedLine(n int) string {
+	return fmt.Sprintf("%d file(s) unindexed: add to a category index or leave as reference deliberately", n)
+}
+
+// seedLayerAt scaffolds a core layer, the shape the unindexed nudge is measured on.
+func seedLayerAt(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if code, _, errs := captureRun(t, []string{"init", "--yes", "--dir", dir, "--name", "demo-context"}); code != 0 {
+		t.Fatalf("init: %s", errs)
+	}
+	return dir
+}
+
+func TestCLIIndexReportsUnindexedCount(t *testing.T) {
+	dir := seedLayerAt(t)
+	// Two markdown files under the governed root that no category index lists.
+	if err := os.MkdirAll(filepath.Join(dir, "docs", "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"docs/notes/loose.md", "docs/stray.md"} {
+		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(rel)), []byte("# Loose\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, out, _ := captureRun(t, []string{"index", "--root", dir})
+	// A nudge, never a gate: the count does not move the exit code.
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if last := lines[len(lines)-1]; last != unindexedLine(2) {
+		t.Fatalf("last line %q, want %q", last, unindexedLine(2))
+	}
+}
+
+func TestCLIIndexQuietWhenNothingUnindexed(t *testing.T) {
+	dir := seedLayerAt(t)
+	code, out, _ := captureRun(t, []string{"index", "--root", dir})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+	if strings.Contains(out, "unindexed") {
+		t.Fatalf("expected no nudge at zero, got %q", out)
+	}
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "ok (") {
+		t.Fatalf("last line %q, want the ok summary", last)
+	}
+}
+
+func TestCLIIndexCheckIgnoresUnindexedCount(t *testing.T) {
+	dir := seedLayerAt(t)
+	if err := os.WriteFile(filepath.Join(dir, "docs", "stray.md"), []byte("# Stray\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := captureRun(t, []string{"index", "--root", dir}); code != 0 {
+		t.Fatalf("index: %s", errs)
+	}
+	code, out, _ := captureRun(t, []string{"index", "--check", "--root", dir})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+	if strings.Contains(out, "unindexed") {
+		t.Fatalf("--check must stay silent, got %q", out)
+	}
+}
+
+func TestCLIIndexJSONCarriesNoNudge(t *testing.T) {
+	dir := seedLayerAt(t)
+	if err := os.WriteFile(filepath.Join(dir, "docs", "stray.md"), []byte("# Stray\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := captureRun(t, []string{"index", "--root", dir, "--json"})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+	// One document and nothing after it: the payload must still parse whole.
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("stdout is not one JSON document: %v (%q)", err, out)
+	}
+	if payload["written"] != "docs/context-index.json" {
+		t.Fatalf("unexpected payload: %s", out)
+	}
+	// The nudge is text-mode only. The count is not part of the index run's
+	// contract, so no consumer may start reading it off this document — not at
+	// the top level, not tucked into summary or a later extra.
+	if hasKeyDeep(payload, "unindexed") {
+		t.Fatalf("--json must carry no unindexed field, got: %s", out)
+	}
+}
+
+// hasKeyDeep reports whether key appears anywhere in the document, at any depth.
+// Checking the whole tree rather than the top level alone is what makes the JSON
+// assertion hold against a field added later inside summary or a future extra.
+func hasKeyDeep(value any, key string) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		if _, ok := v[key]; ok {
+			return true
+		}
+		for _, child := range v {
+			if hasKeyDeep(child, key) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if hasKeyDeep(child, key) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestCLIIndexNoNudgeWhenIndexWriteFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses permission bits")
+	}
+	dir := seedLayerAt(t)
+	if err := os.WriteFile(filepath.Join(dir, "docs", "stray.md"), []byte("# Stray\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := captureRun(t, []string{"index", "--root", dir}); code != 0 {
+		t.Fatalf("index: %s", errs)
+	}
+	// The nudge would have something to say here: the count is nonzero, so the
+	// silence below is the operational failure's doing and not an empty set.
+	_, before, _ := captureRun(t, []string{"status", "--root", dir, "--json"})
+	var status struct {
+		Unindexed []string `json:"unindexed"`
+	}
+	if err := json.Unmarshal([]byte(before), &status); err != nil {
+		t.Fatalf("status: %v (%q)", err, before)
+	}
+	if len(status.Unindexed) == 0 {
+		t.Fatal("expected a nonzero unindexed count before the failed write")
+	}
+	target := filepath.Join(dir, "docs", "context-index.json")
+	if err := os.Chmod(target, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(target, 0o644) // restore so the temp tree can be cleaned up
+	code, out, errs := captureRun(t, []string{"index", "--root", dir})
+	// An operational failure surfaces its error and nothing else: generation
+	// never completed, so the layer has no count worth reporting.
+	if code != 2 {
+		t.Fatalf("a failed index write should exit 2, got %d", code)
+	}
+	if !strings.HasPrefix(errs, "leji: ") || !strings.Contains(errs, "context-index.json") ||
+		!strings.Contains(strings.ToLower(errs), "permission denied") {
+		t.Fatalf("expected the write error on stderr, got %q", errs)
+	}
+	if strings.Contains(out, "unindexed") {
+		t.Fatalf("no nudge on a failed write, got %q", out)
+	}
+}
+
 func TestCLIValidateValidFixture(t *testing.T) {
 	code, _, _ := captureRun(t, []string{"validate", "--root", fixture(t, "valid-minimal-core")})
 	if code != 0 {
@@ -335,7 +510,7 @@ func TestCLIDocumentedCommandsAreKnown(t *testing.T) {
 		if c.Name == "agent" {
 			full = append(full, "--host", "codex", "--name", "reviewer")
 		}
-		if c.Name == "mounts locate" {
+		if c.Name == "mounts locate" || c.Name == "mounts update-pin" {
 			full = append(full, "some-mount")
 		}
 		code, _, errs := captureRun(t, full)
@@ -582,12 +757,15 @@ func TestCLICiProviderCircleci(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config not written: %v", err)
 	}
-	if string(before) != initcmd.BuildCircleCiConfig(false) {
+	if string(before) != ciGolden(t, "circleci-node-fallback.yml") {
 		t.Fatalf("created config not byte-exact:\n%s", before)
 	}
+	// A file leji generated is leji's to keep current: the re-run recognizes its own
+	// bytes and reports unchanged rather than handing back a snippet for a file the
+	// user never wrote.
 	code, out, _ = captureRun(t, []string{"ci", "--root", dir, "--provider", "circleci", "--json"})
 	if code != 0 {
-		t.Fatalf("ci circleci (manual) exit %d", code)
+		t.Fatalf("ci circleci (again) exit %d", code)
 	}
 	var j2 struct {
 		Action  string `json:"action"`
@@ -597,15 +775,46 @@ func TestCLICiProviderCircleci(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &j2); err != nil {
 		t.Fatalf("not JSON: %v (%q)", err, out)
 	}
-	if j2.Action != "manual" || j2.Created {
-		t.Fatalf("expected manual/created=false, got %+v", j2)
-	}
-	if j2.Snippet != initcmd.BuildCircleCiSnippet(false) {
-		t.Fatalf("manual snippet not byte-exact: %q", j2.Snippet)
+	if j2.Action != "unchanged" || j2.Created {
+		t.Fatalf("expected unchanged/created=false, got %+v", j2)
 	}
 	after, _ := os.ReadFile(cc)
 	if string(after) != string(before) {
-		t.Fatalf("existing config should be left untouched")
+		t.Fatalf("idempotent byte-for-byte")
+	}
+
+	// Someone else's config: never modified, and the snippet comes back to add by hand.
+	foreign := seededCiDir(t)
+	fcc := filepath.Join(foreign, ".circleci", "config.yml")
+	if err := os.MkdirAll(filepath.Dir(fcc), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fcc, []byte("version: 2.1\njobs:\n  mine: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ = captureRun(t, []string{"ci", "--root", foreign, "--provider", "circleci", "--json"})
+	if code != 0 {
+		t.Fatalf("ci circleci (foreign) exit %d", code)
+	}
+	var j3 struct {
+		Action  string `json:"action"`
+		Snippet string `json:"snippet"`
+	}
+	if err := json.Unmarshal([]byte(out), &j3); err != nil {
+		t.Fatalf("not JSON: %v (%q)", err, out)
+	}
+	if j3.Action != "manual" {
+		t.Fatalf("a foreign config is manual, got %+v", j3)
+	}
+	// The hand-add snippet is the generated config without its two leading lines
+	// (the ownership marker and `version: 2.1`): it is pasted into a file leji does
+	// not own, so it claims nothing.
+	configLines := strings.Split(ciGolden(t, "circleci-node-fallback.yml"), "\n")
+	if want := strings.Join(configLines[2:], "\n"); j3.Snippet != want {
+		t.Fatalf("manual snippet not byte-exact:\n%q\nwant\n%q", j3.Snippet, want)
+	}
+	if body, _ := os.ReadFile(fcc); string(body) != "version: 2.1\njobs:\n  mine: {}\n" {
+		t.Fatalf("foreign config left untouched")
 	}
 }
 
@@ -641,7 +850,7 @@ func TestCLICiProviderAzure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pipeline not written: %v", err)
 	}
-	if string(got) != initcmd.BuildAzurePipeline(false) {
+	if string(got) != ciGolden(t, "azure-node-fallback.yml") {
 		t.Fatalf("pipeline file not byte-exact:\n%s", got)
 	}
 	code, out, _ = captureRun(t, []string{"ci", "--root", d1, "--provider", "azure", "--json"})
@@ -800,5 +1009,48 @@ func TestCLICiWriteFailureCleansUp(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".github", "workflows", "leji.yml.leji-tmp")); !os.IsNotExist(err) {
 		t.Fatalf("temp file should be cleaned up")
+	}
+}
+
+// Mirrors run.test.ts "agent: writing the default binding prints the
+// selects-vs-loads guidance (human and JSON); other keys and re-runs do not".
+func TestCLIAgentDefaultGuidance(t *testing.T) {
+	dir := seededCiDir(t)
+	// human output: the guidance follows the success lines, byte-exact
+	code, out, errs := captureRun(t, []string{"agent", "--name", "default", "--root", dir})
+	if code != 0 {
+		t.Fatalf("agent default exit %d (%s%s)", code, out, errs)
+	}
+	if !strings.Contains(out, `Bound agent "default"`) {
+		t.Fatalf("expected the bound line, got %q", out)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if last := lines[len(lines)-1]; last != initcmd.AgentsDefaultNote {
+		t.Fatalf("last line is not the guidance: %q", last)
+	}
+	// written-only: a re-run binds nothing and stays terse, in both modes
+	code, out, _ = captureRun(t, []string{"agent", "--name", "default", "--root", dir})
+	if code != 0 || strings.Contains(out, "selects a role profile") {
+		t.Fatalf("no guidance when nothing was bound: %d %q", code, out)
+	}
+	if _, j, _ := runJSON(t, []string{"agent", "--name", "default", "--json", "--root", dir}); j["note"] != nil {
+		t.Fatalf("re-run JSON should carry no note: %v", j["note"])
+	}
+	// JSON mode carries the same sentence in `note` (the CI activation-note pattern)
+	code, j, errs := runJSON(t, []string{"agent", "--name", "default", "--json", "--root", seededCiDir(t)})
+	if code != 0 {
+		t.Fatalf("agent default --json exit %d (%s)", code, errs)
+	}
+	if j["note"] != initcmd.AgentsDefaultNote {
+		t.Fatalf("JSON note not byte-exact: %v", j["note"])
+	}
+	// any other binding stays quiet, in both modes
+	code, out, _ = captureRun(t, []string{"agent", "--name", "reviewer", "--root", dir})
+	if code != 0 || strings.Contains(out, "selects a role profile") {
+		t.Fatalf("no guidance for a non-default key: %d %q", code, out)
+	}
+	code, j2, _ := runJSON(t, []string{"agent", "--name", "thought-partner", "--json", "--root", dir})
+	if code != 0 || j2["note"] != nil {
+		t.Fatalf("non-default key JSON should carry no note: %d %v", code, j2["note"])
 	}
 }

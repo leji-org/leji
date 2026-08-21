@@ -1,0 +1,26 @@
+leji viewer build: The viewer subsystem's name for `leji export`: write the
+   static site.
+
+Usage: leji viewer build [--out <dir>] [--strict] [--root <dir>] [--json]
+
+The same operation as `leji export`, under the viewer subsystem's own name
+beside `leji viewer serve`: one code path, identical output, identical exits.
+Both names are permanently supported; `leji export` is the name the
+documentation leads with. Run `leji export --help` for the full description.
+
+Options:
+   --out <dir>         Output directory for the export (default: .leji/dist;
+                       must resolve inside the repository, and never inside
+                       .leji/ except exactly .leji/dist).
+   --strict            Fail the export on any lint finding and write nothing,
+                       leaving an existing export untouched. Without it, lint
+                       findings are reported as warnings and the export is still
+                       written.
+
+Global options: see leji --help.
+
+Examples:
+   leji viewer build
+   leji viewer build --out site
+
+Full reference: https://leji.org/cli/

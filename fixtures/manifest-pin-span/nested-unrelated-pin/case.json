@@ -1,0 +1,7 @@
+{
+  "note": "Unrelated \"pin\" keys sit above the mounts array and inside the mount’s own nested owner object; nested containers are skipped structurally.",
+  "mount": "product-context",
+  "from": "4e974570000000000000000000000000000000aa",
+  "to": "9f1c2e9b8a7f6d5c4b3a2e1d0c9b8a7f6d5c4b3a",
+  "outcome": "replaced"
+}

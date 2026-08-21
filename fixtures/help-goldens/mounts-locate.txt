@@ -1,0 +1,20 @@
+leji mounts locate: Print resolver state for one mount: projection path, pin,
+   verification.
+
+Usage: leji mounts locate <name> [--root <dir>] [--json]
+
+Resolves a declared mount's hydrated projection through resolver state (never by
+inferring cache paths): the projection directory, the pin, whether the bytes are
+present, and whether they verified this run. Readers obtain the mounted
+content's location from this command; a projection that cannot be verified is
+reported as present but unverified, which includes the case where a verification
+prerequisite (a reachable object store, a resolvable pin, a writable temp dir)
+is unavailable. Exits 0 when the projection is present, 1 otherwise.
+
+Global options: see leji --help.
+
+Examples:
+   leji mounts locate product-context
+   leji mounts locate product-context --json
+
+Full reference: https://leji.org/cli/

@@ -1,8 +1,12 @@
 """Unit tests mirroring packages/sdk/test/units.test.ts."""
 
+import http.client
 import json
+import posixpath
+import re
 import shutil
 import subprocess
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import datetime as dt
@@ -546,50 +550,61 @@ def test_viewer_generates_viewer_and_sidebar(tmp_path: Path) -> None:
     manifest = load_manifest(str(layer)).manifest
     result = generate_viewer(str(layer), manifest)
     assert result.written == [
-        "docs/.leji/viewer/index.html",
-        "docs/.leji/viewer/_sidebar.md",
-        "docs/.leji/viewer/assets/docsify-copy-code.min.js",
-        "docs/.leji/viewer/assets/docsify-mermaid.js",
-        "docs/.leji/viewer/assets/docsify-sidebar-collapse.min.css",
-        "docs/.leji/viewer/assets/docsify-sidebar-collapse.min.js",
-        "docs/.leji/viewer/assets/docsify.min.js",
-        "docs/.leji/viewer/assets/fonts-licenses.txt",
-        "docs/.leji/viewer/assets/leji-logo.svg",
-        "docs/.leji/viewer/assets/mermaid.min.js",
-        "docs/.leji/viewer/assets/prism-bash.min.js",
-        "docs/.leji/viewer/assets/prism-json.min.js",
-        "docs/.leji/viewer/assets/prism-markdown.min.js",
-        "docs/.leji/viewer/assets/prism-typescript.min.js",
-        "docs/.leji/viewer/assets/roboto-mono-400-latin-ext.woff2",
-        "docs/.leji/viewer/assets/roboto-mono-400-latin.woff2",
-        "docs/.leji/viewer/assets/roboto-mono-400-vietnamese.woff2",
-        "docs/.leji/viewer/assets/search.min.js",
-        "docs/.leji/viewer/assets/source-sans-pro-300-latin-ext.woff2",
-        "docs/.leji/viewer/assets/source-sans-pro-300-latin.woff2",
-        "docs/.leji/viewer/assets/source-sans-pro-300-vietnamese.woff2",
-        "docs/.leji/viewer/assets/source-sans-pro-400-latin-ext.woff2",
-        "docs/.leji/viewer/assets/source-sans-pro-400-latin.woff2",
-        "docs/.leji/viewer/assets/source-sans-pro-400-vietnamese.woff2",
-        "docs/.leji/viewer/assets/source-sans-pro-600-latin-ext.woff2",
-        "docs/.leji/viewer/assets/source-sans-pro-600-latin.woff2",
-        "docs/.leji/viewer/assets/source-sans-pro-600-vietnamese.woff2",
-        "docs/.leji/viewer/assets/viewer-boot.js",
-        "docs/.leji/viewer/assets/vue.css",
-        "docs/.leji/viewer/assets/zoom-image.min.js",
+        ".leji/viewer/index.html",
+        ".leji/viewer/_sidebar.md",
+        ".leji/viewer/assets/docsify-copy-code.min.js",
+        ".leji/viewer/assets/docsify-mermaid.js",
+        ".leji/viewer/assets/docsify-sidebar-collapse.min.css",
+        ".leji/viewer/assets/docsify-sidebar-collapse.min.js",
+        ".leji/viewer/assets/docsify.min.js",
+        ".leji/viewer/assets/leji-logo.svg",
+        ".leji/viewer/assets/mermaid.min.js",
+        ".leji/viewer/assets/prism-bash.min.js",
+        ".leji/viewer/assets/prism-json.min.js",
+        ".leji/viewer/assets/prism-markdown.min.js",
+        ".leji/viewer/assets/prism-typescript.min.js",
+        ".leji/viewer/assets/roboto-mono-400-latin-ext.woff2",
+        ".leji/viewer/assets/roboto-mono-400-latin.woff2",
+        ".leji/viewer/assets/roboto-mono-400-vietnamese.woff2",
+        ".leji/viewer/assets/search.min.js",
+        ".leji/viewer/assets/source-sans-pro-300-latin-ext.woff2",
+        ".leji/viewer/assets/source-sans-pro-300-latin.woff2",
+        ".leji/viewer/assets/source-sans-pro-300-vietnamese.woff2",
+        ".leji/viewer/assets/source-sans-pro-400-latin-ext.woff2",
+        ".leji/viewer/assets/source-sans-pro-400-latin.woff2",
+        ".leji/viewer/assets/source-sans-pro-400-vietnamese.woff2",
+        ".leji/viewer/assets/source-sans-pro-600-latin-ext.woff2",
+        ".leji/viewer/assets/source-sans-pro-600-latin.woff2",
+        ".leji/viewer/assets/source-sans-pro-600-vietnamese.woff2",
+        ".leji/viewer/assets/third-party-licenses.txt",
+        ".leji/viewer/assets/viewer-boot.js",
+        ".leji/viewer/assets/vue.css",
+        ".leji/viewer/assets/zoom-image.min.js",
         "docs/overview.md",
-        "docs/.leji/viewer/_manifest.md",
+        ".leji/viewer/_manifest.md",
     ]
-    viewer = layer / "docs" / ".leji" / "viewer"
+    viewer = layer / ".leji" / "viewer"
     html = (viewer / "index.html").read_text()
     # The layer name is baked into the JSON config and the document title.
     assert "acme-billing-context" in html
     assert "<title>acme-billing-context</title>" in html
     assert '"homepage":"overview.md"' in html
     # Default theming: the Leji mark (in the name HTML, served relative to the page
-    # so basePath does not break it) and the brand blue.
+    # so basePath does not break it) and the brand green, with the mermaid node-text
+    # color the SDK computed for it (dark, at 5.14:1 against the accent).
     assert "/assets/leji-logo.svg" in html
-    assert '"themeColor":"#223F93"' in html
+    assert '"themeColor":"#009F71"' in html
+    assert '"lejiMermaidTextColor":"#1a1a1a"' in html
     assert (viewer / "assets" / "leji-logo.svg").is_file()
+    # A configured accent is computed over too, not just the default: a dark accent
+    # flips the mermaid node text to white, end to end through the generator.
+    dark_layer = _copy(EXAMPLE, tmp_path / "dark")
+    dark_manifest = load_manifest(str(dark_layer)).manifest
+    dark_manifest["viewer"] = {"theme": {"primary": "#164E42"}}
+    generate_viewer(str(dark_layer), dark_manifest)
+    dark_html = (dark_layer / ".leji" / "viewer" / "index.html").read_text()
+    assert '"themeColor":"#164E42"' in dark_html
+    assert '"lejiMermaidTextColor":"#ffffff"' in dark_html
     # Mermaid is on by default: the two scripts + their assets are present.
     assert "assets/mermaid.min.js" in html
     assert "assets/docsify-mermaid.js" in html
@@ -599,7 +614,11 @@ def test_viewer_generates_viewer_and_sidebar(tmp_path: Path) -> None:
     assert "viewer-boot.js" in html
     boot_js = (viewer / "assets" / "viewer-boot.js").read_text()
     assert "stripFrontmatter" in boot_js
-    assert "basePath: '/content/'" in boot_js
+    # The content mount is the SDK's value, carried in the config block; the boot
+    # script routes from it instead of hardcoding a root, which is what lets the
+    # export flavor be relative.
+    assert "basePath: lejiContentBase" in boot_js
+    assert '"basePath":"/content/"' in html, "the served flavor mounts content at the app root"
     # Vendored assets (core + theme + search/collapse plugins) are copied locally;
     # no remote CDN, PROVENANCE not shipped.
     assert (viewer / "assets" / "docsify.min.js").is_file()
@@ -610,20 +629,20 @@ def test_viewer_generates_viewer_and_sidebar(tmp_path: Path) -> None:
     sidebar = (viewer / "_sidebar.md").read_text()
     assert sidebar == "\n".join(
         [
-            "- [🤖 Boot profile](boot-profile.md)",
-            "- [📄 Manifest](_manifest.md)",
+            "- [🤖 Boot profile](/boot-profile.md)",
+            "- [📄 Manifest](/_manifest.md)",
             "",
             "---",
             "",
             "- **🤖 Agents**",
-            "  - [Agent Core](agents/core.md)",
-            "  - [Thought Partner (Codex)](agents/thought-partner.md)",
+            "  - [Agent Core](/agents/core.md)",
+            "  - [Thought Partner (Codex)](/agents/thought-partner.md)",
             "- **📖 Domain**",
-            "  - [Glossary](domain/glossary.md)",
+            "  - [Glossary](/domain/glossary.md)",
             "- **⚙️ System**",
-            "  - [Invariants](system/invariants.md)",
+            "  - [Invariants](/system/invariants.md)",
             "- **🧭 Decisions**",
-            "  - [Adopt the Leji context layer](decisions/0001-adopt-leji.md)",
+            "  - [Adopt the Leji context layer](/decisions/0001-adopt-leji.md)",
             "",
         ]
     )
@@ -643,7 +662,7 @@ def test_viewer_brand_config(tmp_path: Path) -> None:
         "pins": ["docs/domain/glossary.md", "docs/nope.md"],
     }
     result = generate_viewer(str(layer), manifest)
-    viewer = layer / "docs" / ".leji" / "viewer"
+    viewer = layer / ".leji" / "viewer"
     html = (viewer / "index.html").read_text()
     # A relative logo path is served from the content mount; absolute/url is used as-is.
     assert "/content/assets/brand.svg" in html
@@ -654,7 +673,7 @@ def test_viewer_brand_config(tmp_path: Path) -> None:
     sidebar = (viewer / "_sidebar.md").read_text()
     top = sidebar.split("---")[0]
     # The pinned page renders in the top zone.
-    assert "- [Glossary](domain/glossary.md)" in top
+    assert "- [Glossary](/domain/glossary.md)" in top
     # A missing pin is surfaced, not silently dropped.
     assert any(f.rule == "viewer-pin-missing" and f.path == "docs/nope.md" for f in result.findings)
 
@@ -672,11 +691,11 @@ def test_viewer_path_forms_and_missing_homepage_warns(tmp_path: Path) -> None:
     }
     result = generate_viewer(str(layer), manifest)
     assert not any(f.rule == "viewer-path-missing" for f in result.findings)
-    html = (layer / "docs" / ".leji" / "viewer" / "index.html").read_text()
+    html = (layer / ".leji" / "viewer" / "index.html").read_text()
     assert '"homepage":"HOME.md"' in html
     assert "/content/HOME.md" in html
-    sidebar = (layer / "docs" / ".leji" / "viewer" / "_sidebar.md").read_text()
-    assert "](domain/glossary.md)" in sidebar.split("---")[0]
+    sidebar = (layer / ".leji" / "viewer" / "_sidebar.md").read_text()
+    assert "](/domain/glossary.md)" in sidebar.split("---")[0]
     # An unresolvable homepage is kept as authored and warned about, never silent.
     manifest["viewer"] = {"mermaid": False, "homepage": "docs/NOPE.md"}
     bad = generate_viewer(str(layer), manifest)
@@ -693,9 +712,9 @@ def test_viewer_boot_pin_replaces_default_line(tmp_path: Path) -> None:
         "pins": [{"path": "docs/boot-profile.md", "label": "🚀 Start here"}],
     }
     generate_viewer(str(layer), manifest)
-    sidebar = (layer / "docs" / ".leji" / "viewer" / "_sidebar.md").read_text()
+    sidebar = (layer / ".leji" / "viewer" / "_sidebar.md").read_text()
     assert "🤖 Boot profile" not in sidebar
-    assert "- [🚀 Start here](boot-profile.md)" in sidebar
+    assert "- [🚀 Start here](/boot-profile.md)" in sidebar
 
 
 def test_viewer_build_sidebar_skips_out_of_root_boot_and_renders_plain_entries(
@@ -723,7 +742,7 @@ def test_viewer_build_sidebar_skips_out_of_root_boot_and_renders_plain_entries(
     # The group label is the index-file H1, verbatim, bold; entries render as
     # plain links.
     assert "- **💰 Finance**" in sidebar
-    assert "  - [Glossary](domain/glossary.md)" in sidebar
+    assert "  - [Glossary](/domain/glossary.md)" in sidebar
     # No record badges in the sidebar: kind and date are page-chip metadata now.
     assert "lj-rec" not in sidebar
     assert "Empty group" not in sidebar
@@ -784,7 +803,7 @@ def test_viewer_mermaid_disabled(tmp_path: Path) -> None:
     manifest = load_manifest(str(layer)).manifest
     manifest["viewer"] = {"mermaid": False}
     result = generate_viewer(str(layer), manifest)
-    viewer = layer / "docs" / ".leji" / "viewer"
+    viewer = layer / ".leji" / "viewer"
     html = (viewer / "index.html").read_text()
     assert "mermaid.min.js" not in html
     assert "docsify-mermaid.js" not in html
@@ -801,7 +820,7 @@ def test_viewer_after_init(tmp_path: Path) -> None:
     manifest = load_manifest(str(tmp_path)).manifest
     result = generate_viewer(str(tmp_path), manifest)
     assert result.entries == 3
-    assert (tmp_path / "docs" / ".leji" / "viewer" / "index.html").is_file()
+    assert (tmp_path / ".leji" / "viewer" / "index.html").is_file()
 
 
 def test_viewer_serve_localhost(tmp_path: Path) -> None:
@@ -843,6 +862,338 @@ def test_viewer_serve_localhost(tmp_path: Path) -> None:
         assert status("/..%2f..%2fetc%2fpasswd") != 200
     finally:
         server.shutdown()
+
+
+# --- link classes stay inside the router ---
+# A relative link on a nested page used to be resolved by the browser against the
+# server root, leaving the SPA for a URL the server has no route for. The fix has
+# two halves: Docsify's relativePath routing (so a link resolves against the
+# document carrying it, exactly as the same file reads on disk) and generated
+# sidebar destinations emitted app-root absolute (exempt from that resolution).
+# These pin both halves, plus the click paths and the not-found contract.
+
+
+def _write_under(layer: Path, rel: str, text: str) -> None:
+    """Write `rel` (forward-slashed, repo-relative) under `layer`, creating parents."""
+    target = layer.joinpath(*rel.split("/"))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+
+
+def _serve_on_free_port(layer: Path, root_rel: str) -> tuple[ThreadingHTTPServer, int]:
+    """Serve `layer`'s viewer on a free loopback port, returning the running server
+    and its port. The caller shuts the server down."""
+    import threading
+
+    from leji import serve_viewer
+
+    server = serve_viewer(str(layer), 0, root_rel)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, server.server_address[1]
+
+
+def _get(port: int, path: str) -> tuple[int, bytes]:
+    """Fetch `path` from the loopback viewer, returning the status and body bytes."""
+    conn = http.client.HTTPConnection("127.0.0.1", port)
+    try:
+        conn.request("GET", path)
+        resp = conn.getresponse()
+        return resp.status, resp.read()
+    finally:
+        conn.close()
+
+
+def test_viewer_every_sidebar_destination_is_app_root_absolute(tmp_path: Path) -> None:
+    layer = _copy(EXAMPLE, tmp_path)
+    # One layer carrying every sidebar entry class at once: a pinned boot profile,
+    # the always-pinned Manifest chrome, a user pin, grouped index entries, and
+    # documents nested two directories deep in both the governed and browse zones.
+    _write_under(layer, "docs/domain/billing/settlement/netting.md", "# Netting\n")
+    _write_under(layer, "docs/notes/team/onboarding/day-one.md", "# Day one\n")
+    manifest = load_manifest(str(layer)).manifest
+    manifest["viewer"] = {"pins": ["docs/boot-profile.md", "docs/domain/glossary.md"]}
+    result = generate_viewer(str(layer), manifest)
+    assert [f for f in result.findings if f.severity == "error"] == []
+    sidebar = (layer / ".leji" / "viewer" / "_sidebar.md").read_text()
+    # Each class is present, so the sweep below is not vacuous.
+    for dest in (
+        "/boot-profile.md",  # the pinned boot profile
+        "/_manifest.md",  # generated Manifest chrome
+        "/domain/glossary.md",  # a user pin in the top zone
+        "/system/invariants.md",  # a grouped index entry
+        "/domain/billing/settlement/netting.md",  # grouped, nested two deep
+        "/notes/team/onboarding/day-one.md",  # browse zone, nested two deep
+    ):
+        assert f"]({dest})" in sidebar, dest
+    # Every emitted destination, parsed rather than sampled: one bare rel anywhere
+    # in the sidebar re-resolves against whatever nested route is current.
+    dests = re.findall(r"\]\(([^)]*)\)", sidebar)
+    assert len(dests) >= 6, "the matrix produced links to sweep"
+    for dest in dests:
+        assert dest.startswith("/"), dest
+
+
+def test_viewer_md_link_dest_is_escaped_absolute_and_idempotent() -> None:
+    from leji.viewer_cmd import _md_link_dest
+
+    # These vectors are shared verbatim with the Node and Go SDKs
+    # (test/units.test.ts, viewer_more_test.go): the three must agree byte for byte.
+    vectors = [
+        ("a.md", "/a.md"),
+        ("dir/b.md", "/dir/b.md"),
+        # Already absolute: `//...` would be a protocol-relative external URL to
+        # Docsify.
+        ("/a.md", "/a.md"),
+        ("//a.md", "/a.md"),
+        # Degenerate input passes through rather than becoming a bare `/`.
+        ("", ""),
+        ("a(b).md", r"/a\(b\).md"),
+        ("(x).md", r"/\(x\).md"),
+        (r"a\b.md", r"/a\\b.md"),
+    ]
+    for src, want in vectors:
+        assert _md_link_dest(src) == want, src
+
+
+def test_viewer_serves_a_document_byte_identical_whatever_links_it_carries(
+    tmp_path: Path,
+) -> None:
+    layer = _copy(EXAMPLE, tmp_path)
+    # One instance of every link class a real document mixes. Routing is config plus
+    # the generated sidebar, never a transform over the author's markdown, so the
+    # served bytes are the file's. How an image path resolves under relativePath is
+    # a separate item and is deliberately not asserted here.
+    body = "\n".join(
+        [
+            "# Links",
+            "",
+            "- [parent](../target.md)",
+            "- [sibling](sibling.md)",
+            "- [root](/root-target.md)",
+            "- [fragment](#fragment)",
+            "- [doc fragment](target.md#fragment)",
+            "- [query](target.md?q=1)",
+            "- [external](https://leji.org/spec)",
+            "",
+            "![x](assets/x.svg)",
+            "",
+            '<img src="assets/x.svg">',
+            "",
+        ]
+    )
+    _write_under(layer, "docs/notes/deep/links.md", body)
+    manifest = load_manifest(str(layer)).manifest
+    generate_viewer(str(layer), manifest)
+    server, port = _serve_on_free_port(layer, manifest["rootPath"])
+    try:
+        status, served = _get(port, "/content/notes/deep/links.md")
+        assert status == 200
+        # The viewer never rewrites document markdown.
+        assert served == (layer / "docs" / "notes" / "deep" / "links.md").read_bytes()
+    finally:
+        server.shutdown()
+
+
+def test_viewer_routing_config_ships_in_the_served_and_built_boot_script(
+    tmp_path: Path,
+) -> None:
+    from leji import build_viewer
+
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    generate_viewer(str(layer), manifest)
+
+    # Both settings live in the boot script's static overlay, not the injected JSON
+    # config block, so the assertion is on the asset text.
+    def assert_routing(boot: str, where: str) -> None:
+        assert re.search(r"relativePath:\s*true", boot), f"relativePath is on ({where})"
+        assert re.search(r"notFoundPage:\s*false", boot), f"notFoundPage is off ({where})"
+
+    server, port = _serve_on_free_port(layer, manifest["rootPath"])
+    try:
+        status, asset = _get(port, "/assets/viewer-boot.js")
+        assert status == 200
+        assert_routing(asset.decode(), "served")
+    finally:
+        server.shutdown()
+    build_viewer(str(layer), manifest, "out")
+    assert_routing((layer / "out" / "assets" / "viewer-boot.js").read_text(), "built")
+
+
+def _resolve_route(from_rel: str, dest: str) -> str:
+    """Resolve a markdown destination the way Docsify's relativePath routing does:
+    against the linking document's own directory, except a leading-slash
+    destination, which is app-root (content-root) absolute."""
+    if dest.startswith("/"):
+        return dest[1:]
+    return posixpath.normpath(posixpath.join(posixpath.dirname(from_rel), dest))
+
+
+def test_viewer_nested_page_links_resolve_to_documents_the_server_has(tmp_path: Path) -> None:
+    layer = _copy(EXAMPLE, tmp_path)
+    _write_under(layer, "docs/practice/feature-workflow.md", "# Feature workflow\n")
+    _write_under(layer, "docs/work/spec.md", "# Spec\n")
+    _write_under(
+        layer,
+        "docs/work/README.md",
+        "\n".join(
+            [
+                "# Work",
+                "",
+                "- [workflow](../practice/feature-workflow.md)",
+                "- [spec](spec.md)",
+                "- [glossary](/domain/glossary.md)",
+                "",
+            ]
+        ),
+    )
+    manifest = load_manifest(str(layer)).manifest
+    generate_viewer(str(layer), manifest)
+    server, port = _serve_on_free_port(layer, manifest["rootPath"])
+    try:
+        for dest in ("../practice/feature-workflow.md", "spec.md", "/domain/glossary.md"):
+            target = _resolve_route("work/README.md", dest)
+            assert _get(port, f"/content/{target}")[0] == 200, dest
+        # The pre-fix escape: the same `../` destination resolved against the server
+        # root instead of the router. The server has no such route, which is exactly
+        # why the link must stay in-app.
+        assert _get(port, "/practice/feature-workflow.md")[0] == 404
+    finally:
+        server.shutdown()
+
+
+def test_viewer_unknown_document_route_404s_with_no_404_page(tmp_path: Path) -> None:
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    result = generate_viewer(str(layer), manifest)
+    viewer = layer / ".leji" / "viewer"
+    # The config disables Docsify's secondary _404.md fetch (pinned by the routing
+    # config test above) and the viewer generates no such page. That the browser
+    # therefore makes exactly one failing request is verified at the browser level,
+    # not here.
+    assert not (viewer / "_404.md").exists()
+    assert not any(w.endswith("_404.md") for w in result.written)
+    server, port = _serve_on_free_port(layer, manifest["rootPath"])
+    try:
+        # The missing document itself is the one 404.
+        assert _get(port, "/content/does-not-exist.md")[0] == 404
+    finally:
+        server.shutdown()
+
+
+def test_viewer_build_default_output_is_the_dist_role(tmp_path: Path) -> None:
+    from leji import build_viewer
+
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    result = build_viewer(str(layer), manifest)
+    assert result.out == ".leji/dist", "the default output is root .leji/dist"
+    assert (layer / ".leji" / "dist" / "index.html").is_file()
+    assert (layer / ".leji" / "dist" / "content" / "boot-profile.md").is_file()
+    # The pre-1.4 locations are never created, and nothing reads or writes a tree
+    # under the context root: a run leaves rootPath/.leji/ absent.
+    assert not (layer / "docs" / ".leji").exists(), "no tree under the context root"
+    assert not (layer / ".leji" / "viewer-dist").exists(), "the old output name is not used"
+
+
+def test_viewer_build_out_never_resolves_inside_a_leji_role_but_dist(tmp_path: Path) -> None:
+    import pytest
+
+    from leji import build_viewer
+
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    # The roles are the tool's own: an export target inside any of them is refused,
+    # including a role this version has never heard of, because the rule denies by
+    # name rather than listing what to protect.
+    for target in (".leji", ".leji/mounts", ".leji/mounts/cache", ".leji/viewer", ".leji/work"):
+        with pytest.raises(RuntimeError, match="reserved for the tool's own roles"):
+            build_viewer(str(layer), manifest, target)
+    with pytest.raises(RuntimeError, match="reserved for the tool's own roles"):
+        build_viewer(str(layer), manifest, ".leji/future")
+    # The canary bytes a refusal must never have touched: the private roles are still
+    # exactly as planted.
+    (layer / ".leji" / "mounts" / "store").mkdir(parents=True, exist_ok=True)
+    (layer / ".leji" / "mounts" / "store" / "keep").write_text("private\n")
+    with pytest.raises(RuntimeError, match="reserved for the tool's own roles"):
+        build_viewer(str(layer), manifest, ".leji/mounts")
+    assert (layer / ".leji" / "mounts" / "store" / "keep").read_text() == "private\n"
+    # The reserved role itself is the one accepted spelling.
+    build_viewer(str(layer), manifest, ".leji/dist")
+    assert (layer / ".leji" / "dist" / "index.html").is_file()
+
+
+def _case_insensitive_fs(directory: Path) -> bool:
+    """Whether this directory sits on a filesystem that cannot tell `.leji` from
+    `.LEJI`. Asked of the volume rather than inferred from the platform: a
+    case-sensitive volume on macOS and a case-insensitive one on Linux both exist."""
+    probe = directory / "leji-case-probe"
+    probe.mkdir(parents=True, exist_ok=True)
+    try:
+        return (directory / "LEJI-CASE-PROBE").exists()
+    finally:
+        shutil.rmtree(probe, ignore_errors=True)
+
+
+def test_viewer_build_out_is_judged_in_resolved_form(tmp_path: Path) -> None:
+    import pytest
+
+    from leji import build_viewer
+
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    (layer / ".leji" / "mounts" / "store").mkdir(parents=True)
+    (layer / ".leji" / "mounts" / "store" / "keep").write_text("private\n")
+    # A symlink is a spelling, not an exemption: what the write would land in is what
+    # the reservation judges, so an ordinary-looking --out that redirects into a
+    # private role is refused exactly as the literal path is.
+    (layer / "redirect").symlink_to(Path(".leji") / "mounts")
+    with pytest.raises(RuntimeError, match="reserved for the tool's own roles"):
+        build_viewer(str(layer), manifest, "redirect/export")
+    assert not (layer / ".leji" / "mounts" / "export").exists(), "nothing written through it"
+    assert (layer / ".leji" / "mounts" / "store" / "keep").read_text() == "private\n"
+    # Where the filesystem cannot tell the two spellings apart, `.LEJI/` names the
+    # reserved role and is refused as one. Where it can, `.LEJI/` is an ordinary
+    # directory name and there is nothing to assert, so the volume decides.
+    if _case_insensitive_fs(layer):
+        with pytest.raises(RuntimeError, match="reserved for the tool's own roles"):
+            build_viewer(str(layer), manifest, ".LEJI/mounts/export")
+        assert not (layer / ".leji" / "mounts" / "export").exists()
+    # The redirection rule is about the destination, not about symlinks: one that
+    # lands somewhere ordinary still exports.
+    (layer / "real-out").mkdir()
+    (layer / "link-out").symlink_to("real-out")
+    build_viewer(str(layer), manifest, "link-out")
+    assert (layer / "real-out" / "index.html").is_file(), "the export landed in the resolved target"
+
+
+def test_viewer_build_export_flavor_carries_no_root_absolute_url(tmp_path: Path) -> None:
+    from leji import build_viewer
+
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    build_viewer(str(layer), manifest)
+    served = (layer / ".leji" / "viewer" / "index.html").read_text()
+    exported = (layer / ".leji" / "dist" / "index.html").read_text()
+    # One code path, two flavors: the servable area holds the app-root base, the
+    # export holds the relative one. index.html is the only file that differs.
+    assert '"basePath":"/content/"' in served, "the served flavor mounts content at the app root"
+    assert 'href="/assets/leji-logo.svg"' in served, "the served favicon is app-root absolute"
+    assert '"basePath":"content/"' in exported, "the exported flavor is relative to the page"
+    assert '"basePath":"/content/"' not in exported, "no export flavor keeps the app-root base"
+    # The machine-checkable proxy gate for subpath hosting: nothing in the exported
+    # shell — attributes or config — addresses the server root. (Sidebar link
+    # destinations are route strings resolved against basePath, not fetch paths, and
+    # live in _sidebar.md, not here.)
+    body = exported[exported.index("-->") + 3 :]
+    assert re.findall(r'(?:href|src)="/[^"]*"', body) == []
+    assert re.findall(r'\\"/(?:content|assets)/[^\\"]*\\"', body) == []
+    # The servable area never holds export-flavored bytes, and the two trees agree on
+    # everything else the chrome ships.
+    for rel in ("assets/viewer-boot.js", "assets/docsify.min.js"):
+        assert (layer / ".leji" / "dist" / rel).read_bytes() == (
+            layer / ".leji" / "viewer" / rel
+        ).read_bytes(), f"{rel} is flavor-neutral"
 
 
 def test_viewer_build_refuses_out_inside_the_context_root(tmp_path: Path) -> None:
@@ -922,10 +1273,19 @@ def test_viewer_hostile_manifest_cannot_break_out_of_its_substitution_site(
     manifest = load_manifest(str(layer)).manifest
     manifest["viewer"] = {"title": "{{MERMAID_SCRIPTS}}", "favicon": "{{DOCSIFY_CONFIG}}"}
     generate_viewer(str(layer), manifest)
-    html = (layer / "docs" / ".leji" / "viewer" / "index.html").read_text()
+    html = (layer / ".leji" / "viewer" / "index.html").read_text()
     assert "<title>{{MERMAID_SCRIPTS}}</title>" in html
     assert 'href="/content/{{DOCSIFY_CONFIG}}"' in html
     assert html.count("<script") == 14, "nothing injected into the page"
+
+
+def _theme_warning(value: str) -> str:
+    """The one message a rejected accent produces, spelled out here so a change to
+    the contract's wording fails the suite rather than shipping."""
+    return (
+        f'viewer.theme.primary "{value}" is not a hex color '
+        f"(#RGB, #RGBA, #RRGGBB, or #RRGGBBAA); using #009F71"
+    )
 
 
 def test_viewer_rejects_an_unusable_theme_color(tmp_path: Path) -> None:
@@ -933,18 +1293,116 @@ def test_viewer_rejects_an_unusable_theme_color(tmp_path: Path) -> None:
     punctuation in it is refused with a warning rather than interpolated."""
     layer = _copy(EXAMPLE, tmp_path)
     manifest = load_manifest(str(layer)).manifest
-    manifest["viewer"] = {"theme": {"primary": "red; } body { display: none } /*"}}
+    injection = "red; } body { display: none } /*"
+    manifest["viewer"] = {"theme": {"primary": injection}}
     result = generate_viewer(str(layer), manifest)
-    html = (layer / "docs" / ".leji" / "viewer" / "index.html").read_text()
-    assert '"themeColor":"#223F93"' in html
-    assert any(
-        f.rule == "viewer-theme-invalid" and f.severity == "warning" for f in result.findings
-    )
+    html = (layer / ".leji" / "viewer" / "index.html").read_text()
+    assert '"themeColor":"#009F71"' in html
+    warnings = [
+        f for f in result.findings if f.rule == "viewer-theme-invalid" and f.severity == "warning"
+    ]
+    assert len(warnings) == 1
+    assert warnings[0].message == _theme_warning(injection)
     manifest["viewer"] = {"theme": {"primary": "#ff0000"}}
     generate_viewer(str(layer), manifest)
-    assert (
-        '"themeColor":"#ff0000"' in (layer / "docs" / ".leji" / "viewer" / "index.html").read_text()
-    )
+    assert '"themeColor":"#ff0000"' in (layer / ".leji" / "viewer" / "index.html").read_text()
+
+
+def test_viewer_accent_is_hex_and_nothing_else(tmp_path: Path) -> None:
+    """5 and 7 digits are no CSS color at all: they used to reach the page as an
+    unusable accent with no warning, while the mermaid text color silently defaulted,
+    leaving accent and text computed from different colors. Keywords are not the
+    contract either, however real the name."""
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    vectors = [
+        # The four lengths CSS defines, alpha forms included, case-insensitive.
+        ("#0f7", True),
+        ("#1234", True),
+        ("#009F71", True),
+        ("#AABBCCDD", True),
+        ("#12345", False),
+        ("#1234567", False),
+        # Keyword acceptance used to fall out of the injection guard, never design.
+        ("navy", False),
+        ("notacolor", False),
+        ("transparent", False),
+        # A trailing newline does not sneak a hex past the predicate, in any SDK:
+        # `fullmatch`, never `match`, is what makes that true here.
+        ("#009F71\n", False),
+    ]
+    for accent, accepted in vectors:
+        manifest["viewer"] = {"theme": {"primary": accent}}
+        result = generate_viewer(str(layer), manifest)
+        html = (layer / ".leji" / "viewer" / "index.html").read_text()
+        warnings = [
+            f
+            for f in result.findings
+            if f.rule == "viewer-theme-invalid" and f.severity == "warning"
+        ]
+        if accepted:
+            assert warnings == [], accent
+            assert f'"themeColor":"{accent}"' in html, accent
+        else:
+            assert len(warnings) == 1, repr(accent)
+            assert warnings[0].message == _theme_warning(accent), repr(accent)
+            assert '"themeColor":"#009F71"' in html, repr(accent)
+
+
+def _wcag_contrast(a: str, b: str) -> float:
+    """Contrast between two #rrggbb colors, computed here rather than through the
+    code under test, so the numeric assertions below are derived independently of the
+    implementation they judge."""
+
+    def luminance(hex_color: str) -> float:
+        def channel(i: int) -> float:
+            c = int(hex_color[1 + i * 2 : 3 + i * 2], 16) / 255
+            return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+        return 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2)
+
+    x, y = luminance(a), luminance(b)
+    return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+
+
+def test_viewer_mermaid_text_color_over_every_accepted_form() -> None:
+    """The generator resolves what the boot script cannot: the alpha forms,
+    composited over the viewer's white content ground."""
+    from leji.viewer_cmd import _mermaid_text_color
+
+    vectors = [
+        # The two brand accents, and the mid-gray class where neither #1a1a1a nor
+        # #ffffff clears 4.5:1 and black buys the last half-stop.
+        ("#009F71", "#1a1a1a"),
+        ("#223F93", "#ffffff"),
+        ("#777777", "#000000"),
+        # #RGB expands like the boot script's fallback does.
+        ("#0f7", "#1a1a1a"),
+        # Alpha composites over white, which lightens: the same accent at half alpha
+        # takes dark text, and a black at 47% is light enough for it too.
+        ("#009F7180", "#1a1a1a"),
+        ("#0007", "#1a1a1a"),
+        # Named resolution is gone: navy would take white text if any keyword path
+        # survived, so the dark default here is the proof it does not.
+        ("navy", "#1a1a1a"),
+        # Unresolvable by nature or by typo: the dark default, never a guess.
+        ("currentColor", "#1a1a1a"),
+        ("notacolor", "#1a1a1a"),
+        ("#12345", "#1a1a1a"),
+        # A dark accent takes white; the case of the authored hex does not matter.
+        ("#1A1A1A", "#ffffff"),
+        ("#000080", "#ffffff"),
+    ]
+    for accent, want in vectors:
+        assert _mermaid_text_color(accent) == want, f"{accent} takes {want}"
+    # The default accent's choice is not merely dark, it is accessible: the numeric
+    # ratio is what the rule is about, so it is asserted as a number.
+    assert _wcag_contrast("#009F71", "#1a1a1a") >= 4.5
+    assert _wcag_contrast("#223F93", "#ffffff") >= 4.5
+    # The #777777 class: black is chosen because both candidates miss, not because it
+    # wins outright over a passing option.
+    assert _wcag_contrast("#777777", "#1a1a1a") < 4.5
+    assert _wcag_contrast("#777777", "#ffffff") < 4.5
 
 
 def test_viewer_escapes_html_in_sidebar_labels(tmp_path: Path) -> None:
@@ -954,7 +1412,7 @@ def test_viewer_escapes_html_in_sidebar_labels(tmp_path: Path) -> None:
     manifest = load_manifest(str(layer)).manifest
     manifest["viewer"] = {"agentsLabel": "<img src=x onerror=alert(1)>"}
     generate_viewer(str(layer), manifest)
-    sidebar = (layer / "docs" / ".leji" / "viewer" / "_sidebar.md").read_text()
+    sidebar = (layer / ".leji" / "viewer" / "_sidebar.md").read_text()
     assert "\\<img src=x onerror=alert(1)\\>" in sidebar
 
 

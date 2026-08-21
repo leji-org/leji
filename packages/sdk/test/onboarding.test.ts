@@ -37,17 +37,17 @@ test('init --dry-run writes nothing and reports the plan', async () => {
 
    const creates = result.plan.filter((e) => e.status === 'create').map((e) => e.rel);
    assert.ok(creates.includes('leji.json'));
-   assert.ok(creates.includes('docs/.leji/onboarding-brief.md'));
+   assert.ok(creates.includes('.leji/work/onboarding-brief.md'));
    // The existing vendor file is detected and explicitly left untouched.
    const untouched = result.plan.find((e) => e.rel === 'CLAUDE.md');
    assert.equal(untouched?.status, 'wont-modify');
 });
 
-test('init writes the onboarding brief under a dot-dir, excluded from the index', async () => {
+test('init writes the onboarding brief in the workspace role, excluded from the index', async () => {
    const dir = tmpdir();
    await initLayer({ dir, yes: true, level: 'indexed', name: 'acme-context' });
 
-   const brief = path.join(dir, 'docs', '.leji', 'onboarding-brief.md');
+   const brief = path.join(dir, '.leji', 'work', 'onboarding-brief.md');
    assert.ok(fs.existsSync(brief), 'brief is written');
 
    const { manifest } = loadManifest(dir);
@@ -195,7 +195,7 @@ function fakeIo(answer: string | string[], launchResult?: SpawnResult, runResult
    return { io, launches, questions, cwds, runs, events };
 }
 
-const BRIEF_PROMPT = 'Read ./docs/.leji/onboarding-brief.md and follow it.';
+const BRIEF_PROMPT = 'Read ./.leji/work/onboarding-brief.md and follow it.';
 
 test('handoffOffer never fires non-interactively, even with a launchable host on PATH', async () => {
    const f = fakeIo('y');
@@ -285,12 +285,12 @@ test('handoffOffer returns false when the agent is killed by a signal', async ()
    assert.equal(await handoffOffer(manifestAt('docs/'), [CLAUDE], true, f.io), false);
 });
 
-test('handoffOffer threads the layer root into the brief prompt', async () => {
+test('handoffOffer names the root-level workspace whatever the layer root is', async () => {
+   // The onboarding workspace is one tree at the repository root, so the prompt is
+   // the same for a layer rooted anywhere: it never carries a rootPath prefix.
    const f = fakeIo('y');
    assert.equal(await handoffOffer(manifestAt('context/'), [CLAUDE], true, f.io), true);
-   assert.deepEqual(f.launches, [
-      { bin: 'claude', promptArg: 'Read ./context/.leji/onboarding-brief.md and follow it.' },
-   ]);
+   assert.deepEqual(f.launches, [{ bin: 'claude', promptArg: BRIEF_PROMPT }]);
 });
 
 // --- enterLayer (leji start) ---
@@ -627,11 +627,18 @@ test('ci --hooks: the stale-index message is literal text, not a command the hoo
    await initLayer({ dir, yes: true });
    gitCommitAll(dir);
    ensureLocalHook(dir);
-   // A repo-local `leji` the hook prefers, so the run is hermetic.
+   // Nothing is declared here, so the generated hook runs the plain `leji` on PATH —
+   // which makes that PATH this test's to supply. A stub of our own, AHEAD of
+   // everything else, so the hook reaches it and never whatever the machine running
+   // the suite happens to have installed (a runner has nothing; a maintainer's box
+   // has a global copy, and the test would silently be measuring that one). The stub
+   // names this Node and this build absolutely: it cannot assume a PATH either.
    const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
    const binDir = path.join(dir, 'node_modules', '.bin');
    fs.mkdirSync(binDir, { recursive: true });
-   fs.writeFileSync(path.join(binDir, 'leji'), `#!/bin/sh\nexec node ${cli} "$@"\n`, { mode: 0o755 });
+   fs.writeFileSync(path.join(binDir, 'leji'), `#!/bin/sh\nexec "${process.execPath}" "${cli}" "$@"\n`, {
+      mode: 0o755,
+   });
    // Stale the stored index, the exact condition the message describes.
    const indexAbs = path.join(dir, 'docs', 'context-index.json');
    const before = fs.readFileSync(indexAbs, 'utf8');
@@ -640,7 +647,11 @@ test('ci --hooks: the stale-index message is literal text, not a command the hoo
       '---\nsummary: An extra domain doc.\n---\n\n# Extra\n',
    );
 
-   const run = spawnSync('sh', [path.join('.git', 'hooks', 'pre-commit')], { cwd: dir, encoding: 'utf8' });
+   const run = spawnSync('sh', [path.join('.git', 'hooks', 'pre-commit')], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}` },
+   });
    assert.equal(run.status, 1, 'the hook rejects the commit');
    // The backticks reach the message as literal characters; a double-quoted echo
    // would have run `leji index` and spliced its stdout in here instead.
@@ -898,29 +909,37 @@ test('renderWritePlan labels every status and summarizes counts', async () => {
 });
 
 test('renderDetect handles the no-hosts case and the ranked case', async () => {
-   const { renderDetect } = await import('../dist/index.js');
-   assert.match(renderDetect([]), /No coding-agent hosts detected/);
-   const ranked = renderDetect([
-      {
-         id: 'claude-code',
-         name: 'Claude Code',
-         strength: 'confirmed',
-         onPath: true,
-         inRepo: false,
-         userConfig: false,
-         adapter: 'CLAUDE.md',
-      },
-      {
-         id: 'cursor',
-         name: 'Cursor',
-         strength: 'project-present',
-         onPath: false,
-         inRepo: true,
-         userConfig: false,
-         adapter: '.cursor/rules/leji.md',
-      },
-   ]);
+   const { renderDetect, detectEcosystem } = await import('../dist/index.js');
+   // A root with no manifest: the ecosystem line is present in both shapes and
+   // says so, without changing what the host list reports.
+   const ecosystem = detectEcosystem(tmpdir());
+   assert.match(renderDetect({ hosts: [], ecosystem }), /No coding-agent hosts detected/);
+   assert.match(renderDetect({ hosts: [], ecosystem }), /Ecosystem: none detected/);
+   const ranked = renderDetect({
+      ecosystem,
+      hosts: [
+         {
+            id: 'claude-code',
+            name: 'Claude Code',
+            strength: 'confirmed',
+            onPath: true,
+            inRepo: false,
+            userConfig: false,
+            adapter: 'CLAUDE.md',
+         },
+         {
+            id: 'cursor',
+            name: 'Cursor',
+            strength: 'project-present',
+            onPath: false,
+            inRepo: true,
+            userConfig: false,
+            adapter: '.cursor/rules/leji.md',
+         },
+      ],
+   });
    assert.match(ranked, /confirmed.*Claude Code.*binary on PATH.*CLAUDE\.md/);
+   assert.match(ranked, /Ecosystem: none detected/);
    assert.match(ranked, /leji init --agent/);
 });
 
@@ -1086,6 +1105,226 @@ test('adopt --wire-adapters never loses vendor content when the migration name c
    assert.match(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), /docs\/boot-profile\.md/);
 });
 
+test('adopt --wire-adapters: a dangling archive candidate is occupied, never written through', async () => {
+   // `existsSync` follows symlinks, so a dangling candidate reads as a free name and the
+   // archive would be created at the link's missing destination. The candidate is judged
+   // by the verified read instead: a standing entry this run cannot verify is occupied.
+   const dir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'original instructions\n');
+   gitCommitAll(dir);
+   await adoptLayer({ dir, yes: true });
+
+   const candidate = path.join(dir, 'docs', 'governance', 'imported-claude.md');
+   fs.rmSync(candidate);
+   fs.symlinkSync('never-created.md', candidate);
+   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'hand-written rules added after adoption\n');
+
+   const wired = await adoptLayer({ dir, yes: true, wireAdapters: true });
+
+   assert.deepEqual(wired.migrated, ['CLAUDE.md'], 'the newer content is still archived');
+   assert.equal(
+      fs.existsSync(path.join(dir, 'docs', 'governance', 'never-created.md')),
+      false,
+      "the dangling link's destination is never created",
+   );
+   assert.ok(fs.lstatSync(candidate).isSymbolicLink(), 'the planted link is left exactly as it was');
+   const alt = path.join(dir, 'docs', 'governance', 'imported-claude-2.md');
+   assert.match(fs.readFileSync(alt, 'utf8'), /hand-written rules added after adoption/, 'the next name is used');
+});
+
+test('adopt --wire-adapters: an archive candidate resolving outside the repository is occupied', async () => {
+   const dir = tmpdir();
+   const outsideFile = path.join(tmpdir(), 'outside.md');
+   fs.writeFileSync(outsideFile, '# Outside the repository\n');
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'original instructions\n');
+   gitCommitAll(dir);
+   await adoptLayer({ dir, yes: true });
+
+   const candidate = path.join(dir, 'docs', 'governance', 'imported-claude.md');
+   fs.rmSync(candidate);
+   fs.symlinkSync(outsideFile, candidate);
+   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'hand-written rules added after adoption\n');
+
+   await adoptLayer({ dir, yes: true, wireAdapters: true });
+
+   assert.equal(fs.readFileSync(outsideFile, 'utf8'), '# Outside the repository\n', 'the outside file is untouched');
+   const alt = path.join(dir, 'docs', 'governance', 'imported-claude-2.md');
+   assert.match(fs.readFileSync(alt, 'utf8'), /hand-written rules added after adoption/, 'the next name is used');
+});
+
+test('init: a dangling symlink at a scaffold target is refused, never written through', async () => {
+   // `existsSync` follows symlinks, so a dangling target reads as absent and the
+   // guarded write lands at the link's destination — inside the root, but under a
+   // name init never planned. The verified read refuses the standing entry instead.
+   const dir = tmpdir();
+   fs.mkdirSync(path.join(dir, 'docs'));
+   const target = path.join(dir, 'docs', 'boot-profile.md');
+   fs.symlinkSync('never-created.md', target);
+
+   await assert.rejects(() => initLayer({ dir, yes: true }), /escapes the target/);
+
+   assert.equal(
+      fs.existsSync(path.join(dir, 'docs', 'never-created.md')),
+      false,
+      "the dangling link's destination is never created",
+   );
+   assert.ok(fs.lstatSync(target).isSymbolicLink(), 'the planted link is left exactly as it was');
+   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init: a scaffold target symlinked outside the repository is refused, not skipped', async () => {
+   // A pathname check sees the link's outside target and reads the name as taken, so
+   // init would quietly skip the file it owns. The verified read judges where the
+   // entry resolves: outside the root is the same hard refusal a write to it is.
+   const dir = tmpdir();
+   const outside = tmpdir();
+   const outsideFile = path.join(outside, 'boot-profile.md');
+   fs.writeFileSync(outsideFile, '# Outside the repository\n');
+   fs.mkdirSync(path.join(dir, 'docs'));
+   fs.symlinkSync(outsideFile, path.join(dir, 'docs', 'boot-profile.md'));
+
+   await assert.rejects(() => initLayer({ dir, yes: true }), /escapes the target/);
+
+   assert.equal(fs.readFileSync(outsideFile, 'utf8'), '# Outside the repository\n', 'the outside file is untouched');
+   fs.rmSync(dir, { recursive: true, force: true });
+   fs.rmSync(outside, { recursive: true, force: true });
+});
+
+test('adopt: a dangling migration-doc name is occupied, never written through', async () => {
+   // The disambiguation loop picks the archive's name. A dangling candidate read by
+   // pathname is a free name, and the migrated content would land at the link's
+   // missing destination; the verified read makes any standing entry occupied.
+   const dir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'original instructions\n');
+   fs.mkdirSync(path.join(dir, 'docs', 'governance'), { recursive: true });
+   const candidate = path.join(dir, 'docs', 'governance', 'imported-claude.md');
+   fs.symlinkSync('never-created.md', candidate);
+   gitCommitAll(dir);
+
+   const res = await adoptLayer({ dir, yes: true });
+
+   assert.deepEqual(res.migrated, ['CLAUDE.md'], 'the vendor content is still migrated');
+   assert.equal(
+      fs.existsSync(path.join(dir, 'docs', 'governance', 'never-created.md')),
+      false,
+      "the dangling link's destination is never created",
+   );
+   assert.ok(fs.lstatSync(candidate).isSymbolicLink(), 'the planted link is left exactly as it was');
+   const alt = path.join(dir, 'docs', 'governance', 'imported-claude-2.md');
+   assert.match(fs.readFileSync(alt, 'utf8'), /original instructions/, 'the next name is used');
+   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('adopt: a migration-doc name resolving outside the repository is occupied', async () => {
+   const dir = tmpdir();
+   const outside = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'original instructions\n');
+   fs.mkdirSync(path.join(dir, 'docs', 'governance'), { recursive: true });
+   const candidate = path.join(dir, 'docs', 'governance', 'imported-claude.md');
+   fs.symlinkSync(path.join(outside, 'never-created.md'), candidate);
+   gitCommitAll(dir);
+
+   const res = await adoptLayer({ dir, yes: true });
+
+   assert.deepEqual(res.migrated, ['CLAUDE.md'], 'the vendor content is still migrated');
+   assert.deepEqual(fs.readdirSync(outside), [], 'nothing is written outside the repository');
+   const alt = path.join(dir, 'docs', 'governance', 'imported-claude-2.md');
+   assert.match(fs.readFileSync(alt, 'utf8'), /original instructions/, 'the next name is used');
+   fs.rmSync(dir, { recursive: true, force: true });
+   fs.rmSync(outside, { recursive: true, force: true });
+});
+
+test('adopt: a dangling scaffold name is occupied, and the alternate name is scaffolded', async () => {
+   // The scaffold names were picked with `existsSync`, which follows symlinks: a dangling
+   // boot-profile link read as a free name, and the scaffold would have been written at
+   // the link's missing destination. The verified read makes any standing entry occupied,
+   // so the alternate name is taken exactly as it is for an ordinary existing file.
+   const dir = tmpdir();
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   fs.mkdirSync(path.join(dir, 'docs'));
+   fs.writeFileSync(path.join(dir, 'docs', 'notes.md'), '# Notes\n');
+   const link = path.join(dir, 'docs', 'boot-profile.md');
+   fs.symlinkSync('never-created.md', link);
+   gitCommitAll(dir);
+
+   const res = await adoptLayer({ dir, yes: true });
+
+   assert.equal(res.manifest.bootProfilePath, 'docs/leji-boot-profile.md', 'the alternate name is scaffolded');
+   assert.equal(
+      fs.existsSync(path.join(dir, 'docs', 'never-created.md')),
+      false,
+      "the dangling link's destination is never created",
+   );
+   assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the planted link is left exactly as it was');
+   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('adopt: a scaffold name resolving outside the repository is occupied', async () => {
+   const dir = tmpdir();
+   const outside = tmpdir();
+   const outsideFile = path.join(outside, 'boot-profile.md');
+   fs.writeFileSync(outsideFile, '# Outside the repository\n');
+   execFileSync('git', ['init', '-q'], { cwd: dir });
+   fs.mkdirSync(path.join(dir, 'docs'));
+   fs.writeFileSync(path.join(dir, 'docs', 'notes.md'), '# Notes\n');
+   fs.symlinkSync(outsideFile, path.join(dir, 'docs', 'boot-profile.md'));
+   gitCommitAll(dir);
+
+   const res = await adoptLayer({ dir, yes: true });
+
+   assert.equal(res.manifest.bootProfilePath, 'docs/leji-boot-profile.md', 'the alternate name is scaffolded');
+   assert.equal(fs.readFileSync(outsideFile, 'utf8'), '# Outside the repository\n', 'the outside file is untouched');
+   fs.rmSync(dir, { recursive: true, force: true });
+   fs.rmSync(outside, { recursive: true, force: true });
+});
+
+test('leji agent: a dangling profile name refuses the command, writing neither half', async () => {
+   // `isFile` follows symlinks, so a dangling profile link read as absent and the profile
+   // was written at the link's destination. Both halves are judged before either is
+   // written, so a refused profile leaves the manifest binding unwritten too.
+   const dir = tmpdir();
+   await initLayer({ dir, yes: true, name: 'demo' });
+   const { manifest } = loadManifest(dir);
+   const link = path.join(dir, 'docs', 'agents', 'reviewer.md');
+   fs.mkdirSync(path.dirname(link), { recursive: true });
+   fs.symlinkSync('never-created.md', link);
+   const before = fs.readFileSync(path.join(dir, 'leji.json'), 'utf8');
+
+   assert.throws(() => addAgent(dir, manifest!, { host: 'codex', name: 'reviewer' }), /escapes the target/);
+
+   assert.equal(
+      fs.existsSync(path.join(dir, 'docs', 'agents', 'never-created.md')),
+      false,
+      "the dangling link's destination is never created",
+   );
+   assert.equal(fs.readFileSync(path.join(dir, 'leji.json'), 'utf8'), before, 'the manifest is not rewritten');
+   assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the planted link is left exactly as it was');
+   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('leji agent: a profile name resolving outside the repository refuses, writing neither half', async () => {
+   const dir = tmpdir();
+   const outside = tmpdir();
+   const outsideFile = path.join(outside, 'reviewer.md');
+   fs.writeFileSync(outsideFile, '# Outside the repository\n');
+   await initLayer({ dir, yes: true, name: 'demo' });
+   const { manifest } = loadManifest(dir);
+   fs.mkdirSync(path.join(dir, 'docs', 'agents'), { recursive: true });
+   fs.symlinkSync(outsideFile, path.join(dir, 'docs', 'agents', 'reviewer.md'));
+   const before = fs.readFileSync(path.join(dir, 'leji.json'), 'utf8');
+
+   assert.throws(() => addAgent(dir, manifest!, { host: 'codex', name: 'reviewer' }), /escapes the target/);
+
+   assert.equal(fs.readFileSync(outsideFile, 'utf8'), '# Outside the repository\n', 'the outside file is untouched');
+   assert.equal(fs.readFileSync(path.join(dir, 'leji.json'), 'utf8'), before, 'the manifest is not rewritten');
+   fs.rmSync(dir, { recursive: true, force: true });
+   fs.rmSync(outside, { recursive: true, force: true });
+});
+
 const BROKEN_DOT_ROOT_PATHS =
    /\.boot-profile\.md|\.agents\/|\.governance\/|\.domain\/|\.decisions\/|\.context\/|\.\.leji\//;
 
@@ -1124,7 +1363,7 @@ test('adopt summary under a "." root references governance/ and .leji/, never .g
    } as Parameters<typeof enteringAdopted>[0]);
    assert.doesNotMatch(summary, BROKEN_DOT_ROOT_PATHS, 'no .governance/ or ..leji/ in the summary');
    assert.match(summary, /into governance\//, 'migrated into governance/');
-   assert.match(summary, /\.leji\/onboarding-brief\.md/, 'brief path is .leji/onboarding-brief.md');
+   assert.match(summary, /\.leji\/work\/onboarding-brief\.md/, 'brief path is .leji/work/onboarding-brief.md');
 });
 
 // --- MCP install offer (pre-handoff) ---
@@ -1288,10 +1527,10 @@ test('solo boot profile routes identity and writing work by task, never preloade
 test('solo brief is mode-stamped and carries the interview and artifact rules', async () => {
    const dir = tmpdir();
    await initLayer({ dir, yes: true, mode: 'solo' });
-   const brief = fs.readFileSync(path.join(dir, 'docs/.leji/onboarding-brief.md'), 'utf8');
+   const brief = fs.readFileSync(path.join(dir, '.leji/work/onboarding-brief.md'), 'utf8');
 
    assert.ok(brief.includes('**Working mode:** solo'));
-   assert.ok(brief.includes('docs/.leji/onboarding-inputs/'), 'drop-folder path rewritten for the root');
+   assert.ok(brief.includes('.leji/work/onboarding-inputs/'), 'drop folder sits in the workspace role');
    assert.ok(brief.includes('untrusted data'), 'artifact consent rules present');
    assert.ok(!brief.includes('<mode>'), 'no unreplaced mode marker');
    assert.ok(!brief.includes('<root>/'), 'no unreplaced root marker');
@@ -1319,7 +1558,7 @@ test('omitted mode and explicit --mode team are byte-identical, with no solo sta
       );
    }
    assert.ok(!fs.existsSync(path.join(a, 'docs/domain/identity.md')), 'team scaffolds no identity starter');
-   const brief = fs.readFileSync(path.join(a, 'docs/.leji/onboarding-brief.md'), 'utf8');
+   const brief = fs.readFileSync(path.join(a, '.leji/work/onboarding-brief.md'), 'utf8');
    assert.ok(brief.includes('**Working mode:** team'), 'team brief carries a concrete stamp');
 });
 
@@ -1405,8 +1644,8 @@ test('init refuses while files under .leji/ are tracked by git, leaving the tree
    git('init', '-q');
    git('config', 'user.name', 'T');
    git('config', 'user.email', 't@example.com');
-   fs.mkdirSync(path.join(dir, 'docs/.leji'), { recursive: true });
-   fs.writeFileSync(path.join(dir, 'docs/.leji/stale.md'), 'tracked artifact\n');
+   fs.mkdirSync(path.join(dir, '.leji'), { recursive: true });
+   fs.writeFileSync(path.join(dir, '.leji/stale.md'), 'tracked artifact\n');
    git('add', '-A');
    git('commit', '-qm', 'seed');
 
@@ -1435,13 +1674,13 @@ test('approval guard: installs idempotently and preserves existing settings', ()
    assert.equal(settings.existing, true, 'unrelated settings preserved');
    const matchers = settings.hooks.PreToolUse.map((e: { matcher: string }) => e.matcher);
    assert.deepEqual(matchers, ['Bash', 'AskUserQuestion']);
-   assert.ok(fs.existsSync(path.join(dir, 'docs', '.leji', 'hooks', 'approval-guard.mjs')));
+   assert.ok(fs.existsSync(path.join(dir, '.leji', 'work', 'hooks', 'approval-guard.mjs')));
 });
 
 test('approval guard: blocks until written and printed, inert after onboarding', () => {
    const dir = tmpdir();
    ensureApprovalGuard(dir, 'docs/');
-   const lejiDir = path.join(dir, 'docs', '.leji');
+   const lejiDir = path.join(dir, '.leji', 'work');
    const script = path.join(lejiDir, 'hooks', 'approval-guard.mjs');
    fs.writeFileSync(path.join(lejiDir, 'onboarding-brief.md'), 'brief');
    const run = (transcript: string): number =>

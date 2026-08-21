@@ -1,0 +1,9 @@
+# >>> leji ci (managed) >>>
+leji-validate:
+  stage: .pre
+  image: node:22
+  script:
+    - corepack enable && yarn install --frozen-lockfile
+    - yarn leji validate
+    - yarn leji index --check
+# <<< leji ci (managed) <<<

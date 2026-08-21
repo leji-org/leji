@@ -1,0 +1,18 @@
+[project]
+name = "demo"
+version = "0.1.0"
+description = "leji keeps the context layer honest"
+keywords = ["leji", "context"]
+readme = """
+leji is described here, not depended on.
+"""
+license = '''
+leji appears here too.
+'''
+dependencies = ["requests"]
+
+[tool.black]
+leji = "not a dependency table"
+
+[tool.uv]
+package = false

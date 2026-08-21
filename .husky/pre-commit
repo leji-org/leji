@@ -14,7 +14,9 @@ files=$(git diff --cached --name-only --diff-filter=ACM)
 [ -z "$files" ] && exit 0
 
 echo "trufflehog: scanning staged files…"
-printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 trufflehog filesystem --only-verified --fail --no-update || {
+# Lob excluded: its test-key pattern matches pytest function names (FP since
+# trufflehog 3.96.0); keep in sync with ci.yml → secret-scan.
+printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 trufflehog filesystem --only-verified --fail --no-update --exclude-detectors=lob || {
    echo ""
    echo "✖ trufflehog found a verified secret in your staged changes (see above)."
    echo "  Remove it before committing. Last resort (false positive): git commit --no-verify"

@@ -8,10 +8,32 @@ Runs locally over stdio, needs no network or auth, and exposes only read-only to
 
 ## Use it
 
-Add it to your MCP client (Claude Code, Claude Desktop, Cursor, Windsurf, …):
+Claude Code, for the whole repository (writes a `.mcp.json` you commit):
+
+```bash
+claude mcp add leji --scope project -- npx -y @leji-org/mcp
+```
+
+Claude Code, for your user across every project:
+
+```bash
+claude mcp add leji --scope user -- npx -y @leji-org/mcp
+```
+
+Codex, at user level:
+
+```bash
+codex mcp add leji -- npx -y @leji-org/mcp
+```
+
+Any other MCP client (Claude Desktop, Cursor, Windsurf, …) takes the standard config:
 
 ```json
-{ "mcpServers": { "leji": { "command": "npx", "args": ["-y", "@leji-org/mcp"] } } }
+{
+  "mcpServers": {
+    "leji": { "command": "npx", "args": ["-y", "@leji-org/mcp"] }
+  }
+}
 ```
 
 The client launches `leji-mcp` on demand. The server reads the layer at the `root` path each tool is given; point it at a repository that contains a `leji.json`.

@@ -1,0 +1,72 @@
+{
+  "name": "leji",
+  "summary": "Synthetic spec: the bounds vector for terminal help.",
+  "usage": "leji <command> [options]",
+  "globalOptions": [
+    {
+      "flags": "--a-global-flag-whose-spelling-runs-out-to-seventy-five-code-points <value>",
+      "summary": "A global flag long enough to outgrow the option column's upper bound, so the row rule decides where its summary goes."
+    },
+    {
+      "flags": "--json",
+      "summary": "Machine-readable JSON output instead of human-readable text."
+    }
+  ],
+  "exitCodes": [
+    {
+      "code": 0,
+      "meaning": "Clean."
+    },
+    {
+      "code": 127,
+      "meaning": "A three-digit code, so the code column widens with the data it holds."
+    }
+  ],
+  "groups": [
+    {
+      "id": "only",
+      "title": "Only group"
+    }
+  ],
+  "commands": [
+    {
+      "name": "a-command-name-long-enough-to-outgrow-its-bounded-column",
+      "group": "only",
+      "summary": "A command name past the name column's upper bound, so its summary starts on the next line.",
+      "usage": "leji a-command-name-long-enough-to-outgrow-its-bounded-column [--root <dir>]",
+      "description": "One paragraph, wrapped like any other description.",
+      "options": [
+        {
+          "flags": "--emoji-😀😀 <value>",
+          "summary": "A flag carrying astral characters, so a column padded in UTF-16 units misaligns this row by two."
+        }
+      ],
+      "examples": [
+        "leji a-command-name-long-enough-to-outgrow-its-bounded-column"
+      ]
+    },
+    {
+      "name": "short",
+      "group": "only",
+      "summary": "A short name, so the same column serves both rows.",
+      "usage": "leji short",
+      "description": "Second command.",
+      "options": [],
+      "examples": [
+        "leji short"
+      ]
+    },
+    {
+      "name": "sh",
+      "group": "only",
+      "aliasOf": "short",
+      "summary": "Alias of short.",
+      "usage": "leji sh",
+      "description": "Alias.",
+      "options": [],
+      "examples": [
+        "leji sh"
+      ]
+    }
+  ]
+}

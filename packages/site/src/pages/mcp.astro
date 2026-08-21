@@ -8,7 +8,8 @@ const config = `{
   }
 }`;
 
-const claudeAdd = 'claude mcp add leji --scope user -- npx -y @leji-org/mcp';
+const claudeAddProject = 'claude mcp add leji --scope project -- npx -y @leji-org/mcp';
+const claudeAddUser = 'claude mcp add leji --scope user -- npx -y @leji-org/mcp';
 const codexAdd = 'codex mcp add leji -- npx -y @leji-org/mcp';
 
 const resources = [
@@ -70,10 +71,14 @@ const tools = [
    </p>
 
    <h3>Claude Code</h3>
-   <CopyableCode code={claudeAdd} lang="bash" label="Copy command" />
+   <CopyableCode code={claudeAddProject} lang="bash" label="Copy command" />
    <p>
-      <code>--scope user</code> installs it once for your user, so the <code>leji</code> tools are available in every project;
-      drop it to limit the server to the current project. Full reference:{' '}
+      <code>--scope project</code> writes the shared <code>.mcp.json</code> at the repository root; commit it and everyone
+      who clones the repository is offered the server. For your user across every project instead:
+   </p>
+   <CopyableCode code={claudeAddUser} lang="bash" label="Copy command" />
+   <p>
+      Omitting <code>--scope</code> registers the server privately, for this project only. Full reference:{' '}
       <a href="https://docs.claude.com/en/docs/claude-code/mcp" target="_blank" rel="noopener">Claude Code MCP docs</a>.
    </p>
 
@@ -181,11 +186,11 @@ const tools = [
    }
    .mcp-table th {
       padding: 0.5rem 0.9rem 0.5rem 0;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--leji-border);
       vertical-align: top;
       text-align: left;
       font-weight: 400;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       white-space: nowrap;
    }
    .mcp-table thead th {
@@ -193,23 +198,23 @@ const tools = [
       font-size: 0.72rem;
       letter-spacing: 0.14em;
       text-transform: uppercase;
-      color: var(--blue);
+      color: var(--leji-link);
    }
    .mcp-table th code {
-      color: var(--blue-deep);
+      color: var(--leji-text);
       font-size: 0.85em;
    }
    .mcp-table td {
       padding: 0.5rem 0.9rem 0.5rem 0;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--leji-border);
       vertical-align: top;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
    }
    .mcp-table td:first-child {
       white-space: nowrap;
    }
    .mcp-table td code {
-      color: var(--blue-deep);
+      color: var(--leji-text);
       font-size: 0.85em;
    }
 </style>

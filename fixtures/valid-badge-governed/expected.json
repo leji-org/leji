@@ -1,0 +1,28 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": []
+  },
+  "conformance": {
+    "exit": 0,
+    "claimedLevel": "governed",
+    "verifiedLevel": "governed"
+  },
+  "indexCheck": {
+    "exit": 0,
+    "stale": false
+  },
+  "badge": {
+    "exit": 0,
+    "out": "leji-badge.svg",
+    "level": "governed",
+    "claimedLevel": "governed",
+    "verifiedLevel": "governed",
+    "golden": "badge/governed.svg",
+    "action": "wrote",
+    "rerun": {
+      "action": "unchanged",
+      "byteIdentical": true
+    }
+  }
+}

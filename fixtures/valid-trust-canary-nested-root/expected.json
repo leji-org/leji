@@ -1,0 +1,138 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": []
+  },
+  "conformance": {
+    "exit": 0,
+    "claimedLevel": "core",
+    "verifiedLevel": "core"
+  },
+  "seeds": [
+    {
+      "from": ".leji-seed",
+      "to": ".leji"
+    }
+  ],
+  "export": {
+    "exit": 0,
+    "findings": [],
+    "out": ".leji/dist",
+    "layout": {
+      "roles": {
+        "viewer": ".leji/viewer/",
+        "dist": ".leji/dist/"
+      },
+      "present": [
+        ".leji/viewer/index.html",
+        ".leji/dist/index.html",
+        ".leji/dist/assets/",
+        ".leji/dist/content/_sidebar.md",
+        ".leji/dist/content/boot-profile.md",
+        "docs/overview.md"
+      ],
+      "absent": ["docs/.leji/"],
+      "preserved": [
+        ".leji/mounts.local.json",
+        ".leji/mounts/store/x/planted",
+        ".leji/mounts/cache/ac2fd7fe276d8012bf6c9b37097da7134aa63cfcec62be4c9caf87e88cf894c0/projection/planted.md",
+        ".leji/work/proposal.md",
+        ".leji/some-future-role/planted.md"
+      ]
+    },
+    "rerun": {
+      "byteIdentical": true
+    },
+    "goldenTree": {
+      "status": "baked",
+      "contentDir": "expected-export/content",
+      "manifest": "expected-export.manifest.json"
+    }
+  },
+  "trustCanary": {
+    "topology": "nested",
+    "plantedPaths": [
+      ".leji/mounts.local.json",
+      ".leji/mounts/store/x/planted",
+      ".leji/mounts/cache/ac2fd7fe276d8012bf6c9b37097da7134aa63cfcec62be4c9caf87e88cf894c0/projection/planted.md",
+      ".leji/work/proposal.md",
+      ".leji/some-future-role/planted.md"
+    ],
+    "serve": {
+      "requests": [
+        { "path": "/", "status": 200, "note": "chrome shell; the only way into the viewer role" },
+        { "path": "/index.html", "status": 200 },
+        { "path": "/assets/leji-logo.svg", "status": 200, "note": "chrome assets" },
+        { "path": "/content/boot-profile.md", "status": 200 },
+        { "path": "/content/overview.md", "status": 200 },
+        { "path": "/content/domain/overview.md", "status": 200 },
+        { "path": "/content/decisions/0001-adopt-leji.md", "status": 200 },
+        { "path": "/content/context/domain.md", "status": 200 },
+        { "path": "/content/context/decisions.md", "status": 200 },
+        { "path": "/content/_sidebar.md", "status": 200 },
+        { "path": "/content/_manifest.md", "status": 200, "note": "mount status metadata only, never mounted bytes" },
+        { "path": "/content/context-index.json", "status": 200 },
+        {
+          "path": "/content/leji.json",
+          "status": 404,
+          "note": "the manifest sits outside the content root in this topology"
+        },
+        { "path": "/.leji/mounts.local.json", "status": 404 },
+        { "path": "/.leji/mounts/store/x/planted", "status": 404 },
+        {
+          "path": "/.leji/mounts/cache/ac2fd7fe276d8012bf6c9b37097da7134aa63cfcec62be4c9caf87e88cf894c0/projection/planted.md",
+          "status": 404
+        },
+        { "path": "/.leji/work/proposal.md", "status": 404 },
+        {
+          "path": "/.leji/some-future-role/planted.md",
+          "status": 404,
+          "note": "unknown role: default-deny by name, no code change needed"
+        },
+        { "path": "/.leji/dist/index.html", "status": 404, "note": "an export is never re-served" },
+        {
+          "path": "/.leji/viewer/index.html",
+          "status": 404,
+          "note": "even the servable role is unreachable by its own path; only the mount serves it"
+        },
+        { "path": "/content/.leji/mounts.local.json", "status": 404 },
+        { "path": "/content/.leji/mounts/store/x/planted", "status": 404 },
+        { "path": "/content/.leji/work/proposal.md", "status": 404 },
+        { "path": "/content/.leji/some-future-role/planted.md", "status": 404 },
+        {
+          "path": "/mounts.local.json",
+          "status": 404,
+          "note": "role names as first segment: nothing under .leji/ but viewer/ is a servable root"
+        },
+        { "path": "/mounts/store/x/planted", "status": 404 },
+        { "path": "/work/proposal.md", "status": 404 },
+        { "path": "/some-future-role/planted.md", "status": 404 },
+        { "path": "/dist/index.html", "status": 404 },
+        { "path": "/%2Eleji/mounts.local.json", "status": 404, "note": "encoded leading dot" },
+        { "path": "/%2E%6Ceji/mounts/store/x/planted", "status": 404 },
+        { "path": "/content/%2eleji/work/proposal.md", "status": 404 },
+        {
+          "path": "/content/..%2F.leji/mounts.local.json",
+          "status": 404,
+          "note": "encoded traversal out of the content mount"
+        },
+        { "path": "/assets/..%2F..%2F.leji/mounts.local.json", "status": 404 },
+        { "path": "/content/%2e%2e%2f%2e%6ceji/work/proposal.md", "status": 404 },
+        { "path": "/content/..%5C.leji/mounts.local.json", "status": 404, "note": "backslash separator folds to /" },
+        {
+          "path": "/%252Eleji/mounts.local.json",
+          "status": 404,
+          "note": "double-encoded: decoded once, so this is a literal name, not a dot segment"
+        },
+        { "path": "/content/%2", "status": 400, "note": "malformed percent-encoding is answered, never crashed on" }
+      ],
+      "routeScan": {
+        "assertNoTokenIn200Bodies": true
+      }
+    },
+    "exportScan": {
+      "root": ".leji/dist",
+      "occurrences": 0
+    }
+  }
+}

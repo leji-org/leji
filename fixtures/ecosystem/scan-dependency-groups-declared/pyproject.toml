@@ -1,0 +1,9 @@
+[project]
+name = "d"
+version = "0"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "leji ; python_version >= '3.11'",
+]

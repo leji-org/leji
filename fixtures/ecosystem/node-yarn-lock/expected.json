@@ -1,0 +1,53 @@
+{
+  "ecosystem": {
+    "selected": {
+      "ecosystem": "node",
+      "status": "ok",
+      "manifest": "package.json",
+      "manager": "yarn",
+      "source": "lockfile",
+      "evidence": [
+        "yarn.lock"
+      ],
+      "add": [
+        "yarn",
+        "add",
+        "-D",
+        "@leji-org/leji"
+      ],
+      "runner": [
+        "yarn",
+        "leji"
+      ],
+      "directDeclared": false,
+      "lockEvidenced": true,
+      "candidates": []
+    },
+    "all": [
+      {
+        "ecosystem": "node",
+        "status": "ok",
+        "manifest": "package.json",
+        "manager": "yarn",
+        "source": "lockfile",
+        "evidence": [
+          "yarn.lock"
+        ],
+        "add": [
+          "yarn",
+          "add",
+          "-D",
+          "@leji-org/leji"
+        ],
+        "runner": [
+          "yarn",
+          "leji"
+        ],
+        "directDeclared": false,
+        "lockEvidenced": true,
+        "candidates": []
+      }
+    ],
+    "reason": null
+  }
+}

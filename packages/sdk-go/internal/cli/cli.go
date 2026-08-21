@@ -11,26 +11,32 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/leji-org/leji/packages/sdk-go/internal/commands/badge"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/changelog"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/conformance"
 	detectcmd "github.com/leji-org/leji/packages/sdk-go/internal/commands/detect"
+	"github.com/leji-org/leji/packages/sdk-go/internal/commands/export"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/freshness"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
 	initcmd "github.com/leji-org/leji/packages/sdk-go/internal/commands/init"
+	"github.com/leji-org/leji/packages/sdk-go/internal/commands/serve"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/status"
+	"github.com/leji-org/leji/packages/sdk-go/internal/commands/updatepin"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/validate"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/viewer"
 	"github.com/leji-org/leji/packages/sdk-go/internal/detect"
+	"github.com/leji-org/leji/packages/sdk-go/internal/ecosystem"
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
-	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
 	"github.com/leji-org/leji/packages/sdk-go/internal/git"
 	"github.com/leji-org/leji/packages/sdk-go/internal/jsonenc"
 	"github.com/leji-org/leji/packages/sdk-go/internal/layer"
+	"github.com/leji-org/leji/packages/sdk-go/internal/layout"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/mounts"
 	"github.com/leji-org/leji/packages/sdk-go/internal/schemas"
@@ -51,6 +57,7 @@ type flags struct {
 	hooks        bool
 	explain      bool
 	fetch        bool
+	allowNonFF   bool
 	checkIntegr  bool
 	help         bool
 	version      bool
@@ -76,8 +83,15 @@ type flags struct {
 	topics     []string
 	asOf       string
 	federation string
+	to         string
+	hasTo      bool
 	hostArgs   []string
 }
+
+// fullOidRe is the schema's own pin shape: a full commit id, never an
+// abbreviation and never a revision expression, so all three SDKs accept one
+// spelling.
+var fullOidRe = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 
 // quoteTopic renders s the way Node's JSON.stringify(s) does. jsonenc covers the
 // ordinary escapes; a lone surrogate — the only reason this message is ever
@@ -344,6 +358,22 @@ func parseFlags(argv []string) (flags, []string, string) {
 			f.open = true
 		case "--fetch":
 			f.fetch = true
+		case "--allow-non-fast-forward":
+			f.allowNonFF = true
+		case "--to":
+			i++
+			v, ok := "", i < len(argv)
+			if ok {
+				v = argv[i]
+			}
+			if v == "" || isFlagToken(v, ok) {
+				return f, rest, "--to requires a value"
+			}
+			if !fullOidRe.MatchString(v) {
+				return f, rest, "--to must be a full 40- or 64-character lowercase hex commit id"
+			}
+			f.to = v
+			f.hasTo = true
 		case "--federation":
 			i++
 			v, ok := "", i < len(argv)
@@ -402,6 +432,166 @@ func parseFlags(argv []string) (flags, []string, string) {
 		}
 	}
 	return f, rest, ""
+}
+
+// printUnindexedNudge writes the `index` generate run's closing nudge.
+// Byte-identical in all three SDKs and quiet at zero: a layer with nothing
+// unindexed says nothing.
+func printUnindexedNudge(count int) {
+	if count <= 0 {
+		return
+	}
+	fmt.Printf("%d file(s) unindexed: add to a category index or leave as reference deliberately\n", count)
+}
+
+// runExport is the one export run, reached by both of its names: `leji export`
+// (the front door) and `leji viewer build` (the viewer subsystem's name for the same
+// operation, beside `viewer serve`). One code path, so the two are byte-identical by
+// construction — same default output, same JSON document, same exits.
+//
+// Exits: 0 written (warnings allowed), 1 an error finding — or, under `--strict`, a
+// lint finding — with the target left byte-untouched, 2 a usage error or a refusal.
+func runExport(f flags) int {
+	load := manifest.LoadManifest(f.root)
+	out := ""
+	if f.hasOut {
+		out = f.out
+	}
+	// A failure before the pipeline can run (an unreadable manifest) reports in the
+	// command's OWN document, never the generic one: a `--json` consumer parses one
+	// shape under every outcome and either name.
+	if load.Manifest == nil {
+		declared := out
+		if declared == "" {
+			declared = layout.DistRel
+		}
+		return reportExport(f, export.BuildResult{Out: declared, Findings: load.Findings})
+	}
+	r, err := export.BuildViewer(f.root, load.Manifest, out, export.Options{Strict: f.strict})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
+		return 2
+	}
+	return reportExport(f, r)
+}
+
+// reportExport is the one export report, for every outcome the pipeline can reach.
+func reportExport(f flags, r export.BuildResult) int {
+	sorted := findings.Sort(r.Findings)
+	if f.json {
+		// The canonical JSON document for this command, under either name.
+		o := newJSONObj()
+		o.set("command", "export")
+		o.set("ok", r.Wrote)
+		o.set("out", r.Out)
+		arr := make([]any, 0, len(sorted))
+		for _, fnd := range sorted {
+			arr = append(arr, findingToMap(fnd))
+		}
+		o.set("findings", arr)
+		o.set("warning", export.ProtectWarning)
+		var buf bytes.Buffer
+		o.encode(&buf, "", "  ")
+		fmt.Println(buf.String())
+		if r.Wrote {
+			return 0
+		}
+		return 1
+	}
+	if !r.Wrote {
+		s := findings.Summarize(sorted)
+		printFindings(sorted)
+		errWord := "errors"
+		if s.Errors == 1 {
+			errWord = "error"
+		}
+		warnWord := "warnings"
+		if s.Warnings == 1 {
+			warnWord = "warning"
+		}
+		strictNote := ""
+		if f.strict {
+			strictNote = "; strict, nothing written"
+		}
+		fmt.Printf("failed (%d %s, %d %s%s)\n", s.Errors, errWord, s.Warnings, warnWord, strictNote)
+		return 1
+	}
+	// Human mode says where the export went and repeats the protect-your-context
+	// warning, which is the part a person must act on before hosting it.
+	fmt.Printf("Exported the static viewer to %s/\n", r.Out)
+	fmt.Printf("\n%s\n", export.ProtectWarning)
+	return 0
+}
+
+// nullEmpty maps a badge field's "" (no value) to JSON null. None of them has a
+// legitimate empty value, so the empty string is unambiguously "none".
+func nullEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// reportBadge is the one `leji badge` report, for every outcome the command can
+// reach. The JSON document is the shared emit() shape plus the badge's own fields,
+// emitted under success and refusal alike so a consumer parses one document; the
+// human channel says what was written and hands over the markdown line to paste.
+//
+// Exits: `0` the badge is written or already current, `1` a conformance error
+// finding or nothing machine-verified in this run, `2` a `--out` usage error
+// (rendered by the caller, with no level reported) or a refusal to overwrite a file
+// that is not a badge of this contract.
+func reportBadge(f flags, r badge.Result) int {
+	sorted := findings.Sort(r.Findings)
+	summary := findings.Summarize(sorted)
+	ok := summary.Errors == 0
+	code := 1
+	if ok {
+		code = 0
+	}
+	if r.Refusal != "" {
+		code = 2
+	}
+	if f.json {
+		extra := newExtra()
+		extra.set("out", nullEmpty(r.Out))
+		extra.set("level", nullEmpty(r.Level))
+		extra.set("claimedLevel", nullEmpty(r.ClaimedLevel))
+		extra.set("verifiedLevel", nullEmpty(r.VerifiedLevel))
+		extra.set("markdown", nullEmpty(r.Markdown))
+		extra.set("action", nullEmpty(r.Action))
+		fmt.Println(emitJSON("badge", ok, sorted, summary, extra))
+		if r.Refusal != "" {
+			fmt.Fprintf(os.Stderr, "leji: %s\n", r.Refusal)
+		}
+		return code
+	}
+	if r.Refusal != "" {
+		fmt.Fprintf(os.Stderr, "leji: %s\n", r.Refusal)
+		return 2
+	}
+	if !ok {
+		printFindings(sorted)
+		fmt.Println("Run leji conformance --explain.")
+		return 1
+	}
+	verb := "Unchanged"
+	switch r.Action {
+	case badge.Wrote:
+		verb = "Wrote"
+	case badge.Overwrote:
+		verb = "Overwrote"
+	}
+	fmt.Printf("%s %s: %s\n", verb, r.Out, badge.Label(r.Level))
+	// The badge states what this run verified, so a claim it did not reach is said
+	// out loud rather than quietly dropped.
+	if r.ClaimedLevel != "" && r.ClaimedLevel != r.VerifiedLevel {
+		fmt.Printf("Claimed %s; this offline run verified %s (leji conformance --federation=verify checks the claim).\n",
+			r.ClaimedLevel, r.VerifiedLevel)
+	}
+	fmt.Print("\nAdd it to your README (paths are relative to the repository root):\n\n")
+	fmt.Println(strings.TrimRight(r.Markdown, "\n"))
+	return 0
 }
 
 // emit prints findings and returns the exit code (0 ok, 1 on errors).
@@ -505,6 +695,14 @@ func findingToMap(f findings.Finding) *jsonObj {
 	if f.HasPath {
 		o.set("path", f.Path)
 	}
+	// The rendering lint locates its findings; every other rule carries neither key,
+	// and the field is omitted rather than emitted as a zero (matching Node/Python).
+	if f.Line > 0 {
+		o.set("line", f.Line)
+	}
+	if f.Construct != "" {
+		o.set("construct", f.Construct)
+	}
 	o.set("message", f.Message)
 	return o
 }
@@ -535,7 +733,7 @@ func emitJSON(command string, ok bool, fs []findings.Finding, summary findings.S
 // valueFlags drives per-command flag validation from cli.json: each command
 // accepts the globals plus its own flags; any other is a usage error, not
 // silently ignored.
-var valueFlags = map[string]bool{"--root": true, "--dir": true, "--level": true, "--mode": true, "--name": true, "--port": true, "--agent": true, "--host": true, "--role": true, "--out": true, "--keep": true, "--before": true, "--provider": true, "--paths": true, "--categories": true, "--topics": true, "--as-of": true, "--federation": true}
+var valueFlags = map[string]bool{"--root": true, "--dir": true, "--level": true, "--mode": true, "--name": true, "--port": true, "--agent": true, "--host": true, "--role": true, "--out": true, "--keep": true, "--before": true, "--provider": true, "--paths": true, "--categories": true, "--topics": true, "--as-of": true, "--federation": true, "--to": true}
 
 func flagTokens(s string) []string {
 	var out []string
@@ -688,7 +886,7 @@ func Run(argv []string) int {
 		if twoWordCommands[command] && sub != "" {
 			expected = 2
 		}
-		if command == "mounts" && sub == "locate" {
+		if command == "mounts" && (sub == "locate" || sub == "update-pin") {
 			expected++
 		}
 		// `view` has its own usage message for a stray subcommand, and it is the more
@@ -706,7 +904,11 @@ func Run(argv []string) int {
 
 	switch command {
 	case "validate":
-		result := validate.ValidateLayer(f.root, f.content)
+		result, verr := validate.ValidateLayer(f.root, f.content)
+		if verr != nil {
+			fmt.Fprintf(os.Stderr, "leji: %s\n", verr.Error())
+			return 2
+		}
 		if f.federation == "" {
 			return emit("validate", result.Findings, f.json, nil)
 		}
@@ -759,7 +961,11 @@ func Run(argv []string) int {
 			return emit("index", load.Findings, f.json, nil)
 		}
 		if f.check {
-			result := indexgen.CheckIndex(f.root, load.Manifest)
+			result, cerr := indexgen.CheckIndex(f.root, load.Manifest)
+			if cerr != nil {
+				fmt.Fprintf(os.Stderr, "leji: %s\n", cerr.Error())
+				return 2
+			}
 			extra := newExtra()
 			stale := true
 			if result.Stale != nil {
@@ -798,7 +1004,15 @@ func Run(argv []string) int {
 				extra.set("changelog", seeded)
 			}
 		}
-		return emit("index", append(load.Findings, result.Findings...), f.json, extra)
+		code := emit("index", append(load.Findings, result.Findings...), f.json, extra)
+		// A generate run ends by naming what the layer governs but does not index.
+		// A nudge, never a gate: the exit code is emit's alone, and nothing is
+		// printed when the count is zero. Text output only; --json carries one
+		// document and nothing after it.
+		if !f.json {
+			printUnindexedNudge(len(status.UnindexedPaths(f.root, load.Manifest)))
+		}
+		return code
 	case "changelog":
 		if sub == "check" {
 			load := manifest.LoadManifest(f.root)
@@ -827,9 +1041,13 @@ func Run(argv []string) int {
 			if load.Manifest == nil {
 				return emit("changelog compact", load.Findings, f.json, nil)
 			}
-			result := changelog.CompactChangelog(f.root, load.Manifest, changelog.CompactOptions{
+			result, cerr := changelog.CompactChangelog(f.root, load.Manifest, changelog.CompactOptions{
 				Keep: f.keep, HasKeep: f.hasKeep, Before: f.before, HasBefore: f.hasBefore,
 			})
+			if cerr != nil {
+				fmt.Fprintf(os.Stderr, "leji: %s\n", cerr.Error())
+				return 2
+			}
 			extra := newExtra()
 			extra.set("changelog", result.Path)
 			extra.set("folded", result.Folded)
@@ -867,7 +1085,11 @@ func Run(argv []string) int {
 		if load.Manifest == nil {
 			return emit("status", load.Findings, f.json, nil)
 		}
-		report := status.StatusReport(f.root, load.Manifest)
+		report, serr := status.StatusReport(f.root, load.Manifest)
+		if serr != nil {
+			fmt.Fprintf(os.Stderr, "leji: %s\n", serr.Error())
+			return 2
+		}
 		flagged := len(report.Unindexed) + len(report.Dangling) + len(report.Stale) + len(report.Pending)
 		exit := 0
 		if f.strict && flagged > 0 {
@@ -1190,7 +1412,7 @@ func Run(argv []string) int {
 				}
 				detail := ""
 				if item.Detail != "" {
-					detail = " — " + item.Detail
+					detail = ": " + item.Detail
 				}
 				fmt.Printf("%s [%s] %s%s\n", mark, item.Level, item.Description, detail)
 			}
@@ -1215,15 +1437,62 @@ func Run(argv []string) int {
 			extra.set("items", checklistItems(result.Items))
 		}
 		return emit("conformance", result.Findings, f.json, extra)
-	case "mounts":
-		if sub != "hydrate" && sub != "status" && sub != "locate" {
-			fmt.Fprint(os.Stderr, "leji: usage: leji mounts <hydrate|status|locate>\n\n")
+	case "badge":
+		out := badge.DefaultOut
+		if f.hasOut {
+			out = f.out
+		}
+		result, berr := badge.Run(f.root, out)
+		if berr != nil {
+			fmt.Fprintf(os.Stderr, "leji: %s\n", berr.Error())
+			return 2
+		}
+		// A rejected `--out` is a usage error, in the CLI's usage-error form and ahead
+		// of every level the command could have reported.
+		if result.UsageError != "" {
+			fmt.Fprintf(os.Stderr, "leji: %s\n\n", result.UsageError)
 			fmt.Fprintln(os.Stderr, usage)
 			return 2
+		}
+		return reportBadge(f, result)
+	case "mounts":
+		if sub != "hydrate" && sub != "status" && sub != "locate" && sub != "update-pin" {
+			fmt.Fprint(os.Stderr, "leji: usage: leji mounts <hydrate|status|locate|update-pin>\n\n")
+			fmt.Fprintln(os.Stderr, usage)
+			return 2
+		}
+		// Argument shape is settled before anything on disk is read: a usage error is
+		// never contingent on a manifest loading.
+		if sub == "update-pin" {
+			if len(rest) < 3 || rest[2] == "" {
+				fmt.Fprint(os.Stderr, "leji: usage: leji mounts update-pin <name> [--to <oid>]\n\n")
+				fmt.Fprintln(os.Stderr, usage)
+				return 2
+			}
+			if f.allowNonFF && !f.hasTo {
+				fmt.Fprint(os.Stderr, "leji: --allow-non-fast-forward is valid only with an explicit --to <oid>\n\n")
+				fmt.Fprintln(os.Stderr, usage)
+				return 2
+			}
 		}
 		load := manifest.LoadManifest(f.root)
 		if load.Manifest == nil {
 			return emit("mounts "+sub, load.Findings, f.json, nil)
+		}
+		if sub == "update-pin" {
+			r, uerr := updatepin.Run(f.root, load.Manifest, updatepin.Options{
+				Name:                rest[2],
+				To:                  f.to,
+				HasTo:               f.hasTo,
+				AllowNonFastForward: f.allowNonFF,
+				Fetch:               f.fetch,
+				DryRun:              f.dryRun,
+			})
+			if uerr != nil {
+				fmt.Fprintf(os.Stderr, "leji: %s\n", uerr.Error())
+				return 2
+			}
+			return reportUpdatePin(f, r)
 		}
 		if sub == "hydrate" {
 			r, err := mounts.HydrateMounts(f.root, load.Manifest, mounts.HydrateOptions{Fetch: f.fetch})
@@ -1361,6 +1630,8 @@ func Run(argv []string) int {
 			printFindings(issues)
 		}
 		return 0
+	case "export":
+		return runExport(f)
 	case "view", "viewer":
 		// `leji view` is an alias for `leji viewer serve` that also opens the browser.
 		// `leji viewer` generates only; `leji viewer serve` serves.
@@ -1376,38 +1647,7 @@ func Run(argv []string) int {
 			return 2
 		}
 		if command == "viewer" && sub == "build" {
-			load := manifest.LoadManifest(f.root)
-			if load.Manifest == nil {
-				return emit("viewer build", load.Findings, f.json, nil)
-			}
-			out := ""
-			if f.hasOut {
-				out = f.out
-			}
-			r, err := viewer.BuildViewer(f.root, load.Manifest, out)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
-				return 2
-			}
-			for _, fnd := range r.Findings {
-				if fnd.Severity == findings.Error {
-					return emit("viewer build", r.Findings, f.json, nil)
-				}
-			}
-			if f.json {
-				o := newJSONObj()
-				o.set("command", "viewer build")
-				o.set("ok", true)
-				o.set("out", r.Out)
-				o.set("warning", viewer.ProtectWarning)
-				var buf bytes.Buffer
-				o.encode(&buf, "", "  ")
-				fmt.Println(buf.String())
-			} else {
-				fmt.Printf("Exported the static viewer to %s/\n", r.Out)
-				fmt.Printf("\n%s\n", viewer.ProtectWarning)
-			}
-			return 0
+			return runExport(f)
 		}
 		wantServe := isAlias || sub == "serve"
 		wantOpen := f.open || isAlias
@@ -1437,11 +1677,7 @@ func Run(argv []string) int {
 		}
 		if !wantServe || code != 0 {
 			if !f.json && code == 0 {
-				dir := fsx.StripSlash(load.Manifest.RootPath)
-				if dir == "" {
-					dir = "."
-				}
-				fmt.Printf("viewer ready (%d entries) → %s/.leji/viewer/   serve: leji view\n", result.Entries, dir)
+				fmt.Printf("viewer ready (%d entries) → %s/   serve: leji view\n", result.Entries, layout.ViewerRel)
 			}
 			return code
 		}
@@ -1450,7 +1686,7 @@ func Run(argv []string) int {
 		if !f.json {
 			logf = func(line string) { fmt.Println(line) }
 		}
-		ln, srv, err := viewer.Serve(f.root, port, load.Manifest.RootPath, logf)
+		ln, srv, err := serve.Serve(f.root, port, load.Manifest.RootPath, logf)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
 			return 2
@@ -1469,7 +1705,7 @@ func Run(argv []string) int {
 		}
 		fmt.Printf("%s viewer → %s   (Ctrl+C to stop)\n", title, url)
 		if wantOpen {
-			viewer.OpenBrowser(url)
+			serve.OpenBrowser(url)
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
@@ -1490,10 +1726,11 @@ func Run(argv []string) int {
 		}
 	case "detect":
 		hosts := detectcmd.DetectLayer(f.root)
+		detectEco := ecosystem.Detect(f.root)
 		if f.json {
-			fmt.Println(detectJSON(hosts))
+			fmt.Println(detectJSON(hosts, detectEco))
 		} else {
-			fmt.Println(detectcmd.RenderDetect(hosts))
+			fmt.Println(detectcmd.RenderDetect(hosts, detectEco))
 		}
 		return 0
 	case "adopt":
@@ -1510,7 +1747,13 @@ func Run(argv []string) int {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
 			return 2
 		}
+		// The repository's own dependency ecosystem, read once and reported by every
+		// output mode: the human block, the JSON document, and the offer.
+		adoptEco := ecosystem.Detect(result.Root)
 		if result.DryRun {
+			if f.json {
+				return emitScaffold("adopt", result.Findings, nil, adoptEco, true)
+			}
 			// A wire-only run scaffolds nothing, so "Adopting the existing
 			// repository" misnames it: the layer is already there and the plan
 			// beneath is entrypoint conversions.
@@ -1521,7 +1764,11 @@ func Run(argv []string) int {
 			}
 			fmt.Println("\n" + writeplan.Render(result.Plan))
 			fmt.Println("\nNo files written (--dry-run). Re-run without --dry-run to apply.")
+			fmt.Println("\n" + ecosystem.RenderBlock(adoptEco))
 			return 0
+		}
+		if f.json {
+			return emitScaffold("adopt", result.Findings, result.Written, adoptEco, false)
 		}
 		fmt.Printf("\nWrote %d files (context root: %s):\n", len(result.Written), result.DetectedRoot)
 		for _, rel := range result.Written {
@@ -1529,7 +1776,17 @@ func Run(argv []string) int {
 		}
 		indexFailed := reportScaffoldIndex(result.Findings)
 		hio := initcmd.DefaultHandoffIO(os.Stdin, os.Stdout)
-		interactive := !f.yes && stdinIsTTY()
+		// --json is a single-document mode, so it is never interactive: nothing
+		// prompts, and no package manager can run under it.
+		interactive := !f.yes && !f.json && stdinIsTTY()
+		// A wire-only run scaffolds no layer, so it makes no declaration offer.
+		dependencyFailed := false
+		if !result.WiredOnly {
+			offer := initcmd.OfferDependency(initcmd.DependencyOfferOptions{
+				Root: result.Root, Report: adoptEco, Interactive: interactive,
+			}, os.Stdout)
+			dependencyFailed = initcmd.DependencyAddFailed(offer)
+		}
 		mcp := initcmd.OfferMcpInstall(initcmd.McpOfferOptions{Root: result.Root, Detected: result.Detected, Interactive: interactive, Agent: f.agent}, hio, os.Stdout)
 		if gerr := initcmd.OfferApprovalGuard(initcmd.GuardOfferOptions{Root: result.Root, RootPath: result.Manifest.RootPath, Detected: result.Detected, Interactive: interactive, Agent: f.agent}, hio, os.Stdout); gerr != nil {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", gerr.Error())
@@ -1543,7 +1800,12 @@ func Run(argv []string) int {
 		if !launched {
 			fmt.Println(initcmd.EnteringAdopted(result))
 		}
-		return indexFailed
+		// The layer is written either way; a consented add that failed means the
+		// durable setup this run promised was not reached, and the exit says so.
+		if indexFailed != 0 || dependencyFailed {
+			return 1
+		}
+		return 0
 	case "init":
 		dir := f.dir
 		if f.dir == "." && f.root != "." {
@@ -1560,10 +1822,18 @@ func Run(argv []string) int {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
 			return 2
 		}
+		initEco := ecosystem.Detect(result.Root)
 		if result.DryRun {
+			if f.json {
+				return emitScaffold("init", result.Findings, nil, initEco, true)
+			}
 			fmt.Println("\n" + writeplan.Render(result.Plan))
 			fmt.Println("\nNo files written (--dry-run). Re-run without --dry-run to create them.")
+			fmt.Println("\n" + ecosystem.RenderBlock(initEco))
 			return 0
+		}
+		if f.json {
+			return emitScaffold("init", result.Findings, result.Written, initEco, false)
 		}
 		fmt.Printf("\nWrote %d files:\n", len(result.Written))
 		for _, rel := range result.Written {
@@ -1571,7 +1841,10 @@ func Run(argv []string) int {
 		}
 		indexFailed := reportScaffoldIndex(result.Findings)
 		hio := initcmd.DefaultHandoffIO(os.Stdin, os.Stdout)
-		interactive := !f.yes && stdinIsTTY()
+		interactive := !f.yes && !f.json && stdinIsTTY()
+		offer := initcmd.OfferDependency(initcmd.DependencyOfferOptions{
+			Root: result.Root, Report: initEco, Interactive: interactive,
+		}, os.Stdout)
 		mcp := initcmd.OfferMcpInstall(initcmd.McpOfferOptions{Root: result.Root, Detected: result.Detected, Interactive: interactive, Agent: f.agent}, hio, os.Stdout)
 		if gerr := initcmd.OfferApprovalGuard(initcmd.GuardOfferOptions{Root: result.Root, RootPath: result.Manifest.RootPath, Detected: result.Detected, Interactive: interactive, Agent: f.agent}, hio, os.Stdout); gerr != nil {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", gerr.Error())
@@ -1585,38 +1858,98 @@ func Run(argv []string) int {
 		if !launched {
 			fmt.Println(initcmd.EnteringTheLayer(result.Manifest, result.Mode))
 		}
-		return indexFailed
+		if indexFailed != 0 || initcmd.DependencyAddFailed(offer) {
+			return 1
+		}
+		return 0
 	case "start":
 		load := manifest.LoadManifest(f.root)
 		if load.Manifest == nil {
 			return emit("start", load.Findings, f.json, nil)
 		}
 		detected := detect.DetectHosts(detect.Options{Root: f.root})
-		interactive := !f.yes && stdinIsTTY()
+		// The repository's own ecosystem, read once: the preflight probes the runner
+		// it names, and the JSON document reports it.
+		startEco := ecosystem.Detect(f.root)
+		// --json is a single-document mode, so it is never interactive: nothing
+		// prompts, nothing launches, and no repair can run under it.
+		interactive := !f.yes && !f.json && stdinIsTTY()
+		// The boot profile is checked first, before any report or prompt: a layer
+		// whose entrypoint is missing has nothing to enter.
+		if !initcmd.BootProfileReady(f.root, load.Manifest) {
+			if f.json {
+				o := newJSONObj()
+				o.set("command", "start")
+				o.set("ok", false)
+				o.set("ready", false)
+				o.set("error", "boot-missing")
+				o.set("checks", []any{})
+				o.set("ecosystem", ecosystemJSON(startEco))
+				var buf bytes.Buffer
+				o.encode(&buf, "", "  ")
+				fmt.Println(buf.String())
+			} else {
+				fmt.Fprintf(os.Stderr, "leji: boot profile %s is missing or invalid; run leji validate\n", load.Manifest.BootProfilePath)
+			}
+			return 1
+		}
 		hio := initcmd.DefaultHandoffIO(os.Stdin, os.Stdout)
-		outcome, err := initcmd.EnterLayer(initcmd.StartOptions{
-			Root: f.root, Manifest: load.Manifest, Detected: detected, Agent: f.agent, Interactive: interactive,
-			HostArgs: f.hostArgs,
-		}, hio, os.Stdout)
+		// The host is resolved BEFORE the report, so the MCP rows answer for the host
+		// this run actually targets. An --agent naming no launchable host errors here,
+		// exactly as it did inside EnterLayer: a usage error.
+		host, err := initcmd.ResolveStartHost(detected, f.agent, interactive, hio, os.Stdout)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
 			return 2
 		}
-		if outcome == initcmd.StartBootMissing {
-			fmt.Fprintf(os.Stderr, "leji: boot profile %s is missing or invalid; run leji validate\n", load.Manifest.BootProfilePath)
-			return 1
+		preflight := initcmd.RunPreflight(initcmd.PreflightOptions{
+			Root: f.root, Manifest: load.Manifest, Host: host, Detected: detected, Report: startEco,
+		}, hio)
+		if f.json {
+			// Report only: the launch-selection arguments are accepted and have no
+			// effect, and a gap is reported rather than blocking (`ready` is the
+			// scriptable signal).
+			o := newJSONObj()
+			o.set("command", "start")
+			o.set("ok", true)
+			o.set("ready", preflight.Ready)
+			o.set("checks", preflightChecksJSON(preflight.Checks))
+			o.set("ecosystem", ecosystemJSON(startEco))
+			var buf bytes.Buffer
+			o.encode(&buf, "", "  ")
+			fmt.Println(buf.String())
+			return 0
+		}
+		// The one place color is decided: a terminal question, asked at the boundary and
+		// injected, so the block itself never consults the process.
+		color := initcmd.ColorDecision(stdoutIsTTY(), os.LookupEnv)
+		fmt.Println("\n" + initcmd.RenderPreflight(preflight.Checks, color))
+		initcmd.OfferPreflightFixes(initcmd.PreflightOfferOptions{
+			Root: f.root, Host: host, Result: preflight, Runner: ecosystem.RunnerArgv(startEco),
+			Interactive: interactive,
+		}, hio, os.Stdout)
+		outcome, err := initcmd.EnterLayer(initcmd.StartOptions{
+			Root: f.root, Manifest: load.Manifest, Detected: detected, Agent: f.agent, Interactive: interactive,
+			HostArgs: f.hostArgs, Host: host, HostResolved: true,
+		}, hio, os.Stdout)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
+			return 2
 		}
 		if outcome == initcmd.StartFallback {
 			fmt.Println(initcmd.EnteringViaBoot(load.Manifest, f.hostArgs))
 		}
 		return 0
 	case "ci":
+		// One detection for the whole command: the hook and the CI job both run what
+		// a clean install of this repository provides.
+		ecoReport := ecosystem.Detect(f.root)
 		if f.hooks {
 			load := manifest.LoadManifest(f.root)
 			if load.Manifest == nil {
 				return emit("ci", load.Findings, f.json, nil)
 			}
-			h, err := initcmd.EnsureLocalHook(f.root)
+			h, err := initcmd.EnsureLocalHook(f.root, ecosystem.RunnerArgv(ecoReport))
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
 				return 2
@@ -1631,6 +1964,7 @@ func Run(argv []string) int {
 					o.set("reason", h.Reason)
 					o.set("snippet", h.Snippet)
 				}
+				o.set("ecosystem", ecosystemJSON(ecoReport))
 				var buf bytes.Buffer
 				o.encode(&buf, "", "  ")
 				fmt.Println(buf.String())
@@ -1657,6 +1991,9 @@ func Run(argv []string) int {
 					verb = "Hook already current"
 				}
 				fmt.Printf("%s %s (validate + index --check before every commit; per-clone, delete to opt out).\n", verb, h.Path)
+			}
+			if !f.json {
+				fmt.Println(ecosystem.RenderLine(ecoReport))
 			}
 			return 0
 		}
@@ -1686,7 +2023,7 @@ func Run(argv []string) int {
 		if load.Manifest == nil {
 			return emit("ci", load.Findings, f.json, nil)
 		}
-		r, err := initcmd.EnsureCiWorkflow(f.root, provider)
+		r, err := initcmd.EnsureCiWorkflow(f.root, provider, &ecoReport)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
 			return 2
@@ -1705,6 +2042,7 @@ func Run(argv []string) int {
 			if r.Note != "" {
 				o.set("note", r.Note)
 			}
+			o.set("ecosystem", ecosystemJSON(ecoReport))
 			var buf bytes.Buffer
 			o.encode(&buf, "", "  ")
 			fmt.Println(buf.String())
@@ -1717,11 +2055,14 @@ func Run(argv []string) int {
 			case "unchanged":
 				fmt.Printf("%s already present; nothing to do.\n", r.Path)
 			case "manual":
-				fmt.Printf("%s already exists; not modifying it. Add this to your CircleCI config:\n\n%s\n", r.Path, r.Snippet)
+				// Not leji's file: it was written by hand, or a generated one was edited.
+				// Either way the edit is the opt-out, and it is honored.
+				fmt.Printf("%s already exists and was not generated by leji; not modifying it. Add this yourself:\n\n%s\n", r.Path, r.Snippet)
 			}
 			if r.Note != "" {
 				fmt.Println(r.Note)
 			}
+			fmt.Println(ecosystem.RenderLine(ecoReport))
 		}
 		return 0
 	case "agent":
@@ -1755,6 +2096,9 @@ func Run(argv []string) int {
 			created.set("profile", r.ProfileCreated)
 			created.set("manifest", r.ManifestChanged)
 			o.set("created", created)
+			if r.Note != "" {
+				o.set("note", r.Note)
+			}
 			var buf bytes.Buffer
 			o.encode(&buf, "", "  ")
 			fmt.Println(buf.String())
@@ -1774,6 +2118,9 @@ func Run(argv []string) int {
 			} else {
 				lines = append(lines, fmt.Sprintf("agent %q already bound in leji.json; nothing to do.", r.Name))
 			}
+			if r.Note != "" {
+				lines = append(lines, r.Note)
+			}
 			fmt.Println(strings.Join(lines, "\n"))
 		}
 		return 0
@@ -1784,9 +2131,63 @@ func Run(argv []string) int {
 	}
 }
 
+// emitScaffold is the one --json document init and adopt emit: a single object,
+// like every other command's, carrying what the run wrote and the repository's
+// dependency ecosystem. --json is non-interactive by construction, so nothing here
+// can have prompted or run a package manager.
+func emitScaffold(command string, fnds []findings.Finding, written []string, eco ecosystem.Report, dryRun bool) int {
+	sorted := findings.Sort(fnds)
+	summary := findings.Summarize(sorted)
+	ok := summary.Errors == 0
+	root := newJSONObj()
+	root.set("command", command)
+	root.set("ok", ok)
+	findingsArr := make([]any, 0, len(sorted))
+	for _, fnd := range sorted {
+		findingsArr = append(findingsArr, findingToMap(fnd))
+	}
+	root.set("findings", findingsArr)
+	sum := newJSONObj()
+	sum.set("errors", summary.Errors)
+	sum.set("warnings", summary.Warnings)
+	root.set("summary", sum)
+	if dryRun {
+		root.set("dryRun", true)
+	}
+	root.set("written", stringsToAny(written))
+	root.set("ecosystem", ecosystemJSON(eco))
+	var buf bytes.Buffer
+	root.encode(&buf, "", "  ")
+	fmt.Println(buf.String())
+	if ok {
+		return 0
+	}
+	return 1
+}
+
+// preflightChecksJSON renders the preflight rows with each check's keys in the
+// fixed contract order, and a null fix where there is nothing to run. Four keys and
+// no others: the row carries a render-only fix kind that the document never publishes.
+func preflightChecksJSON(checks []initcmd.Check) []any {
+	arr := make([]any, 0, len(checks))
+	for _, c := range checks {
+		o := newJSONObj()
+		o.set("id", c.ID)
+		o.set("status", c.Status)
+		o.set("detail", c.Detail)
+		if c.Fix == nil {
+			o.set("fix", nil)
+		} else {
+			o.set("fix", stringsToAny(c.Fix))
+		}
+		arr = append(arr, o)
+	}
+	return arr
+}
+
 // detectJSON renders the detect result as {command, ok, hosts:[...]}, with each
 // host's keys in Node DetectedHost order and a null adapter for directory hosts.
-func detectJSON(hosts []detect.DetectedHost) string {
+func detectJSON(hosts []detect.DetectedHost, eco ecosystem.Report) string {
 	root := newJSONObj()
 	root.set("command", "detect")
 	root.set("ok", true)
@@ -1807,6 +2208,7 @@ func detectJSON(hosts []detect.DetectedHost) string {
 		arr = append(arr, o)
 	}
 	root.set("hosts", arr)
+	root.set("ecosystem", ecosystemJSON(eco))
 	var buf bytes.Buffer
 	root.encode(&buf, "", "  ")
 	return buf.String()
@@ -1948,6 +2350,117 @@ func mountsLocateJSON(r mounts.LocateResult) string {
 	return buf.String()
 }
 
+// pinReportJSON renders one pinReport with its keys in Node insertion order
+// (behind/ahead only when counted, reason only when degraded). Shared by
+// `mounts status` and `mounts update-pin`, which report the same object.
+func pinReportJSON(rep mounts.PinReport) *jsonObj {
+	po := newJSONObj()
+	po.set("state", rep.State)
+	if rep.Behind != nil {
+		po.set("behind", *rep.Behind)
+	}
+	if rep.Ahead != nil {
+		po.set("ahead", *rep.Ahead)
+	}
+	po.set("comparedRef", nullableStr(rep.ComparedRef))
+	po.set("comparisonRepository", nullableStr(rep.ComparisonRepository))
+	po.set("witnessProvenance", nullableStr(rep.WitnessProvenance))
+	po.set("ancestryComplete", rep.AncestryComplete)
+	if rep.Reason != "" {
+		po.set("reason", rep.Reason)
+	}
+	po.set("observedAt", rep.ObservedAt)
+	return po
+}
+
+// reportUpdatePin renders one `mounts update-pin` run. The comparison is shown
+// first, then what the run did with it, then the follow-up act this command
+// deliberately does not perform. Every string is Leji-authored: git's stderr never
+// reaches output.
+func reportUpdatePin(f flags, r updatepin.Result) int {
+	// An internal refusal after validation carries no document at all: there is no
+	// outcome to report, only the act this run would not perform.
+	if r.WriteError != "" {
+		fmt.Fprintf(os.Stderr, "leji: %s\n", r.WriteError)
+		return 2
+	}
+	sorted := findings.Sort(r.Findings)
+	summary := findings.Summarize(sorted)
+	ok := summary.Errors == 0
+	if f.json {
+		extra := newExtra()
+		mo := newJSONObj()
+		mo.set("name", r.Mount.Name)
+		mo.set("sourceIdentity", nullableStr(r.Mount.SourceIdentity))
+		mo.set("trackingRef", nullableStr(r.Mount.TrackingRef))
+		mo.set("from", nullableStr(r.Mount.From))
+		mo.set("to", nullableStr(r.Mount.To))
+		extra.set("mount", mo)
+		if r.PinReport == nil {
+			extra.set("pinReport", nil)
+		} else {
+			extra.set("pinReport", pinReportJSON(*r.PinReport))
+		}
+		extra.set("action", r.Action)
+		extra.set("override", r.Override)
+		if r.Reason != "" {
+			extra.set("reason", r.Reason)
+		}
+		fmt.Println(emitJSON("mounts update-pin", ok, sorted, summary, extra))
+		if ok {
+			return 0
+		}
+		return 1
+	}
+	rep := r.PinReport
+	if rep != nil && rep.State != "unknown" && r.Mount.To != nil && r.Mount.From != nil {
+		// Offline, the witness is the last one successfully observed — never a claim
+		// that the source was looked at during this run.
+		observed := " (last observed witness; run with --fetch to observe the source)"
+		if f.fetch {
+			observed = ""
+		}
+		fmt.Printf("%s @ %s → %s · pin: %s (behind %d, ahead %d) · via %s%s\n",
+			r.Mount.Name, updatepin.ShortOid(*r.Mount.From), updatepin.ShortOid(*r.Mount.To),
+			rep.State, *rep.Behind, *rep.Ahead, strOr(rep.ComparisonRepository, "null"), observed)
+	}
+	overridden := ""
+	if r.Override {
+		overridden = " (non-fast-forward, overridden)"
+	}
+	from12, to12 := "", ""
+	if r.Mount.From != nil {
+		from12 = updatepin.ShortOid(*r.Mount.From)
+	}
+	if r.Mount.To != nil {
+		to12 = updatepin.ShortOid(*r.Mount.To)
+	}
+	switch r.Action {
+	case updatepin.ActionUpdated:
+		fmt.Printf("Updated leji.json: %s pin %s → %s%s\n", r.Mount.Name, from12, to12, overridden)
+		// Moving the pin is one act; materializing the new projection is another.
+		hydrate := " --fetch"
+		if f.fetch {
+			hydrate = ""
+		}
+		fmt.Printf("Run leji mounts hydrate%s to hydrate the new pin.\n", hydrate)
+	case updatepin.ActionUnchanged:
+		fmt.Printf("Unchanged: %s pin %s is already the target\n", r.Mount.Name, from12)
+	case updatepin.ActionDryRun:
+		fmt.Printf("Would update leji.json: %s pin %s → %s (dry run)%s\n", r.Mount.Name, from12, to12, overridden)
+	case updatepin.ActionRefused:
+		prose := updatepin.Reasons[r.Reason]
+		if prose == "" {
+			prose = r.Reason
+		}
+		fmt.Printf("Refused: %s\n", prose)
+	}
+	if ok {
+		return 0
+	}
+	return 1
+}
+
 // mountsStatusJSON renders {command, mounts, findings} with each row's pinReport
 // keys in Node insertion order (behind/ahead only when counted, reason only when
 // degraded).
@@ -1967,24 +2480,7 @@ func mountsStatusJSON(rows []mounts.StatusResult, fs []findings.Finding) string 
 		} else {
 			ro.set("verified", *row.Verified)
 		}
-		rep := row.PinReport
-		po := newJSONObj()
-		po.set("state", rep.State)
-		if rep.Behind != nil {
-			po.set("behind", *rep.Behind)
-		}
-		if rep.Ahead != nil {
-			po.set("ahead", *rep.Ahead)
-		}
-		po.set("comparedRef", nullableStr(rep.ComparedRef))
-		po.set("comparisonRepository", nullableStr(rep.ComparisonRepository))
-		po.set("witnessProvenance", nullableStr(rep.WitnessProvenance))
-		po.set("ancestryComplete", rep.AncestryComplete)
-		if rep.Reason != "" {
-			po.set("reason", rep.Reason)
-		}
-		po.set("observedAt", rep.ObservedAt)
-		ro.set("pinReport", po)
+		ro.set("pinReport", pinReportJSON(row.PinReport))
 		arr = append(arr, ro)
 	}
 	root.set("mounts", arr)

@@ -1,0 +1,51 @@
+{
+  "ecosystem": {
+    "selected": {
+      "ecosystem": "go",
+      "status": "ok",
+      "manifest": "go.mod",
+      "manager": "go",
+      "source": "manifest",
+      "evidence": [],
+      "add": [
+        "go",
+        "get",
+        "-tool",
+        "github.com/leji-org/leji/packages/sdk-go/cmd/leji@latest"
+      ],
+      "runner": [
+        "go",
+        "tool",
+        "leji"
+      ],
+      "directDeclared": true,
+      "lockEvidenced": true,
+      "candidates": []
+    },
+    "all": [
+      {
+        "ecosystem": "go",
+        "status": "ok",
+        "manifest": "go.mod",
+        "manager": "go",
+        "source": "manifest",
+        "evidence": [],
+        "add": [
+          "go",
+          "get",
+          "-tool",
+          "github.com/leji-org/leji/packages/sdk-go/cmd/leji@latest"
+        ],
+        "runner": [
+          "go",
+          "tool",
+          "leji"
+        ],
+        "directDeclared": true,
+        "lockEvidenced": true,
+        "candidates": []
+      }
+    ],
+    "reason": null
+  }
+}

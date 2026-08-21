@@ -8,28 +8,34 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import os
 import re
 import sys
 from typing import cast
 
+from .badge import DEFAULT_BADGE_OUT, BadgeResult, badge_label, badge_run
 from .changelog import compact_changelog, seed_changelog_if_missing
 from .conformance import conformance_report, render_explain
 from .detect import detect_hosts, detect_layer, render_detect
-from .viewer_cmd import (
-    PROTECT_WARNING,
-    build_viewer,
-    generate_viewer,
-    open_browser,
-    resolve_viewer_port,
-    serve_viewer,
-)
+from .export_cmd import PROTECT_WARNING, BuildResult, build_viewer
+from .serve_cmd import open_browser, serve_viewer
+from .viewer_cmd import generate_viewer, resolve_viewer_port
 from .findings import Finding, has_errors, sort_findings, summarize
 from .freshness import freshness_report
-from .fsx import strip_slash
 from .indexgen import check_index, write_index
+from .layout import DIST_REL, VIEWER_REL
 from .gitutil import git_origin_url
+from .dependency import dependency_add_failed, offer_dependency
+from .ecosystem import (
+    EcosystemReport,
+    detect_ecosystem,
+    render_ecosystem_block,
+    render_ecosystem_line,
+    runner_argv,
+)
 from .init_cmd import (
     StartOptions,
+    _default_handoff_io,
     add_agent,
     adopt_layer,
     ci_provider_from_remote,
@@ -45,6 +51,15 @@ from .init_cmd import (
     McpOfferOptions,
     offer_approval_guard,
     offer_mcp_install,
+    boot_profile_ready,
+    resolve_start_host,
+)
+from .preflight import (
+    check_document,
+    color_decision,
+    offer_preflight_fixes,
+    render_preflight,
+    run_preflight,
 )
 from .manifest import CATEGORY_IDS, effective_changelog_path, effective_index_path, load_manifest
 from .mounts import (
@@ -55,8 +70,14 @@ from .mounts import (
     mount_status,
 )
 from .route import RouteInput, route
-from .status import status_report
+from .status import status_report, unindexed_paths
 from .schemas import SDK_VERSION, SUPPORTED_LINES, load_cli_spec
+from .update_pin import (
+    MOUNT_UPDATE_PIN_REASONS,
+    UpdatePinResult,
+    short_oid,
+    update_pin_run,
+)
 from .validate import check_changelog_append_only, validate_layer
 from .writeplan import render_write_plan
 
@@ -83,29 +104,134 @@ def _projection_json(proj: SelfProjection) -> dict[str, object]:
     return {"state": "fail", "commit": proj.commit, "detail": proj.detail}
 
 
-def _build_usage() -> str:
-    """Top-level help, generated from cli.json so it can't drift from the docs.
-    Commands + global options only; per-command options live in
-    `leji <command> --help`. Byte-for-byte parity with renderUsage() in index.ts."""
-    spec = load_cli_spec()
-    commands = cast("list[dict[str, object]]", spec["commands"])
-    global_options = cast("list[dict[str, str]]", spec["globalOptions"])
-    out: list[str] = [
-        f"leji {SDK_VERSION}: reference CLI for the Leji specification "
-        f"(spec line {', '.join(SUPPORTED_LINES)})",
-        "",
-        f"Usage: {spec['usage']}",
-        "",
-        "Commands:",
-    ]
-    cmd_width = max(len(str(c["name"])) for c in commands) + 3
-    for c in commands:
-        out.append(f"   {str(c['name']).ljust(cmd_width)}{c['summary']}")
+#: Terminal help wraps at a fixed width, never the actual terminal's: help bytes are a
+#: shared contract across the three SDKs, so they may not depend on the environment.
+HELP_WIDTH = 80
 
-    opt_width = max(len(o["flags"]) for o in global_options) + 3
+_PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n")
+
+
+def _wrap(text: str, width: int, indent_first: int, indent_rest: int) -> list[str]:
+    """The one line-wrapper behind every terminal help surface, so the three SDKs emit
+    the same bytes: whitespace runs collapse to one space, the first line is indented by
+    ``indent_first`` and every continuation by ``indent_rest``, and width is counted in
+    code points. A token that cannot fit the remaining width takes a line of its own,
+    unbroken (URLs and flag spellings stay copyable). Empty text yields no lines.
+    Mirrors wrap() in lib/text.ts."""
+    words = text.split()
+    if not words:
+        return []
+    lines: list[str] = []
+    indent = indent_first
+    current = ""
+    for word in words:
+        room = width - indent - len(current)
+        if current == "":
+            current = word
+        elif len(word) + 1 <= room:
+            current += " " + word
+        else:
+            lines.append(" " * indent + current)
+            indent = indent_rest
+            current = word
+    lines.append(" " * indent + current)
+    return lines
+
+
+def _help_row(label: str, col: int, text: str) -> list[str]:
+    """One row of a two-column help block: a label on the left, its prose on the right,
+    the prose hanging under itself at ``col``. A label that would leave no gap before its
+    summary -- one at least as wide as the column, which the option column's clamp makes
+    reachable -- takes the line alone and its summary starts on the next line at the same
+    column, so a long flag never concatenates into the text describing it. Mirrors
+    helpRow() in lib/text.ts."""
+    lines = _wrap(text, HELP_WIDTH, col, col)
+    if len(label) >= col - 3:
+        head = f"   {label}"
+        return [head] if not lines else [head, *lines]
+    head = f"   {label.ljust(col - 3)}"
+    if not lines:
+        return [head.rstrip()]
+    return [head + lines[0][col:], *lines[1:]]
+
+
+def _bounded_column(labels: list[str], gap: int, low: int, high: int) -> int:
+    """Where a two-column block's right column starts: the longest label plus a gap, kept
+    inside a band so one long label cannot push every summary to the right edge, and
+    measured in code points. Past the band's top the label outgrows the column and
+    ``_help_row`` gives it its own line. Every dynamic label class in terminal help
+    resolves its column here. Mirrors boundedColumn() in lib/text.ts."""
+    longest = max((len(label) for label in labels), default=0)
+    return 3 + min(high, max(low, longest + gap))
+
+
+def _option_column(options: list[dict[str, str]]) -> int:
+    """Option rows, top-level and per-command: flags plus 3, bounded to [20, 30]."""
+    return _bounded_column([o["flags"] for o in options], 3, 20, 30)
+
+
+def _name_column(commands: list[dict[str, object]]) -> int:
+    """Command and alias rows: the name plus 3, bounded to [12, 30]."""
+    return _bounded_column([str(c["name"]) for c in commands], 3, 12, 30)
+
+
+def _exit_code_column(exit_codes: list[dict[str, object]]) -> int:
+    """Exit-code rows: the code plus 2 (digits, not words), bounded to [3, 8]."""
+    return _bounded_column([str(e["code"]) for e in exit_codes], 2, 3, 8)
+
+
+def _build_usage(spec: dict[str, object] | None = None) -> str:
+    """Top-level help, generated from cli.json so it can't drift from the docs: the
+    commands by group, the global options, and the exit codes. Per-command options live
+    in `leji <command> --help`. Byte-for-byte parity with renderUsage() in index.ts. A
+    caller may pass a spec, so the bounds can be exercised against a synthetic one."""
+    spec = load_cli_spec() if spec is None else spec
+    commands = cast("list[dict[str, object]]", spec["commands"])
+    groups = cast("list[dict[str, str]]", spec["groups"])
+    global_options = cast("list[dict[str, str]]", spec["globalOptions"])
+    exit_codes = cast("list[dict[str, object]]", spec["exitCodes"])
+    # Every emitted field goes through the wrapper, including the ones no current value
+    # is long enough to overflow: a longer version string or group title must not be what
+    # discovers that a line was never wrapped.
+    out: list[str] = [
+        *_wrap(
+            f"leji {SDK_VERSION}: reference CLI for the Leji specification "
+            f"(spec line {', '.join(SUPPORTED_LINES)})",
+            HELP_WIDTH,
+            0,
+            3,
+        ),
+        "",
+        *_wrap(f"Usage: {spec['usage']}", HELP_WIDTH, 0, 7),
+    ]
+
+    # One name column across every group, so the summaries line up down the whole list
+    # rather than jumping per section.
+    cmd_col = _name_column(commands)
+    for g in groups:
+        out.extend(["", *_wrap(f"{g['title']}:", HELP_WIDTH, 0, 0)])
+        for c in commands:
+            if c["group"] != g["id"] or c.get("aliasOf"):
+                continue
+            out.extend(_help_row(str(c["name"]), cmd_col, str(c["summary"])))
+            # An alias earns a line under its primary, not a row of its own: it is the
+            # same command, and repeating the summary reads as a second one. It keeps
+            # the name column, so the right-hand column stays straight down the list.
+            for a in commands:
+                if a.get("aliasOf") == c["name"]:
+                    out.extend(_help_row(str(a["name"]), cmd_col, f"(alias of {c['name']})"))
+
+    opt_col = _option_column(global_options)
     out.extend(["", "Options:"])
     for o in global_options:
-        out.append(f"   {o['flags'].ljust(opt_width)}{o['summary']}")
+        out.extend(_help_row(o["flags"], opt_col, o["summary"]))
+
+    # The meaning hangs under itself, like every other two-column block here, so a
+    # continuation line is never mistaken for another code.
+    code_col = _exit_code_column(exit_codes)
+    out.extend(["", "Exit codes:"])
+    for e in exit_codes:
+        out.extend(_help_row(str(e["code"]), code_col, str(e["meaning"])))
 
     out.extend(
         [
@@ -117,35 +243,35 @@ def _build_usage() -> str:
     return "\n".join(out)
 
 
-def _build_command_help(name: str) -> str | None:
-    """Per-command help from cli.json. Returns None for an undocumented command
-    (caller falls back to top-level usage). Parity with renderCommandHelp() in index.ts."""
-    spec = load_cli_spec()
+def _build_command_help(name: str, spec: dict[str, object] | None = None) -> str | None:
+    """Per-command help from cli.json: this command's own options only, with the globals
+    one pointer away. Returns None for an undocumented command (caller falls back to
+    top-level usage). Parity with renderCommandHelp() in index.ts. A caller may pass a
+    spec, so the bounds can be exercised against a synthetic one."""
+    spec = load_cli_spec() if spec is None else spec
     commands = cast("list[dict[str, object]]", spec["commands"])
-    global_options = cast("list[dict[str, str]]", spec["globalOptions"])
     cmd = next((c for c in commands if c["name"] == name), None)
     if cmd is None:
         return None
     out: list[str] = [
-        f"leji {cmd['name']}: {cmd['summary']}",
+        *_wrap(f"leji {cmd['name']}: {cmd['summary']}", HELP_WIDTH, 0, 3),
         "",
-        f"Usage: {cmd['usage']}",
-        "",
-        str(cmd["description"]),
+        *_wrap(f"Usage: {cmd['usage']}", HELP_WIDTH, 0, 7),
     ]
+    for para in _PARAGRAPH_BREAK.split(str(cmd["description"])):
+        out.extend(["", *_wrap(para, HELP_WIDTH, 0, 0)])
     details = cast("list[str]", cmd.get("details") or [])
     if details:
         out.extend(["", "Details:"])
         for d in details:
-            out.append(f"   - {d}")
+            out.extend(_wrap(f"- {d}", HELP_WIDTH, 3, 5))
     cmd_opts = cast("list[dict[str, str]]", cmd["options"])
-    opts = [*global_options, *cmd_opts]
-    opt_width = max(len(o["flags"]) for o in opts) + 3
-    out.extend(["", "Options:"])
-    for o in opts:
-        # Byte parity with Node: an option missing "summary" in cli.json renders
-        # the literal "undefined" there (template-string of an absent field).
-        out.append(f"   {o['flags'].ljust(opt_width)}{o.get('summary', 'undefined')}")
+    if cmd_opts:
+        opt_col = _option_column(cmd_opts)
+        out.extend(["", "Options:"])
+        for o in cmd_opts:
+            out.extend(_help_row(o["flags"], opt_col, o["summary"]))
+    out.extend(["", "Global options: see leji --help."])
     examples = cast("list[str]", cmd.get("examples") or [])
     if examples:
         out.extend(["", "Examples:"])
@@ -167,6 +293,34 @@ def _is_calendar_date(v: str) -> bool:
         return False
 
 
+def _emit_scaffold(
+    command: str,
+    findings: list[Finding],
+    written: list[str],
+    ecosystem: "EcosystemReport",
+    dry_run: bool,
+) -> int:
+    """The one ``--json`` document ``init`` and ``adopt`` emit: a single object, like
+    every other command's, carrying what the run wrote and the repository's dependency
+    ecosystem. ``--json`` is non-interactive by construction, so nothing here can have
+    prompted or run a package manager; the report is what a consumer acts on."""
+    ordered = sort_findings(findings)
+    summary = summarize(ordered)
+    ok = summary["errors"] == 0
+    document: dict[str, object] = {
+        "command": command,
+        "ok": ok,
+        "findings": [f.to_dict() for f in ordered],
+        "summary": summary,
+    }
+    if dry_run:
+        document["dryRun"] = True
+    document["written"] = written
+    document["ecosystem"] = ecosystem.to_json()
+    print(json.dumps(document, indent=2, ensure_ascii=False))
+    return 0 if ok else 1
+
+
 def _report_scaffold_index(findings: list[Finding]) -> int:
     """Report index-generation findings from ``init`` / ``adopt``. The scaffold is
     already on disk, so this never unwinds it; it says what could not be indexed and
@@ -186,7 +340,8 @@ def _report_scaffold_index(findings: list[Finding]) -> int:
 
 def _print_findings(findings: list[Finding]) -> None:
     for f in sort_findings(findings):
-        where = f" {f.path}" if f.path else ""
+        # A rule that locates a line says so, so a reader can go to it.
+        where = f" {f.path}{'' if f.line is None else f':{f.line}'}" if f.path else ""
         label = "error  " if f.severity == "error" else "warning"
         print(f"{label} {f.rule}{where}: {f.message}")
 
@@ -260,6 +415,198 @@ _MOUNT_REASONS = {
 }
 
 
+def _print_unindexed_nudge(count: int) -> None:
+    """The `index` generate run's closing nudge. Byte-identical in all three SDKs
+    and quiet at zero: a layer with nothing unindexed says nothing."""
+    if count <= 0:
+        return
+    print(f"{count} file(s) unindexed: add to a category index or leave as reference deliberately")
+
+
+def _run_export(args: argparse.Namespace) -> int:
+    """The one export run, reached by both of its names: `leji export` (the front
+    door) and `leji viewer build` (the viewer subsystem's name for the same
+    operation, beside `viewer serve`). One code path, so the two are byte-identical
+    by construction — same default output, same JSON document, same exits.
+
+    Exits: 0 written (warnings allowed), 1 an error finding — or, under `--strict`, a
+    lint finding — with the target left byte-untouched, 2 a usage error or a refusal
+    (raised, and rendered by the caller's catch)."""
+    load = load_manifest(args.root)
+    out = getattr(args, "out", None)
+    # A failure before the pipeline can run (an unreadable manifest) reports in the
+    # command's OWN document, never the generic one: a `--json` consumer parses one
+    # shape under every outcome and either name.
+    if load.manifest is None:
+        return _report_export(
+            args, BuildResult(out=out if out is not None else DIST_REL, findings=load.findings)
+        )
+    return _report_export(args, build_viewer(args.root, load.manifest, out, strict=args.strict))
+
+
+def _report_export(args: argparse.Namespace, r: BuildResult) -> int:
+    """The one export report, for every outcome the pipeline can reach."""
+    ordered = sort_findings(r.findings)
+    if args.json:
+        # The canonical JSON document for this command, under either name.
+        print(
+            json.dumps(
+                {
+                    "command": "export",
+                    "ok": r.wrote,
+                    "out": r.out,
+                    "findings": [f.to_dict() for f in ordered],
+                    "warning": PROTECT_WARNING,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0 if r.wrote else 1
+    if not r.wrote:
+        summary = summarize(ordered)
+        _print_findings(ordered)
+        plural_e = "" if summary["errors"] == 1 else "s"
+        plural_w = "" if summary["warnings"] == 1 else "s"
+        strict_note = "; strict, nothing written" if args.strict else ""
+        print(
+            f"failed ({summary['errors']} error{plural_e}, "
+            f"{summary['warnings']} warning{plural_w}{strict_note})"
+        )
+        return 1
+    # Human mode says where the export went and repeats the protect-your-context
+    # warning, which is the part a person must act on before hosting it.
+    print(f"Exported the static viewer to {r.out}/")
+    print(f"\n{PROTECT_WARNING}")
+    return 0
+
+
+def _report_update_pin(args: argparse.Namespace, r: UpdatePinResult) -> int:
+    """Render one `mounts update-pin` run. The comparison is shown first, then what
+    the run did with it, then the follow-up act this command deliberately does not
+    perform. Every string is Leji-authored: git's stderr never reaches output."""
+    # An internal refusal after validation carries no document at all: there is no
+    # outcome to report, only the act this run would not perform.
+    if r.write_error is not None:
+        print(f"leji: {r.write_error}", file=sys.stderr)
+        return 2
+    findings = sort_findings(r.findings)
+    summary = summarize(findings)
+    ok = summary["errors"] == 0
+    if args.json:
+        payload: dict[str, object] = {
+            "command": "mounts update-pin",
+            "ok": ok,
+            "findings": [f.to_dict() for f in findings],
+            "summary": summary,
+            "mount": r.mount,
+            "pinReport": r.pin_report,
+            "action": r.action,
+            "override": r.override,
+        }
+        if r.reason is not None:
+            payload["reason"] = r.reason
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0 if ok else 1
+    rep = r.pin_report
+    to_oid = r.mount["to"]
+    from_oid = r.mount["from"]
+    if (
+        rep is not None
+        and rep["state"] != "unknown"
+        and to_oid is not None
+        and from_oid is not None
+    ):
+        # Offline, the witness is the last one successfully observed — never a claim
+        # that the source was looked at during this run.
+        observed = (
+            "" if args.fetch else " (last observed witness; run with --fetch to observe the source)"
+        )
+        print(
+            f"{r.mount['name']} @ {short_oid(cast('str', from_oid))} → "
+            f"{short_oid(cast('str', to_oid))} · pin: {rep['state']} "
+            f"(behind {rep['behind']}, ahead {rep['ahead']}) · "
+            f"via {rep['comparisonRepository']}{observed}"
+        )
+    overridden = " (non-fast-forward, overridden)" if r.override else ""
+    from12 = "" if from_oid is None else short_oid(cast("str", from_oid))
+    to12 = "" if to_oid is None else short_oid(cast("str", to_oid))
+    if r.action == "updated":
+        print(f"Updated leji.json: {r.mount['name']} pin {from12} → {to12}{overridden}")
+        # Moving the pin is one act; materializing the new projection is another.
+        print(f"Run leji mounts hydrate{'' if args.fetch else ' --fetch'} to hydrate the new pin.")
+    elif r.action == "unchanged":
+        print(f"Unchanged: {r.mount['name']} pin {from12} is already the target")
+    elif r.action == "dry-run":
+        print(
+            f"Would update leji.json: {r.mount['name']} pin {from12} → {to12} (dry run){overridden}"
+        )
+    elif r.action == "refused":
+        reason = r.reason or ""
+        print(f"Refused: {MOUNT_UPDATE_PIN_REASONS.get(reason, reason)}")
+    return 0 if ok else 1
+
+
+def _report_badge(args: argparse.Namespace, r: BadgeResult) -> int:
+    """The one `leji badge` report, for every outcome the command can reach. The JSON
+    document is the shared `_emit()` shape plus the badge's own fields, emitted under
+    success and refusal alike so a consumer parses one document; the human channel says
+    what was written and hands over the markdown line to paste.
+
+    Exits: `0` the badge is written or already current, `1` a conformance error finding or
+    nothing machine-verified in this run, `2` a `--out` usage error (rendered by the
+    caller, with no level reported) or a refusal to overwrite a file that is not a badge
+    of this contract."""
+    findings = sort_findings(r.findings)
+    summary = summarize(findings)
+    ok = summary["errors"] == 0
+    code = 2 if r.refusal is not None else 0 if ok else 1
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "command": "badge",
+                    "ok": ok,
+                    "findings": [f.to_dict() for f in findings],
+                    "summary": summary,
+                    "out": r.out,
+                    "level": r.level,
+                    "claimedLevel": r.claimed_level,
+                    "verifiedLevel": r.verified_level,
+                    "markdown": r.markdown,
+                    "action": r.action,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        if r.refusal is not None:
+            print(f"leji: {r.refusal}", file=sys.stderr)
+        return code
+    if r.refusal is not None:
+        print(f"leji: {r.refusal}", file=sys.stderr)
+        return 2
+    if not ok:
+        _print_findings(findings)
+        print("Run leji conformance --explain.")
+        return 1
+    verb = (
+        "Wrote" if r.action == "wrote" else "Overwrote" if r.action == "overwrote" else "Unchanged"
+    )
+    assert r.level is not None and r.markdown is not None  # every ok run carries both
+    print(f"{verb} {r.out}: {badge_label(r.level)}")
+    # The badge states what this run verified, so a claim it did not reach is said out
+    # loud rather than quietly dropped.
+    if r.claimed_level is not None and r.claimed_level != r.verified_level:
+        print(
+            f"Claimed {r.claimed_level}; this offline run verified {r.verified_level} "
+            "(leji conformance --federation=verify checks the claim)."
+        )
+    print("\nAdd it to your README (paths are relative to the repository root):\n")
+    print(r.markdown.rstrip())
+    return 0
+
+
 def _emit(command: str, findings: list[Finding], as_json: bool, **extra: object) -> int:
     ordered = sort_findings(findings)
     summary = summarize(ordered)
@@ -298,10 +645,12 @@ _KNOWN_COMMANDS = frozenset(
         "status",
         "route",
         "conformance",
+        "badge",
         "mounts",
         "detect",
         "init",
         "adopt",
+        "export",
         "viewer",
         "view",
         "start",
@@ -333,6 +682,7 @@ _VALUE_FLAGS = frozenset(
         "--topics",
         "--as-of",
         "--federation",
+        "--to",
     }
 )
 
@@ -373,6 +723,17 @@ _ENUM_FLAGS = {
     "--mode": (("solo", "team"), "--mode must be solo or team"),
 }
 
+# Flags whose value must match a shape, checked in the same place and for the same
+# reason. `--to` takes the schema's own pin shape: a full commit id, never an
+# abbreviation and never a revision expression, so all three SDKs accept one
+# spelling.
+_PATTERN_FLAGS = {
+    "--to": (
+        re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"),
+        "--to must be a full 40- or 64-character lowercase hex commit id",
+    ),
+}
+
 
 def _expand_equals_flags(argv: list[str]) -> list[str]:
     """Expand `--flag=value` into `--flag value` for declared value flags, so both
@@ -389,6 +750,41 @@ def _expand_equals_flags(argv: list[str]) -> list[str]:
         else:
             out.append(a)
     return out
+
+
+def effective_root(argv: list[str]) -> str | None:
+    """The repository root this argv lands on, decided ONCE and used by everything that
+    has to agree about it: the parse below, and the installed console script's hand-off
+    to a repository's own pinned CLI, which must select the same repository the command
+    would then operate on. Same scan as the parse (`--flag=value` expanded, every
+    declared value flag consuming its own value, the literal `--` ending our flags), so
+    `--root` is read from the same token stream rather than from a second reading of it.
+    Last `--root` wins; the default is the current directory.
+
+    None when the scan cannot tell: a value flag with no value, or one whose value is
+    itself a flag, is the usage error the parse reports, and a root guessed out of a
+    malformed command line is exactly the wrong thing to hand an invocation to.
+    Mirrors effectiveRoot in packages/sdk/src/index.ts."""
+    expanded = _expand_equals_flags(argv)
+    root = "."
+    i = 0
+    while i < len(expanded):
+        arg = expanded[i]
+        if arg == "--":  # host pass-through: never our flags
+            break
+        if arg not in _VALUE_FLAGS:
+            i += 1
+            continue
+        i += 1
+        value = expanded[i] if i < len(expanded) else None
+        if value is None or _is_flag_token(value):
+            return None
+        if arg == "--root":
+            if value == "":  # `--root ""` is the usage error, not a root
+                return None
+            root = value
+        i += 1
+    return root
 
 
 def _first_command(argv: list[str]) -> str | None:
@@ -482,7 +878,8 @@ def _parse_error(argv: list[str]) -> str | None:
     declared value flag whose value is absent, empty (`--flag=` expands to an
     empty token; Node's `!v` rejects it), or itself a flag token is
     `<tok> requires a value`. A numeric flag whose value is not a decimal integer
-    in range, or an enum flag whose value is not one of its words, gets that flag's
+    in range, an enum flag whose value is not one of its words, or a shaped flag
+    (`--to`) whose value does not match, gets that flag's
     own message, here rather than after argparse, so the three agree on which error
     a command that does not even accept `--port` reports. Whichever comes first in
     argv wins, so all three SDKs report the same token with the same text. None
@@ -508,6 +905,11 @@ def _parse_error(argv: list[str]) -> str | None:
             if enum is not None:
                 words, message = enum
                 if nxt not in words:
+                    return message
+            pattern = _PATTERN_FLAGS.get(arg)
+            if pattern is not None:
+                shape, message = pattern
+                if shape.match(cast("str", nxt)) is None:
                     return message
             i += 2
             continue
@@ -678,7 +1080,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="run the networked pin-reachability probe (takes only verify)",
     )
 
-    # `leji mounts <hydrate|status|locate>`: the federation resolver commands.
+    badge = sub.add_parser("badge", help="write the self-attested conformance badge")
+    common(badge)
+    badge.add_argument(
+        "--out",
+        default=None,
+        help="where to write the badge (default: leji-badge.svg at the repository root)",
+    )
+
+    # `leji mounts <hydrate|status|locate|update-pin>`: the federation resolver commands.
     mounts = sub.add_parser("mounts", help="resolve and inspect declared federation mounts")
     mounts_sub = mounts.add_subparsers(dest="subcommand")
     mounts_hydrate = mounts_sub.add_parser(
@@ -707,6 +1117,34 @@ def _build_parser() -> argparse.ArgumentParser:
     # Optional at parse time: the missing-name usage error is issued in dispatch
     # (after the manifest load), mirroring the Node ordering exactly.
     mounts_locate.add_argument("name", nargs="?", default=None)
+    mounts_update_pin = mounts_sub.add_parser(
+        "update-pin", help="move a declared mount's pin forward to a witnessed commit"
+    )
+    common(mounts_update_pin)
+    # Optional at parse time; the missing-name usage error is issued in dispatch,
+    # ahead of the manifest load, exactly where Node issues it.
+    mounts_update_pin.add_argument("name", nargs="?", default=None)
+    mounts_update_pin.add_argument(
+        "--to",
+        default=None,
+        help="move to this exact commit instead of the witness tip",
+    )
+    mounts_update_pin.add_argument(
+        "--allow-non-fast-forward",
+        action="store_true",
+        dest="allow_non_fast_forward",
+        help="permit a target that is not a descendant of the current pin (needs --to)",
+    )
+    mounts_update_pin.add_argument(
+        "--fetch",
+        action="store_true",
+        help="observe the declared source: retain the pin, refresh the witness, retain the target",
+    )
+    mounts_update_pin.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="show the comparison and what would change; write no manifest byte",
+    )
 
     common(sub.add_parser("detect", help="detect the coding-agent hosts available on this machine"))
 
@@ -775,6 +1213,24 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="compute the write plan without writing"
     )
 
+    # `leji export`: the front-door name for the static export. `leji viewer build`
+    # below is the viewer subsystem's name for the same operation, so both parsers
+    # declare the same options and both dispatch to _run_export.
+    export = sub.add_parser(
+        "export", help="export the context layer as a self-contained static site"
+    )
+    common(export)
+    export.add_argument(
+        "--out",
+        default=None,
+        help="output directory for the export (default: .leji/dist)",
+    )
+    export.add_argument(
+        "--strict",
+        action="store_true",
+        help="fail the export on any lint finding and write nothing",
+    )
+
     # `leji viewer` generates only; `leji viewer serve` generates then serves.
     viewer = sub.add_parser(
         "viewer", help="generate the static viewer (Docsify index.html + _sidebar.md)"
@@ -802,7 +1258,12 @@ def _build_parser() -> argparse.ArgumentParser:
     viewer_build.add_argument(
         "--out",
         default=None,
-        help="output directory for the export (default: .leji/viewer-dist inside the context root)",
+        help="output directory for the export (default: .leji/dist)",
+    )
+    viewer_build.add_argument(
+        "--strict",
+        action="store_true",
+        help="fail the export on any lint finding and write nothing",
     )
 
     # `leji view` is an alias for `leji viewer serve` that also opens the browser.
@@ -960,18 +1421,13 @@ def main(argv: list[str] | None = None) -> int:
             print(USAGE, file=sys.stderr)
             return 2
 
-    # `leji mounts` requires one of the three subcommands; anything else is a
-    # usage error before argparse (byte parity with the Node dispatch).
-    if command == "mounts" and sub not in ("hydrate", "status", "locate"):
-        print("leji: usage: leji mounts <hydrate|status|locate>\n", file=sys.stderr)
-        print(USAGE, file=sys.stderr)
-        return 2
-
     # Reject surplus positional arguments with the same message the other two
     # implementations use. argparse would reject them too, but in its own wording and
     # format, so the three CLIs disagreed on an error a typo produces every day.
+    # Ahead of the `mounts` sub-guard below, where Node and Go check it: a misspelled
+    # subcommand carrying a stray positional reports the positional in all three.
     expected = 2 if command in _TWO_WORD_COMMANDS and sub else 1
-    if command == "mounts" and sub == "locate":
+    if command == "mounts" and sub in ("locate", "update-pin"):
         expected += 1
     # `view` has its own usage message for a stray subcommand, and it is the more
     # useful one; let that case fall through to it.
@@ -981,6 +1437,13 @@ def main(argv: list[str] | None = None) -> int:
             f'leji: unexpected argument "{positionals[expected]}" for "{where}"\n',
             file=sys.stderr,
         )
+        print(USAGE, file=sys.stderr)
+        return 2
+
+    # `leji mounts` requires one of the four subcommands; anything else is a
+    # usage error before argparse (byte parity with the Node dispatch).
+    if command == "mounts" and sub not in ("hydrate", "status", "locate", "update-pin"):
+        print("leji: usage: leji mounts <hydrate|status|locate|update-pin>\n", file=sys.stderr)
         print(USAGE, file=sys.stderr)
         return 2
 
@@ -1061,12 +1524,19 @@ def main(argv: list[str] | None = None) -> int:
             )
             if seeded_changelog is not None:
                 index_extra["changelog"] = seeded_changelog
-            return _emit(
+            code = _emit(
                 "index",
                 [*load.findings, *index_result.findings],
                 args.json,
                 **index_extra,
             )
+            # A generate run ends by naming what the layer governs but does not
+            # index. A nudge, never a gate: the exit code is _emit's alone, and
+            # nothing is printed when the count is zero. Text output only; --json
+            # carries one document and nothing after it.
+            if not args.json:
+                _print_unindexed_nudge(len(unindexed_paths(args.root, load.manifest)))
+            return code
 
         if args.command == "changelog":
             subcommand = getattr(args, "subcommand", None)
@@ -1379,7 +1849,7 @@ def main(argv: list[str] | None = None) -> int:
                         "unknown": "unknown",
                         "not-applicable": "n/a    ",
                     }.get(check_item.status, "manual ")
-                    detail = f" — {check_item.detail}" if check_item.detail else ""
+                    detail = f": {check_item.detail}" if check_item.detail else ""
                     print(f"{mark} [{check_item.level}] {check_item.description}{detail}")
                 print()
                 if args.explain:
@@ -1393,11 +1863,54 @@ def main(argv: list[str] | None = None) -> int:
                 extra["items"] = [i.to_dict() for i in conformance.items]
             return _emit("conformance", conformance.findings, args.json, **extra)
 
+        if args.command == "badge":
+            badge_result = badge_run(
+                args.root, args.out if args.out is not None else DEFAULT_BADGE_OUT
+            )
+            # A rejected `--out` is a usage error, in the CLI's usage-error form and
+            # ahead of every level the command could have reported.
+            if badge_result.usage_error is not None:
+                print(f"leji: {badge_result.usage_error}\n", file=sys.stderr)
+                print(USAGE, file=sys.stderr)
+                return 2
+            return _report_badge(args, badge_result)
+
         if args.command == "mounts":
             subcommand = getattr(args, "subcommand", None)
+            # Argument shape is settled before anything on disk is read: a usage
+            # error is never contingent on a manifest loading.
+            if subcommand == "update-pin":
+                if not getattr(args, "name", None):
+                    print(
+                        "leji: usage: leji mounts update-pin <name> [--to <oid>]\n",
+                        file=sys.stderr,
+                    )
+                    print(USAGE, file=sys.stderr)
+                    return 2
+                if args.allow_non_fast_forward and args.to is None:
+                    print(
+                        "leji: --allow-non-fast-forward is valid only with an explicit "
+                        "--to <oid>\n",
+                        file=sys.stderr,
+                    )
+                    print(USAGE, file=sys.stderr)
+                    return 2
             load = load_manifest(args.root)
             if load.manifest is None:
                 return _emit(f"mounts {subcommand}", load.findings, args.json)
+            if subcommand == "update-pin":
+                return _report_update_pin(
+                    args,
+                    update_pin_run(
+                        args.root,
+                        load.manifest,
+                        args.name,
+                        to=args.to,
+                        allow_non_fast_forward=args.allow_non_fast_forward,
+                        fetch=args.fetch,
+                        dry_run=args.dry_run,
+                    ),
+                )
             if subcommand == "hydrate":
                 hydrate = hydrate_mounts(args.root, load.manifest, fetch=args.fetch)
                 if hydrate.fatal is not None:
@@ -1506,30 +2019,10 @@ def main(argv: list[str] | None = None) -> int:
                 _print_findings(issues)
             return 0
 
-        if args.command == "viewer" and getattr(args, "subcommand", None) == "build":
-            load = load_manifest(args.root)
-            if load.manifest is None:
-                return _emit("viewer build", load.findings, args.json)
-            r = build_viewer(args.root, load.manifest, args.out)
-            if any(f.severity == "error" for f in r.findings):
-                return _emit("viewer build", r.findings, args.json)
-            if args.json:
-                print(
-                    json.dumps(
-                        {
-                            "command": "viewer build",
-                            "ok": True,
-                            "out": r.out,
-                            "warning": PROTECT_WARNING,
-                        },
-                        indent=2,
-                        ensure_ascii=False,
-                    )
-                )
-            else:
-                print(f"Exported the static viewer to {r.out}/")
-                print(f"\n{PROTECT_WARNING}")
-            return 0
+        if args.command == "export" or (
+            args.command == "viewer" and getattr(args, "subcommand", None) == "build"
+        ):
+            return _run_export(args)
 
         if args.command in ("viewer", "view"):
             # `view` aliases `viewer serve` and also opens the browser.
@@ -1557,7 +2050,7 @@ def main(argv: list[str] | None = None) -> int:
                 code = 0
             if not want_serve or code != 0:
                 if not args.json and code == 0:
-                    viewer_dir = f"{strip_slash(load.manifest['rootPath']) or '.'}/.leji/viewer/"
+                    viewer_dir = f"{VIEWER_REL}/"
                     print(
                         f"viewer ready ({viewer_result.entries} entries) → {viewer_dir}"
                         "   serve: leji view"
@@ -1592,13 +2085,14 @@ def main(argv: list[str] | None = None) -> int:
                             "command": "detect",
                             "ok": True,
                             "hosts": [h.to_dict() for h in detect_result.hosts],
+                            "ecosystem": detect_result.ecosystem.to_json(),
                         },
                         indent=2,
                         ensure_ascii=False,
                     )
                 )
             else:
-                print(render_detect(detect_result.hosts))
+                print(render_detect(detect_result.hosts, detect_result.ecosystem))
             return 0
 
         if args.command == "adopt":
@@ -1612,7 +2106,12 @@ def main(argv: list[str] | None = None) -> int:
                 agent=args.agent,
                 mode=args.mode,
             )
+            # The repository's own dependency ecosystem, read once and reported by
+            # every output mode: the human block, the JSON document, and the offer.
+            adopt_eco = detect_ecosystem(adopt_result.root)
             if adopt_result.dry_run:
+                if args.json:
+                    return _emit_scaffold("adopt", adopt_result.findings, [], adopt_eco, True)
                 # A wire-only run scaffolds nothing, so "Adopting the existing
                 # repository" misnames it: the layer is already there and the plan
                 # beneath is entrypoint conversions.
@@ -1627,14 +2126,26 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 print("\n" + render_write_plan(adopt_result.plan))
                 print("\nNo files written (--dry-run). Re-run without --dry-run to apply.")
+                print("\n" + render_ecosystem_block(adopt_eco))
                 return 0
+            if args.json:
+                return _emit_scaffold(
+                    "adopt", adopt_result.findings, adopt_result.written, adopt_eco, False
+                )
             print(
                 f"\nWrote {len(adopt_result.written)} files (context root: {adopt_result.detected_root}):"
             )
             for rel in adopt_result.written:
                 print(f"   {rel}")
             index_failed = _report_scaffold_index(adopt_result.findings)
-            interactive = not args.yes and _stdin_is_tty()
+            # --json is a single-document mode, so it is never interactive: nothing
+            # prompts, and no package manager can run under it.
+            interactive = not args.yes and not args.json and _stdin_is_tty()
+            # A wire-only run scaffolds no layer, so it makes no declaration offer.
+            dependency_failed = False
+            if not adopt_result.wired_only:
+                offer = offer_dependency(adopt_result.root, adopt_eco, interactive)
+                dependency_failed = dependency_add_failed(offer)
             # Register the MCP server before the handoff, so the launched agent picks it
             # up at startup; the launch is anchored at the layer root (cwd) too.
             mcp = offer_mcp_install(
@@ -1663,7 +2174,9 @@ def main(argv: list[str] | None = None) -> int:
                 mcp=mcp,
             ):
                 print(entering_adopted(adopt_result))
-            return index_failed
+            # The layer is written either way; a consented add that failed means the
+            # durable setup this run promised was not reached, and the exit says so.
+            return 1 if (index_failed or dependency_failed) else 0
 
         if args.command == "init":
             target = args.dir if args.dir != "." else args.root
@@ -1677,15 +2190,24 @@ def main(argv: list[str] | None = None) -> int:
                 agent=args.agent,
                 mode=args.mode,
             )
+            init_eco = detect_ecosystem(init_result.root)
             if init_result.dry_run:
+                if args.json:
+                    return _emit_scaffold("init", init_result.findings, [], init_eco, True)
                 print("\n" + render_write_plan(init_result.plan))
                 print("\nNo files written (--dry-run). Re-run without --dry-run to create them.")
+                print("\n" + render_ecosystem_block(init_eco))
                 return 0
+            if args.json:
+                return _emit_scaffold(
+                    "init", init_result.findings, init_result.written, init_eco, False
+                )
             print(f"\nWrote {len(init_result.written)} files:")
             for rel in init_result.written:
                 print(f"   {rel}")
             index_failed = _report_scaffold_index(init_result.findings)
-            interactive = not args.yes and _stdin_is_tty()
+            interactive = not args.yes and not args.json and _stdin_is_tty()
+            offer = offer_dependency(init_result.root, init_eco, interactive)
             # Register the MCP server before the handoff, so the launched agent picks it
             # up at startup; the launch is anchored at the layer root (cwd) too.
             mcp = offer_mcp_install(
@@ -1714,16 +2236,84 @@ def main(argv: list[str] | None = None) -> int:
                 mcp=mcp,
             ):
                 print(entering_the_layer(init_result.manifest, init_result.mode))
-            return index_failed
+            return 1 if (index_failed or dependency_add_failed(offer)) else 0
 
         if args.command == "start":
             load = load_manifest(args.root)
             if load.manifest is None:
                 return _emit("start", load.findings, args.json)
             detected = detect_hosts(args.root)
-            # `start` doesn't document --yes, so it's never set; getattr keeps
-            # parity with the Node `!flags.yes` default.
-            interactive = not getattr(args, "yes", False) and _stdin_is_tty()
+            # The repository's own ecosystem, read once: the preflight probes the
+            # runner it names, and the JSON document reports it.
+            start_eco = detect_ecosystem(args.root)
+            # --json is a single-document mode, so it is never interactive: nothing
+            # prompts, nothing launches, and no repair can run under it. `start`
+            # doesn't document --yes, so it's never set; getattr keeps parity with
+            # the Node `!flags.yes` default.
+            interactive = not getattr(args, "yes", False) and not args.json and _stdin_is_tty()
+            # The boot profile is checked first, before any report or prompt: a layer
+            # whose entrypoint is missing has nothing to enter.
+            if not boot_profile_ready(args.root, load.manifest):
+                if args.json:
+                    print(
+                        json.dumps(
+                            {
+                                "command": "start",
+                                "ok": False,
+                                "ready": False,
+                                "error": "boot-missing",
+                                "checks": [],
+                                "ecosystem": start_eco.to_json(),
+                            },
+                            indent=2,
+                        )
+                    )
+                else:
+                    print(
+                        f"leji: boot profile {load.manifest['bootProfilePath']} "
+                        "is missing or invalid; run leji validate",
+                        file=sys.stderr,
+                    )
+                return 1
+            start_io = _default_handoff_io()
+            # The host is resolved BEFORE the report, so the MCP rows answer for the
+            # host this run actually targets. An --agent naming no launchable host
+            # raises here, exactly as it did inside enter_layer: a usage error.
+            start_host = resolve_start_host(detected, args.agent, interactive, start_io)
+            preflight = run_preflight(
+                args.root, load.manifest, start_host, detected, start_eco, start_io
+            )
+            if args.json:
+                # Report only: the launch-selection arguments are accepted and have no
+                # effect, and a gap is reported rather than blocking (`ready` is the
+                # scriptable signal).
+                print(
+                    json.dumps(
+                        {
+                            "command": "start",
+                            "ok": True,
+                            "ready": preflight.ready,
+                            # Projected, never the raw checks: the document publishes
+                            # four keys, and a field the renderer needs is not one.
+                            "checks": [check_document(c) for c in preflight.checks],
+                            "ecosystem": start_eco.to_json(),
+                        },
+                        indent=2,
+                    )
+                )
+                return 0
+            # The one place color is decided: a terminal question, asked at the
+            # boundary and injected, so the block itself never consults the process.
+            color = color_decision(sys.stdout.isatty(), os.environ)
+            print("\n" + render_preflight(preflight.checks, color))
+            offer_preflight_fixes(
+                args.root,
+                start_host,
+                preflight,
+                runner_argv(start_eco),
+                interactive,
+                start_io,
+            )
             outcome = enter_layer(
                 StartOptions(
                     root=args.root,
@@ -1732,25 +2322,24 @@ def main(argv: list[str] | None = None) -> int:
                     agent=args.agent,
                     interactive=interactive,
                     host_args=host_args,
+                    io=start_io,
+                    host=start_host,
+                    host_resolved=True,
                 )
             )
-            if outcome == "boot-missing":
-                print(
-                    f"leji: boot profile {load.manifest['bootProfilePath']} "
-                    "is missing or invalid; run leji validate",
-                    file=sys.stderr,
-                )
-                return 1
             if outcome == "fallback":
                 print(entering_via_boot(load.manifest, host_args))
             return 0
 
         if args.command == "ci":
+            # One detection for the whole command: the hook and the CI job both run
+            # what a clean install of this repository provides.
+            ci_eco = detect_ecosystem(args.root)
             if args.hooks:
                 load = load_manifest(args.root)
                 if load.manifest is None:
                     return _emit("ci", load.findings, args.json)
-                hook = ensure_local_hook(args.root)
+                hook = ensure_local_hook(args.root, runner_argv(ci_eco))
                 if args.json:
                     hook_out: dict[str, object] = {
                         "command": "ci",
@@ -1761,6 +2350,7 @@ def main(argv: list[str] | None = None) -> int:
                     if hook.action == "manual":
                         hook_out["reason"] = hook.reason
                         hook_out["snippet"] = hook.snippet
+                    hook_out["ecosystem"] = ci_eco.to_json()
                     print(json.dumps(hook_out, indent=2, ensure_ascii=False))
                 elif hook.action == "manual":
                     if hook.reason == "outside-root":
@@ -1790,6 +2380,8 @@ def main(argv: list[str] | None = None) -> int:
                         f"{verb} {hook.path} (validate + index --check before every "
                         "commit; per-clone, delete to opt out)."
                     )
+                if not args.json:
+                    print(render_ecosystem_line(ci_eco))
                 return 0
             # No --provider: infer from the origin remote (a GitLab repo must
             # never silently receive a GitHub workflow); say which and why.
@@ -1814,7 +2406,7 @@ def main(argv: list[str] | None = None) -> int:
             load = load_manifest(args.root)
             if load.manifest is None:
                 return _emit("ci", load.findings, args.json)
-            ci_result = ensure_ci_workflow(args.root, provider)
+            ci_result = ensure_ci_workflow(args.root, provider, ci_eco)
             if args.json:
                 out: dict[str, object] = {
                     "command": "ci",
@@ -1828,6 +2420,7 @@ def main(argv: list[str] | None = None) -> int:
                     out["snippet"] = ci_result.snippet
                 if ci_result.note:
                     out["note"] = ci_result.note
+                out["ecosystem"] = ci_eco.to_json()
                 print(json.dumps(out, indent=2, ensure_ascii=False))
             else:
                 if ci_result.action == "created":
@@ -1837,12 +2430,15 @@ def main(argv: list[str] | None = None) -> int:
                 elif ci_result.action == "unchanged":
                     print(f"{ci_result.path} already present; nothing to do.")
                 else:  # manual
+                    # Not leji's file: it was written by hand, or a generated one was
+                    # edited. Either way the edit is the opt-out, and it is honored.
                     print(
-                        f"{ci_result.path} already exists; not modifying it. "
-                        f"Add this to your CircleCI config:\n\n{ci_result.snippet}"
+                        f"{ci_result.path} already exists and was not generated by leji; "
+                        f"not modifying it. Add this yourself:\n\n{ci_result.snippet}"
                     )
                 if ci_result.note:
                     print(ci_result.note)
+                print(render_ecosystem_line(ci_eco))
             return 0
 
         if args.command == "agent":
@@ -1857,24 +2453,21 @@ def main(argv: list[str] | None = None) -> int:
                 args.root, load.manifest, host=args.host, name=args.name, role=args.role
             )
             if args.json:
-                print(
-                    json.dumps(
-                        {
-                            "command": "agent",
-                            "ok": True,
-                            "name": agent_result.name,
-                            "role": agent_result.role,
-                            "host": agent_result.host_id,
-                            "profile": agent_result.profile_path,
-                            "created": {
-                                "profile": agent_result.profile_created,
-                                "manifest": agent_result.manifest_changed,
-                            },
-                        },
-                        indent=2,
-                        ensure_ascii=False,
-                    )
-                )
+                agent_out: dict[str, object] = {
+                    "command": "agent",
+                    "ok": True,
+                    "name": agent_result.name,
+                    "role": agent_result.role,
+                    "host": agent_result.host_id,
+                    "profile": agent_result.profile_path,
+                    "created": {
+                        "profile": agent_result.profile_created,
+                        "manifest": agent_result.manifest_changed,
+                    },
+                }
+                if agent_result.note:
+                    agent_out["note"] = agent_result.note
+                print(json.dumps(agent_out, indent=2, ensure_ascii=False))
             else:
                 lines = [
                     f"Wrote {agent_result.profile_path}"
@@ -1891,6 +2484,8 @@ def main(argv: list[str] | None = None) -> int:
                     if agent_result.manifest_changed
                     else f'agent "{agent_result.name}" already bound in leji.json; nothing to do.'
                 )
+                if agent_result.note:
+                    lines.append(agent_result.note)
                 print("\n".join(lines))
             return 0
 
@@ -1904,5 +2499,35 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
 
+def _self_entry() -> str | None:
+    """This console script, with every symlink resolved: the one path the hand-off must
+    never select, or a repository whose install points back here would run us forever.
+    An entry that cannot be resolved refuses the hand-off rather than risking that."""
+    script = sys.argv[0] if sys.argv else ""
+    if script == "":
+        return None
+    try:
+        return os.path.realpath(script)
+    except OSError:
+        return None
+
+
+def entry() -> int:
+    """The INSTALLED console script (`leji`), which is the only place the hand-off
+    lives. Before anything is parsed: inside a repository that declares the Leji CLI and
+    has it installed, this invocation belongs to that pinned copy rather than to
+    whichever global the PATH found. `main()` is a library call and never hands work to
+    another program. Mirrors packages/sdk/src/cli.ts."""
+    # Imported here, not at module scope: the wrapper imports this module for the
+    # shared root scan, and a library user of `main` never loads the launcher at all.
+    from .localcli import launch_local_cli, resolve_local_cli
+
+    argv = sys.argv[1:]
+    local = resolve_local_cli(argv, os.environ, sys.platform, _self_entry())
+    if local is not None:
+        launch_local_cli(local)
+    return main(argv)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(entry())

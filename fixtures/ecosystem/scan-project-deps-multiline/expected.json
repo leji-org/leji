@@ -1,0 +1,55 @@
+{
+  "ecosystem": {
+    "selected": {
+      "ecosystem": "python",
+      "status": "ok",
+      "manifest": "pyproject.toml",
+      "manager": "uv",
+      "source": "lockfile",
+      "evidence": [
+        "uv.lock"
+      ],
+      "add": [
+        "uv",
+        "add",
+        "--dev",
+        "leji"
+      ],
+      "runner": [
+        "uv",
+        "run",
+        "leji"
+      ],
+      "directDeclared": true,
+      "lockEvidenced": true,
+      "candidates": []
+    },
+    "all": [
+      {
+        "ecosystem": "python",
+        "status": "ok",
+        "manifest": "pyproject.toml",
+        "manager": "uv",
+        "source": "lockfile",
+        "evidence": [
+          "uv.lock"
+        ],
+        "add": [
+          "uv",
+          "add",
+          "--dev",
+          "leji"
+        ],
+        "runner": [
+          "uv",
+          "run",
+          "leji"
+        ],
+        "directDeclared": true,
+        "lockEvidenced": true,
+        "candidates": []
+      }
+    ],
+    "reason": null
+  }
+}

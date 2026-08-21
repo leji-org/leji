@@ -23,6 +23,8 @@ global `leji` resolves into this checkout and **every rebuild flows through inst
   the artifact a user would install.
 - **Use for:** the fix-rebuild-rerun loop while working a problem.
 
+LIVE is also where new behavior settles first: the TypeScript SDK is the canonical implementation, and the Go and Python ports are made only from its settled behavior, pinned by the shared fixtures at port time ([CONTRIBUTING](../../CONTRIBUTING.md), Tooling).
+
 ## PACKED: installed artifact
 
 `npm run cli:packed:refresh` cleans `dist/` *and* the tsc buildinfo (a half-clean lets

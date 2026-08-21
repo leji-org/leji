@@ -1,0 +1,9 @@
+# >>> leji ci (managed) >>>
+leji-validate:
+  stage: .pre
+  image: oven/bun:1
+  script:
+    - bun install --frozen-lockfile
+    - bun run leji validate
+    - bun run leji index --check
+# <<< leji ci (managed) <<<

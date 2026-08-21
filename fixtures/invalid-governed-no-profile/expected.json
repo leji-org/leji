@@ -17,5 +17,15 @@
   "indexCheck": {
     "exit": 0,
     "stale": false
+  },
+  "badge": {
+    "exit": 1,
+    "out": null,
+    "level": null,
+    "claimedLevel": "governed",
+    "verifiedLevel": "indexed",
+    "golden": null,
+    "action": null,
+    "written": false
   }
 }

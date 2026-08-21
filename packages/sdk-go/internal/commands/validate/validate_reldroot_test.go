@@ -6,12 +6,11 @@ import (
 	"testing"
 
 	initcmd "github.com/leji-org/leji/packages/sdk-go/internal/commands/init"
-	"github.com/leji-org/leji/packages/sdk-go/internal/commands/validate"
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 )
 
 // Regression: validating with root "." from the layer cwd must match an absolute
-// root. Before the fix, fsx.ResolvesUnder compared an absolute realRoot against a
+// root. Before the fix, fsx.ResolvedWithinRoot compared an absolute realRoot against a
 // relative target, so WalkMd excluded everything and every category reported a
 // spurious category-empty error.
 func TestValidateLayerRelativeRoot(t *testing.T) {
@@ -29,7 +28,7 @@ func TestValidateLayerRelativeRoot(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(prev) }()
 
-	res := validate.ValidateLayer(".", false)
+	res := validateLayer(t, ".", false)
 
 	for _, f := range res.Findings {
 		if f.Severity == findings.Error {

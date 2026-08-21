@@ -1,0 +1,154 @@
+---
+import Doc from '../layouts/Doc.astro';
+---
+
+<Doc
+   kind="governance"
+   title="Trademark & usage policy · Leji"
+   description="How you may use the Leji name: descriptive use, redistribution, forks, functional use in files and commands, and what the logo requires."
+>
+   <h1>Trademark and usage policy</h1>
+   <p>
+      Leji™ is a trademark of Contexing, LLC. Use it as an adjective for the thing it names, the Leji specification, the
+      Leji schemas, the Leji tooling, and not as the name of your own product.
+   </p>
+   <p>
+      Leji is an open specification, and the name is how people find the real thing. This policy says what you may do
+      with the name without asking, what needs distinct branding, and the one thing that needs written permission. It
+      covers the Leji name and logo only. It does not narrow the licenses: the specification is CC-BY-4.0, and the
+      schemas, SDKs, and tooling are Apache-2.0. See{' '}
+      <a href="https://github.com/leji-org/leji/blob/main/LICENSE.md" target="_blank" rel="noopener">LICENSE.md</a>.
+   </p>
+   <p>
+      Contexing, LLC holds the Leji name and logo, and stewards the specification. See{' '}
+      <a href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md" target="_blank" rel="noopener">GOVERNANCE.md</a
+      >.
+   </p>
+
+   <h2>What you may do without asking</h2>
+   <ul>
+      <li>
+         <strong>Say what your product does.</strong> "Leji-compatible", "implements Leji 1.0", "supports Leji", and similar
+         truthful descriptions need no permission and no license.
+      </li>
+      <li>
+         <strong>Redistribute the real thing.</strong> You may redistribute the specification and the reference tooling unmodified,
+         under the name, exactly as published. A redistribution's registry or store listing says who repackaged it and does
+         not present itself as the official distribution channel.
+      </li>
+      <li>
+         <strong>Use the names the specification requires.</strong> File names, directory names, schema identifiers, manifest
+         keys, and protocol identifiers that the specification defines may be used by anyone implementing it. This functional
+         use implies no endorsement and needs no permission.
+      </li>
+      <li>
+         <strong>Keep existing commands working.</strong> A fork or an independent implementation may ship an executable named
+         <code>leji</code>, so existing scripts, CI configurations, and documentation keep working. On the conditions in
+         "The command name" below, we treat that as functional use of an interface identifier and do not assert the mark
+         against it.
+      </li>
+      <li>
+         <strong>Compete with us.</strong> Independent commercial products and services built on Leji, including ones competing
+         directly with the steward's own products, are welcome. No permission, license, or notification is required.
+      </li>
+   </ul>
+
+   <h2>What needs distinct branding</h2>
+   <p>
+      A fork or a modified version of the specification or the tooling gets its own product name and its own branding.
+      Say truthfully what it is derived from; do not present it as the canonical Leji, and do not use the name in a way
+      that implies the steward endorses, certifies, or maintains it.
+   </p>
+
+   <h2>The command name</h2>
+   <p>
+      We treat using <code>leji</code> as the command name of a compatible implementation as functional use of an interface
+      identifier, and we will not assert the Leji mark against it, provided all of the following hold:
+   </p>
+   <ul>
+      <li>
+         The implementation's <code>--version</code> output, its <code>--help</code> output, its packaging, and its documentation
+         carry its own name, one clearly distinct from Leji that does not use Leji as its dominant identifier.
+      </li>
+      <li>
+         Those same places state what it is derived from, or that it independently implements the Leji specification.
+      </li>
+      <li>
+         None of them states or implies that it is the official Leji distribution, or that the steward endorses,
+         certifies, or maintains it.
+      </li>
+   </ul>
+   <p>
+      This applies only while every condition is met. Any use that fails a condition is outside this non-assertion,
+      without limiting any rights the law provides either side.
+   </p>
+   <p>
+      This covers the executable's command name only. It does not cover package names, repository names, organization
+      names, domain names, or listing names in package registries and app stores. Those identify source, so they follow
+      the distinct-branding rule above.
+   </p>
+
+   <h2>The logo</h2>
+   <p>
+      The permissions above cover the <strong>name</strong>. They do not cover the logo. The repository licenses do not
+      extend to the logo files, and Contexing, LLC owns their copyright.
+   </p>
+   <p>
+      Contexing, LLC grants you permission to reproduce, distribute, and display the logo files unmodified, solely as
+      integral parts of unmodified builds of the software and of faithful, unmodified redistributions of the official
+      artifacts. Uses that the law permits, such as nominative reference and editorial use, need no permission either.
+      Using the Leji logo as branding requires prior written permission from Contexing, LLC. Ask at{' '}
+      <a href="mailto:hello@leji.org">hello@leji.org</a>.
+   </p>
+   <p>
+      Truthful text references never need the logo, so nothing in this policy stops you from describing what your
+      product does.
+   </p>
+
+   <h2>The Leji identity</h2>
+   <p>
+      The Leji mark, an Ionic column, and Leji green <code>#009F71</code> identify the specification and its stewarded source.
+      Products built on Leji carry their own distinct branding, and that holds for the steward's own products too: they do
+      not use the Leji logo or the Leji identity as their trade dress.
+   </p>
+
+   <h2>Conformance claims</h2>
+   <p>
+      Conformance to Leji is <strong>self-attested</strong>. A team or a product states its own level in its manifest,
+      and tools can check every requirement a machine can check against the published checklist and report the rest; the
+      checklist says which items are machine-checked and which are process-attested. There is no certification program,
+      no registry, no gatekeeper, and no fee, so "conforms to Leji 1.0" is a compatibility claim you make and stand
+      behind, not a status anyone grants you.
+   </p>
+   <p>
+      Name the version you are claiming, as in "conforms to Leji 1.0", so the claim can be checked. A conformance claim
+      that is untruthful is outside the descriptive-use permission above.
+   </p>
+
+   <h2>The name in the specification</h2>
+   <p>
+      Leji is the name of the specification and its source. The specification uses descriptive terms for the artifacts
+      it defines, "context layer", "context manifest", "context index", "context changelog", so implementers can
+      describe what they build without using the name at all. Contexing claims no trademark rights in those descriptive
+      terms standing alone. Use the descriptive terms for the artifacts, and Leji for the specification and its
+      stewarded source.
+   </p>
+   <p>
+      Spec-defined identifiers that contain "leji", such as file names, directory names, schema identifiers, and
+      manifest keys, are functional use and need no permission, per "Use the names the specification requires" above.
+      The command name has its own conditions, in "The command name".
+   </p>
+
+   <h2>Changes to this policy</h2>
+   <p>
+      We may revise this policy, and revisions apply going forward. A use that complied with the policy when it began
+      stays covered for that use, in the form in which it was made. Continued use and new use after a revision follow
+      the policy then in effect.
+   </p>
+
+   <h2>Questions</h2>
+   <p>
+      Ask at <a href="mailto:hello@leji.org">hello@leji.org</a>. If your use is truthful and does not present your
+      product as the canonical Leji, the answer is usually yes, and this page is meant to save you the email.
+   </p>
+</Doc>

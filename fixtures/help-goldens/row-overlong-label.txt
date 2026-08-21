@@ -1,0 +1,4 @@
+   --allow-non-fast-forward-with-a-very-long-spelling <oid>
+                       Permit a target that is not a descendant of the current
+                       pin, in the one spelling long enough to outgrow its
+                       column.

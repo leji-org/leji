@@ -1,0 +1,57 @@
+leji init: Bootstrap a new context layer from the templates.
+
+Usage: leji init [--dir <path>] [--yes] [--mode <solo|team>] [--level
+       <core|indexed>] [--name <name>] [--agent <name>] [--no-agents]
+       [--dry-run] [--json]
+
+Scaffolds a new context layer from the templates.
+
+Details:
+   - Writes `leji.json`, a boot profile, a pointer-only `AGENTS.md` (the
+     portable entrypoint many agent hosts read, redirecting to the boot profile;
+     `--no-agents` skips it), seeded category documents, a first decision
+     record, an agent onboarding brief, and a generated index, so the scaffold
+     is ready for the CI job `leji ci` writes. At the indexed level it also
+     writes the machine changelog. The index is a requirement of `indexed`, not
+     of `core`; a hand-authored core context layer without one still conforms.
+   - `--mode solo` (a team of one) also seeds identity and writing-style
+     starters, maps the practice category, routes identity and writing work in
+     the boot profile, and points the onboarding brief at the owner interview
+     (answer in text or with dropped files).
+   - Refuses to overwrite an existing `leji.json`, and refuses when the git tree
+     has uncommitted changes; never overwrites individual files.
+   - Reports the repository's dependency ecosystem (its package manager, from
+     the manifest and lockfiles present) and how to declare the Leji CLI as a
+     dev dependency there, so a clean install brings `leji`; on a real terminal
+     it offers to run that manager's own add command, and only on your explicit
+     yes. `--yes`, a non-TTY and `--json` print the command instead of running
+     it, and leji never edits a manifest or lockfile itself.
+   - `--dry-run` prints the write plan without writing.
+   - Also backs `npm create leji`.
+
+Options:
+   --dir <path>        Target directory (default: the current directory).
+   --yes, -y           Accept all defaults; run non-interactively.
+   --mode <mode>       Working mode: solo (team of one; seeds identity +
+                       writing-style starters) or team (default).
+   --level <level>     Conformance level to claim: core or indexed (default:
+                       core).
+   --name <name>       Context layer name (default: derived from the directory).
+   --agent <name>      Host to open in the context layer after the command
+                       (claude-code or codex). Selects the handoff host; the
+                       interactive flow may separately offer to register the MCP
+                       server or install the approval guard, each disclosed and
+                       consented to.
+   --no-agents         Skip generating the portable AGENTS.md pointer (default:
+                       written when absent).
+   --dry-run           Print the write plan and exit without creating any files.
+
+Global options: see leji --help.
+
+Examples:
+   leji init
+   leji init --dry-run
+   leji init --mode solo
+   leji init --agent claude-code
+
+Full reference: https://leji.org/cli/

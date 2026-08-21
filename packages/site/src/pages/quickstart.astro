@@ -7,12 +7,16 @@ import SectionNav from '../components/SectionNav.astro';
 import SupportedRuntimes from '../components/SupportedRuntimes.astro';
 import PageHeader from '../components/PageHeader.astro';
 import InstallTabs from '../components/InstallTabs.astro';
+import lejiSyntaxTheme from '../styles/shiki-leji.json';
 
 const initCode = `leji adopt --dry-run    # the exact write plan; nothing is written
 leji adopt              # adopt an existing repo (leji init for a new one)
                         # then offers to open Claude Code or Codex
 
-leji adopt --wire-adapters  # adopt over an existing CLAUDE.md / AGENTS.md`;
+leji adopt --wire-adapters  # adopt over an existing CLAUDE.md / AGENTS.md
+
+npm create leji         # or all of that in one step, nothing installed:
+                        # it reads the directory and picks adopt or init`;
 
 const validateCode = `leji validate           # schemas + lint rules
 leji validate --content # + placeholder / thin-content warnings
@@ -100,10 +104,17 @@ const sdkLd = {
                <h1>Build a context layer, check it conforms.</h1>
                {
                   /* The steps below already name what the CLI does. The only thing this
-                   line can add is what they cannot show: how long, and that it is offline. */
+                   line can add is what they cannot show: how long, and how little it needs.
+                   "Offline" has to stay literally true, so every network act is named rather
+                   than glossed: the optional declaration step at step 02 runs YOUR package
+                   manager, and the federation fetches contact the source you declared. */
                }
                <p class="lede">
-                  Five commands, install to conformance. Everything ships in the package, so it runs offline.
+                  Five commands, install to conformance. Everything leji does ships in the package and runs offline;
+                  what reaches the network, you invoke yourself. The dependency step at <code>leji init</code> runs your own
+                  package manager when you say yes, and the federation fetches contact the repository you named:{' '}
+                  <code>leji mounts hydrate --fetch</code>, <code>leji mounts update-pin --fetch</code>, and{' '}
+                  <code>leji conformance --federation=verify</code>.
                </p>
             </section>
 
@@ -118,8 +129,17 @@ const sdkLd = {
                         whichever one your CI installs.
                      </p>
                      <p>
-                        In a Node repository, add it as a devDependency (<code>npm i -D @leji-org/leji</code>) so CI,
-                        the hook and every contributor run the pinned version.
+                        Declaring it as a dev dependency is what makes CI, the pre-commit hook and every contributor run
+                        one pinned version. You do not have to work out the command:
+                        <code>leji init</code> and <code>leji adopt</code> detect the package manager this repository actually
+                        uses and offer to run its own add command for you, only on your explicit yes:
+                        <code>npm</code>, <code>pnpm</code>, <code>yarn</code> and <code>bun</code>;
+                        <code>uv</code>, <code>poetry</code>, <code>pdm</code> and <code>pipenv</code>; and
+                        <code>go get -tool</code> on Go 1.24 or newer. With pip, or Go before 1.24, leji prints the line to
+                        add instead of running anything. A global install stays out of the way: inside a repository that pins
+                        its own copy, the Node and Python CLIs run that copy for every invocation (<a
+                           href="/cli/#pinned-cli">the CLI a repository pins</a
+                        >).
                      </p>
                   </div>
                   <div class="step-install"><InstallTabs /></div>
@@ -141,8 +161,8 @@ const sdkLd = {
                         Working alone? <code>--mode solo</code> seeds identity and writing-style starters and points the brief
                         at an owner interview; answers can be typed, attached, or dropped in a folder. Only the synthesis
                         you approve becomes context, and your raw files never enter git: <code>init</code> and{' '}
-                        <code>adopt</code> refuse to run while anything under <code>&lt;rootPath&gt;/.leji/</code> is tracked,
-                        and the agent deletes the artifacts once the context layer is populated.
+                        <code>adopt</code> refuse to run at all while anything under the repository-root{' '}
+                        <code>.leji/</code> is tracked, and the agent deletes the artifacts once the context layer is populated.
                      </p>
                      <aside class="map-note">
                         <strong>Already have a <code>docs/</code> tree?</strong>
@@ -150,7 +170,7 @@ const sdkLd = {
                         so until <code>--wire-adapters</code> runs you have an adoption draft rather than a conformant layer.
                      </aside>
                   </div>
-                  <div class="step-code"><Code code={initCode} lang="bash" theme="night-owl" wrap /></div>
+                  <div class="step-code"><Code code={initCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
                </article>
 
                <article class="step">
@@ -173,7 +193,7 @@ const sdkLd = {
                         >, expect one failure, <code>vendor-adapter-redirect</code>, until <code>--wire-adapters</code> runs.
                      </p>
                   </div>
-                  <div class="step-code"><Code code={validateCode} lang="bash" theme="night-owl" wrap /></div>
+                  <div class="step-code"><Code code={validateCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
                </article>
 
                <article class="step">
@@ -191,7 +211,7 @@ const sdkLd = {
                         <a href="/spec/conformance/">What each level asks of you</a>
                      </p>
                   </div>
-                  <div class="step-code"><Code code={conformanceCode} lang="bash" theme="night-owl" wrap /></div>
+                  <div class="step-code"><Code code={conformanceCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
                </article>
 
                <article class="step">
@@ -199,7 +219,7 @@ const sdkLd = {
                      <h2><span class="step-num">05</span>See your context layer</h2>
                      <p>The same layer your agents read, rendered for people.</p>
                   </div>
-                  <div class="step-code"><Code code={viewCode} lang="bash" theme="night-owl" wrap /></div>
+                  <div class="step-code"><Code code={viewCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
                </article>
             </section>
 
@@ -210,7 +230,7 @@ const sdkLd = {
                      The provider is inferred from your <code>origin</code> remote, falling back to GitHub when the remote
                      names none.
                   </p>
-                  <Code code={ciCode} lang="bash" theme="night-owl" wrap />
+                  <Code code={ciCode} lang="bash" theme={lejiSyntaxTheme} wrap />
                   <p class="fine">
                      Exit codes are CI-native: <code>0</code> clean, <code>1</code> findings, <code>2</code> usage error.
                   </p>
@@ -218,7 +238,7 @@ const sdkLd = {
                <div class="duo-cell">
                   <h2>Enter the context layer</h2>
                   <p>The layer becomes the agent's first context, with no vendor file in between.</p>
-                  <Code code={startCode} lang="bash" theme="night-owl" wrap />
+                  <Code code={startCode} lang="bash" theme={lejiSyntaxTheme} wrap />
                   <p class="fine">
                      Several hosts detected? It asks. None detected, or a scripted / CI run? It prints the command to
                      run instead of guessing. The{' '}
@@ -235,7 +255,7 @@ const sdkLd = {
                   tooling: a local, read-only server that runs validation and conformance against the context layer on disk,
                   so the agent never needs a shell. It reads and reports; it never writes.
                </p>
-               <Code code={mcpCode} lang="bash" theme="night-owl" wrap />
+               <Code code={mcpCode} lang="bash" theme={lejiSyntaxTheme} wrap />
                <p class="fine">
                   <code>init</code> and <code>adopt</code> offer to register it for you: project-scoped for Claude Code, user-level
                   for Codex. The commands above are for anyone who skipped that prompt. Any MCP client works; the <a
@@ -281,7 +301,7 @@ const sdkLd = {
                      >, Apache-2.0.
                   </p>
                </div>
-               <div class="peek-code"><Code code={apiCode} lang="js" theme="night-owl" wrap /></div>
+               <div class="peek-code"><Code code={apiCode} lang="js" theme={lejiSyntaxTheme} wrap /></div>
             </section>
 
             <p class="next-step">
@@ -309,7 +329,7 @@ const sdkLd = {
    .lede {
       font-size: var(--text-lede);
       line-height: 1.7;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       max-width: var(--measure-fine);
       margin: 0;
    }
@@ -319,7 +339,7 @@ const sdkLd = {
       font-weight: 560;
       font-size: 1.6rem;
       line-height: 1.25;
-      color: var(--blue-deep);
+      color: var(--leji-text);
       margin: 0 0 0.6rem;
    }
 
@@ -334,38 +354,38 @@ const sdkLd = {
       gap: 0.9rem;
    }
    .step-text p {
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       margin: 0.4rem 0 0;
    }
    .step-text code {
-      background: rgba(34, 63, 147, 0.07);
+      background: var(--leji-code-bg);
       padding: 0.1em 0.35em;
       border-radius: 4px;
       font-size: 0.85em;
-      color: var(--blue-deep);
+      color: var(--leji-text);
    }
    .map-note {
       margin-top: 1.1rem;
       padding: 0.9rem 1.2rem;
-      border-left: 3px solid var(--gold);
-      background: rgba(255, 189, 110, 0.1);
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
       border-radius: 0 8px 8px 0;
       font-size: 0.92rem;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
    }
    .map-note strong {
-      color: var(--blue-deep);
+      color: var(--leji-text);
    }
    .checks {
       margin: 0.6rem 0 1rem;
       padding-left: 1.1rem;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
    }
    .checks li {
       margin: 0.4rem 0;
    }
    .checks strong {
-      color: var(--blue-deep);
+      color: var(--leji-text);
       font-weight: 600;
    }
    .ladder-line {
@@ -379,15 +399,15 @@ const sdkLd = {
       font-size: 0.74rem;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: var(--blue);
+      color: var(--leji-link);
       text-decoration: none;
-      border-bottom: 1px solid var(--gold);
+      border-bottom: 1px solid var(--leji-brand);
       padding-bottom: 2px;
       white-space: nowrap;
    }
    .ladder-more a:hover {
-      color: var(--blue-soft);
-      border-color: var(--gold-bright);
+      color: var(--leji-text);
+      border-color: var(--leji-text);
    }
 
    /* CI + invocation */
@@ -401,23 +421,23 @@ const sdkLd = {
       font-size: 1.35rem;
    }
    .duo-cell p {
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       margin: 0 0 1.1rem;
    }
    .duo-cell .fine {
       margin: 1rem 0 0;
    }
    .duo-cell .fine a {
-      color: var(--blue);
-      text-decoration-color: var(--gold);
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
       text-underline-offset: 3px;
    }
    .duo-cell code {
-      background: rgba(34, 63, 147, 0.07);
+      background: var(--leji-code-bg);
       padding: 0.1em 0.35em;
       border-radius: 4px;
       font-size: 0.85em;
-      color: var(--blue-deep);
+      color: var(--leji-text);
    }
 
    /* by situation */
@@ -431,7 +451,7 @@ const sdkLd = {
    }
    .shape-table th,
    .shape-table td {
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--leji-border);
       vertical-align: baseline;
       text-align: left;
       padding: 0.85rem 0 0.85rem 0;
@@ -444,17 +464,17 @@ const sdkLd = {
       font-size: 1.08rem;
    }
    .shape-table th a {
-      color: var(--blue-deep);
-      text-decoration-color: var(--gold);
+      color: var(--leji-text);
+      text-decoration-color: var(--leji-brand);
       text-underline-offset: 3px;
       transition: color 0.15s;
    }
    .shape-table th a:hover {
-      color: var(--blue);
+      color: var(--leji-link);
    }
    .shape-table td {
       font-size: 0.95rem;
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       line-height: 1.55;
    }
 
@@ -466,19 +486,19 @@ const sdkLd = {
       padding: 4rem 0 4.5rem;
    }
    .peek-text p {
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
    }
    .peek-text a {
-      color: var(--blue);
-      text-decoration-color: var(--gold);
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
       text-underline-offset: 3px;
    }
    .peek-text code {
-      background: rgba(34, 63, 147, 0.07);
+      background: var(--leji-code-bg);
       padding: 0.1em 0.35em;
       border-radius: 4px;
       font-size: 0.85em;
-      color: var(--blue-deep);
+      color: var(--leji-text);
    }
 
    .step-code {
@@ -486,9 +506,9 @@ const sdkLd = {
    }
 
    .step-install {
-      background: var(--blue-deep);
+      background: var(--leji-deep);
       border-radius: 12px;
-      box-shadow: 0 14px 40px rgba(22, 41, 96, 0.14);
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
       overflow: hidden;
    }
 
@@ -496,15 +516,15 @@ const sdkLd = {
       margin-top: 4rem;
    }
    .mcp-block p {
-      color: var(--ink-soft);
+      color: var(--leji-text-body);
       margin: 0 0 1.1rem;
    }
    .mcp-block code {
-      background: rgba(34, 63, 147, 0.07);
+      background: var(--leji-code-bg);
       padding: 0.1em 0.35em;
       border-radius: 4px;
       font-size: 0.85em;
-      color: var(--blue-deep);
+      color: var(--leji-text);
    }
    /* Continuation prose, not marginalia: what leji init does, and where the full
       tool list lives. Same size and measure as the paragraph above the snippet;
@@ -513,8 +533,8 @@ const sdkLd = {
       margin: 1rem 0 0;
    }
    .mcp-block .fine a {
-      color: var(--blue);
-      text-decoration-color: var(--gold);
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
       text-underline-offset: 3px;
    }
 
@@ -522,12 +542,12 @@ const sdkLd = {
    .duo-cell :global(.astro-code),
    .peek-code :global(.astro-code),
    .mcp-block :global(.astro-code) {
-      background: var(--blue-deep) !important;
+      background: var(--leji-deep) !important;
       border-radius: 12px;
       padding: 1.2rem 1.4rem;
       font-size: var(--code-fz);
       line-height: 1.65;
-      box-shadow: 0 14px 40px rgba(22, 41, 96, 0.14);
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
       margin: 0;
    }
 </style>

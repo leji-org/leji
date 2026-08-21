@@ -1,0 +1,28 @@
+leji conformance: Score the context layer against its claimed conformance level.
+
+Usage: leji conformance [--explain] [--federation verify] [--root <dir>]
+       [--json]
+
+Runs the `core`, `indexed`, `governed`, and `federated` checklists.
+Machine-checkable items pass or fail; process items (review gate, CI, external
+consumers) are reported as manual. A machine failure at or below the claimed
+level is an error; evidence this run could not obtain reports `unknown`, which
+caps the verified level without refuting the claim. With --explain it also
+prints what it would take to reach the next level.
+
+Options:
+   --explain             Print actionable guidance for reaching the next
+                         conformance level.
+   --federation verify   Run the networked pin-reachability probe against each
+                         mount's source (git ls-remote + witness-ref ancestry).
+                         Without it the pin-reachable item reports unknown,
+                         which never awards the federated level.
+
+Global options: see leji --help.
+
+Examples:
+   leji conformance
+   leji conformance --explain
+   leji conformance --json
+
+Full reference: https://leji.org/cli/

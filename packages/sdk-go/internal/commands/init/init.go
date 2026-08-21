@@ -4,7 +4,7 @@ package initcmd
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -21,9 +21,11 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/validate"
 	"github.com/leji-org/leji/packages/sdk-go/internal/detect"
+	"github.com/leji-org/leji/packages/sdk-go/internal/ecosystem"
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
 	"github.com/leji-org/leji/packages/sdk-go/internal/git"
+	"github.com/leji-org/leji/packages/sdk-go/internal/layout"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/writeplan"
 )
@@ -104,37 +106,63 @@ func defaultLayout(rootPath string) ScaffoldLayout {
 	}
 }
 
-// resolveScaffoldPath picks the first candidate name (under rootPath) absent on
-// disk, so adopt never writes its scaffold over a repo's existing content.
-func resolveScaffoldPath(root, rootPath, name string, alternates []string, dir bool) string {
+// resolveScaffoldPath picks the first candidate name (under rootPath) that is free,
+// so adopt never writes its scaffold over a repo's existing content. Occupancy is
+// decided on the standing entry rather than by a stat, so a dangling candidate link
+// is occupied and the next name is tried, exactly as an existing file has always been.
+func resolveScaffoldPath(root, rootPath, name string, alternates []string, dir bool) (string, error) {
 	suffix := ""
 	if dir {
 		suffix = "/"
 	}
+	free := func(rel string) (bool, error) {
+		return nothingStandsAt(filepath.Join(root, fsx.StripSlash(rel)))
+	}
 	for _, candidate := range append([]string{name}, alternates...) {
 		rel := fsx.JoinUnderRoot(rootPath, candidate+suffix)
-		if !fsx.Exists(filepath.Join(root, fsx.StripSlash(rel))) {
-			return rel
+		ok, err := free(rel)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return rel, nil
 		}
 	}
 	for n := 2; ; n++ {
 		rel := fsx.JoinUnderRoot(rootPath, fmt.Sprintf("%s-%d%s", name, n, suffix))
-		if !fsx.Exists(filepath.Join(root, fsx.StripSlash(rel))) {
-			return rel
+		ok, err := free(rel)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return rel, nil
 		}
 	}
 }
 
 // resolveLayout resolves a scaffold layout against an existing repo: each colliding
 // default path falls back to a safe alternate.
-func resolveLayout(root, rootPath string) ScaffoldLayout {
-	return ScaffoldLayout{
-		BootProfilePath: resolveScaffoldPath(root, rootPath, "boot-profile.md", []string{"leji-boot-profile.md"}, false),
-		ContextDir:      resolveScaffoldPath(root, rootPath, "context", []string{"leji-context", "context-layer"}, true),
-		AgentsDir:       resolveScaffoldPath(root, rootPath, "agents", []string{"agent-profiles", "leji-agents"}, true),
-		IndexPath:       resolveScaffoldPath(root, rootPath, "context-index.json", []string{"leji-context-index.json"}, false),
-		ChangelogPath:   resolveScaffoldPath(root, rootPath, "context-changelog.json", []string{"leji-context-changelog.json"}, false),
+func resolveLayout(root, rootPath string) (ScaffoldLayout, error) {
+	var layout ScaffoldLayout
+	for _, pick := range []struct {
+		into       *string
+		name       string
+		alternates []string
+		dir        bool
+	}{
+		{&layout.BootProfilePath, "boot-profile.md", []string{"leji-boot-profile.md"}, false},
+		{&layout.ContextDir, "context", []string{"leji-context", "context-layer"}, true},
+		{&layout.AgentsDir, "agents", []string{"agent-profiles", "leji-agents"}, true},
+		{&layout.IndexPath, "context-index.json", []string{"leji-context-index.json"}, false},
+		{&layout.ChangelogPath, "context-changelog.json", []string{"leji-context-changelog.json"}, false},
+	} {
+		rel, err := resolveScaffoldPath(root, rootPath, pick.name, pick.alternates, pick.dir)
+		if err != nil {
+			return ScaffoldLayout{}, err
+		}
+		*pick.into = rel
 	}
+	return layout, nil
 }
 
 func (a answers) effectiveLayout() ScaffoldLayout {
@@ -437,21 +465,140 @@ func resolveUnderRoot(root, rel string) (string, error) {
 	return abs, nil
 }
 
+// escapeRefusal is the one error these commands have always raised for a target
+// they may not write: the layer is scaffolded inside the repository it was pointed
+// at, or not at all.
+func escapeRefusal(rel string) error {
+	return fmt.Errorf("refusing to write through a symlink that escapes the target: %q", rel)
+}
+
+// guardedOrRefuse turns a refused chokepoint verdict into that same error, so every
+// init/adopt write reports one way.
+func guardedOrRefuse(rel string, verdict layout.TargetVerdict, err error) error {
+	if err != nil {
+		return err
+	}
+	if !verdict.OK {
+		return escapeRefusal(rel)
+	}
+	return nil
+}
+
+// initRole is the `.leji/` role an init or adopt write legitimately lands in: the
+// transient onboarding workspace is the tool's own `work` role, and everything else
+// these commands write is user content with no `.leji/` role at all.
+func initRole(rel string) string {
+	slashed := filepath.ToSlash(rel)
+	if slashed == layout.WorkRel || strings.HasPrefix(slashed, layout.WorkRel+"/") {
+		return layout.WorkRel
+	}
+	return ""
+}
+
+// nothingStandsAt reports that NOTHING stands at abs, which is what makes a
+// candidate name free.
+//
+// The ORIGINAL directory entry decides it, exactly as an exclusive create does: a
+// stat follows symlinks, so a dangling link reads as a free name and the write that
+// follows lands at the link's missing destination. Any standing entry, a dangling
+// link included, is occupied.
+//
+// A name nothing stands at is free even when it resolves out of this tool's reach,
+// because the search is for an unused NAME, not a permission to write: every other
+// name under a context root symlinked out of the repository resolves out of reach
+// too, so refusing them one by one would never terminate. The write itself is judged
+// where it always is, at the chokepoint, which refuses that target as it has.
+// An lstat that fails for any other reason (permission, I/O) answers neither: the
+// name cannot be judged, so the failure travels out rather than being read as
+// "occupied" and quietly moved past, exactly as the reference lets it throw.
+func nothingStandsAt(abs string) (bool, error) {
+	if _, err := os.Lstat(abs); err != nil {
+		if os.IsNotExist(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	return false, nil
+}
+
+// readMergeSource reads a file this command is about to merge and rewrite, through
+// the verified read rather than by pathname: the bytes that decide the merge come
+// from the descriptor the rule cleared, so the file that was judged is the file that
+// is read and then written. present is false when nothing stands there (the create
+// path); a standing entry that cannot be verified as a regular file inside the
+// repository is the same refusal a write to it would be.
+func readMergeSource(rootReal, abs, rel string) (text string, present bool, err error) {
+	read, err := fsx.VerifiedTargetRead(rootReal, abs, initRole(rel))
+	if err != nil {
+		return "", false, err
+	}
+	if read.Status == fsx.ReadRefused {
+		return "", false, escapeRefusal(rel)
+	}
+	if read.Status != fsx.ReadRegular {
+		return "", false, nil
+	}
+	return string(read.Bytes), true, nil
+}
+
+// verifiedVendorFiles is the present vendor entrypoints and their VERIFIED bytes,
+// read once. The same bytes decide whether an entrypoint is converted, are archived
+// under governance/, and are compared for the draft report, so no act rests on a
+// second read by pathname of a file this command then rewrites. An entry that cannot
+// be verified as a regular file inside the repository is treated as absent, exactly
+// as an escaping symlink already was.
+func verifiedVendorFiles(root string) (map[string]string, error) {
+	rootReal := fsx.GuardRoot(root)
+	present := map[string]string{}
+	for _, rel := range validate.KnownVendorFiles {
+		read, err := fsx.VerifiedTargetRead(rootReal, filepath.Join(root, rel), "")
+		if err != nil {
+			return nil, err
+		}
+		if read.Status == fsx.ReadRegular {
+			present[rel] = string(read.Bytes)
+		}
+	}
+	return present, nil
+}
+
+// vendorRels is the present vendor entrypoints in KnownVendorFiles order, which is
+// the order every list built from them has reported.
+func vendorRels(vendor map[string]string) []string {
+	var rels []string
+	for _, rel := range validate.KnownVendorFiles {
+		if _, ok := vendor[rel]; ok {
+			rels = append(rels, rel)
+		}
+	}
+	return rels
+}
+
+// writeFileOnce writes a file this command owns, once: never over an existing one,
+// and never through a standing entry it cannot verify. The skip is decided by the
+// verified read rather than a pathname check, because a stat follows symlinks — a
+// dangling link at the target reads as absent and the guarded write then lands at
+// the link's destination, a name this command never planned. Only absent is free; a
+// regular file is the never-overwrite skip; anything else standing there is the
+// escape refusal, with nothing written.
 func writeFileOnce(root, rel, content string, written *[]string) error {
 	abs, err := resolveUnderRoot(root, rel)
 	if err != nil {
 		return err
 	}
-	if !fsx.ResolvesUnder(root, abs) {
-		return fmt.Errorf("refusing to write through a symlink that escapes the target: %q", rel)
-	}
-	if _, err := os.Stat(abs); err == nil {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+	rootReal := fsx.GuardRoot(root)
+	standing, err := fsx.VerifiedTargetRead(rootReal, abs, initRole(rel))
+	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+	if standing.Status == fsx.ReadRegular {
+		return nil
+	}
+	if standing.Status == fsx.ReadRefused {
+		return escapeRefusal(rel)
+	}
+	verdict, err := fsx.WriteFileGuarded(rootReal, abs, initRole(rel), []byte(content), fsx.WriteOptions{})
+	if err := guardedOrRefuse(rel, verdict, err); err != nil {
 		return err
 	}
 	*written = append(*written, rel)
@@ -459,43 +606,42 @@ func writeFileOnce(root, rel, content string, written *[]string) error {
 }
 
 // ensureLejiGitignored idempotently ensures the repo-root .gitignore ignores
-// `.leji/` (generated viewer + transient brief). Matches the line exactly, so it
-// never treats a comment or `docs/.leji/` as equivalent.
+// `.leji/` — the one line that covers every role of the unified tree (chrome,
+// export output, onboarding workspace, mounts) and any role added later. Matches
+// the line exactly, so it never treats a comment or `docs/.leji/` as equivalent.
 func ensureLejiGitignored(rootAbs string) error {
 	abs := filepath.Join(rootAbs, ".gitignore")
-	const entry = ".leji/"
-	text := ""
-	if fsx.IsFile(abs) {
-		t, err := fsx.ReadText(abs)
-		if err != nil {
-			return err
-		}
-		text = t
+	const entry = layout.LejiDir + "/"
+	rootReal := fsx.GuardRoot(rootAbs)
+	text, _, err := readMergeSource(rootReal, abs, ".gitignore")
+	if err != nil {
+		return err
 	}
 	for _, line := range strings.Split(text, "\n") {
 		if line == entry {
 			return nil
 		}
 	}
-	if text == "" {
-		return os.WriteFile(abs, []byte(entry+"\n"), 0o644)
+	next := entry + "\n"
+	if text != "" {
+		sep := ""
+		if !strings.HasSuffix(text, "\n") {
+			sep = "\n"
+		}
+		next = text + sep + entry + "\n"
 	}
-	sep := ""
-	if !strings.HasSuffix(text, "\n") {
-		sep = "\n"
-	}
-	return os.WriteFile(abs, []byte(text+sep+entry+"\n"), 0o644)
+	verdict, err := fsx.WriteFileGuarded(rootReal, abs, "", []byte(next), fsx.WriteOptions{})
+	return guardedOrRefuse(".gitignore", verdict, err)
 }
 
 // assertLejiWorkspacePrivate refuses to write the transient onboarding workspace
-// while any file under `<rootPath>/.leji/` is tracked by git: tracked means the
+// while any file under the root `.leji/` is tracked by git: tracked means the
 // ignore boundary is not intact, and private artifacts could land in history.
 // The fix is the owner's call (git rm --cached), never run silently.
-func assertLejiWorkspacePrivate(root, rootPath string) error {
-	lejiDir := fsx.JoinUnderRoot(rootPath, ".leji/")
-	tracked, ok := git.TrackedUnder(root, fsx.StripSlash(lejiDir))
+func assertLejiWorkspacePrivate(root string) error {
+	tracked, ok := git.TrackedUnder(root, layout.LejiDir)
 	if ok && len(tracked) > 0 {
-		return fmt.Errorf("%d file(s) under %s are tracked by git; untrack them (git rm --cached) so onboarding artifacts stay private", len(tracked), lejiDir)
+		return fmt.Errorf("%d file(s) under %s/ are tracked by git; untrack them (git rm --cached) so onboarding artifacts stay private", len(tracked), layout.LejiDir)
 	}
 	return nil
 }
@@ -503,22 +649,18 @@ func assertLejiWorkspacePrivate(root, rootPath string) error {
 // writeManifestExclusive creates leji.json with O_EXCL so the existence check and
 // write are atomic: a concurrent run or a planted symlink cannot be overwritten or
 // followed. Already-exists is surfaced as each entry point's initial-guard message.
-func writeManifestExclusive(abs string, content []byte, mode string) error {
-	fh, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+func writeManifestExclusive(rootAbs, abs string, content []byte, mode string) error {
+	verdict, err := fsx.WriteFileGuarded(fsx.GuardRoot(rootAbs), abs, "", content, fsx.WriteOptions{Exclusive: true})
 	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			if mode == "adopt" {
-				return errors.New("leji.json already exists here; this repository already has a Leji layer")
-			}
-			return errors.New("leji.json already exists here; init refuses to overwrite an existing layer")
+		return err
+	}
+	if verdict.Exists {
+		if mode == "adopt" {
+			return errors.New("leji.json already exists here; this repository already has a Leji layer")
 		}
-		return err
+		return errors.New("leji.json already exists here; init refuses to overwrite an existing layer")
 	}
-	defer fh.Close()
-	if _, err := fh.Write(content); err != nil {
-		return err
-	}
-	return nil
+	return guardedOrRefuse("leji.json", verdict, nil)
 }
 
 type categoryStub struct {
@@ -744,6 +886,9 @@ var governanceLineRe = regexp.MustCompile(`(?m)^ {2}- .*governance/\n`)
 func buildCoreProfile(a answers) string {
 	text := readTemplate("agents/core.md")
 	text = strings.ReplaceAll(text, "docs/", fsx.JoinUnderRoot(a.rootPath, ""))
+	// The escalation line names a person, so the scaffold fills it: a profile that
+	// shipped `<ownerName>` would be the placeholder the lint exists to catch.
+	text = strings.ReplaceAll(text, "<ownerName>", a.ownerName)
 	if !contains(a.categories, "governance") {
 		text = governanceLineRe.ReplaceAllString(text, "  - "+fsx.JoinUnderRoot(a.rootPath, "decisions/")+"\n")
 	}
@@ -766,11 +911,11 @@ func buildFirstDecision(a answers) string {
 		"---\n\n" +
 		"# Adopt the Leji context layer\n\n" +
 		"## Context\n\n" +
-		"Engineering knowledge lived in heads, chat threads, and per-tool config files. People and agents had no single place to read how this team thinks.\n\n" +
+		"This repository takes a shared, versioned context layer: one record of how it works, kept in the repository and read by people and agents alike.\n\n" +
 		"## Decision\n\n" +
 		"Adopt Leji at the `" + a.level + "` level: " + indexedLine + ".\n\n" +
 		"## Consequences\n\n" +
-		"Vendor config files become one-line redirects. Context fixes ride the same review gate as the work that surfaces them. " + a.ownerName + " owns the layer.\n"
+		"Context changes ride the same review gate as the work that surfaces them, and " + a.ownerName + " owns the layer. Agent entrypoints point at the context layer rather than carrying their own copy: the portable `AGENTS.md` pointer where the scaffold writes one, and vendor entrypoints only where `leji adopt --wire-adapters` converts them with your consent.\n"
 }
 
 func buildChangelog(a answers, written []string) string {
@@ -794,19 +939,19 @@ func buildChangelog(a answers, written []string) string {
 }
 
 // buildBrief returns the transient onboarding brief, rewritten for the chosen
-// root (JoinUnderRoot(".", "") is "", so a "." root yields `.leji/...` and
-// `context/...`, never `..leji/` or `.context/`) and stamped with the working
-// mode so the agent runs the right interview without re-asking.
+// root (JoinUnderRoot(".", "") is "", so a "." root yields `context/...`, never
+// `.context/`) and stamped with the working mode so the agent runs the right
+// interview without re-asking. The workspace paths it names are root-relative
+// already and need no rewriting.
 func buildBrief(a answers) string {
 	text := strings.ReplaceAll(readTemplate("onboarding-brief.md"), "<root>/", fsx.JoinUnderRoot(a.rootPath, ""))
 	return strings.ReplaceAll(text, "<mode>", a.mode)
 }
 
-// BriefPath is the path of the transient onboarding brief, under a dot-directory
-// so it is excluded from the index, the viewer, and the changelog.
-func BriefPath(rootPath string) string {
-	return fsx.JoinUnderRoot(rootPath, ".leji/onboarding-brief.md")
-}
+// BriefPath is the path of the transient onboarding brief: the workspace role of
+// the unified root `.leji/`, under a dot-directory so it is excluded from the
+// index, the viewer, and the changelog. Root-relative whatever rootPath is.
+const BriefPath = layout.WorkRel + "/onboarding-brief.md"
 
 const CIWorkflowPath = ".github/workflows/leji.yml"
 
@@ -845,39 +990,57 @@ type HookResult struct {
 
 const hookMarker = "# leji pre-commit (managed)"
 
+// ShQuote quotes one argv element for sh. Single quotes take everything
+// literally, and an embedded quote is closed, escaped, and reopened ('\”), the
+// one escape a POSIX shell accepts inside them. The runner comes from the
+// repository's own package manager, so it is never interpolated raw into
+// generated shell.
+func ShQuote(word string) string {
+	return "'" + strings.ReplaceAll(word, "'", `'\''`) + "'"
+}
+
+// shCommand renders the runner argv as one quoted command prefix.
+func shCommand(runner []string) string {
+	quoted := make([]string, len(runner))
+	for i, w := range runner {
+		quoted[i] = ShQuote(w)
+	}
+	return strings.Join(quoted, " ")
+}
+
 // The failure message is single-quoted for the SHELL: the backticks around
 // `leji index` are literal text, and inside a double-quoted echo sh would run them
 // as a command substitution (regenerating the index the hook just refused a commit
 // over). Never emit an unquoted backtick, "$(", or "$VAR" into generated shell
 // unless expansion is the intent.
-const hookBody = "#!/bin/sh\n" +
-	hookMarker + "\n" +
-	"# Validate the context layer and refuse a commit that would leave the stored\n" +
-	"# index stale. Local mirror of the CI gate, preferring a repo-local install;\n" +
-	"# delete this file to opt out.\n" +
-	"LEJI=\"leji\"\n" +
-	"[ -x \"node_modules/.bin/leji\" ] && LEJI=\"node_modules/.bin/leji\"\n" +
-	"\"$LEJI\" validate || exit 1\n" +
-	"\"$LEJI\" index --check || {\n" +
-	"   echo 'leji: stored index is stale; run `leji index` and stage the result.' >&2\n" +
-	"   exit 1\n" +
-	"}\n"
+func hookGates(runner []string) string {
+	leji := shCommand(runner)
+	return leji + " validate || exit 1\n" +
+		leji + " index --check || {\n" +
+		"   echo 'leji: stored index is stale; run `leji index` and stage the result.' >&2\n" +
+		"   exit 1\n" +
+		"}\n"
+}
+
+// HookBody is the standalone managed pre-commit hook, running the repository's own
+// runner.
+func HookBody(runner []string) string {
+	return "#!/bin/sh\n" +
+		hookMarker + "\n" +
+		"# Validate the context layer and refuse a commit that would leave the stored\n" +
+		"# index stale. Local mirror of the CI gate; delete this file to opt out.\n" +
+		hookGates(runner)
+}
 
 const huskyMarkerStart = "# >>> leji hooks (managed) >>>"
 const huskyMarkerEnd = "# <<< leji hooks (managed) <<<"
 
-// huskyBlock runs the same two gates hookBody runs (preferring a repo-local
-// install), wrapped in markers so the block can be merged into a husky repo's
-// hand-authored .husky/pre-commit without touching its rest.
-const huskyBlock = huskyMarkerStart + "\n" +
-	"LEJI=\"leji\"\n" +
-	"[ -x \"node_modules/.bin/leji\" ] && LEJI=\"node_modules/.bin/leji\"\n" +
-	"\"$LEJI\" validate || exit 1\n" +
-	"\"$LEJI\" index --check || {\n" +
-	"   echo 'leji: stored index is stale; run `leji index` and stage the result.' >&2\n" +
-	"   exit 1\n" +
-	"}\n" +
-	huskyMarkerEnd + "\n"
+// HuskyBlock runs the same two gates HookBody runs, wrapped in markers so the
+// block can be merged into a husky repo's hand-authored .husky/pre-commit without
+// touching its rest.
+func HuskyBlock(runner []string) string {
+	return huskyMarkerStart + "\n" + hookGates(runner) + huskyMarkerEnd + "\n"
+}
 
 // hooksPathConfig returns the configured core.hooksPath for the repo at root, or
 // "" when unset. Run from the repo root (git -C) so local, global, and system
@@ -912,6 +1075,34 @@ func gitHooksDir(rootAbs string) string {
 	return filepath.Clean(dir)
 }
 
+// gitDirs returns git's own directories for the repo at rootAbs, resolved absolute:
+// this working tree's git dir and the common dir it shares with every linked
+// worktree. Both are read-only queries, and together they are what decides whether a
+// hook target is clone-local (personal) rather than committed (shared). ok is false
+// when this is not a git repository.
+func gitDirs(rootAbs string) (gitDir, commonDir string, ok bool) {
+	out, err := exec.Command("git", "-C", rootAbs, "rev-parse", "--git-dir", "--git-common-dir").Output()
+	if err != nil {
+		return "", "", false
+	}
+	var lines []string
+	for _, l := range strings.Split(string(out), "\n") {
+		if t := strings.TrimSpace(l); t != "" {
+			lines = append(lines, t)
+		}
+	}
+	if len(lines) < 2 {
+		return "", "", false
+	}
+	abs := func(p string) string {
+		if filepath.IsAbs(p) {
+			return filepath.Clean(p)
+		}
+		return filepath.Join(rootAbs, p)
+	}
+	return abs(lines[0]), abs(lines[1]), true
+}
+
 // huskyShape returns the husky shape of the configured hooks path: "underscore" for
 // husky v9 (.husky/_), "direct" for husky v8 (.husky), or "" when not husky-shaped or
 // unset. Decides block-vs-file routing and (with the resolved hooks dir) the
@@ -935,6 +1126,116 @@ func huskyShape(rootAbs, hooksPath string) string {
 	return ""
 }
 
+// HookOwnership says who owns the pre-commit hook this repository would get,
+// decided by where the write would actually land rather than by the mechanism that
+// would perform it: "personal" under git's own directories AND inside this working
+// tree (.git/hooks, a core.hooksPath resolving inside them) — per clone, never
+// committed, and safe to write; "shared" inside the working tree but not under git's
+// directories (husky, a githooks/ hooks path) — committed, so a maintainer's call;
+// "outside-root" under git's directories but OUTSIDE this working tree (a linked
+// worktree, whose hooks live in the common git directory) — per clone, but the writer
+// refuses to write outside the repository root, so it is reported; "external"
+// anywhere else (a global or $HOME hooks path, a symlink escaping the repository) —
+// reported, never written; "no-git" when there is no repository to hang a hook on.
+type HookOwnership = string
+
+// HookState is what stands at that target: leji's own managed hook or block,
+// nothing at all, or a hook this tool did not write.
+type HookState = string
+
+// HookReport is the read-only answer `leji start` reports and EnsureLocalHook would
+// act on.
+type HookReport struct {
+	Ownership HookOwnership // "personal" | "shared" | "external" | "no-git"
+	State     HookState     // "current" | "absent" | "foreign"
+	// Path is the target, repository-relative when it lies inside the repository,
+	// else the absolute path git resolved; empty when there is no repository.
+	Path    string
+	Managed string // "file" | "block"
+	// Snippet is what a person adds by hand where leji must not write.
+	Snippet string
+}
+
+// hookText returns the hook file's text, or ok=false when nothing readable stands
+// there. Read-only: this answers a question, and every write still goes through
+// EnsureLocalHook.
+func hookText(abs string) (string, bool) {
+	info, err := os.Stat(abs)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	b, err := os.ReadFile(abs)
+	if err != nil {
+		return "", false
+	}
+	return string(b), true
+}
+
+// HookStatus is EnsureLocalHook's resolve step without the write: where the managed
+// pre-commit hook would go for this repository, who owns that location, and what
+// stands there now. The whole point is that a report can be produced without
+// touching anything — `leji start` prints it, and only a consented repair goes on to
+// EnsureLocalHook.
+func HookStatus(root string, runner []string) HookReport {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		rootAbs = root
+	}
+	argv := runner
+	if argv == nil {
+		argv = ecosystem.RunnerArgv(ecosystem.Detect(rootAbs))
+	}
+	hooksDir := gitHooksDir(rootAbs)
+	gitDir, commonDir, haveGit := gitDirs(rootAbs)
+	if hooksDir == "" || !haveGit {
+		return HookReport{Ownership: "no-git", State: "absent", Managed: "file", Snippet: HookBody(argv)}
+	}
+	shape := huskyShape(rootAbs, hooksPathConfig(rootAbs))
+	target := filepath.Join(hooksDir, "pre-commit")
+	if shape == "underscore" {
+		target = filepath.Join(filepath.Dir(hooksDir), "pre-commit")
+	}
+	managed := "file"
+	snippet := HookBody(argv)
+	marker := hookMarker
+	if shape != "" {
+		managed = "block"
+		snippet = HuskyBlock(argv)
+		marker = huskyMarkerStart
+	}
+	// Git's directories are tested FIRST: an ordinary .git/hooks also lies inside the
+	// working tree, and it is per-clone state, not something a commit can carry. A
+	// clone-local target that nonetheless falls outside this working tree (a linked
+	// worktree's shared hooks directory) is reported rather than offered: the writer
+	// refuses everything outside the repository root, so offering it would promise a
+	// write that cannot happen.
+	inRepo := fsx.ResolvedWithinRoot(rootAbs, target)
+	cloneLocal := fsx.ResolvedWithinRoot(gitDir, target) || fsx.ResolvedWithinRoot(commonDir, target)
+	ownership := "external"
+	switch {
+	case cloneLocal && inRepo:
+		ownership = "personal"
+	case cloneLocal:
+		ownership = "outside-root"
+	case inRepo:
+		ownership = "shared"
+	}
+	state := "absent"
+	if existing, ok := hookText(target); ok {
+		state = "foreign"
+		if strings.Contains(existing, marker) {
+			state = "current"
+		}
+	}
+	shown := fsx.ToPosix(target)
+	if inRepo {
+		if rel, err := filepath.Rel(rootAbs, target); err == nil {
+			shown = fsx.ToPosix(rel)
+		}
+	}
+	return HookReport{Ownership: ownership, State: state, Path: shown, Managed: managed, Snippet: snippet}
+}
+
 // EnsureLocalHook writes a managed pre-commit hook running the same checks CI runs,
 // so drift is caught before a commit instead of at the pipeline. The write location
 // is git's effective hooks dir (rev-parse --git-path hooks); core.hooksPath decides
@@ -942,7 +1243,7 @@ func huskyShape(rootAbs, hooksPath string) string {
 // (v8/v9) or a standalone managed hook is written. A hooks dir resolving outside the
 // repo (a global core.hooksPath) is never written — the snippet comes back for a
 // manual hand-add, as does an existing unmanaged hook.
-func EnsureLocalHook(root string) (HookResult, error) {
+func EnsureLocalHook(root string, runner []string) (HookResult, error) {
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
 		rootAbs = root
@@ -950,6 +1251,13 @@ func EnsureLocalHook(root string) (HookResult, error) {
 	hooksDir := gitHooksDir(rootAbs)
 	if hooksDir == "" {
 		return HookResult{}, errors.New("not a git repository (no .git directory); hooks need one")
+	}
+	// The hook runs what a clean install of THIS repository provides: the detected
+	// manager's runner when the CLI is actually declared, else the plain binary on
+	// PATH. Injectable so a test pins a runner without planting a manifest.
+	argv := runner
+	if argv == nil {
+		argv = ecosystem.RunnerArgv(ecosystem.Detect(rootAbs))
 	}
 	shape := huskyShape(rootAbs, hooksPathConfig(rootAbs))
 	// Husky's user-editable hook is .husky/pre-commit: the hooks dir itself for v8
@@ -959,38 +1267,54 @@ func EnsureLocalHook(root string) (HookResult, error) {
 	if shape == "underscore" {
 		target = filepath.Join(filepath.Dir(hooksDir), "pre-commit")
 	}
-	if !fsx.ResolvesUnder(rootAbs, target) {
+	// The hook is written through the chokepoint, judged on the resolved path at the
+	// act; a target that stopped resolving inside the repository between the check
+	// here and the write comes back as the same hand-add result this check returns.
+	manual := func(managed string) HookResult {
+		if managed == "block" {
+			return HookResult{Path: fsx.ToPosix(target), Action: "manual", Snippet: HuskyBlock(argv), Managed: "block", Reason: "outside-root"}
+		}
+		return HookResult{Path: fsx.ToPosix(target), Action: "manual", Snippet: HookBody(argv), Managed: "file", Reason: "outside-root"}
+	}
+	if !fsx.ResolvedWithinRoot(rootAbs, target) {
 		// Never write outside the repository; report the computed target for a hand-add.
 		if shape != "" {
-			return HookResult{Path: fsx.ToPosix(target), Action: "manual", Snippet: huskyBlock, Managed: "block", Reason: "outside-root"}, nil
+			return manual("block"), nil
 		}
-		return HookResult{Path: fsx.ToPosix(target), Action: "manual", Snippet: hookBody, Managed: "file", Reason: "outside-root"}, nil
+		return manual("file"), nil
 	}
 	rel, _ := filepath.Rel(rootAbs, target)
+	guardRootAbs := fsx.GuardRoot(rootAbs)
 	if shape != "" {
-		return ensureHuskyBlock(target, fsx.ToPosix(rel), shape == "direct")
+		return ensureHuskyBlock(guardRootAbs, target, fsx.ToPosix(rel), shape == "direct", manual, argv)
 	}
-	return ensureHookFile(target, fsx.ToPosix(rel))
+	return ensureHookFile(guardRootAbs, target, fsx.ToPosix(rel), manual, argv)
 }
 
 // ensureHookFile writes/refreshes the standalone managed pre-commit hook at
 // hookAbs. Ours (marker present) is created/updated; an existing unmanaged hook
 // is never touched and its replacement snippet comes back for a manual merge.
-func ensureHookFile(hookAbs, rel string) (HookResult, error) {
+func ensureHookFile(rootAbs, hookAbs, rel string, manual func(managed string) HookResult, runner []string) (HookResult, error) {
+	body := HookBody(runner)
+	// The hook's own bytes decide whether it is ours to rewrite, so they come from the
+	// verified read: an entry standing at the hook path that cannot be verified as a
+	// regular file inside the repository is reported for a hand-add, never merged.
+	hookRead, err := fsx.VerifiedTargetRead(rootAbs, hookAbs, "")
+	if err != nil {
+		return HookResult{}, err
+	}
+	if hookRead.Status == fsx.ReadRefused {
+		return manual("file"), nil
+	}
 	existing := ""
-	hasExisting := false
-	if fsx.IsFile(hookAbs) {
-		t, rerr := fsx.ReadText(hookAbs)
-		if rerr != nil {
-			return HookResult{}, rerr
-		}
-		existing = t
-		hasExisting = true
+	hasExisting := hookRead.Status == fsx.ReadRegular
+	if hasExisting {
+		existing = string(hookRead.Bytes)
 	}
 	if hasExisting && !strings.Contains(existing, hookMarker) {
-		return HookResult{Path: rel, Action: "manual", Snippet: hookBody, Managed: "file", Reason: "foreign-hook"}, nil
+		return HookResult{Path: rel, Action: "manual", Snippet: body, Managed: "file", Reason: "foreign-hook"}, nil
 	}
-	if hasExisting && existing == hookBody {
+	if hasExisting && existing == body {
 		// Byte-current. A standalone hook is run by git itself, so a non-executable
 		// file is a mode-only correction reported updated, not unchanged.
 		exec, err := isExecutable(hookAbs)
@@ -998,18 +1322,23 @@ func ensureHookFile(hookAbs, rel string) (HookResult, error) {
 			return HookResult{}, err
 		}
 		if !exec {
-			if err := os.Chmod(hookAbs, 0o755); err != nil {
+			verdict, err := fsx.ChmodGuarded(rootAbs, hookAbs, "", 0o755)
+			if err != nil {
 				return HookResult{}, err
+			}
+			if !verdict.OK {
+				return manual("file"), nil
 			}
 			return HookResult{Path: rel, Action: "updated", Managed: "file"}, nil
 		}
 		return HookResult{Path: rel, Action: "unchanged", Managed: "file"}, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(hookAbs), 0o755); err != nil {
+	verdict, err := fsx.WriteFileGuarded(rootAbs, hookAbs, "", []byte(body), fsx.WriteOptions{Mode: 0o755})
+	if err != nil {
 		return HookResult{}, err
 	}
-	if err := os.WriteFile(hookAbs, []byte(hookBody), 0o755); err != nil {
-		return HookResult{}, err
+	if !verdict.OK {
+		return manual("file"), nil
 	}
 	action := "created"
 	if hasExisting {
@@ -1025,28 +1354,45 @@ func ensureHookFile(hookAbs, rel string) (HookResult, error) {
 // of a user-authored husky hook is left untouched. requireExec (a direct .husky hook
 // git runs itself) forces mode 0755: a byte-current but non-executable file is a
 // mode-only correction reported "updated".
-func ensureHuskyBlock(hookAbs, rel string, requireExec bool) (HookResult, error) {
-	if !fsx.IsFile(hookAbs) {
-		if err := os.MkdirAll(filepath.Dir(hookAbs), 0o755); err != nil {
+func ensureHuskyBlock(rootAbs, hookAbs, rel string, requireExec bool, manual func(managed string) HookResult, runner []string) (HookResult, error) {
+	block := HuskyBlock(runner)
+	// The user's own hook is merged, so its bytes come from the verified read: what the
+	// merge judged is what the rewrite is based on.
+	hookRead, err := fsx.VerifiedTargetRead(rootAbs, hookAbs, "")
+	if err != nil {
+		return HookResult{}, err
+	}
+	if hookRead.Status == fsx.ReadRefused {
+		return manual("block"), nil
+	}
+	if hookRead.Status != fsx.ReadRegular {
+		verdict, err := fsx.WriteFileGuarded(rootAbs, hookAbs, "",
+			[]byte("#!/bin/sh\n"+block), fsx.WriteOptions{Mode: 0o755})
+		if err != nil {
 			return HookResult{}, err
 		}
-		if err := os.WriteFile(hookAbs, []byte("#!/bin/sh\n"+huskyBlock), 0o755); err != nil {
-			return HookResult{}, err
+		if !verdict.OK {
+			return manual("block"), nil
 		}
 		return HookResult{Path: rel, Action: "created", Managed: "block"}, nil
 	}
-	existing, rerr := fsx.ReadText(hookAbs)
-	if rerr != nil {
-		return HookResult{}, rerr
-	}
-	merged := mergeManagedBlock(existing, huskyBlock, huskyMarkerStart, huskyMarkerEnd)
+	existing := string(hookRead.Bytes)
+	merged := mergeManagedBlock(existing, block, huskyMarkerStart, huskyMarkerEnd)
 	if merged != existing {
-		if err := os.WriteFile(hookAbs, []byte(merged), 0o644); err != nil {
+		verdict, err := fsx.WriteFileGuarded(rootAbs, hookAbs, "", []byte(merged), fsx.WriteOptions{})
+		if err != nil {
 			return HookResult{}, err
 		}
+		if !verdict.OK {
+			return manual("block"), nil
+		}
 		if requireExec {
-			if err := os.Chmod(hookAbs, 0o755); err != nil {
+			chmod, err := fsx.ChmodGuarded(rootAbs, hookAbs, "", 0o755)
+			if err != nil {
 				return HookResult{}, err
+			}
+			if !chmod.OK {
+				return manual("block"), nil
 			}
 		}
 		return HookResult{Path: rel, Action: "updated", Managed: "block"}, nil
@@ -1057,8 +1403,12 @@ func ensureHuskyBlock(hookAbs, rel string, requireExec bool) (HookResult, error)
 			return HookResult{}, err
 		}
 		if !exec {
-			if err := os.Chmod(hookAbs, 0o755); err != nil {
+			verdict, err := fsx.ChmodGuarded(rootAbs, hookAbs, "", 0o755)
+			if err != nil {
 				return HookResult{}, err
+			}
+			if !verdict.OK {
+				return manual("block"), nil
 			}
 			return HookResult{Path: rel, Action: "updated", Managed: "block"}, nil
 		}
@@ -1110,47 +1460,87 @@ type CiResult struct {
 	Note     string // set only when Action == "created" for azure
 }
 
-// EnsureCiWorkflow adds a CI workflow that runs `leji validate` (the `leji ci`
-// command). GitHub gets its own file; GitLab is create-or-merge into the shared
-// `.gitlab-ci.yml` via a marker-delimited managed block; CircleCI is created if
-// absent, else left untouched (a snippet is returned). All deterministic text, so
-// the SDKs stay byte-identical. Refuses a symlink that escapes root.
-func EnsureCiWorkflow(root, provider string) (CiResult, error) {
+// EnsureCiWorkflow adds a CI workflow running `leji validate` (the `leji ci`
+// command), with the job the repository's own package manager needs. GitHub,
+// CircleCI and Azure own whole files: created when absent, REPLACED when the file
+// standing there is one leji generated (this release or an earlier one), and left
+// untouched with a hand-add snippet when it is foreign or was edited. GitLab owns a
+// marker-delimited block inside the shared .gitlab-ci.yml and merges it. All
+// deterministic text so the three SDKs stay byte-identical. Refuses a symlink that
+// escapes root.
+func EnsureCiWorkflow(root, provider string, report *ecosystem.Report) (CiResult, error) {
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
 		return CiResult{}, err
 	}
-	// Local-first: a repo that declares @leji-org/leji runs its lockfile-pinned
-	// install; a repo without one falls back to `npx @leji-org/leji@1`.
-	local := declaresLejiDep(rootAbs) && hasNpmLockfile(rootAbs)
+	// Local-first: a repository that DECLARES the CLI and carries its manager's lock
+	// evidence installs its own locked dependencies and runs the local binary; every
+	// other state takes the fallback that needs no manifest.
+	detected := ecosystem.Report{}
+	if report != nil {
+		detected = *report
+	} else {
+		detected = ecosystem.Detect(rootAbs)
+	}
+	job := resolveCiJob(detected, provider)
+	// Every arm decides what stands at its target through the verified read, never
+	// through a pathname check: a stat follows symlinks, so a dangling link at the
+	// workflow path reads as absent and the create lands at the link's destination.
+	// Absent is the create path; a verified regular file is judged by its bytes; a
+	// standing entry that cannot be verified is the same refusal a write to it would
+	// be.
+	rootReal := fsx.GuardRoot(rootAbs)
+
+	// wholeFile is the shared arm: create, replace what we own, or hand back a snippet.
+	wholeFile := func(rel, snippet, note string) (CiResult, error) {
+		abs := filepath.Join(rootAbs, rel)
+		if err := guardWithinRoot(rootAbs, abs, rel); err != nil {
+			return CiResult{}, err
+		}
+		content := buildCiFile(provider, job)
+		existing, present, err := readMergeSource(rootReal, abs, rel)
+		if err != nil {
+			return CiResult{}, err
+		}
+		if !present {
+			if err := writeFileAtomic(rootAbs, abs, rel, content); err != nil {
+				return CiResult{}, err
+			}
+			return CiResult{Provider: provider, Path: rel, Action: "created", Note: note}, nil
+		}
+		if existing == content {
+			return CiResult{Provider: provider, Path: rel, Action: "unchanged"}, nil
+		}
+		if !isLejiGenerated(provider, existing) {
+			return CiResult{Provider: provider, Path: rel, Action: "manual", Snippet: snippet}, nil
+		}
+		if err := writeFileAtomic(rootAbs, abs, rel, content); err != nil {
+			return CiResult{}, err
+		}
+		return CiResult{Provider: provider, Path: rel, Action: "updated"}, nil
+	}
+
 	switch provider {
 	case "github":
-		abs := filepath.Join(rootAbs, CIWorkflowPath)
-		if err := guardWithinRoot(rootAbs, abs, CIWorkflowPath); err != nil {
-			return CiResult{}, err
-		}
-		if _, err := os.Stat(abs); err == nil {
-			return CiResult{Provider: provider, Path: CIWorkflowPath, Action: "unchanged"}, nil
-		}
-		if err := writeFileAtomic(rootAbs, abs, CIWorkflowPath, BuildGithubWorkflow(local)); err != nil {
-			return CiResult{}, err
-		}
-		return CiResult{Provider: provider, Path: CIWorkflowPath, Action: "created"}, nil
+		return wholeFile(CIWorkflowPath, buildGithubWorkflow(job), "")
 	case "gitlab":
 		abs := filepath.Join(rootAbs, GitlabCIPath)
 		if err := guardWithinRoot(rootAbs, abs, GitlabCIPath); err != nil {
 			return CiResult{}, err
 		}
-		block := BuildGitlabBlock(local)
-		if _, err := os.Stat(abs); err != nil {
+		block := buildGitlabBlock(job)
+		// The merge is a read-then-write of one target, so the bytes come from the
+		// verified read: the file the rule judged is the file that is read and then
+		// rewritten.
+		text, present, err := readMergeSource(rootReal, abs, GitlabCIPath)
+		if err != nil {
+			return CiResult{}, err
+		}
+		if !present {
 			if err := writeFileAtomic(rootAbs, abs, GitlabCIPath, block); err != nil {
 				return CiResult{}, err
 			}
 			return CiResult{Provider: provider, Path: GitlabCIPath, Action: "created"}, nil
-		}
-		text, err := fsx.ReadText(abs)
-		if err != nil {
-			return CiResult{}, err
 		}
 		merged := mergeGitlabBlock(text, block)
 		if merged == text {
@@ -1161,121 +1551,33 @@ func EnsureCiWorkflow(root, provider string) (CiResult, error) {
 		}
 		return CiResult{Provider: provider, Path: GitlabCIPath, Action: "updated"}, nil
 	case "circleci":
-		abs := filepath.Join(rootAbs, CircleCIConfigPath)
-		if err := guardWithinRoot(rootAbs, abs, CircleCIConfigPath); err != nil {
-			return CiResult{}, err
-		}
-		if _, err := os.Stat(abs); err == nil {
-			return CiResult{Provider: provider, Path: CircleCIConfigPath, Action: "manual", Snippet: BuildCircleCiSnippet(local)}, nil
-		}
-		if err := writeFileAtomic(rootAbs, abs, CircleCIConfigPath, BuildCircleCiConfig(local)); err != nil {
-			return CiResult{}, err
-		}
-		return CiResult{Provider: provider, Path: CircleCIConfigPath, Action: "created"}, nil
+		return wholeFile(CircleCIConfigPath, buildCircleCiSnippet(job), "")
 	case "azure":
-		abs := filepath.Join(rootAbs, AzurePipelinePath)
-		if err := guardWithinRoot(rootAbs, abs, AzurePipelinePath); err != nil {
-			return CiResult{}, err
-		}
-		// The activation note is intentionally created-only: a re-run on an existing
-		// pipeline file stays quiet (no note) rather than repeating the setup guidance.
-		if _, err := os.Stat(abs); err == nil {
-			return CiResult{Provider: provider, Path: AzurePipelinePath, Action: "unchanged"}, nil
-		}
-		if err := writeFileAtomic(rootAbs, abs, AzurePipelinePath, BuildAzurePipeline(local)); err != nil {
-			return CiResult{}, err
-		}
-		return CiResult{Provider: provider, Path: AzurePipelinePath, Action: "created", Note: AzureActivationNote}, nil
+		// The activation note is created-only: a re-run on an existing file stays quiet.
+		return wholeFile(AzurePipelinePath, buildAzurePipeline(job), AzureActivationNote)
 	}
 	// Unreachable from the CLI (it validates first); guards direct helper callers so
 	// an unknown provider errors consistently across the three SDKs.
 	return CiResult{}, fmt.Errorf("unknown provider %q", provider)
 }
 
-// hasNpmLockfile reports whether an npm lockfile is present. The generated
-// local-install job runs `npm ci`, which requires one: a pnpm, Yarn or Bun
-// repository can declare the dependency and still have none, and the job would fail
-// before Leji ran.
-func hasNpmLockfile(rootAbs string) bool {
-	return fsx.IsFile(filepath.Join(rootAbs, "package-lock.json"))
-}
-
-// declaresLejiDep reports whether the repo's root package.json declares
-// @leji-org/leji under dependencies or devDependencies. Deterministic and identical
-// across SDKs: read bytes, strip a single leading UTF-8 BOM, strict JSON parse (any
-// error -> not declared), and count dependencies/devDependencies only when they are
-// JSON objects holding the exact key (any other type -> absent, never an error). A
-// generic map decode (not a fixed struct) so malformed inputs match the TS reference.
-func declaresLejiDep(rootAbs string) bool {
-	data, err := os.ReadFile(filepath.Join(rootAbs, "package.json"))
-	if err != nil {
-		return false
-	}
-	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
-	var pkg map[string]json.RawMessage
-	if err := json.Unmarshal(data, &pkg); err != nil {
-		return false
-	}
-	for _, field := range []string{"dependencies", "devDependencies"} {
-		raw, ok := pkg[field]
-		if !ok {
-			continue
-		}
-		var deps map[string]json.RawMessage
-		// A non-object value (array/scalar) errors; JSON null decodes to a nil map.
-		// Both are treated as absent, never an error.
-		if err := json.Unmarshal(raw, &deps); err != nil || deps == nil {
-			continue
-		}
-		if _, ok := deps[depName]; ok {
-			return true
-		}
-	}
-	return false
-}
-
 func guardWithinRoot(rootAbs, abs, rel string) error {
-	if !fsx.ResolvesUnder(rootAbs, abs) {
+	if !fsx.ResolvedWithinRoot(rootAbs, abs) {
 		return fmt.Errorf("refusing to write through a symlink that escapes the target: %q", rel)
 	}
 	return nil
 }
 
-// writeFileAtomic writes via a sibling temp file then rename, so an interrupted
-// write never leaves a partial file. On failure the temp is removed and a
-// deterministic, OS-text-free error is returned (byte-identical across SDKs).
+// writeFileAtomic writes via a sibling temp file then rename (both ends judged by
+// the write chokepoint), so an interrupted write never leaves a partial file. On
+// failure the temp is removed and a deterministic, OS-text-free error is returned
+// (byte-identical across SDKs).
 func writeFileAtomic(rootAbs, abs, rel, contents string) error {
-	tmp := abs + ".leji-tmp"
-	// The sibling temp path must not escape the root either (a planted
-	// `<target>.leji-tmp` symlink would otherwise be written through before the rename).
-	if err := guardWithinRoot(rootAbs, tmp, rel); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+	verdict, err := fsx.WriteFileAtomicGuarded(fsx.GuardRoot(rootAbs), abs, initRole(rel), []byte(contents))
+	if err != nil {
 		return writeFailure(rel, err)
 	}
-	if err := os.WriteFile(tmp, []byte(contents), 0o644); err != nil {
-		_ = os.Remove(tmp)
-		return writeFailure(rel, err)
-	}
-	if err := maybeInjectWriteFailure(); err != nil {
-		_ = os.Remove(tmp)
-		return writeFailure(rel, err)
-	}
-	if err := os.Rename(tmp, abs); err != nil {
-		_ = os.Remove(tmp)
-		return writeFailure(rel, err)
-	}
-	return nil
-}
-
-// maybeInjectWriteFailure is test-only fault injection (LEJI_TEST_FAIL_RENAME):
-// simulates failure after the temp file exists but before the rename commits.
-func maybeInjectWriteFailure() error {
-	if os.Getenv("LEJI_TEST_FAIL_RENAME") != "" {
-		return errors.New("injected write failure")
-	}
-	return nil
+	return guardedOrRefuse(rel, verdict, nil)
 }
 
 // writeFailure renders a deterministic, OS-text-free message, keeping stderr
@@ -1344,124 +1646,6 @@ func stripManagedBlocks(text, startMarker, endMarker string) string {
 		out.WriteString(rest[:start])
 		rest = rest[end:]
 	}
-}
-
-// Local-first CI: a repo that declares @leji-org/leji installs its lockfile-pinned
-// deps and runs the local bin (`npx --no-install` fails loudly rather than fetch a
-// floating version); a repo without one falls back to `npx @leji-org/leji@1`, which
-// pins the SDK to its current major (@1): additive-only within a major so a valid
-// layer stays valid, and a breaking major never reaches adopter CI without a bump.
-
-// BuildGithubWorkflow is the GitHub Actions workflow file. Byte-identical across SDKs.
-func BuildGithubWorkflow(local bool) string {
-	run := "      - run: npx -y @leji-org/leji@1 validate\n" +
-		"      - run: npx -y @leji-org/leji@1 index --check\n"
-	if local {
-		run = "      - run: npm ci\n" +
-			"      - run: npx --no-install @leji-org/leji validate\n" +
-			"      - run: npx --no-install @leji-org/leji index --check\n"
-	}
-	return "name: leji\n" +
-		"on: [push, pull_request]\n" +
-		"jobs:\n" +
-		"  validate:\n" +
-		"    runs-on: ubuntu-latest\n" +
-		"    steps:\n" +
-		"      - uses: actions/checkout@v4\n" +
-		"      - uses: actions/setup-node@v4\n" +
-		"        with:\n" +
-		"          node-version: '22'\n" +
-		run
-}
-
-// BuildGitlabBlock is the GitLab CI marker-delimited job merged into the shared
-// .gitlab-ci.yml.
-func BuildGitlabBlock(local bool) string {
-	script := "    - npx -y @leji-org/leji@1 validate\n" +
-		"    - npx -y @leji-org/leji@1 index --check\n"
-	if local {
-		script = "    - npm ci\n" +
-			"    - npx --no-install @leji-org/leji validate\n" +
-			"    - npx --no-install @leji-org/leji index --check\n"
-	}
-	return gitlabMarkerStart + "\n" +
-		"leji-validate:\n" +
-		// `.pre` is always available. Without an explicit stage GitLab assigns
-		// `test`, and a pipeline whose own `stages:` omits it rejects the config.
-		"  stage: .pre\n" +
-		"  image: node:22\n" +
-		"  script:\n" +
-		script +
-		gitlabMarkerEnd + "\n"
-}
-
-// circleCiSteps is the CircleCI job steps shared by the config and the hand-add snippet.
-func circleCiSteps(local bool) string {
-	if local {
-		return "      - checkout\n" +
-			"      - run: npm ci\n" +
-			"      - run: npx --no-install @leji-org/leji validate\n" +
-			"      - run: npx --no-install @leji-org/leji index --check\n"
-	}
-	return "      - checkout\n" +
-		"      - run: npx -y @leji-org/leji@1 validate\n" +
-		"      - run: npx -y @leji-org/leji@1 index --check\n"
-}
-
-// BuildCircleCiConfig is the CircleCI config written when .circleci/config.yml is absent.
-func BuildCircleCiConfig(local bool) string {
-	return "version: 2.1\n" +
-		"jobs:\n" +
-		"  leji-validate:\n" +
-		"    docker:\n" +
-		"      - image: node:22\n" +
-		"    steps:\n" +
-		circleCiSteps(local) +
-		"workflows:\n" +
-		"  leji:\n" +
-		"    jobs:\n" +
-		"      - leji-validate\n"
-}
-
-// BuildCircleCiSnippet is the jobs + workflows fragment to add by hand to an
-// existing CircleCI config.
-func BuildCircleCiSnippet(local bool) string {
-	return "jobs:\n" +
-		"  leji-validate:\n" +
-		"    docker:\n" +
-		"      - image: node:22\n" +
-		"    steps:\n" +
-		circleCiSteps(local) +
-		"workflows:\n" +
-		"  leji:\n" +
-		"    jobs:\n" +
-		"      - leji-validate\n"
-}
-
-// BuildAzurePipeline is the Azure Pipelines config: a dedicated
-// .azure-pipelines/leji.yml the user wires to a pipeline.
-func BuildAzurePipeline(local bool) string {
-	steps := "  - script: npx -y @leji-org/leji@1 validate\n" +
-		"    displayName: leji validate\n" +
-		"  - script: npx -y @leji-org/leji@1 index --check\n" +
-		"    displayName: leji index --check\n"
-	if local {
-		steps = "  - script: npm ci\n" +
-			"    displayName: install\n" +
-			"  - script: npx --no-install @leji-org/leji validate\n" +
-			"    displayName: leji validate\n" +
-			"  - script: npx --no-install @leji-org/leji index --check\n" +
-			"    displayName: leji index --check\n"
-	}
-	return "trigger:\n" +
-		"  - main\n" +
-		"pool:\n" +
-		"  vmImage: ubuntu-latest\n" +
-		"steps:\n" +
-		"  - task: NodeTool@0\n" +
-		"    inputs:\n" +
-		"      versionSpec: '22.x'\n" +
-		steps
 }
 
 func hostIDs() []string {
@@ -1539,9 +1723,16 @@ type AgentOptions struct {
 	Role string
 }
 
+// AgentsDefaultNote is guidance for the `default` binding: selecting a role profile
+// there is not the same as loading it, a distinction the key's name invites readers
+// to miss. Written-only, like the CI activation note: a re-run that binds nothing
+// stays terse.
+const AgentsDefaultNote = "agents.default selects a role profile; it does not load it. If its instructions must apply before every task, fold them into the boot profile; otherwise keep the profile role-scoped and engage it through the relevant protocol."
+
 // AgentResult is what AddAgent did, for the command to report. Each artifact is
 // independently idempotent: a *Created/ManifestChanged of false means it was
-// already there.
+// already there. Note is advisory text the caller surfaces verbatim (set when the
+// `default` binding is written).
 type AgentResult struct {
 	Name            string
 	Role            string
@@ -1549,6 +1740,7 @@ type AgentResult struct {
 	ProfilePath     string
 	ProfileCreated  bool
 	ManifestChanged bool
+	Note            string
 }
 
 // AddAgent wires a named agent into an existing layer (the `leji agent` command):
@@ -1593,44 +1785,69 @@ func AddAgent(root string, m *manifest.Manifest, opts AgentOptions) (AgentResult
 	}
 	profileRel := base + name + ".md"
 	profileAbs := filepath.Join(rootAbs, profileRel)
-	profileCreated := false
-	if !fsx.IsFile(profileAbs) {
-		if !fsx.ResolvesUnder(rootAbs, profileAbs) {
-			return AgentResult{}, fmt.Errorf("refusing to write through a symlink that escapes the target: %q", profileRel)
-		}
-		if err := os.MkdirAll(filepath.Dir(profileAbs), 0o755); err != nil {
-			return AgentResult{}, err
-		}
-		if err := os.WriteFile(profileAbs, []byte(BuildAgentProfile(name, role, hostID, m.RootPath)), 0o644); err != nil {
-			return AgentResult{}, err
-		}
-		profileCreated = true
-	}
+	rootReal := fsx.GuardRoot(rootAbs)
 
+	// Both halves of this command are judged BEFORE either is written: binding an agent
+	// means a profile file and a manifest edit, and a run that can only do one of them
+	// must do neither. The manifest is read through the verified read (its bytes are
+	// spliced and written straight back), so a target that cannot be verified as a
+	// regular file inside the repository refuses the whole command with nothing
+	// written. Absent refuses too: this command edits a manifest, it never creates one.
 	manifestAbs := filepath.Join(rootAbs, "leji.json")
-	original, err := fsx.ReadText(manifestAbs)
+	manifestRead, err := fsx.VerifiedTargetRead(rootReal, manifestAbs, "")
 	if err != nil {
 		return AgentResult{}, err
 	}
+	if manifestRead.Status != fsx.ReadRegular {
+		return AgentResult{}, escapeRefusal("leji.json")
+	}
+	original := string(manifestRead.Bytes)
 	text, _, err := manifest.BindAgentInManifestText(original, name, profileRel)
 	if err != nil {
 		return AgentResult{}, err
 	}
 	manifestChanged := text != original
+
+	// The profile half is judged next, still before either write: a pathname check
+	// follows symlinks, so a dangling link at the profile name reads as absent and the
+	// write lands at the link's destination. Only absent is written; a verified regular
+	// file is the never-overwrite skip this command has always made; anything else
+	// standing there refuses the whole command with nothing written.
+	profileRead, err := fsx.VerifiedTargetRead(rootReal, profileAbs, "")
+	if err != nil {
+		return AgentResult{}, err
+	}
+	if profileRead.Status == fsx.ReadRefused {
+		return AgentResult{}, escapeRefusal(profileRel)
+	}
+	profileCreated := profileRead.Status == fsx.ReadAbsent
+
+	if profileCreated {
+		profile := []byte(BuildAgentProfile(name, role, hostID, m.RootPath))
+		verdict, werr := fsx.WriteFileGuarded(rootReal, profileAbs, "", profile, fsx.WriteOptions{})
+		if err := guardedOrRefuse(profileRel, verdict, werr); err != nil {
+			return AgentResult{}, err
+		}
+	}
 	if manifestChanged {
-		if err := os.WriteFile(manifestAbs, []byte(text), 0o644); err != nil {
+		verdict, werr := fsx.WriteFileGuarded(rootReal, manifestAbs, "", []byte(text), fsx.WriteOptions{})
+		if err := guardedOrRefuse("leji.json", verdict, werr); err != nil {
 			return AgentResult{}, err
 		}
 	}
 
-	return AgentResult{
+	r := AgentResult{
 		Name:            name,
 		Role:            role,
 		HostID:          hostID,
 		ProfilePath:     profileRel,
 		ProfileCreated:  profileCreated,
 		ManifestChanged: manifestChanged,
-	}, nil
+	}
+	if name == "default" && manifestChanged {
+		r.Note = AgentsDefaultNote
+	}
+	return r, nil
 }
 
 // assertCleanWorkingTree refuses a dirty working tree: the "git restore cleanly
@@ -1713,7 +1930,7 @@ func InitLayer(opts Options) (Result, error) {
 		writes = append(writes, writeplan.PlannedWrite{Rel: layout.ContextDir + category + ".md", Content: categoryIndexFile(r, category)})
 	}
 	writes = append(writes, writeplan.PlannedWrite{Rel: layout.AgentsDir + "core.md", Content: buildCoreProfile(a)})
-	writes = append(writes, writeplan.PlannedWrite{Rel: BriefPath(r), Content: buildBrief(a)})
+	writes = append(writes, writeplan.PlannedWrite{Rel: BriefPath, Content: buildBrief(a)})
 	if a.level == "indexed" {
 		// The changelog records the paths seeded; compute from the planned set
 		// (everything except the changelog and the generated index). Dot-paths
@@ -1756,7 +1973,7 @@ func InitLayer(opts Options) (Result, error) {
 	// The tracked-file preflight and the `.leji/` ignore run BEFORE any write at
 	// all, so the private onboarding workspace can never land in git and a failed
 	// preflight leaves the tree untouched.
-	if err := assertLejiWorkspacePrivate(root, r); err != nil {
+	if err := assertLejiWorkspacePrivate(root); err != nil {
 		return Result{}, err
 	}
 	if err := ensureLejiGitignored(root); err != nil {
@@ -1766,10 +1983,7 @@ func InitLayer(opts Options) (Result, error) {
 	// race and refuses to follow a symlink at the final component, so a concurrent
 	// init or a planted symlink cannot be overwritten or escaped. Every other file
 	// goes through writeFileOnce so nothing is overwritten.
-	if !fsx.ResolvesUnder(root, filepath.Join(root, "leji.json")) {
-		return Result{}, fmt.Errorf("refusing to write through a symlink that escapes the target: %q", "leji.json")
-	}
-	if err := writeManifestExclusive(filepath.Join(root, "leji.json"), manifestBytes, "init"); err != nil {
+	if err := writeManifestExclusive(root, filepath.Join(root, "leji.json"), manifestBytes, "init"); err != nil {
 		return Result{}, err
 	}
 	written = append(written, "leji.json")
@@ -1816,7 +2030,7 @@ func InitLayer(opts Options) (Result, error) {
 // is unchanged from pre-mode releases; solo swaps one sentence to name the
 // interview.
 func EnteringTheLayer(m *manifest.Manifest, mode string) string {
-	brief := BriefPath(m.RootPath)
+	brief := BriefPath
 	var how []string
 	if mode == "solo" {
 		how = []string{
@@ -1866,6 +2080,22 @@ type promptHost struct {
 type LaunchResult struct {
 	Started bool
 	Err     error
+	// Stdout is the child's captured standard output, set only for a captured run
+	// (RunOptions.Capture); empty otherwise.
+	Stdout string
+}
+
+// RunOptions bounds one child run. Quiet suppresses child output (the MCP presence
+// check); Capture reads stdout back instead — bounded by TimeoutMs and MaxBytes,
+// with stdin closed and stderr discarded — which is what the preflight version probe
+// needs; Env, when non-nil, REPLACES the environment entirely (nothing of this
+// process's is inherited), which is how the probe stays sanitized.
+type RunOptions struct {
+	Quiet     bool
+	Capture   bool
+	TimeoutMs int
+	MaxBytes  int
+	Env       map[string]string
 }
 
 // HandoffIO is injectable I/O for the handoff offer, so the interactive flow is
@@ -1878,10 +2108,9 @@ type HandoffIO struct {
 	// `leji start --root <dir>`). An empty cwd uses the current directory. Host
 	// flags (from `leji start -- <flags>`) go before the prompt argument.
 	Launch func(bin, promptArg, cwd string, hostArgs []string) LaunchResult
-	// Run runs a host subcommand (the MCP presence check / register) from cwd. When
-	// quiet, child output is suppressed (the check); otherwise it inherits the
-	// terminal so the user sees the host's own output.
-	Run func(bin string, args []string, cwd string, quiet bool) LaunchResult
+	// Run runs a host subcommand (the MCP presence check / register) or a bounded
+	// probe from cwd, per RunOptions.
+	Run func(bin string, args []string, cwd string, opts RunOptions) LaunchResult
 }
 
 // DefaultHandoffIO wires a one-shot stdin line reader and a stdio-inherit spawn.
@@ -1918,10 +2147,13 @@ func DefaultHandoffIO(in io.Reader, out io.Writer) *HandoffIO {
 			}
 			return LaunchResult{Started: false, Err: err}
 		},
-		Run: func(bin string, args []string, cwd string, quiet bool) LaunchResult {
+		Run: func(bin string, args []string, cwd string, opts RunOptions) LaunchResult {
+			if opts.Capture {
+				return captureRun(bin, args, cwd, opts)
+			}
 			cmd := exec.Command(bin, args...)
 			cmd.Dir = cwd
-			if !quiet {
+			if !opts.Quiet {
 				cmd.Stdin = os.Stdin
 				cmd.Stdout = os.Stdout
 				cmd.Stderr = os.Stderr
@@ -1937,6 +2169,162 @@ func DefaultHandoffIO(in io.Reader, out io.Writer) *HandoffIO {
 			return LaunchResult{Started: false, Err: err}
 		},
 	}
+}
+
+// captureRun is the bounded probe: stdin closed so nothing can prompt, stderr
+// discarded, output and wall time bounded. Exceeding either bound comes back as a
+// failed run, which every caller treats as a failed probe.
+func captureRun(bin string, args []string, cwd string, opts RunOptions) LaunchResult {
+	ctx := context.Background()
+	var cancel context.CancelFunc
+	if opts.TimeoutMs > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(opts.TimeoutMs)*time.Millisecond)
+	} else {
+		// Cancellable even without a deadline, because the output cap ends the run too.
+		ctx, cancel = context.WithCancel(ctx)
+	}
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir = cwd
+	cmd.Stdin = nil
+	cmd.Stderr = nil
+	// Killing the child is not enough to return: `Wait` also waits for the goroutine
+	// copying its output, and a descendant the child left behind still holds the write
+	// end of that pipe. WaitDelay bounds that wait and closes the pipes, so the cap and
+	// the deadline bound THIS process however the child behaves.
+	cmd.WaitDelay = probeWaitDelay
+	// The environment is REPLACED, never extended: a non-nil Env is the child's whole
+	// environment, so nothing of this process's reaches the probe. Built from an empty
+	// slice and sorted, so the same options always produce the same environment.
+	env := make([]string, 0, len(opts.Env))
+	for k, v := range opts.Env {
+		env = append(env, k+"="+v)
+	}
+	sort.Strings(env)
+	cmd.Env = env
+	var buf bytes.Buffer
+	capped := &cappedWriter{buf: &buf, limit: opts.MaxBytes, stop: cancel}
+	if opts.MaxBytes > 0 {
+		cmd.Stdout = capped
+	} else {
+		cmd.Stdout = &buf
+	}
+	err := cmd.Run()
+	// The cap is checked first: over it the child was killed, so whatever `Run` reports
+	// afterwards (a write error, a signal) describes the kill, not the program.
+	if capped.overflowed {
+		return LaunchResult{Started: true, Err: errProbeCapped, Stdout: buf.String()}
+	}
+	if err == nil && ctx.Err() == nil {
+		return LaunchResult{Started: true, Stdout: buf.String()}
+	}
+	if err == nil {
+		return LaunchResult{Started: true, Err: ctx.Err(), Stdout: buf.String()}
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return LaunchResult{Started: true, Err: err, Stdout: buf.String()}
+	}
+	return LaunchResult{Started: false, Err: err}
+}
+
+// errProbeCapped is what a run that produced more than the cap comes back as.
+var errProbeCapped = errors.New("probe output exceeded the cap")
+
+// probeWaitDelay is how long the run waits for the output pipe to drain after the
+// child has been ended, before abandoning it.
+const probeWaitDelay = 500 * time.Millisecond
+
+// cappedWriter fails the write once the child has produced more than limit bytes, so
+// a probe pointed at a program that streams forever cannot fill memory.
+type cappedWriter struct {
+	buf   *bytes.Buffer
+	limit int
+	// stop cancels the run's context, which kills the child. A writer that only
+	// refused the write would leave a chatty child blocked on a full pipe until the
+	// timeout expired, so the cap would bound memory but not time.
+	stop context.CancelFunc
+	// overflowed records that the cap was reached, so the caller reports the cap
+	// rather than whatever error the kill produced.
+	overflowed bool
+}
+
+func (w *cappedWriter) Write(p []byte) (int, error) {
+	// Exactly `limit` bytes is not overflow: the cap is the most that may be held.
+	if w.buf.Len()+len(p) > w.limit {
+		w.overflowed = true
+		if w.stop != nil {
+			w.stop()
+		}
+		return 0, errProbeCapped
+	}
+	return w.buf.Write(p)
+}
+
+// BootProfileReady reports whether the manifest's boot profile is a safe relative
+// path that actually exists: the one condition `leji start` refuses to run under,
+// checked before anything is reported or launched.
+func BootProfileReady(root string, m *manifest.Manifest) bool {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		rootAbs = root
+	}
+	return validateRelPath(m.BootProfilePath) == nil && fsx.IsFile(filepath.Join(rootAbs, m.BootProfilePath))
+}
+
+// StartHost is the host `leji start` targets, resolved before the preflight runs so
+// the report can name it before the launch takes the terminal.
+type StartHost struct {
+	ID   string
+	Bin  string
+	Name string
+}
+
+func (h *StartHost) internal() *promptHost {
+	if h == nil {
+		return nil
+	}
+	return &promptHost{id: h.ID, bin: h.Bin, name: h.Name}
+}
+
+func exported(h *promptHost) *StartHost {
+	if h == nil {
+		return nil
+	}
+	return &StartHost{ID: h.id, Bin: h.bin, Name: h.name}
+}
+
+// ResolveStartHost decides which host `leji start` targets: --agent forces one, a
+// single detected prompt-capable host is it, and several ask (interactive only).
+// Split out of EnterLayer so the preflight can report on the host this run has
+// actually selected. Errors on an unknown or non-launchable --agent, as before.
+func ResolveStartHost(detected []detect.DetectedHost, agent string, interactive bool, hio *HandoffIO, out io.Writer) (*StartHost, error) {
+	if agent != "" {
+		h, err := assertAgentHost(agent)
+		if err != nil {
+			return nil, err
+		}
+		return exported(h), nil
+	}
+	hosts := promptCapableHosts(detected)
+	if len(hosts) == 1 {
+		return exported(&hosts[0]), nil
+	}
+	if len(hosts) > 1 && interactive {
+		return exported(pickFromMultiple(hosts, hio, out)), nil
+	}
+	return nil, nil
+}
+
+// StartHosts is the detected hosts `leji start` could launch, ranked — what the
+// preflight names when several are present and none was picked.
+func StartHosts(detected []detect.DetectedHost) []StartHost {
+	hosts := promptCapableHosts(detected)
+	out := make([]StartHost, 0, len(hosts))
+	for i := range hosts {
+		out = append(out, *exported(&hosts[i]))
+	}
+	return out
 }
 
 // promptCapableHosts returns the detected on-PATH hosts launchable with an inline
@@ -2048,7 +2436,7 @@ func HandoffOffer(m *manifest.Manifest, detected []detect.DetectedHost, interact
 	if !interactive {
 		return false, nil
 	}
-	promptArg := "Read ./" + BriefPath(m.RootPath) + " and follow it."
+	promptArg := "Read ./" + BriefPath + " and follow it."
 	// --agent forces a specific launchable host (skipping the prompt); otherwise the
 	// detected hosts drive the offer. The interactive gate above keeps this off the
 	// scripted/CI path, so cross-SDK parity is unchanged.
@@ -2148,7 +2536,7 @@ func OfferMcpInstall(opts McpOfferOptions, hio *HandoffIO, out io.Writer) McpOff
 	// never re-nags — but say so: a silent skip is indistinguishable from the offer
 	// being broken. A failed check (e.g. an older host CLI) falls through to the offer.
 	if len(spec.McpCheck) > 0 {
-		chk := hio.Run(target.bin, spec.McpCheck, opts.Root, true)
+		chk := hio.Run(target.bin, spec.McpCheck, opts.Root, RunOptions{Quiet: true})
 		if chk.Started && chk.Err == nil {
 			fmt.Fprintf(out, "Leji MCP server already registered for %s; skipping the install offer.\n", target.name)
 			return outcome
@@ -2162,7 +2550,7 @@ func OfferMcpInstall(opts McpOfferOptions, hio *HandoffIO, out io.Writer) McpOff
 	if !(answer == "" || answer == "y" || answer == "yes") {
 		return outcome
 	}
-	res := hio.Run(target.bin, spec.McpAdd, opts.Root, false)
+	res := hio.Run(target.bin, spec.McpAdd, opts.Root, RunOptions{})
 	if !res.Started {
 		fmt.Fprintf(os.Stderr, "\nleji: could not run %s (%v); register it manually:\n   %s %s\n", target.bin, res.Err, target.bin, strings.Join(spec.McpAdd, " "))
 		return outcome
@@ -2197,6 +2585,13 @@ type StartOptions struct {
 	// HostArgs are extra arguments passed verbatim to the launched host binary,
 	// before the prompt (from `leji start -- <flags>`, e.g. Claude Code's --chrome).
 	HostArgs []string
+	// Host is the host the caller already resolved, so the preflight report can name
+	// it before the launch takes the terminal. It is used only when HostResolved is
+	// true; otherwise EnterLayer resolves one itself, as before. A nil Host with
+	// HostResolved true is an explicit "no host", which falls back to the printed
+	// commands.
+	Host         *StartHost
+	HostResolved bool
 }
 
 // bootPrompt is the prompt `leji start` hands the agent: point it at the boot profile.
@@ -2214,26 +2609,22 @@ func EnterLayer(opts StartOptions, hio *HandoffIO, out io.Writer) (StartOutcome,
 	if err != nil {
 		root = opts.Root
 	}
-	bootRel := opts.Manifest.BootProfilePath
-	if validateRelPath(bootRel) != nil || !fsx.IsFile(filepath.Join(root, bootRel)) {
+	if !BootProfileReady(root, opts.Manifest) {
 		return StartBootMissing, nil
 	}
-	promptArg := bootPrompt(bootRel)
+	promptArg := bootPrompt(opts.Manifest.BootProfilePath)
 
+	// A caller that already resolved the host (the preflight names it before the
+	// launch) passes it in; otherwise it is resolved here, as before.
 	var host *promptHost
-	if opts.Agent != "" {
-		h, err := assertAgentHost(opts.Agent)
+	if opts.HostResolved {
+		host = opts.Host.internal()
+	} else {
+		h, err := ResolveStartHost(opts.Detected, opts.Agent, opts.Interactive, hio, out)
 		if err != nil {
 			return StartFallback, err
 		}
-		host = h
-	} else {
-		hosts := promptCapableHosts(opts.Detected)
-		if len(hosts) == 1 {
-			host = &hosts[0]
-		} else if len(hosts) > 1 && opts.Interactive {
-			host = pickFromMultiple(hosts, hio, out)
-		}
+		host = h.internal()
 	}
 
 	if host == nil || !opts.Interactive {
@@ -2461,23 +2852,18 @@ func AdoptLayer(opts AdoptOptions) (AdoptResult, error) {
 
 	bootRel := detectedRoot + "boot-profile.md"
 	canonicalRedirect := strings.TrimSpace(detect.AdapterContent(bootRel))
-	var vendorPresent []string
-	for _, rel := range validate.KnownVendorFiles {
-		abs := filepath.Join(root, rel)
-		// A vendor file that is a symlink resolving outside root is neither read,
-		// migrated, nor converted: it is treated as absent.
-		if fsx.IsFile(abs) && fsx.ResolvesUnder(root, abs) {
-			vendorPresent = append(vendorPresent, rel)
-		}
+	vendor, err := verifiedVendorFiles(root)
+	if err != nil {
+		return AdoptResult{}, err
 	}
+	vendorPresent := vendorRels(vendor)
 	// Migrate any vendor file that is not already exactly Leji's redirect, so its
 	// content (whether on its own lines or sharing a line with the boot-path
 	// reference) is archived before --wire-adapters overwrites it. A file that is
 	// already the canonical redirect, or empty, has nothing to preserve.
 	var toMigrate []string
 	for _, rel := range vendorPresent {
-		t, _ := fsx.ReadText(filepath.Join(root, rel))
-		trimmed := strings.TrimSpace(t)
+		trimmed := strings.TrimSpace(vendor[rel])
 		if trimmed != "" && trimmed != canonicalRedirect {
 			toMigrate = append(toMigrate, rel)
 		}
@@ -2508,7 +2894,10 @@ func AdoptLayer(opts AdoptOptions) (AdoptResult, error) {
 	// already there so the layer never clobbers existing content. The viewer dir
 	// (.leji/, reserved and gitignored) is generated by `leji viewer`, not
 	// scaffolded here, so there is nothing to collide at adopt time.
-	adoptLayout := resolveLayout(root, detectedRoot)
+	adoptLayout, layoutErr := resolveLayout(root, detectedRoot)
+	if layoutErr != nil {
+		return AdoptResult{}, layoutErr
+	}
 	a := answers{
 		name:         name,
 		description:  "Shared context layer for this repository.",
@@ -2570,7 +2959,7 @@ func AdoptLayer(opts AdoptOptions) (AdoptResult, error) {
 		writes = append(writes, writeplan.PlannedWrite{Rel: layout.ContextDir + category + ".md", Content: categoryIndexFile(r, category)})
 	}
 	writes = append(writes, writeplan.PlannedWrite{Rel: layout.AgentsDir + "core.md", Content: buildCoreProfile(a)})
-	writes = append(writes, writeplan.PlannedWrite{Rel: BriefPath(r), Content: buildBrief(a)})
+	writes = append(writes, writeplan.PlannedWrite{Rel: BriefPath, Content: buildBrief(a)})
 
 	var migrated []string
 	migrationDocByVendor := map[string]string{}
@@ -2585,13 +2974,25 @@ func AdoptLayer(opts AdoptOptions) (AdoptResult, error) {
 		// followed by --wire-adapters overwriting the entrypoint would lose content.
 		slug := base
 		docRel := fsx.JoinUnderRoot(r, "governance/") + "imported-" + slug + ".md"
-		for n := 2; plannedRels[docRel] || fsx.Exists(filepath.Join(root, fsx.StripSlash(docRel))); n++ {
+		// The on-disk half is decided on the standing entry, never by a stat, which
+		// follows symlinks: a dangling candidate would read as a free name and the
+		// archive would be written at the link's missing destination. Any standing entry
+		// is occupied and the next name is tried (the rule archivePath mirrors).
+		for n := 2; ; n++ {
+			if !plannedRels[docRel] {
+				free, ferr := nothingStandsAt(filepath.Join(root, fsx.StripSlash(docRel)))
+				if ferr != nil {
+					return AdoptResult{}, ferr
+				}
+				if free {
+					break
+				}
+			}
 			slug = fmt.Sprintf("%s-%d", base, n)
 			docRel = fsx.JoinUnderRoot(r, "governance/") + "imported-" + slug + ".md"
 		}
 		plannedRels[docRel] = true
-		content, _ := fsx.ReadText(filepath.Join(root, rel))
-		writes = append(writes, writeplan.PlannedWrite{Rel: docRel, Content: migrationDoc(rel, content)})
+		writes = append(writes, writeplan.PlannedWrite{Rel: docRel, Content: migrationDoc(rel, vendor[rel])})
 		migrationDocByVendor[rel] = docRel
 		migrated = append(migrated, rel)
 	}
@@ -2619,8 +3020,7 @@ func AdoptLayer(opts AdoptOptions) (AdoptResult, error) {
 		writeplan.PlannedWrite{Rel: adoptIndexRel, Content: ""}), wontModify, toConvert), adoptIndexRel)
 	draft := false
 	for _, rel := range wontModify {
-		t, _ := fsx.ReadText(filepath.Join(root, rel))
-		if !strings.Contains(t, bootRel) {
+		if !strings.Contains(vendor[rel], bootRel) {
 			draft = true
 			break
 		}
@@ -2643,18 +3043,15 @@ func AdoptLayer(opts AdoptOptions) (AdoptResult, error) {
 	// The tracked-file preflight and the `.leji/` ignore run BEFORE any write at
 	// all, so the private onboarding workspace can never land in git and a failed
 	// preflight leaves the tree untouched.
-	if err := assertLejiWorkspacePrivate(root, r); err != nil {
+	if err := assertLejiWorkspacePrivate(root); err != nil {
 		return AdoptResult{}, err
 	}
 	if err := ensureLejiGitignored(root); err != nil {
 		return AdoptResult{}, err
 	}
-	if !fsx.ResolvesUnder(root, filepath.Join(root, "leji.json")) {
-		return AdoptResult{}, fmt.Errorf("refusing to write through a symlink that escapes the target: %q", "leji.json")
-	}
 	// O_EXCL: close the check-then-write race and refuse to follow a planted
 	// symlink at the final component.
-	if err := writeManifestExclusive(filepath.Join(root, "leji.json"), manifestBytes, "adopt"); err != nil {
+	if err := writeManifestExclusive(root, filepath.Join(root, "leji.json"), manifestBytes, "adopt"); err != nil {
 		return AdoptResult{}, err
 	}
 	written = append(written, "leji.json")
@@ -2674,13 +3071,8 @@ func AdoptLayer(opts AdoptOptions) (AdoptResult, error) {
 			if rerr != nil {
 				return AdoptResult{}, rerr
 			}
-			if !fsx.ResolvesUnder(root, abs) {
-				return AdoptResult{}, fmt.Errorf("refusing to write through a symlink that escapes the target: %q", w.Rel)
-			}
-			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-				return AdoptResult{}, err
-			}
-			if err := os.WriteFile(abs, []byte(w.Content), 0o644); err != nil {
+			verdict, werr := fsx.WriteFileGuarded(fsx.GuardRoot(root), abs, initRole(w.Rel), []byte(w.Content), fsx.WriteOptions{})
+			if err := guardedOrRefuse(w.Rel, verdict, werr); err != nil {
 				return AdoptResult{}, err
 			}
 			written = append(written, w.Rel)
@@ -2716,7 +3108,8 @@ func AdoptLayer(opts AdoptOptions) (AdoptResult, error) {
 // governance/: the first free imported-<slug>.md, or "" when this exact migration
 // doc is already on disk — the normal case, AdoptLayer having archived it on the
 // first pass. Mirrors the slug and disambiguation rules AdoptLayer uses.
-func archivePath(root, rootPath, vendorRel, doc string) string {
+func archivePath(root, rootPath, vendorRel, doc string) (string, error) {
+	rootReal := fsx.GuardRoot(root)
 	base := importedSlug(vendorRel)
 	for n := 1; ; n++ {
 		slug := base
@@ -2725,13 +3118,25 @@ func archivePath(root, rootPath, vendorRel, doc string) string {
 		}
 		rel := fsx.JoinUnderRoot(rootPath, "governance/") + "imported-" + slug + ".md"
 		abs := filepath.Join(root, fsx.StripSlash(rel))
-		if !fsx.Exists(abs) {
-			return rel
+		// The candidate is judged on the standing entry and, when one stands, on its
+		// verified bytes: a pathname existence check follows symlinks, so a dangling
+		// candidate link would read as free and the write would follow it to its missing
+		// destination. Nothing standing is free; the identical archive is already on
+		// disk; anything else — different bytes, or a standing entry this run cannot
+		// verify — is occupied, and the next name is tried.
+		free, ferr := nothingStandsAt(abs)
+		if ferr != nil {
+			return "", ferr
 		}
-		if fsx.IsFile(abs) {
-			if existing, err := fsx.ReadText(abs); err == nil && existing == doc {
-				return ""
-			}
+		if free {
+			return rel, nil
+		}
+		standing, err := fsx.VerifiedTargetRead(rootReal, abs, "")
+		if err != nil {
+			return "", err
+		}
+		if standing.Status == fsx.ReadRegular && string(standing.Bytes) == doc {
+			return "", nil
 		}
 	}
 }
@@ -2756,18 +3161,14 @@ func wireAdaptersIntoLayer(root string, opts AdoptOptions) (AdoptResult, error) 
 	r := m.RootPath
 	bootRel := m.BootProfilePath
 	redirect := detect.AdapterContent(bootRel)
-	var vendorPresent []string
-	for _, rel := range validate.KnownVendorFiles {
-		abs := filepath.Join(root, rel)
-		// A vendor file that symlinks outside root is treated as absent, as in AdoptLayer.
-		if fsx.IsFile(abs) && fsx.ResolvesUnder(root, abs) {
-			vendorPresent = append(vendorPresent, rel)
-		}
+	vendor, err := verifiedVendorFiles(root)
+	if err != nil {
+		return AdoptResult{}, err
 	}
+	vendorPresent := vendorRels(vendor)
 	var toConvert []string
 	for _, rel := range vendorPresent {
-		t, _ := fsx.ReadText(filepath.Join(root, rel))
-		if strings.TrimSpace(t) != strings.TrimSpace(redirect) {
+		if strings.TrimSpace(vendor[rel]) != strings.TrimSpace(redirect) {
 			toConvert = append(toConvert, rel)
 		}
 	}
@@ -2777,12 +3178,15 @@ func wireAdaptersIntoLayer(root string, opts AdoptOptions) (AdoptResult, error) 
 	var writes []writeplan.PlannedWrite
 	var archived []string
 	for _, rel := range toConvert {
-		content, _ := fsx.ReadText(filepath.Join(root, rel))
+		content := vendor[rel]
 		if strings.TrimSpace(content) == "" {
 			continue
 		}
 		doc := migrationDoc(rel, content)
-		docRel := archivePath(root, r, rel, doc)
+		docRel, aerr := archivePath(root, r, rel, doc)
+		if aerr != nil {
+			return AdoptResult{}, aerr
+		}
 		if docRel == "" {
 			continue
 		}
@@ -2817,18 +3221,14 @@ func wireAdaptersIntoLayer(root string, opts AdoptOptions) (AdoptResult, error) 
 	}
 
 	var written []string
+	rootReal := fsx.GuardRoot(root)
 	for _, w := range writes {
 		abs, rerr := resolveUnderRoot(root, w.Rel)
 		if rerr != nil {
 			return AdoptResult{}, rerr
 		}
-		if !fsx.ResolvesUnder(root, abs) {
-			return AdoptResult{}, fmt.Errorf("refusing to write through a symlink that escapes the target: %q", w.Rel)
-		}
-		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			return AdoptResult{}, err
-		}
-		if err := os.WriteFile(abs, []byte(w.Content), 0o644); err != nil {
+		verdict, werr := fsx.WriteFileGuarded(rootReal, abs, initRole(w.Rel), []byte(w.Content), fsx.WriteOptions{})
+		if err := guardedOrRefuse(w.Rel, verdict, werr); err != nil {
 			return AdoptResult{}, err
 		}
 		written = append(written, w.Rel)

@@ -1,0 +1,7 @@
+[project]
+name = "joiner-app"
+version = "0.1.0"
+dependencies = []
+
+[dependency-groups]
+dev = ["leji"]

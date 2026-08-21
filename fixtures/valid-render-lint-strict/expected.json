@@ -1,0 +1,179 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": []
+  },
+  "conformance": {
+    "exit": 0,
+    "claimedLevel": "core",
+    "verifiedLevel": "core"
+  },
+  "export": {
+    "args": ["export", "--strict"],
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/footnotes.md",
+        "line": 10,
+        "construct": "footnote"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/footnotes.md",
+        "line": 12,
+        "construct": "footnote"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/footnotes.md",
+        "line": 14,
+        "construct": "footnote"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/footnotes.md",
+        "line": 17,
+        "construct": "footnote"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/footnotes.md",
+        "line": 19,
+        "construct": "footnote"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/math.md",
+        "line": 11,
+        "construct": "math-block"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/math.md",
+        "line": 18,
+        "construct": "math-block"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/math.md",
+        "line": 22,
+        "construct": "math-block"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/raw-html.md",
+        "line": 17,
+        "construct": "raw-html"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/raw-html.md",
+        "line": 24,
+        "construct": "raw-html"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/raw-html.md",
+        "line": 30,
+        "construct": "raw-html"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/raw-html.md",
+        "line": 32,
+        "construct": "raw-html"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/raw-html.md",
+        "line": 35,
+        "construct": "raw-html"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/raw-html.md",
+        "line": 38,
+        "construct": "raw-html"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/two-on-one-line.md",
+        "line": 10,
+        "construct": "footnote"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/two-on-one-line.md",
+        "line": 10,
+        "construct": "raw-html"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/two-on-one-line.md",
+        "line": 12,
+        "construct": "footnote"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/two-on-one-line.md",
+        "line": 12,
+        "construct": "math-block"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/two-on-one-line.md",
+        "line": 12,
+        "construct": "raw-html"
+      },
+      {
+        "rule": "render-unsupported",
+        "severity": "warning",
+        "path": "docs/render/two-on-one-line.md",
+        "line": 14,
+        "construct": "footnote"
+      }
+    ],
+    "out": ".leji/dist",
+    "layout": {
+      "roles": {
+        "viewer": ".leji/viewer/",
+        "dist": ".leji/dist/"
+      },
+      "present": [
+        ".leji/viewer/index.html",
+        ".leji/viewer/_sidebar.md",
+        ".leji/viewer/_manifest.md",
+        ".leji/viewer/assets/",
+        "docs/overview.md"
+      ],
+      "absent": [".leji/dist/", "docs/.leji/"],
+      "preserved": []
+    },
+    "rerun": {
+      "byteIdentical": true
+    },
+    "goldenTree": {
+      "status": "none"
+    }
+  }
+}

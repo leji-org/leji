@@ -45,13 +45,13 @@ func hasFinding(res validate.Result, rule, path string) bool {
 func TestContentThinCategoryBoundary(t *testing.T) {
 	two := initLayer(t)
 	writeFile(t, two, "docs/domain/glossary.md", "# Glossary\n\n- Real term one.\n- Real term two.\n")
-	if !hasFinding(validate.ValidateLayer(two, true), "content-thin", "docs/context/domain.md") {
+	if !hasFinding(validateLayer(t, two, true), "content-thin", "docs/context/domain.md") {
 		t.Fatal("two concrete bullets should still be content-thin for docs/context/domain.md")
 	}
 
 	three := initLayer(t)
 	writeFile(t, three, "docs/domain/glossary.md", "# Glossary\n\n- One.\n- Two.\n- Three.\n")
-	if hasFinding(validate.ValidateLayer(three, true), "content-thin", "docs/context/domain.md") {
+	if hasFinding(validateLayer(t, three, true), "content-thin", "docs/context/domain.md") {
 		t.Fatal("three concrete bullets should clear the content-thin threshold")
 	}
 }
@@ -60,7 +60,7 @@ func TestContentThinCategoryBoundary(t *testing.T) {
 func TestContentPlaceholderAngleBracket(t *testing.T) {
 	dir := initLayer(t)
 	writeFile(t, dir, "docs/system/invariants.md", "# Invariants\n\n- <describe an invariant here>\n")
-	if !hasFinding(validate.ValidateLayer(dir, true), "content-placeholder", "docs/system/invariants.md") {
+	if !hasFinding(validateLayer(t, dir, true), "content-placeholder", "docs/system/invariants.md") {
 		t.Fatal("an angle-bracket placeholder should yield a content-placeholder finding for the doc")
 	}
 }
@@ -76,7 +76,7 @@ func TestContentUnconfirmedInferencesAndProposedDecisions(t *testing.T) {
 	writeFile(t, dir, "docs/decisions/0002-proposed.md",
 		"---\nid: use-postgres\ntitle: Use Postgres\nstatus: proposed\ndate: 2026-06-18\n---\n\n# Use Postgres\n\n## Context\nx\n## Decision\ny\n## Consequences\nz\n")
 
-	res := validate.ValidateLayer(dir, true)
+	res := validateLayer(t, dir, true)
 
 	if !hasFinding(res, "content-unconfirmed", "docs/system/invariants.md") {
 		t.Fatal("the TODO(confirm-…) marker should yield a content-unconfirmed finding")
@@ -101,4 +101,18 @@ func TestContentUnconfirmedInferencesAndProposedDecisions(t *testing.T) {
 	if hasFinding(res, "content-placeholder", "docs/system/invariants.md") {
 		t.Fatal("TODO(confirm-…) must not also trip content-placeholder")
 	}
+}
+
+// --- gate helpers -------------------------------------------------------------
+// These commands now carry an error channel, because an operational read failure on
+// an allowed path propagates instead of being swallowed (the reference throws it).
+// A test that does not construct such a failure asserts there is none.
+
+func validateLayer(t *testing.T, root string, content bool) validate.Result {
+	t.Helper()
+	res, err := validate.ValidateLayer(root, content)
+	if err != nil {
+		t.Fatalf("ValidateLayer(%s): %v", root, err)
+	}
+	return res
 }

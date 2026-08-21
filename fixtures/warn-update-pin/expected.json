@@ -1,0 +1,547 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": [
+      {
+        "rule": "mount-unavailable",
+        "severity": "warning",
+        "path": "product-context"
+      }
+    ]
+  },
+  "updatePin": {
+    "sibling": "acme-sibling",
+    "mount": "product-context",
+    "cases": [
+      {
+        "id": "witness-ahead",
+        "note": "The witness sits one commit past the pin: the fast-forward this command exists to make.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "store": {
+          "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+          "witnessRef": "refs/heads/main",
+          "witnessOid": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "depth": null
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context"
+        ],
+        "exit": 0,
+        "action": "updated",
+        "from": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "to": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "reason": null,
+        "override": false,
+        "comparisonRepository": "managed-store",
+        "manifestGolden": "update-pin-goldens/witness-ahead.json",
+        "written": true
+      },
+      {
+        "id": "unchanged",
+        "note": "The pin already IS the witness tip: a stated success that writes nothing.",
+        "pin": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "store": {
+          "pin": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "witnessRef": "refs/heads/main",
+          "witnessOid": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "depth": null
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context"
+        ],
+        "exit": 0,
+        "action": "unchanged",
+        "from": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "to": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "reason": null,
+        "override": false,
+        "comparisonRepository": "managed-store",
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "diverged",
+        "note": "Pin and witness share an ancestor and neither reaches the other.",
+        "pin": "50305153f1a107c6871ab3b3047cb4c225603b0c",
+        "store": {
+          "pin": "50305153f1a107c6871ab3b3047cb4c225603b0c",
+          "witnessRef": "refs/heads/main",
+          "witnessOid": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "depth": null
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context"
+        ],
+        "exit": 1,
+        "action": "refused",
+        "from": "50305153f1a107c6871ab3b3047cb4c225603b0c",
+        "to": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "reason": "mount-pin-not-fast-forward",
+        "override": false,
+        "comparisonRepository": "managed-store",
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "unrelated",
+        "note": "Pin and witness share no commit at all; the report says so and the move is still refused.",
+        "pin": "0cb1fb59e73d78ff04cf41de7f177ea0fb940002",
+        "store": {
+          "pin": "0cb1fb59e73d78ff04cf41de7f177ea0fb940002",
+          "witnessRef": "refs/heads/main",
+          "witnessOid": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "depth": null
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context"
+        ],
+        "exit": 1,
+        "action": "refused",
+        "from": "0cb1fb59e73d78ff04cf41de7f177ea0fb940002",
+        "to": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "reason": "mount-pin-not-fast-forward",
+        "override": false,
+        "comparisonRepository": "managed-store",
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "witness-unavailable",
+        "note": "The store holds the pin but no repository resolves the tracking ref.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "store": {
+          "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+          "witnessRef": null,
+          "witnessOid": null,
+          "depth": null
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context"
+        ],
+        "exit": 1,
+        "action": "refused",
+        "from": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "to": null,
+        "reason": "mount-witness-unavailable",
+        "override": false,
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "pin-unavailable",
+        "note": "Nothing reachable holds the pin, so there is no comparison to show.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "store": null,
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context"
+        ],
+        "exit": 1,
+        "action": "refused",
+        "from": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "to": null,
+        "reason": "mount-pin-unavailable",
+        "override": false,
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "ancestry-incomplete",
+        "note": "A shallow store holds both commits but cannot answer whether one reaches the other.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "store": {
+          "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+          "witnessRef": "refs/heads/main",
+          "witnessOid": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "depth": 1
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context"
+        ],
+        "exit": 1,
+        "action": "refused",
+        "from": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "to": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "reason": "mount-ancestry-incomplete",
+        "override": false,
+        "comparisonRepository": "managed-store",
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "to-descendant",
+        "note": "An explicit --to that the comparison repository holds and that descends from the pin.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "store": {
+          "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+          "witnessRef": "refs/heads/main",
+          "witnessOid": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "depth": null
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context",
+          "--to",
+          "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723"
+        ],
+        "exit": 0,
+        "action": "updated",
+        "from": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "to": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "reason": null,
+        "override": false,
+        "comparisonRepository": "managed-store",
+        "manifestGolden": "update-pin-goldens/to-descendant.json",
+        "written": true
+      },
+      {
+        "id": "to-not-held",
+        "note": "An explicit --to no reachable repository holds is refused before any gate runs.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "store": {
+          "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+          "witnessRef": "refs/heads/main",
+          "witnessOid": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "depth": null
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context",
+          "--to",
+          "ffffffffffffffffffffffffffffffffffffffff"
+        ],
+        "exit": 1,
+        "action": "refused",
+        "from": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "to": "ffffffffffffffffffffffffffffffffffffffff",
+        "reason": "mount-target-unavailable",
+        "override": false,
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "to-override-diverged",
+        "note": "The narrow override: --to plus --allow-non-fast-forward on a diverged pin, warned and recorded.",
+        "pin": "50305153f1a107c6871ab3b3047cb4c225603b0c",
+        "store": {
+          "pin": "50305153f1a107c6871ab3b3047cb4c225603b0c",
+          "witnessRef": "refs/heads/main",
+          "witnessOid": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "depth": null
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context",
+          "--to",
+          "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "--allow-non-fast-forward"
+        ],
+        "exit": 0,
+        "action": "updated",
+        "from": "50305153f1a107c6871ab3b3047cb4c225603b0c",
+        "to": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "reason": null,
+        "override": true,
+        "comparisonRepository": "managed-store",
+        "manifestGolden": "update-pin-goldens/to-override-diverged.json",
+        "written": true
+      },
+      {
+        "id": "dry-run-override",
+        "note": "A dry run still exercises the override: the warning and override:true are reported, and no manifest byte moves.",
+        "pin": "50305153f1a107c6871ab3b3047cb4c225603b0c",
+        "store": {
+          "pin": "50305153f1a107c6871ab3b3047cb4c225603b0c",
+          "witnessRef": "refs/heads/main",
+          "witnessOid": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "depth": null
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context",
+          "--to",
+          "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "--allow-non-fast-forward",
+          "--dry-run"
+        ],
+        "exit": 0,
+        "action": "dry-run",
+        "from": "50305153f1a107c6871ab3b3047cb4c225603b0c",
+        "to": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "reason": null,
+        "override": true,
+        "comparisonRepository": "managed-store",
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "allow-alone",
+        "note": "The override flag without an explicit --to is a usage error, and emits no document at all.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "store": {
+          "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+          "witnessRef": "refs/heads/main",
+          "witnessOid": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "depth": null
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context",
+          "--allow-non-fast-forward"
+        ],
+        "exit": 2,
+        "action": null,
+        "from": null,
+        "to": null,
+        "reason": null,
+        "override": false,
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "dry-run",
+        "note": "Everything computed and shown; not one manifest byte written.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "store": {
+          "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+          "witnessRef": "refs/heads/main",
+          "witnessOid": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "depth": null
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context",
+          "--dry-run"
+        ],
+        "exit": 0,
+        "action": "dry-run",
+        "from": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "to": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "reason": null,
+        "override": false,
+        "comparisonRepository": "managed-store",
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "unknown-mount",
+        "note": "No mount carries the addressed name.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "store": {
+          "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+          "witnessRef": "refs/heads/main",
+          "witnessOid": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "depth": null
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "absent-context"
+        ],
+        "exit": 1,
+        "action": "refused",
+        "from": null,
+        "to": null,
+        "reason": "mount-unknown",
+        "override": false,
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "no-tracking-ref-offline",
+        "note": "With no trackingRef declared and no --fetch, the default branch cannot be resolved.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "trackingRef": null,
+        "store": {
+          "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+          "witnessRef": "refs/heads/main",
+          "witnessOid": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+          "depth": null
+        },
+        "hint": false,
+        "source": "none",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context"
+        ],
+        "exit": 1,
+        "action": "refused",
+        "from": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "to": null,
+        "reason": "mount-no-tracking-ref",
+        "override": false,
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "hint-only-fetch",
+        "note": "The pin resolves only through a hint until --fetch establishes the managed store, which then wins.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "store": null,
+        "hint": true,
+        "source": "local",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context",
+          "--fetch"
+        ],
+        "exit": 0,
+        "action": "updated",
+        "from": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "to": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "reason": null,
+        "override": false,
+        "comparisonRepository": "managed-store",
+        "manifestGolden": "update-pin-goldens/hint-only-fetch.json",
+        "written": true
+      },
+      {
+        "id": "dry-run-fetch",
+        "note": "The store and network acts --fetch was asked for happen; only the rewrite is suppressed.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "store": null,
+        "hint": true,
+        "source": "local",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context",
+          "--fetch",
+          "--dry-run"
+        ],
+        "exit": 0,
+        "action": "dry-run",
+        "from": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "to": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "reason": null,
+        "override": false,
+        "comparisonRepository": "managed-store",
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "default-ref-fetch",
+        "note": "No trackingRef declared: --fetch resolves the advertised default branch and reports it as comparedRef.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "trackingRef": null,
+        "store": null,
+        "hint": true,
+        "source": "local",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context",
+          "--fetch"
+        ],
+        "exit": 0,
+        "action": "updated",
+        "from": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "to": "3ff2a04361ca9d601180037bdfbc8b6c0a0a8723",
+        "reason": null,
+        "override": false,
+        "comparisonRepository": "managed-store",
+        "comparedRef": "refs/heads/main",
+        "manifestGolden": "update-pin-goldens/default-ref-fetch.json",
+        "written": true
+      },
+      {
+        "id": "fetch-store-failed",
+        "note": "The declared source no longer serves the current pin, so --fetch cannot retain it.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "store": null,
+        "hint": false,
+        "source": "unreachable",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context",
+          "--fetch"
+        ],
+        "exit": 1,
+        "action": "refused",
+        "from": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "to": null,
+        "reason": "mount-store-fetch-failed",
+        "override": false,
+        "manifestGolden": null,
+        "written": false
+      },
+      {
+        "id": "fetch-witness-refresh-failed",
+        "note": "The store already holds the pin, so retention succeeds and the witness refresh is what fails.",
+        "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "store": {
+          "pin": "6b06fe51a323212156bb267842bf10187ed4c20e",
+          "witnessRef": null,
+          "witnessOid": null,
+          "depth": null
+        },
+        "hint": false,
+        "source": "unreachable",
+        "args": [
+          "mounts",
+          "update-pin",
+          "product-context",
+          "--fetch"
+        ],
+        "exit": 1,
+        "action": "refused",
+        "from": "6b06fe51a323212156bb267842bf10187ed4c20e",
+        "to": null,
+        "reason": "mount-witness-refresh-failed",
+        "override": false,
+        "manifestGolden": null,
+        "written": false
+      }
+    ]
+  }
+}

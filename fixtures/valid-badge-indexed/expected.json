@@ -1,0 +1,28 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": []
+  },
+  "conformance": {
+    "exit": 0,
+    "claimedLevel": "indexed",
+    "verifiedLevel": "indexed"
+  },
+  "indexCheck": {
+    "exit": 0,
+    "stale": false
+  },
+  "badge": {
+    "exit": 0,
+    "out": "leji-badge.svg",
+    "level": "indexed",
+    "claimedLevel": "indexed",
+    "verifiedLevel": "indexed",
+    "golden": "badge/indexed.svg",
+    "action": "wrote",
+    "rerun": {
+      "action": "unchanged",
+      "byteIdentical": true
+    }
+  }
+}

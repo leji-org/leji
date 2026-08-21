@@ -1,6 +1,6 @@
 {
   "name": "@leji-org/mcp",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "Local stdio MCP server for Leji: retrieve the spec and schemas, and run validation and conformance against a context layer, natively from an AI agent.",
   "keywords": [
     "leji",
@@ -49,7 +49,7 @@
     "coverage": "npm run build && c8 --reporter=text --include='dist/**/*.js' --all node --test"
   },
   "dependencies": {
-    "@leji-org/leji": "^1.3.1",
+    "@leji-org/leji": "^1.4.0",
     "@modelcontextprotocol/sdk": "1.30.0"
   },
   "devDependencies": {

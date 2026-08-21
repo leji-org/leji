@@ -58,10 +58,10 @@ const bodyHtml = lines
    .term {
       position: relative;
       border-radius: 12px;
-      background: var(--blue-deep);
-      box-shadow: 0 18px 50px rgba(22, 41, 96, 0.22);
+      background: var(--leji-deep);
+      box-shadow: 0 18px 50px rgba(24, 61, 59, 0.24);
       /* no overflow:hidden: the brand mark pokes past the top-right corner */
-      border: 1px solid rgba(255, 189, 110, 0.18);
+      border: 1px solid rgba(112, 216, 194, 0.24);
    }
    .term-bar {
       border-radius: 12px 12px 0 0;
@@ -123,7 +123,7 @@ const bodyHtml = lines
       z-index: 3;
       display: inline-flex;
       align-items: center;
-      filter: drop-shadow(0 2px 10px rgba(255, 189, 110, 0.35));
+      filter: drop-shadow(0 2px 10px rgba(112, 216, 194, 0.4));
    }
    .term-brand :global(svg) {
       display: block;
@@ -169,30 +169,31 @@ const bodyHtml = lines
    .term[data-state='split'] .term-glimpse {
       clip-path: polygon(0 0, 100% 0, 0 100%, 0 100%);
       /* layered drop-shadow so the panel reads as casting onto the terminal */
-      filter: drop-shadow(1px 7px 20px rgba(3, 7, 22, 0.72)) drop-shadow(0 2px 5px rgba(3, 7, 22, 0.55));
+      filter: drop-shadow(1px 7px 20px rgba(16, 42, 41, 0.72)) drop-shadow(0 2px 5px rgba(16, 42, 41, 0.55));
    }
    .line {
       display: inline;
    }
    .prompt {
-      color: var(--gold);
+      color: var(--leji-accent);
       user-select: none;
    }
    .cmd-text {
       color: var(--white-strong);
    }
-   .out.pass {
-      color: #6fc7a6;
+   /* Success reads in the brand's own accent; the failure tone stays outside the
+      palette because the OSS system defines no error colour and this is a terminal
+      state, not identity. */
+   .out.pass,
+   .out.ok {
+      color: var(--leji-accent);
    }
    .out.fail {
       color: #ff8f8f;
    }
    .out.manual {
-      color: var(--gold-bright);
+      color: var(--leji-accent);
       opacity: 0.85;
-   }
-   .out.ok {
-      color: #8fd4b8;
    }
    .out.dim {
       color: var(--white-faint);
@@ -207,7 +208,7 @@ const bodyHtml = lines
       width: 0.55ch;
       height: 1.05em;
       vertical-align: -0.18em;
-      background: var(--gold-bright);
+      background: var(--leji-accent);
       margin-left: 1px;
       animation: term-blink 1s steps(1) infinite;
    }

@@ -1,0 +1,6 @@
+[tool.poetry]
+name = "d"
+version = "0"
+
+[tool.poetry.dependencies]
+python = "^3.12"

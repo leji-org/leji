@@ -1,0 +1,34 @@
+leji validate: Validate the context layer: manifest, artifacts, frontmatter, and
+   lint rules.
+
+Usage: leji validate [--content] [--federation <available|required> [--paths
+       <a,b,...>]] [--root <dir>] [--json]
+
+Loads leji.json and checks it against the schemas and the lint rules: declared
+files exist, categories are populated, vendor entrypoints redirect to the boot
+profile, frontmatter is valid, and (per the claimed conformance level) the index
+is current and the changelog is append-only. One of the two gates the generated
+CI runs, beside `leji index --check`. With --content it also runs a warning-only
+content lint (placeholder text, generic boot identity, thin categories) that
+never errors and never affects a conformance level.
+
+Options:
+   --content             Also run the warning-only content lint (placeholders,
+                         generic identity, thin categories).
+   --federation <mode>   Opt-in federation enforcement: available fails on any
+                         unhydrated or unverified mount; required fails only for
+                         mounts the --paths task scope routes to. Run `leji
+                         mounts hydrate` first; ordinary validate never fails on
+                         availability.
+   --paths <a,b,...>     Task scope for --federation=required: comma-separated
+                         repository paths; the routing algorithm decides which
+                         mounts the task touches.
+
+Global options: see leji --help.
+
+Examples:
+   leji validate
+   leji validate --content
+   leji validate --root . --json
+
+Full reference: https://leji.org/cli/

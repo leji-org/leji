@@ -1,0 +1,6 @@
+[project]
+name = "d"
+version = "0"
+
+[dependency-groups]
+dev = ["pytest"]

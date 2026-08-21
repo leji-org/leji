@@ -52,5 +52,6 @@ JSON Schemas served at their canonical $id URLs:
 - [Quickstart](https://leji.org/quickstart/): install the reference CLI (npm, PyPI, and Go), bootstrap or map a context layer, validate, score conformance
 - [Adoption guides](https://leji.org/adoption/): monorepo, multi-repo, and federation adoption paths
 - [Rationale](https://leji.org/rationale/): why the specification exists and the design bets
-- [Trust](https://leji.org/trust/): stewardship, the versioning promise, and what continues without the steward
+- [Trust](https://leji.org/trust/): who stewards Leji, how the steward's commercial products relate to the specification, the versioning promise, and what continues without the steward
+- [Trademark & usage policy](https://leji.org/trademark/): how the Leji name may be used, what forks need, and what the logo requires
 - [Source repository](https://github.com/leji-org/leji): spec prose (CC-BY-4.0), code and schemas (Apache-2.0)

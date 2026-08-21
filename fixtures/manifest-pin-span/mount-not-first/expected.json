@@ -1,0 +1,40 @@
+{
+  "leji": "1.0",
+  "name": "host",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {
+    "domain": {
+      "indexes": [
+        "docs/context/domain.md"
+      ]
+    }
+  },
+  "owners": {
+    "primary": {
+      "name": "Host Owner"
+    }
+  },
+  "federation": {
+    "mounts": [
+      {
+        "name": "earlier-context",
+        "source": "https://github.com/acme/earlier-context",
+        "pin": "1111111111111111111111111111111111111111",
+        "trackingRef": "refs/heads/main",
+        "owner": {
+          "name": "Earlier Owner"
+        }
+      },
+      {
+        "name": "product-context",
+        "source": "https://github.com/acme/product-context",
+        "pin": "9f1c2e9b8a7f6d5c4b3a2e1d0c9b8a7f6d5c4b3a",
+        "trackingRef": "refs/heads/main",
+        "owner": {
+          "name": "Product Owner"
+        }
+      }
+    ]
+  }
+}

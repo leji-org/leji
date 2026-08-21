@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/leji-org/leji/packages/sdk-go/internal/commands/changelog"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/conformance"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/freshness"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
@@ -92,7 +93,7 @@ func mustWriteIndex(t *testing.T, dir string, m *manifest.Manifest) indexgen.Res
 }
 
 func TestExampleValidatesClean(t *testing.T) {
-	result := validate.ValidateLayer(exampleDir(t), false)
+	result := validateLayer(t, exampleDir(t), false)
 	for _, f := range result.Findings {
 		if f.Severity == findings.Error {
 			t.Fatalf("unexpected error finding: %s %s", f.Rule, f.Message)
@@ -104,7 +105,7 @@ func TestIndexRoundTripCurrent(t *testing.T) {
 	dir := copyTree(t, exampleDir(t))
 	m := loadM(t, dir)
 	mustWriteIndex(t, dir, m)
-	check := indexgen.CheckIndex(dir, m)
+	check := checkIndex(t, dir, m)
 	if check.Stale == nil || *check.Stale {
 		t.Fatalf("expected fresh index, stale=%v", check.Stale)
 	}
@@ -117,7 +118,7 @@ func TestIndexGoesStaleOnEdit(t *testing.T) {
 	f := filepath.Join(dir, "docs", "domain", "glossary.md")
 	b, _ := os.ReadFile(f)
 	os.WriteFile(f, append(b, []byte("\n- **Refund**: a reversal.\n")...), 0o644)
-	check := indexgen.CheckIndex(dir, m)
+	check := checkIndex(t, dir, m)
 	if check.Stale == nil || !*check.Stale {
 		t.Fatal("expected stale index")
 	}
@@ -242,38 +243,38 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 		t.Fatalf("GenerateViewer: %v", err)
 	}
 	wantWritten := []string{
-		"docs/.leji/viewer/index.html",
-		"docs/.leji/viewer/_sidebar.md",
-		"docs/.leji/viewer/assets/docsify-copy-code.min.js",
-		"docs/.leji/viewer/assets/docsify-mermaid.js",
-		"docs/.leji/viewer/assets/docsify-sidebar-collapse.min.css",
-		"docs/.leji/viewer/assets/docsify-sidebar-collapse.min.js",
-		"docs/.leji/viewer/assets/docsify.min.js",
-		"docs/.leji/viewer/assets/fonts-licenses.txt",
-		"docs/.leji/viewer/assets/leji-logo.svg",
-		"docs/.leji/viewer/assets/mermaid.min.js",
-		"docs/.leji/viewer/assets/prism-bash.min.js",
-		"docs/.leji/viewer/assets/prism-json.min.js",
-		"docs/.leji/viewer/assets/prism-markdown.min.js",
-		"docs/.leji/viewer/assets/prism-typescript.min.js",
-		"docs/.leji/viewer/assets/roboto-mono-400-latin-ext.woff2",
-		"docs/.leji/viewer/assets/roboto-mono-400-latin.woff2",
-		"docs/.leji/viewer/assets/roboto-mono-400-vietnamese.woff2",
-		"docs/.leji/viewer/assets/search.min.js",
-		"docs/.leji/viewer/assets/source-sans-pro-300-latin-ext.woff2",
-		"docs/.leji/viewer/assets/source-sans-pro-300-latin.woff2",
-		"docs/.leji/viewer/assets/source-sans-pro-300-vietnamese.woff2",
-		"docs/.leji/viewer/assets/source-sans-pro-400-latin-ext.woff2",
-		"docs/.leji/viewer/assets/source-sans-pro-400-latin.woff2",
-		"docs/.leji/viewer/assets/source-sans-pro-400-vietnamese.woff2",
-		"docs/.leji/viewer/assets/source-sans-pro-600-latin-ext.woff2",
-		"docs/.leji/viewer/assets/source-sans-pro-600-latin.woff2",
-		"docs/.leji/viewer/assets/source-sans-pro-600-vietnamese.woff2",
-		"docs/.leji/viewer/assets/viewer-boot.js",
-		"docs/.leji/viewer/assets/vue.css",
-		"docs/.leji/viewer/assets/zoom-image.min.js",
+		".leji/viewer/index.html",
+		".leji/viewer/_sidebar.md",
+		".leji/viewer/assets/docsify-copy-code.min.js",
+		".leji/viewer/assets/docsify-mermaid.js",
+		".leji/viewer/assets/docsify-sidebar-collapse.min.css",
+		".leji/viewer/assets/docsify-sidebar-collapse.min.js",
+		".leji/viewer/assets/docsify.min.js",
+		".leji/viewer/assets/leji-logo.svg",
+		".leji/viewer/assets/mermaid.min.js",
+		".leji/viewer/assets/prism-bash.min.js",
+		".leji/viewer/assets/prism-json.min.js",
+		".leji/viewer/assets/prism-markdown.min.js",
+		".leji/viewer/assets/prism-typescript.min.js",
+		".leji/viewer/assets/roboto-mono-400-latin-ext.woff2",
+		".leji/viewer/assets/roboto-mono-400-latin.woff2",
+		".leji/viewer/assets/roboto-mono-400-vietnamese.woff2",
+		".leji/viewer/assets/search.min.js",
+		".leji/viewer/assets/source-sans-pro-300-latin-ext.woff2",
+		".leji/viewer/assets/source-sans-pro-300-latin.woff2",
+		".leji/viewer/assets/source-sans-pro-300-vietnamese.woff2",
+		".leji/viewer/assets/source-sans-pro-400-latin-ext.woff2",
+		".leji/viewer/assets/source-sans-pro-400-latin.woff2",
+		".leji/viewer/assets/source-sans-pro-400-vietnamese.woff2",
+		".leji/viewer/assets/source-sans-pro-600-latin-ext.woff2",
+		".leji/viewer/assets/source-sans-pro-600-latin.woff2",
+		".leji/viewer/assets/source-sans-pro-600-vietnamese.woff2",
+		".leji/viewer/assets/third-party-licenses.txt",
+		".leji/viewer/assets/viewer-boot.js",
+		".leji/viewer/assets/vue.css",
+		".leji/viewer/assets/zoom-image.min.js",
 		"docs/overview.md",
-		"docs/.leji/viewer/_manifest.md",
+		".leji/viewer/_manifest.md",
 	}
 	if len(result.Written) != len(wantWritten) {
 		t.Fatalf("unexpected written: %v", result.Written)
@@ -284,25 +285,34 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 		}
 	}
 	// Mermaid is on by default: the two scripts + their assets are present.
-	page0, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "index.html"))
+	page0, _ := os.ReadFile(filepath.Join(dir, ".leji", "viewer", "index.html"))
 	for _, want := range []string{"assets/mermaid.min.js", "assets/docsify-mermaid.js"} {
 		if !strings.Contains(string(page0), want) {
 			t.Fatalf("expected mermaid wired into index.html by default: %q", want)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, "docs", ".leji", "viewer", "assets", "mermaid.min.js")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".leji", "viewer", "assets", "mermaid.min.js")); err != nil {
 		t.Fatalf("expected mermaid asset copied by default: %v", err)
 	}
-	bootJS, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "assets", "viewer-boot.js"))
-	if !strings.Contains(string(bootJS), "basePath: '/content/'") {
-		t.Fatalf("expected content mount in the boot script, got: %q", bootJS)
+	// The content mount is the SDK's value, carried in the config block; the boot
+	// script routes from it instead of hardcoding a root, which is what lets the
+	// export flavor be relative.
+	bootJS, _ := os.ReadFile(filepath.Join(dir, ".leji", "viewer", "assets", "viewer-boot.js"))
+	if !strings.Contains(string(bootJS), "basePath: lejiContentBase") {
+		t.Fatalf("expected the boot script to route from the generated base, got: %q", bootJS)
+	}
+	if !strings.Contains(string(page0), `"basePath":"/content/"`) {
+		t.Fatal("expected the served flavor to mount content at the app root")
 	}
 	// Default theming: the Leji mark (in the name HTML, served relative to the page
-	// so basePath does not break it), brand blue, and the layer name/title.
-	page, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "index.html"))
+	// so basePath does not break it), brand green with the mermaid node-text color
+	// the SDK computed for it (dark, at 5.14:1 against the accent), and the layer
+	// name/title.
+	page, _ := os.ReadFile(filepath.Join(dir, ".leji", "viewer", "index.html"))
 	for _, want := range []string{
 		"/assets/leji-logo.svg",
-		"\"themeColor\":\"#223F93\"",
+		"\"themeColor\":\"#009F71\"",
+		"\"lejiMermaidTextColor\":\"#1a1a1a\"",
 		"acme-billing-context",
 		"<title>acme-billing-context</title>",
 	} {
@@ -310,12 +320,29 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 			t.Fatalf("expected index.html to contain %q", want)
 		}
 	}
-	sidebar, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "_sidebar.md"))
-	want := "- [🤖 Boot profile](boot-profile.md)\n- [📄 Manifest](_manifest.md)\n\n---\n\n" +
-		"- **🤖 Agents**\n  - [Agent Core](agents/core.md)\n  - [Thought Partner (Codex)](agents/thought-partner.md)\n" +
-		"- **📖 Domain**\n  - [Glossary](domain/glossary.md)\n" +
-		"- **⚙️ System**\n  - [Invariants](system/invariants.md)\n" +
-		"- **🧭 Decisions**\n  - [Adopt the Leji context layer](decisions/0001-adopt-leji.md)\n"
+	// A configured accent is computed over too, not just the default: a dark accent
+	// flips the mermaid node text to white, end to end through the generator.
+	darkDir := copyTree(t, exampleDir(t))
+	darkM := loadM(t, darkDir)
+	darkM.Viewer = &manifest.Viewer{Theme: &manifest.Theme{Primary: "#164E42"}}
+	if _, err := viewer.GenerateViewer(darkDir, darkM); err != nil {
+		t.Fatalf("GenerateViewer (configured accent): %v", err)
+	}
+	darkPage, _ := os.ReadFile(filepath.Join(darkDir, ".leji", "viewer", "index.html"))
+	for _, want := range []string{
+		"\"themeColor\":\"#164E42\"",
+		"\"lejiMermaidTextColor\":\"#ffffff\"",
+	} {
+		if !strings.Contains(string(darkPage), want) {
+			t.Fatalf("expected index.html to contain %q", want)
+		}
+	}
+	sidebar, _ := os.ReadFile(filepath.Join(dir, ".leji", "viewer", "_sidebar.md"))
+	want := "- [🤖 Boot profile](/boot-profile.md)\n- [📄 Manifest](/_manifest.md)\n\n---\n\n" +
+		"- **🤖 Agents**\n  - [Agent Core](/agents/core.md)\n  - [Thought Partner (Codex)](/agents/thought-partner.md)\n" +
+		"- **📖 Domain**\n  - [Glossary](/domain/glossary.md)\n" +
+		"- **⚙️ System**\n  - [Invariants](/system/invariants.md)\n" +
+		"- **🧭 Decisions**\n  - [Adopt the Leji context layer](/decisions/0001-adopt-leji.md)\n"
 	if string(sidebar) != want {
 		t.Fatalf("sidebar mismatch:\n got=%q\nwant=%q", sidebar, want)
 	}
@@ -323,7 +350,7 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 	if _, err := viewer.GenerateViewer(dir, m); err != nil {
 		t.Fatalf("GenerateViewer (regen): %v", err)
 	}
-	again, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "_sidebar.md"))
+	again, _ := os.ReadFile(filepath.Join(dir, ".leji", "viewer", "_sidebar.md"))
 	if string(again) != want {
 		t.Fatalf("regenerated sidebar diverged:\n got=%q\nwant=%q", again, want)
 	}
@@ -343,7 +370,7 @@ func TestViewerBrandConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateViewer: %v", err)
 	}
-	page, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "index.html"))
+	page, _ := os.ReadFile(filepath.Join(dir, ".leji", "viewer", "index.html"))
 	// A relative logo path is served from the content mount; absolute/url is used as-is.
 	for _, want := range []string{
 		"/content/assets/brand.svg",
@@ -355,9 +382,9 @@ func TestViewerBrandConfig(t *testing.T) {
 			t.Fatalf("expected index.html to contain %q", want)
 		}
 	}
-	sidebar, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "_sidebar.md"))
+	sidebar, _ := os.ReadFile(filepath.Join(dir, ".leji", "viewer", "_sidebar.md"))
 	top := strings.SplitN(string(sidebar), "---", 2)[0]
-	if !strings.Contains(top, "- [Glossary](domain/glossary.md)") {
+	if !strings.Contains(top, "- [Glossary](/domain/glossary.md)") {
 		t.Fatalf("expected the pinned page in the top zone, got: %q", top)
 	}
 	pinMissing := false
@@ -392,7 +419,7 @@ func TestBuildSidebarSkipsOutOfRootBootAndRendersPlainEntries(t *testing.T) {
 	if !strings.Contains(sidebar, "- **💰 Finance**") {
 		t.Fatalf("expected the group label to be the index-file H1, verbatim, bold, got: %q", sidebar)
 	}
-	if !strings.Contains(sidebar, "  - [Glossary](domain/glossary.md)") {
+	if !strings.Contains(sidebar, "  - [Glossary](/domain/glossary.md)") {
 		t.Fatalf("expected entries to render as plain links, got: %q", sidebar)
 	}
 	if strings.Contains(sidebar, "lj-rec") {
@@ -412,14 +439,14 @@ func TestViewerMermaidDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateViewer: %v", err)
 	}
-	page, _ := os.ReadFile(filepath.Join(dir, "docs", ".leji", "viewer", "index.html"))
+	page, _ := os.ReadFile(filepath.Join(dir, ".leji", "viewer", "index.html"))
 	if strings.Contains(string(page), "mermaid.min.js") {
 		t.Fatal("expected no mermaid script when disabled")
 	}
 	if strings.Contains(string(page), "docsify-mermaid.js") {
 		t.Fatal("expected no mermaid plugin when disabled")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "docs", ".leji", "viewer", "assets", "mermaid.min.js")); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, ".leji", "viewer", "assets", "mermaid.min.js")); err == nil {
 		t.Fatal("expected mermaid asset not copied when disabled")
 	}
 	for _, w := range result.Written {
@@ -444,7 +471,7 @@ func TestInitYesValidatesCleanCore(t *testing.T) {
 	}
 	// init does not `git init`, so a freshly scaffolded layer in a bare temp dir
 	// carries exactly the not-in-git warning; its content is otherwise clean.
-	v := validate.ValidateLayer(dir, false)
+	v := validateLayer(t, dir, false)
 	for _, f := range v.Findings {
 		if f.Rule != "git-required" {
 			t.Fatalf("expected only git-required, got %v", v.Findings)
@@ -462,7 +489,7 @@ func TestInitIndexedVerifiesImmediately(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitCommitAll(t, dir)
-	v := validate.ValidateLayer(dir, false)
+	v := validateLayer(t, dir, false)
 	for _, f := range v.Findings {
 		if f.Severity == findings.Error {
 			t.Fatalf("unexpected error: %s", f.Rule)
@@ -656,7 +683,7 @@ func TestRecordsFullyDisplacedBroadSelectorReportedAsShadowed(t *testing.T) {
 	os.Remove(filepath.Join(dir, "docs", "records", "2026-07-03-status.md"))
 	os.Remove(filepath.Join(dir, "docs", "records", "ledger.md"))
 	m := loadM(t, dir)
-	report := statuscmd.StatusReport(dir, m)
+	report := statusReport(t, dir, m)
 	want := []statuscmd.ShadowedSelector{{IndexFile: "docs/context/domain.md", Path: "docs/records/"}}
 	if !reflect.DeepEqual(report.Shadowed, want) {
 		t.Fatalf("shadowed mismatch: got %+v want %+v", report.Shadowed, want)
@@ -694,4 +721,45 @@ func containsStr(list []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// --- gate helpers -------------------------------------------------------------
+// These commands now carry an error channel, because an operational read failure on
+// an allowed path propagates instead of being swallowed (the reference throws it).
+// A test that does not construct such a failure asserts there is none.
+
+func validateLayer(t *testing.T, root string, content bool) validate.Result {
+	t.Helper()
+	res, err := validate.ValidateLayer(root, content)
+	if err != nil {
+		t.Fatalf("ValidateLayer(%s): %v", root, err)
+	}
+	return res
+}
+
+func checkIndex(t *testing.T, root string, m *manifest.Manifest) indexgen.Result {
+	t.Helper()
+	res, err := indexgen.CheckIndex(root, m)
+	if err != nil {
+		t.Fatalf("CheckIndex(%s): %v", root, err)
+	}
+	return res
+}
+
+func statusReport(t *testing.T, root string, m *manifest.Manifest) statuscmd.Report {
+	t.Helper()
+	res, err := statuscmd.StatusReport(root, m)
+	if err != nil {
+		t.Fatalf("StatusReport(%s): %v", root, err)
+	}
+	return res
+}
+
+func compactChangelog(t *testing.T, root string, m *manifest.Manifest, opts changelog.CompactOptions) changelog.CompactResult {
+	t.Helper()
+	res, err := changelog.CompactChangelog(root, m, opts)
+	if err != nil {
+		t.Fatalf("CompactChangelog(%s): %v", root, err)
+	}
+	return res
 }

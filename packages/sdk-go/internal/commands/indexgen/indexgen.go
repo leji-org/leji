@@ -138,18 +138,35 @@ func strArray(v any) []string {
 	return out
 }
 
-func LoadStoredIndex(root string, m *manifest.Manifest) map[string]any {
+// LoadStoredIndex is the stored index, or nil when there is none this run can act
+// on. It is read through the verified read, not by pathname: generation carries ids
+// out of these bytes into the index it writes back to this same path, so the file
+// that was judged must be the file that is read. Absent, unparsable, or a standing
+// entry that cannot be verified all mean "no stored index" — nothing is carried, and
+// the write chokepoint judges the destination again on its own.
+func LoadStoredIndex(root string, m *manifest.Manifest) (map[string]any, error) {
 	rel := manifest.EffectiveIndexPath(m)
 	abs := filepath.Join(root, rel)
-	if !fsx.IsFile(abs) || !fsx.ResolvesUnder(root, abs) {
-		return nil
+	// An operational read failure on an allowed path is the filesystem failing rather
+	// than the boundary refusing, so it travels out as an error, exactly as the
+	// reference lets it throw: the run reports it and stops instead of generating an
+	// index that silently carries no ids.
+	read, err := fsx.VerifiedTargetRead(fsx.GuardRoot(root), abs, "")
+	if err != nil {
+		return nil, err
 	}
-	data, _ := layer.ReadJSONArtifact(root, rel)
+	if read.Status != fsx.ReadRegular {
+		return nil, nil
+	}
+	var data any
+	if err := json.Unmarshal(read.Bytes, &data); err != nil {
+		return nil, nil
+	}
 	obj, ok := data.(map[string]any)
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	return obj
+	return obj, nil
 }
 
 func storedEntries(stored map[string]any) []map[string]any {
@@ -169,12 +186,15 @@ func storedEntries(stored map[string]any) []map[string]any {
 	return out
 }
 
-func GenerateIndex(root string, m *manifest.Manifest) Result {
+func GenerateIndex(root string, m *manifest.Manifest) (Result, error) {
 	var fs []findings.Finding
 	scan := layer.ScanCategories(root, m)
 	fs = append(fs, scan.Findings...)
 	docs := scan.Docs
-	stored := LoadStoredIndex(root, m)
+	stored, err := LoadStoredIndex(root, m)
+	if err != nil {
+		return Result{}, err
+	}
 	storedByPath := map[string]map[string]any{}
 	// Carry an id by content-hash only when that hash maps to exactly one stored
 	// entry: two byte-identical documents share a hash, so a hash-carry there would
@@ -343,7 +363,7 @@ func GenerateIndex(root string, m *manifest.Manifest) Result {
 	if len(mounts) > 0 {
 		index.Mounts = mounts
 	}
-	return Result{Index: index, Findings: fs}
+	return Result{Index: index, Findings: fs}, nil
 }
 
 // entryComparable is the currency-comparison view of an entry (only lastModified
@@ -470,25 +490,28 @@ func stableWrite(sb *strings.Builder, value any) {
 }
 
 // CheckIndex compares the stored index against a regeneration.
-func CheckIndex(root string, m *manifest.Manifest) Result {
+func CheckIndex(root string, m *manifest.Manifest) (Result, error) {
 	rel := manifest.EffectiveIndexPath(m)
 	var fs []findings.Finding
 	staleTrue := true
 	if !fsx.IsFile(filepath.Join(root, rel)) {
 		fs = append(fs, findings.New("index-required", findings.Error,
 			"index "+rel+" does not exist; run `leji index`", rel))
-		return Result{Index: nil, Findings: fs, Stale: &staleTrue}
+		return Result{Index: nil, Findings: fs, Stale: &staleTrue}, nil
 	}
-	if !fsx.ResolvesUnder(root, filepath.Join(root, rel)) {
+	if !fsx.ResolvedWithinRoot(root, filepath.Join(root, rel)) {
 		fs = append(fs, findings.New("artifact-parse", findings.Error,
 			fmt.Sprintf("artifact %s resolves outside the layer root", rel), rel))
-		return Result{Index: nil, Findings: fs, Stale: &staleTrue}
+		return Result{Index: nil, Findings: fs, Stale: &staleTrue}, nil
 	}
 
-	stored := LoadStoredIndex(root, m)
+	stored, err := LoadStoredIndex(root, m)
+	if err != nil {
+		return Result{}, err
+	}
 	if stored == nil {
 		fs = append(fs, findings.New("artifact-parse", findings.Error, "stored index is not valid JSON", rel))
-		return Result{Index: nil, Findings: fs, Stale: &staleTrue}
+		return Result{Index: nil, Findings: fs, Stale: &staleTrue}, nil
 	}
 	for _, e := range schemas.SchemaErrors("context-index", stored) {
 		fs = append(fs, findings.New("artifact-schema", findings.Error, e, rel))
@@ -498,10 +521,13 @@ func CheckIndex(root string, m *manifest.Manifest) Result {
 			fmt.Sprintf("schemaVersion %q is not supported by this SDK", sv), rel))
 	}
 	if len(fs) > 0 {
-		return Result{Index: nil, Findings: fs, Stale: &staleTrue}
+		return Result{Index: nil, Findings: fs, Stale: &staleTrue}, nil
 	}
 
-	regen := GenerateIndex(root, m)
+	regen, err := GenerateIndex(root, m)
+	if err != nil {
+		return Result{}, err
+	}
 	// A regeneration that itself errors (missing/malformed index file, a
 	// category-conflict, a dangling entry) means the tree cannot be indexed
 	// cleanly, so the stored index cannot be current: fail rather than compare a
@@ -514,7 +540,7 @@ func CheckIndex(root string, m *manifest.Manifest) Result {
 	}
 	if len(regenErrors) > 0 {
 		fs = append(fs, regenErrors...)
-		return Result{Index: nil, Findings: fs, Stale: &staleTrue}
+		return Result{Index: nil, Findings: fs, Stale: &staleTrue}, nil
 	}
 	wantEntries := make([]any, 0, len(regen.Index.Entries))
 	for _, e := range regen.Index.Entries {
@@ -580,7 +606,7 @@ func CheckIndex(root string, m *manifest.Manifest) Result {
 		}
 		fs = append(fs, findings.New("index-stale", findings.Error,
 			"index no longer matches the tree"+detail+"; run `leji index`", rel))
-		return Result{Index: nil, Findings: fs, Stale: &staleTrue}
+		return Result{Index: nil, Findings: fs, Stale: &staleTrue}, nil
 	}
 
 	var items []layer.IDItem
@@ -591,7 +617,7 @@ func CheckIndex(root string, m *manifest.Manifest) Result {
 	staleFalse := false
 	out := append([]findings.Finding{}, regen.Findings...)
 	out = append(out, layer.DuplicateIDFindings(items, "index")...)
-	return Result{Index: nil, Findings: out, Stale: &staleFalse}
+	return Result{Index: nil, Findings: out, Stale: &staleFalse}, nil
 }
 
 var entryKeyOrder = []string{
@@ -736,7 +762,10 @@ func orderedMountJSON(mt IndexMount) json.RawMessage {
 // WriteIndex generates and writes the index to the effective path.
 func WriteIndex(root string, m *manifest.Manifest) (Result, error) {
 	rel := manifest.EffectiveIndexPath(m)
-	result := GenerateIndex(root, m)
+	result, err := GenerateIndex(root, m)
+	if err != nil {
+		return Result{}, err
+	}
 	// Refuse to write a partial or incorrect index when generation hit a hard
 	// error (e.g. category-conflict, index-file-parse, a dangling entry): writing
 	// would persist a half-correct artifact that later reads trust.
@@ -747,19 +776,17 @@ func WriteIndex(root string, m *manifest.Manifest) (Result, error) {
 	}
 	if result.Index != nil {
 		abs := filepath.Join(root, rel)
-		// Contain before creating any directory: ResolvesUnder resolves the nearest
-		// existing ancestor, so a symlinked ancestor of this not-yet-existing target
-		// is caught before mkdir/write can escape the layer root.
-		if !fsx.ResolvesUnder(root, abs) {
+		// The write chokepoint judges the RESOLVED destination immediately before the
+		// write, catching a symlinked ancestor before anything is created under it.
+		verdict, err := fsx.WriteFileGuarded(fsx.GuardRoot(root), abs, "",
+			[]byte(SerializeIndex(result.Index)), fsx.WriteOptions{})
+		if err != nil {
+			return result, err
+		}
+		if !verdict.OK {
 			result.Findings = append(result.Findings, findings.New("artifact-parse", findings.Error,
 				fmt.Sprintf("index path %s resolves outside the layer root", rel), rel))
 			return result, nil
-		}
-		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			return result, err
-		}
-		if err := os.WriteFile(abs, []byte(SerializeIndex(result.Index)), 0o644); err != nil {
-			return result, err
 		}
 	}
 	return result, nil
