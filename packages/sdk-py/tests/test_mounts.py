@@ -345,6 +345,95 @@ def test_fetch_retains_the_pin_by_a_resolver_owned_ref_and_writes_no_fetch_head(
     assert not (store / "FETCH_HEAD").exists(), "still none after a witness refresh"
 
 
+def _witness_transaction_hook(store: Path, witness_ref: str, mode: str, oid: str = "") -> None:
+    """A ``reference-transaction`` hook in the managed store, firing only on the
+    canonical witness ref. ``abort`` fails the swap the way a lock, a permission
+    error or a full disk does. ``publish`` writes ``oid`` into the ref and then
+    fails, which is the state a run finds when another writer published between its
+    read of <oldvalue> and its own swap; the interleaving itself is not reachable in
+    a single process, so the fixture reproduces what it leaves behind."""
+    hooks = store / "hooks"
+    hooks.mkdir(parents=True, exist_ok=True)
+    publish = (
+        f'mkdir -p "$(dirname "{store}/{witness_ref}")"\n'
+        f"printf '%s\\n' '{oid}' > \"{store}/{witness_ref}\"\n"
+        if mode == "publish"
+        else ""
+    )
+    hook = hooks / "reference-transaction"
+    # Each stdin line is "<old> <new> <ref>"; every other ref (the fetched temporary,
+    # the pin ref) passes through untouched.
+    hook.write_text(
+        f'#!/bin/sh\n[ "$1" = prepared ] || exit 0\n'
+        f'grep -q " {witness_ref}$" || exit 0\n{publish}exit 1\n',
+        encoding="utf-8",
+    )
+    hook.chmod(0o755)
+
+
+def test_a_lost_compare_and_swap_is_a_mismatch_and_an_operational_failure_is_not(
+    tmp_path, capsys
+) -> None:
+    """Mirrors the TS reference's reference-transaction test. It is also the only
+    reachable path to the witness act's SECOND frozen failure class: a tracking ref
+    that arrived and a canonical ref that would not take it, whose reason travels
+    into ``reasons`` and from there into the finding's ``detail``."""
+    from leji.cli import main
+
+    host, sibling, pin = mounted_pair(tmp_path)
+    git(sibling, "config", "uploadpack.allowAnySHA1InWant", "true")
+    manifest = load_manifest(host).manifest
+    assert manifest is not None
+    identity = normalize_source("https://github.com/acme/product-context")
+    assert identity is not None
+    store = Path(host) / ".leji" / "mounts" / "store" / sha256_hex(identity)
+    witness_ref = witness_ref_for(identity, "refs/heads/main")
+    # The witness ref does not exist yet, so this run swaps against "must not exist",
+    # and finds another writer's commit there instead. That is a race it lost, not
+    # a failure: the published witness stands and nothing is reported.
+    store.mkdir(parents=True, exist_ok=True)
+    git(Path(host), "init", "--bare", "-q", str(store))
+    _witness_transaction_hook(store, witness_ref, "publish", pin)
+    with _source_rewrite(sibling):
+        r = hydrate_mounts(host, manifest, fetch=True)
+    assert "witnessRefreshFailed" not in r.outcomes[0], "another writer publishing is valid"
+    assert git(store, "rev-parse", witness_ref) == pin, "the other writer's witness stands"
+    assert "acme-product-context" not in r.reasons, "a valid outcome names no failed act"
+    # The same failed swap, with the ref holding exactly what this run expected: no
+    # one published, so this is the disk, the permissions or a lock, and it may not
+    # pass as a refresh that happened.
+    _witness_transaction_hook(store, witness_ref, "abort")
+    with _source_rewrite(sibling):
+        r = hydrate_mounts(host, manifest, fetch=True)
+    assert r.outcomes[0]["storeFetched"] is True, "the store was established, the swap failed"
+    assert r.outcomes[0]["witnessRefreshFailed"] is True
+    assert git(store, "rev-parse", witness_ref) == pin, "the previous witness stays in place"
+    # The witness act's second failure class, which is not the first one: a ref that
+    # arrived and would not publish, never a ref that never arrived.
+    assert r.reasons["acme-product-context"] == "the witness ref could not be published"
+    # And the same reason as the bytes `mounts hydrate --json` emits.
+    capsys.readouterr()
+    with _source_rewrite(sibling):
+        code = main(["mounts", "hydrate", "--fetch", "--json", "--root", host])
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0, "best-effort: a witness that would not publish is a warning"
+    assert [(f["rule"], f["severity"]) for f in payload["findings"]] == [
+        ("mount-witness-refresh-failed", "warning")
+    ]
+    assert payload["findings"][0]["detail"] == "witness: the witness ref could not be published"
+    assert list(payload["findings"][0]) == ["rule", "severity", "path", "message", "detail"]
+    # And the same act reaches a person, on the finding's own line.
+    with _source_rewrite(sibling):
+        assert main(["mounts", "hydrate", "--fetch", "--root", host]) == 0
+    human = capsys.readouterr().out
+    assert (
+        "warning mount-witness-refresh-failed acme-product-context: the managed witness ref "
+        "could not be refreshed by the requested fetch "
+        "(detail: witness: the witness ref could not be published)\n"
+    ) in human
+    assert " (detail: witness: the witness ref could not be published)" in human
+
+
 def test_conformance_pin_reachable_is_unknown_offline_and_never_awards_federated(
     tmp_path,
 ) -> None:

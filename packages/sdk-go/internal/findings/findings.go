@@ -25,6 +25,11 @@ type Finding struct {
 	// outside the contract. Empty when the rule names none, and then omitted.
 	Construct string
 	Message   string
+	// Detail is which act a rule with more than one failed at, and the resolver's
+	// own reason for it: `"<act>: <reason>"`. Serialized immediately after
+	// `message`, so the three SDKs emit the same bytes; empty for every rule that
+	// names no act, and then omitted.
+	Detail string
 	// HasPath distinguishes "no path" from "empty-string path" so the emitted
 	// JSON can omit the field, matching Node/Python.
 	HasPath bool
@@ -32,6 +37,14 @@ type Finding struct {
 
 func New(rule string, severity Severity, message, path string) Finding {
 	return Finding{Rule: rule, Severity: severity, Message: message, Path: path, HasPath: true}
+}
+
+// NewWithDetail is New plus the act the rule failed at. An empty detail is the
+// rule that names no act, and emits exactly what New would.
+func NewWithDetail(rule string, severity Severity, message, path, detail string) Finding {
+	f := New(rule, severity, message, path)
+	f.Detail = detail
+	return f
 }
 
 func NewNoPath(rule string, severity Severity, message string) Finding {

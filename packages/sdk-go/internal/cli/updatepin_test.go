@@ -6,6 +6,7 @@
 package cli
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -117,6 +118,104 @@ func buildAcmeSibling(t *testing.T, dir string) {
 	// Fetching a commit by id is how the resolver retains a pin, so the recipe's
 	// repository must serve one the way a real host does.
 	recipeGit(t, dir, "config", "uploadpack.allowAnySHA1InWant", "true")
+}
+
+// recipeGitFails reports whether a git command FAILS, without failing the test: the
+// orphan-target scaffold proves its topology rather than trusting the recipe.
+func recipeGitFails(cwd string, args ...string) bool {
+	cmd := exec.Command("git", append([]string{"-c", "commit.gpgsign=false", "-c", "core.autocrlf=false"}, args...)...)
+	cmd.Dir = cwd
+	env := make([]string, 0, len(os.Environ()))
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "GIT_DIR=") {
+			env = append(env, e)
+		}
+	}
+	cmd.Env = env
+	return cmd.Run() != nil
+}
+
+// buildOrphanTargetRepo is the rewritten upstream before anything is pruned: `a` on
+// its own branch `old`, and an unrelated orphan on `main`. A repository in this
+// shape holds BOTH commits, which is what the refusal's route calls a local hint;
+// pruning it is what makes a source that can no longer serve the pin.
+func buildOrphanTargetRepo(t *testing.T, dir string) (pin, target string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	recipeGit(t, dir, "init", "-q", "-b", "old", ".")
+	pin = recipeCommit(t, dir, "a.md")
+	recipeGit(t, dir, "checkout", "-q", "--orphan", "main")
+	recipeGit(t, dir, "rm", "-q", "-rf", ".")
+	target = recipeCommit(t, dir, "o.md")
+	return pin, target
+}
+
+// buildOrphanTargetSource is the orphan-target scaffold: a source that no longer
+// serves the commit the host pins, while still advertising a target unrelated to
+// it: an upstream that rewrote its history, which is the case the `current pin`
+// act exists to name. Both halves are asserted here, because a scaffold that
+// quietly kept the pin reachable (which is what pruning a branch the target still
+// reaches would do) would prove nothing on any platform's git.
+func buildOrphanTargetSource(t *testing.T, dir string) (pin, target string) {
+	t.Helper()
+	pin, target = buildOrphanTargetRepo(t, dir)
+	recipeGit(t, dir, "branch", "-D", "old")
+	recipeGit(t, dir, "reflog", "expire", "--expire=now", "--all")
+	recipeGit(t, dir, "gc", "-q", "--prune=now")
+	// Fetching a commit by id is how the resolver retains a pin: the source serves
+	// one the way a real host does, so the refusal is the missing object and never a
+	// server declining to serve an unadvertised id.
+	recipeGit(t, dir, "config", "uploadpack.allowAnySHA1InWant", "true")
+	if !recipeGitFails(dir, "cat-file", "-e", pin) {
+		t.Fatal("orphan-target scaffold: the source still serves the pin")
+	}
+	advertised := recipeGit(t, dir, "ls-remote", dir)
+	if !regexp.MustCompile(target + `\s+refs/heads/main`).MatchString(advertised) {
+		t.Fatalf("orphan-target scaffold: main advertises %q, not the orphan target %s", advertised, target)
+	}
+	return pin, target
+}
+
+// objectKeys reads one JSON object's keys in the order they were emitted: the key
+// order the three SDKs freeze is a property of the bytes, not of a decode.
+func objectKeys(t *testing.T, raw []byte) []string {
+	t.Helper()
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		t.Fatalf("not a JSON object: %s", raw)
+	}
+	keys := []string{}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			t.Fatal(err)
+		}
+		key, ok := tok.(string)
+		if !ok {
+			t.Fatalf("not an object key: %v", tok)
+		}
+		keys = append(keys, key)
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return keys
+}
+
+// rawFindings returns the emitted findings as raw objects, so a test can ask what
+// keys a finding carries rather than what a typed decode kept.
+func rawFindings(t *testing.T, stdout string) []json.RawMessage {
+	t.Helper()
+	var doc struct {
+		Findings []json.RawMessage `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("%v (%s)", err, stdout)
+	}
+	return doc.Findings
 }
 
 // storeSpec mirrors the `store` field of one `updatePin` case.
@@ -379,6 +478,7 @@ type updatePinDocument struct {
 		Severity string `json:"severity"`
 		Path     string `json:"path"`
 		Message  string `json:"message"`
+		Detail   string `json:"detail"`
 	} `json:"findings"`
 	Summary struct {
 		Errors   int `json:"errors"`
@@ -583,6 +683,18 @@ func runUpdatePinCase(t *testing.T, fixtureName string, block updatePinBlock, c 
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("%s: findings = %+v, want %+v", c.ID, got, want)
+		}
+	}
+	// Only a rule with more than one act names one: every other refusal is the
+	// document it was before the act detail existed.
+	for i, f := range doc.Findings {
+		if f.Rule == "mount-store-fetch-failed" || f.Rule == "mount-witness-refresh-failed" {
+			continue
+		}
+		for _, k := range objectKeys(t, rawFindings(t, stdout)[i]) {
+			if k == "detail" {
+				t.Fatalf("%s: %s carries no detail", c.ID, f.Rule)
+			}
 		}
 	}
 	if c.ComparisonRepository != nil && doc.PinReport["comparisonRepository"] != *c.ComparisonRepository {
@@ -823,6 +935,14 @@ func TestUpdatePinTargetRetentionFailureRefusesWithTheManifestUntouched(t *testi
 	if len(doc.Findings) != 1 || doc.Findings[0].Rule != "mount-store-fetch-failed" {
 		t.Fatalf("findings = %+v", doc.Findings)
 	}
+	// The act is named, and it is the TARGET's: the same rule id, from the other side
+	// of the gate, is a different act with no route past it.
+	if doc.Findings[0].Detail != "target: the pin could not be retained by a ref in the managed store" {
+		t.Fatalf("detail = %q", doc.Findings[0].Detail)
+	}
+	if doc.Findings[0].Message != "the requested fetch could not retain the commit in the managed store" {
+		t.Fatalf("message = %q", doc.Findings[0].Message)
+	}
 	after, err := os.ReadFile(mp)
 	if err != nil {
 		t.Fatal(err)
@@ -834,6 +954,386 @@ func TestUpdatePinTargetRetentionFailureRefusesWithTheManifestUntouched(t *testi
 	// which is exactly what the help text says a failed --fetch may leave behind.
 	if got := recipeGit(t, storePath(t, host), "rev-parse", mounts.PinRefFor(acmeIdentity(t), oidA)); got != oidA {
 		t.Fatalf("the current pin is still retained, got %s", got)
+	}
+}
+
+// --- which act failed, and the route past the one that has one ----------------
+
+const routeSentence = "the requested fetch could not retain the commit in the managed store; " +
+	"if a local hint holds the current pin and the target with complete ancestry, run without `--fetch`; " +
+	"to move past a rewritten upstream, pass `--to <oid> --allow-non-fast-forward` against such a hint"
+
+func TestUpdatePinCurrentPinTheSourceNoLongerServesNamesThatActWithTheRoute(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source")
+	host := filepath.Join(dir, "host")
+	pin, target := buildOrphanTargetSource(t, source)
+	copyFixture(t, "warn-update-pin", host)
+	repin(t, host, pin, false)
+	mp := filepath.Join(host, "leji.json")
+	before, err := os.ReadFile(mp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv := []string{"mounts", "update-pin", "product-context", "--fetch", "--root", host}
+	var code int
+	var stdout string
+	withSourceRoutedTo(t, source, func() {
+		code, stdout, _ = captureRun(t, append(append([]string{}, argv...), "--json"))
+	})
+	if code != 1 {
+		t.Fatalf("exit %d (%s)", code, stdout)
+	}
+	var doc updatePinDocument
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if strOr(doc.Reason, "") != "mount-store-fetch-failed" {
+		t.Fatalf("reason = %v", doc.Reason)
+	}
+	if doc.Mount.To != nil {
+		t.Fatalf("the run refused before it had a target: %v", doc.Mount.To)
+	}
+	if doc.Findings[0].Detail != "current pin: the pin could not be fetched from the source" {
+		t.Fatalf("detail = %q", doc.Findings[0].Detail)
+	}
+	// `detail` sits immediately after `message`: the key order the three SDKs freeze.
+	if got := objectKeys(t, rawFindings(t, stdout)[0]); strings.Join(got, ",") != "rule,severity,path,message,detail" {
+		t.Fatalf("finding keys = %v", got)
+	}
+	if doc.Findings[0].Message != routeSentence {
+		t.Fatalf("message = %q", doc.Findings[0].Message)
+	}
+	// The same sentence reaches a person, with the act on the same line.
+	var humanCode int
+	var human string
+	withSourceRoutedTo(t, source, func() {
+		humanCode, human, _ = captureRun(t, argv)
+	})
+	if humanCode != 1 {
+		t.Fatalf("human exit %d (%s)", humanCode, human)
+	}
+	want := "Refused: " + routeSentence + " (detail: current pin: the pin could not be fetched from the source)"
+	if strings.TrimSpace(human) != want {
+		t.Fatalf("human line =\n%q\nwant\n%q", strings.TrimSpace(human), want)
+	}
+	after, err := os.ReadFile(mp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("leji.json is byte-untouched")
+	}
+	if target == pin {
+		t.Fatal("the advertised target is not the commit the host pins")
+	}
+}
+
+func TestUpdatePinTheSameInjectedFailureAimedAtTheCurrentPinNamesThatAct(t *testing.T) {
+	dir := t.TempDir()
+	sibling := filepath.Join(dir, "sibling")
+	host := filepath.Join(dir, "host")
+	buildAcmeSibling(t, sibling)
+	copyFixture(t, "warn-update-pin", host)
+	repin(t, host, oidA, false)
+	// One hook, two acts: it names a commit, and each act retains its own, so the
+	// pin's id aims it at the act before the gate rather than the one after it.
+	t.Setenv("LEJI_TEST_FAIL_PIN_REF", oidA)
+	var code int
+	var stdout string
+	withSourceRoutedTo(t, sibling, func() {
+		code, stdout, _ = captureRun(t, []string{
+			"mounts", "update-pin", "product-context", "--fetch", "--root", host, "--json",
+		})
+	})
+	if code != 1 {
+		t.Fatalf("exit %d (%s)", code, stdout)
+	}
+	var doc updatePinDocument
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if strOr(doc.Reason, "") != "mount-store-fetch-failed" {
+		t.Fatalf("reason = %v", doc.Reason)
+	}
+	if doc.Findings[0].Detail != "current pin: the pin could not be retained by a ref in the managed store" {
+		t.Fatalf("detail = %q", doc.Findings[0].Detail)
+	}
+	if doc.Findings[0].Message != routeSentence {
+		t.Fatalf("message = %q", doc.Findings[0].Message)
+	}
+}
+
+func TestUpdatePinATrackingRefTheSourceDoesNotAdvertiseRefusesAtTheWitnessAct(t *testing.T) {
+	dir := t.TempDir()
+	sibling := filepath.Join(dir, "sibling")
+	host := filepath.Join(dir, "host")
+	buildAcmeSibling(t, sibling)
+	copyFixture(t, "warn-update-pin", host)
+	repin(t, host, oidA, false)
+	// The store already holds the pin, so its retention needs no network at all and
+	// the witness refresh is the only act left that can fail.
+	pin := oidA
+	buildStore(t, host, sibling, storeSpec{Pin: &pin})
+	mp := filepath.Join(host, "leji.json")
+	raw, err := os.ReadFile(mp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mp, []byte(strings.Replace(string(raw), "refs/heads/main", "refs/heads/release", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var code int
+	var stdout string
+	withSourceRoutedTo(t, sibling, func() {
+		code, stdout, _ = captureRun(t, []string{
+			"mounts", "update-pin", "product-context", "--fetch", "--root", host, "--json",
+		})
+	})
+	if code != 1 {
+		t.Fatalf("exit %d (%s)", code, stdout)
+	}
+	var doc updatePinDocument
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if strOr(doc.Reason, "") != "mount-witness-refresh-failed" {
+		t.Fatalf("reason = %v", doc.Reason)
+	}
+	if doc.Findings[0].Detail != "witness: the tracking ref could not be fetched from the source" {
+		t.Fatalf("detail = %q", doc.Findings[0].Detail)
+	}
+	// The witness act has no route of its own: the rule's own sentence stands.
+	if doc.Findings[0].Message != "the requested fetch could not refresh the managed witness ref" {
+		t.Fatalf("message = %q", doc.Findings[0].Message)
+	}
+}
+
+func TestUpdatePinHydrateOverThatSourceNamesTheActAndLeavesTheRowUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source")
+	host := filepath.Join(dir, "host")
+	pin, _ := buildOrphanTargetSource(t, source)
+	copyFixture(t, "warn-update-pin", host)
+	repin(t, host, pin, false)
+	var code int
+	var stdout string
+	withSourceRoutedTo(t, source, func() {
+		code, stdout, _ = captureRun(t, []string{"mounts", "hydrate", "--fetch", "--json", "--root", host})
+	})
+	// Best-effort, as ever: the mount stays unavailable and the run does not fail.
+	if code != 0 {
+		t.Fatalf("exit %d (%s)", code, stdout)
+	}
+	var payload struct {
+		Outcomes []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Detail string `json:"detail"`
+		} `json:"outcomes"`
+		Findings []struct {
+			Rule   string `json:"rule"`
+			Detail string `json:"detail"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Outcomes[0].Status != "unavailable" {
+		t.Fatalf("status = %q", payload.Outcomes[0].Status)
+	}
+	// The outcome row is the row it has always been: the detail it already carried.
+	if payload.Outcomes[0].Detail != "the pin could not be fetched from the source" {
+		t.Fatalf("outcome detail = %q", payload.Outcomes[0].Detail)
+	}
+	if got := objectKeys(t, rawFindings(t, stdout)[0]); strings.Join(got, ",") != "rule,severity,path,message,detail" {
+		t.Fatalf("finding keys = %v", got)
+	}
+	if payload.Findings[0].Rule != "mount-store-fetch-failed" ||
+		payload.Findings[0].Detail != "current pin: the pin could not be fetched from the source" {
+		t.Fatalf("finding = %+v", payload.Findings[0])
+	}
+	// The reasons the findings were built from are a transport, never a member of the
+	// document: the writer picks its fields, and this is not one of them.
+	if strings.Contains(stdout, "reasons") {
+		t.Fatalf("the reasons transport reached the document: %s", stdout)
+	}
+	var human string
+	withSourceRoutedTo(t, source, func() {
+		_, human, _ = captureRun(t, []string{"mounts", "hydrate", "--fetch", "--root", host})
+	})
+	want := "warning mount-store-fetch-failed product-context: the managed store could not be established " +
+		"by the requested fetch (detail: current pin: the pin could not be fetched from the source)"
+	if !strings.Contains(human, want+"\n") {
+		t.Fatalf("human output\n%s\nmust carry\n%s", human, want)
+	}
+}
+
+// TestHydrateWitnessThatWillNotPublishEmitsTheSecondWitnessClass is the CLI half of
+// `internal/mounts`' reference-transaction test: the witness act's second frozen
+// failure class, seen as the bytes `mounts hydrate --json` emits. A
+// `reference-transaction` hook lets the tracking ref arrive and then refuses the
+// canonical ref's swap, the way a lock, a permission error or a full disk does.
+func TestHydrateWitnessThatWillNotPublishEmitsTheSecondWitnessClass(t *testing.T) {
+	dir := t.TempDir()
+	sibling := filepath.Join(dir, "sibling")
+	host := filepath.Join(dir, "host")
+	buildAcmeSibling(t, sibling)
+	copyFixture(t, "warn-update-pin", host)
+	repin(t, host, oidA, false)
+	// The store already holds the pin, so retention needs no network and the witness
+	// swap is the only act left that can fail.
+	pin := oidA
+	buildStore(t, host, sibling, storeSpec{Pin: &pin})
+	store := storePath(t, host)
+	witnessRef := mounts.WitnessRefFor(acmeIdentity(t), "refs/heads/main")
+	hooks := filepath.Join(store, "hooks")
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Each stdin line is "<old> <new> <ref>"; every other ref (the fetched temporary,
+	// the pin ref) passes through untouched.
+	script := "#!/bin/sh\n[ \"$1\" = prepared ] || exit 0\ngrep -q \" " + witnessRef + "$\" || exit 0\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(hooks, "reference-transaction"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var code int
+	var stdout string
+	withSourceRoutedTo(t, sibling, func() {
+		code, stdout, _ = captureRun(t, []string{"mounts", "hydrate", "--fetch", "--json", "--root", host})
+	})
+	// Best-effort: a witness that would not publish is a warning, never a failed run.
+	if code != 0 {
+		t.Fatalf("exit %d (%s)", code, stdout)
+	}
+	var payload struct {
+		Findings []struct {
+			Rule     string `json:"rule"`
+			Severity string `json:"severity"`
+			Detail   string `json:"detail"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatal(err)
+	}
+	// The scaffold's pin is a commit with no layer in it, so the projection warns too;
+	// the witness finding is the one this test is about, found by its rule.
+	witness := -1
+	for i, f := range payload.Findings {
+		if f.Rule == "mount-witness-refresh-failed" {
+			witness = i
+		}
+	}
+	if witness < 0 || payload.Findings[witness].Severity != "warning" {
+		t.Fatalf("findings = %+v (%s)", payload.Findings, stdout)
+	}
+	// The witness act's second failure class, in the bytes the three SDKs freeze.
+	if payload.Findings[witness].Detail != "witness: the witness ref could not be published" {
+		t.Fatalf("detail = %q", payload.Findings[witness].Detail)
+	}
+	if got := objectKeys(t, rawFindings(t, stdout)[witness]); strings.Join(got, ",") != "rule,severity,path,message,detail" {
+		t.Fatalf("finding keys = %v", got)
+	}
+	var human string
+	withSourceRoutedTo(t, sibling, func() {
+		_, human, _ = captureRun(t, []string{"mounts", "hydrate", "--fetch", "--root", host})
+	})
+	want := "warning mount-witness-refresh-failed product-context: the managed witness ref could not be " +
+		"refreshed by the requested fetch (detail: witness: the witness ref could not be published)"
+	if !strings.Contains(human, want+"\n") {
+		t.Fatalf("human output\n%s\nmust carry\n%s", human, want)
+	}
+}
+
+func TestUpdatePinTheRouteTheCurrentPinRefusalAdvertises(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source")
+	hint := filepath.Join(dir, "hint")
+	host := filepath.Join(dir, "host")
+	// One recipe, two repositories: the source is pruned, the hint keeps `old`, so it
+	// holds the current pin and the orphan target with complete ancestry.
+	pin, target := buildOrphanTargetSource(t, source)
+	heldPin, heldTarget := buildOrphanTargetRepo(t, hint)
+	if heldPin != pin || heldTarget != target {
+		t.Fatalf("the hint holds %s/%s, not %s/%s", heldPin, heldTarget, pin, target)
+	}
+	copyFixture(t, "warn-update-pin", host)
+	repin(t, host, pin, false)
+	if err := os.MkdirAll(filepath.Join(host, ".leji"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	local, _ := json.Marshal(map[string]any{"mounts": map[string]any{"product-context": map[string]string{"repo": hint}}})
+	if err := os.WriteFile(filepath.Join(host, ".leji", "mounts.local.json"), append(local, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mp := filepath.Join(host, "leji.json")
+	before, err := os.ReadFile(mp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	move := []string{"mounts", "update-pin", "product-context", "--to", target, "--allow-non-fast-forward"}
+	// With `--fetch` the source is asked for the current pin first, and that act is
+	// the one that fails: the hint holding both operands does not save the run.
+	var code int
+	var stdout string
+	withSourceRoutedTo(t, source, func() {
+		code, stdout, _ = captureRun(t, append(append([]string{}, move...), "--fetch", "--root", host, "--json"))
+	})
+	if code != 1 {
+		t.Fatalf("exit %d (%s)", code, stdout)
+	}
+	var refused updatePinDocument
+	if err := json.Unmarshal([]byte(stdout), &refused); err != nil {
+		t.Fatal(err)
+	}
+	if strOr(refused.Reason, "") != "mount-store-fetch-failed" {
+		t.Fatalf("reason = %v", refused.Reason)
+	}
+	if refused.Findings[0].Detail != "current pin: the pin could not be fetched from the source" {
+		t.Fatalf("detail = %q", refused.Findings[0].Detail)
+	}
+	if now, err := os.ReadFile(mp); err != nil || string(now) != string(before) {
+		t.Fatalf("leji.json is byte-untouched: %v", err)
+	}
+	// The store that refused run established holds nothing, so the move below is the
+	// hint's answer and no leftover managed operand.
+	if !recipeGitFails(storePath(t, host), "cat-file", "-e", pin) {
+		t.Fatal("the managed store never got the pin")
+	}
+	// Without `--fetch`, exactly as the refusal says: the hint answers, the override
+	// carries the move past the rewritten history, and the pin moves.
+	var movedCode int
+	var movedOut string
+	withSourceRoutedTo(t, "", func() {
+		movedCode, movedOut, _ = captureRun(t, append(append([]string{}, move...), "--root", host, "--json"))
+	})
+	if movedCode != 0 {
+		t.Fatalf("exit %d (%s)", movedCode, movedOut)
+	}
+	var moved updatePinDocument
+	if err := json.Unmarshal([]byte(movedOut), &moved); err != nil {
+		t.Fatal(err)
+	}
+	if moved.Action != "updated" || !moved.Override {
+		t.Fatalf("action=%q override=%v", moved.Action, moved.Override)
+	}
+	if moved.PinReport["comparisonRepository"] != "hint" || moved.PinReport["witnessProvenance"] != "unmanaged" ||
+		moved.PinReport["ancestryComplete"] != true {
+		t.Fatalf("pinReport = %+v", moved.PinReport)
+	}
+	if strOr(moved.Mount.From, "") != pin || strOr(moved.Mount.To, "") != target {
+		t.Fatalf("mount = %+v", moved.Mount)
+	}
+	if len(moved.Findings) != 1 || moved.Findings[0].Rule != "mount-pin-non-fast-forward-override" ||
+		moved.Findings[0].Severity != "warning" {
+		t.Fatalf("findings = %+v", moved.Findings)
+	}
+	after, err := os.ReadFile(mp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != strings.Replace(string(before), pin, target, 1) {
+		t.Fatal("exactly the pin span moved")
 	}
 }
 

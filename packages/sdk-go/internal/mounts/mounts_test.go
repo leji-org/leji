@@ -497,6 +497,98 @@ func withSourceRewrite(t *testing.T, sibling string, fn func() mounts.Reachabili
 	return fn()
 }
 
+// witnessTransactionHook installs a `reference-transaction` hook in the managed
+// store, firing only on the canonical witness ref. "abort" fails the swap the way
+// a lock, a permission error or a full disk does. "publish" writes oid into the ref
+// and then fails, which is the state a run finds when another writer published
+// between its read of <oldvalue> and its own swap; the interleaving itself is not
+// reachable in a single process, so the fixture reproduces what it leaves behind.
+func witnessTransactionHook(t *testing.T, store, witnessRef, mode, oid string) {
+	t.Helper()
+	hooks := filepath.Join(store, "hooks")
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	publish := ""
+	if mode == "publish" {
+		publish = fmt.Sprintf("mkdir -p \"$(dirname \"%s/%s\")\"\nprintf '%%s\\n' '%s' > \"%s/%s\"\n",
+			store, witnessRef, oid, store, witnessRef)
+	}
+	// Each stdin line is "<old> <new> <ref>"; every other ref (the fetched temporary,
+	// the pin ref) passes through untouched.
+	script := fmt.Sprintf("#!/bin/sh\n[ \"$1\" = prepared ] || exit 0\ngrep -q \" %s$\" || exit 0\n%sexit 1\n",
+		witnessRef, publish)
+	if err := os.WriteFile(filepath.Join(hooks, "reference-transaction"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestMountsLostCompareAndSwapIsAConfirmedMismatch mirrors the TS reference's
+// reference-transaction test. It is also the only reachable path to the witness
+// act's SECOND frozen failure class: a tracking ref that arrived and a canonical
+// ref that would not take it, whose reason travels into `Reasons` and from there
+// into the finding's `detail`.
+func TestMountsLostCompareAndSwapIsAConfirmedMismatch(t *testing.T) {
+	host, sibling, pin := mountedPair(t)
+	git(t, sibling, "config", "uploadpack.allowAnySHA1InWant", "true")
+	m := loadHost(t, host)
+	identity, ok := mounts.NormalizeSource(acmeSource)
+	if !ok {
+		t.Fatal("identity failed to normalize")
+	}
+	sum := sha256.Sum256([]byte(identity))
+	store := filepath.Join(host, ".leji", "mounts", "store", hex.EncodeToString(sum[:]))
+	witnessRef := mounts.WitnessRefFor(identity, "refs/heads/main")
+	// The witness ref does not exist yet, so this run swaps against "must not exist",
+	// and finds another writer's commit there instead. That is a race it lost, not
+	// a failure: the published witness stands and nothing is reported.
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(t, host, "init", "--bare", "-q", store)
+	witnessTransactionHook(t, store, witnessRef, "publish", pin)
+	var r mounts.HydrateResult
+	hydrate := func() {
+		t.Helper()
+		withSourceRewrite(t, sibling, func() mounts.ReachabilityResult {
+			var err error
+			if r, err = mounts.HydrateMounts(host, m, mounts.HydrateOptions{Fetch: true}); err != nil {
+				t.Fatalf("hydrate: %v", err)
+			}
+			return mounts.ReachabilityResult{}
+		})
+	}
+	hydrate()
+	if r.Outcomes[0].WitnessRefreshFailed {
+		t.Fatal("another writer publishing is a valid outcome")
+	}
+	if got := git(t, store, "rev-parse", witnessRef); got != pin {
+		t.Fatalf("the other writer's witness stands, got %s", got)
+	}
+	if reason, carried := r.Reasons["acme-product-context"]; carried {
+		t.Fatalf("a valid outcome names no failed act, got %q", reason)
+	}
+	// The same failed swap, with the ref holding exactly what this run expected: no
+	// one published, so this is the disk, the permissions or a lock, and it may not
+	// pass as a refresh that happened.
+	witnessTransactionHook(t, store, witnessRef, "abort", "")
+	hydrate()
+	if r.Outcomes[0].StoreFetched == nil || !*r.Outcomes[0].StoreFetched {
+		t.Fatal("the store was established; only the swap failed")
+	}
+	if !r.Outcomes[0].WitnessRefreshFailed {
+		t.Fatal("an operational failure never reads as success")
+	}
+	if got := git(t, store, "rev-parse", witnessRef); got != pin {
+		t.Fatalf("the previous witness stays in place, got %s", got)
+	}
+	// The witness act's second failure class, which is not the first one: a ref that
+	// arrived and would not publish, never a ref that never arrived.
+	if got := r.Reasons["acme-product-context"]; got != "the witness ref could not be published" {
+		t.Fatalf("reason = %q", got)
+	}
+}
+
 func TestMountsPinReachabilityReachableUnreachableOffHistoryUnknownOffline(t *testing.T) {
 	host, sibling, pin := mountedPair(t)
 	mount := mounts.MountDecl{

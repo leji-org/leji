@@ -37,7 +37,7 @@ func TestServePathContainment(t *testing.T) {
 	}
 	linkSupported := os.Symlink(secretPath, filepath.Join(contentAbs, "escape.txt")) == nil
 
-	handler := newHandler(contentAbs, "", contentAbs, viewerAbs, nil)
+	handler := newHandler(contentAbs, "", contentAbs, viewerAbs, nil, Options{})
 
 	type tc struct {
 		name string

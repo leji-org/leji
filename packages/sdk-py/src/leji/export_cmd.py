@@ -19,6 +19,11 @@ from pathlib import Path
 from typing import Optional
 
 from .findings import Finding, sort_findings
+from .leji_ignore import (
+    LejiIgnoreContext,
+    ensure_leji_ignore_file,
+    new_leji_ignore_context,
+)
 from .fsx import (
     mkdirp_guarded,
     open_verified_source,
@@ -36,6 +41,7 @@ from .fsx import (
 from .layout import (
     DIST_REL,
     LEJI_DIR,
+    LEJI_IGNORE_REL,
     VIEWER_REL,
     TargetVerdict,
     leji_role,
@@ -48,9 +54,11 @@ from .renderlint import RENDER_UNSUPPORTED_RULE, render_lint_findings
 from .viewer_cmd import (
     ACTIVE_EXTENSIONS,
     EXPORT_BASE,
+    OVERVIEW_REL,
     _build_index_html,
     _resolved_profile_pages,
     generate_viewer,
+    render_overview,
 )
 
 # The protect-your-context warning shown by `leji export` and embedded in the
@@ -174,6 +182,7 @@ def build_viewer(
     manifest: Manifest,
     out_rel: Optional[str] = None,
     strict: bool = False,
+    ignore_context: Optional[LejiIgnoreContext] = None,
 ) -> BuildResult:
     """Export a self-contained static viewer into out_rel with the same URL contract
     the local server serves (chrome at the web root, layer markdown under /content/),
@@ -182,8 +191,15 @@ def build_viewer(
     clear and write the target — so a failing check leaves a pre-existing export
     byte-untouched. ``strict`` is the gate: a lint finding fails the run before the
     target is cleared, mirroring ``status --strict``. The exported index.html carries
-    the protect-your-context warning as a comment."""
-    gen = generate_viewer(root, manifest)
+    the protect-your-context warning as a comment. ``ignore_context`` is the
+    invocation's notice state for the self-managed ``.leji/.gitignore``, passed through
+    to the generation pass this run nests so one invocation notices once; a direct SDK
+    call that omits it notices at most once for that call."""
+    # One context for the whole run, whether the caller supplied it or not: this command
+    # establishes two roles (the chrome it regenerates and its own output), and a caller
+    # that passes none is still one call.
+    ignore_context = ignore_context or new_leji_ignore_context()
+    gen = generate_viewer(root, manifest, ignore_context)
     # Every path below is resolved, root included, so the path a check judges is the
     # path the write lands on: a symlinked component — or a case-variant spelling of a
     # reserved role on a case-insensitive filesystem — resolves to its real name here,
@@ -451,6 +467,14 @@ def build_viewer(
     if not cleared.ok:
         raise _refused_dest(root_abs, out_abs, cleared)
     mkdir_dest(out_content)
+    # The output role exists: ensure the tool's own ignore file, as every role
+    # establisher does. The generation pass above shares this run's context, so an
+    # existing file is noticed once for the whole invocation rather than per role.
+    if ensure_leji_ignore_file(str(root_abs), ignore_context) == "refused":
+        raise RuntimeError(
+            f'refusing to write "{LEJI_IGNORE_REL}": it does not resolve to a regular '
+            f"file inside {LEJI_DIR}/; remove the symlink"
+        )
     for item in carried:
         dest = out_content / item.rel
         if item.is_dir:
@@ -459,9 +483,23 @@ def build_viewer(
         # Markdown was read once already: the exported file is that snapshot, so what
         # the lint judged is what the export carries. A document the re-check dropped
         # has no snapshot and is not exported.
+        #
+        # The overview homepage is the one path whose exported copy is not its source:
+        # the layer map is substituted between its markers here, after the lint has
+        # judged the source bytes, from the entries the generation above already
+        # projected. The layer's own file is not touched, and the map an export carries
+        # is the map the local server renders from the same function.
         if item.rel.lower().endswith(".md"):
             snapshot = linted.get(item.rel)
             if snapshot is not None:
+                if item.rel == OVERVIEW_REL:
+                    # `errors="replace"` mirrors Node's Buffer.toString('utf8'), which
+                    # substitutes rather than throwing on invalid bytes.
+                    rendered = render_overview(
+                        snapshot.decode("utf-8", errors="replace"), manifest, gen.index_entries
+                    )
+                    if rendered.markers_found:
+                        snapshot = rendered.text.encode("utf-8")
                 write_dest(dest, snapshot)
             continue
         fd = open_carried(item.rel)

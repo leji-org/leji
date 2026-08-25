@@ -6,7 +6,8 @@
 // claim of freshness. `--fetch` observes the declared source — and nothing else —
 // in three acts: retain the current pin, refresh the witness once, and (after the
 // gate passes) retain the target. Any of them failing REFUSES the move; a pin move
-// is not best-effort, which is `hydrate`'s model rather than this one.
+// is not best-effort, which is `hydrate`'s model rather than this one. The reason
+// names the act.
 //
 // The manifest is rewritten by replacing the addressed pin's own byte span
 // (manifest.ReplaceMountPinInManifestText), never by reserializing, so the three
@@ -17,10 +18,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
+	"github.com/leji-org/leji/packages/sdk-go/internal/lejiignore"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/mounts"
 )
@@ -72,6 +75,11 @@ type Options struct {
 	// Now is the injectable observation clock, so tests and fixtures are stable;
 	// zero means the wall clock, read once per run.
 	Now time.Time
+	// IgnoreContext is the invocation's notice state for the self-managed
+	// `.leji/.gitignore`. One `--fetch` run retains TWICE (the current pin, then the
+	// target), and both establish the managed store, so the context is threaded
+	// rather than left to each call: one invocation notices at most once.
+	IgnoreContext *lejiignore.Context
 }
 
 // ShortOid is a pin at the length every human-facing line uses.
@@ -109,7 +117,10 @@ func Run(root string, m *manifest.Manifest, opts Options) (Result, error) {
 	}
 	mount, declared := declaredMount(m, opts.Name)
 
-	refuse := func(reason string, to *string, pinReport *mounts.PinReport) Result {
+	// `detail` is an optional trailing argument, as the TS reference's is: the act
+	// this refusal failed at, when the rule names more than one.
+	refuse := func(reason string, to *string, pinReport *mounts.PinReport, detail ...string) Result {
+		act := optional(detail)
 		block := MountBlock{Name: opts.Name, To: to}
 		if declared {
 			if identity, ok := mounts.NormalizeSource(mount.Source); ok {
@@ -125,7 +136,9 @@ func Run(root string, m *manifest.Manifest, opts Options) (Result, error) {
 			PinReport: pinReport,
 			Action:    ActionRefused,
 			Reason:    reason,
-			Findings:  []findings.Finding{findings.New(reason, findings.Error, reasonProse(reason), opts.Name)},
+			Findings: []findings.Finding{
+				findings.NewWithDetail(reason, findings.Error, reasonProse(reason, act), opts.Name, act),
+			},
 		}
 	}
 
@@ -190,19 +203,19 @@ func Run(root string, m *manifest.Manifest, opts Options) (Result, error) {
 	// the managed store holds both operands, then refresh the witness exactly once.
 	// A failure here refuses the move — best-effort belongs to `hydrate`.
 	if opts.Fetch {
-		store, _, err := mounts.RetainPinInStore(root, mount, identity, mount.Pin)
+		store, retainErr, err := mounts.RetainPinInStore(root, mount, identity, mount.Pin, opts.IgnoreContext)
 		if err != nil {
 			return Result{}, err
 		}
 		if store == "" {
 			return refuse("mount-store-fetch-failed", nil,
-				degraded("mount-store-fetch-failed", effectiveRef)), nil
+				degraded("mount-store-fetch-failed", effectiveRef), "current pin: "+retainErr), nil
 		}
 		witnessMount := mount
 		witnessMount.TrackingRef = effectiveRef
-		if !mounts.RefreshWitness(store, witnessMount, identity) {
+		if ok, refreshErr := mounts.RefreshWitness(store, witnessMount, identity); !ok {
 			return refuse("mount-witness-refresh-failed", nil,
-				degraded("mount-witness-refresh-failed", effectiveRef)), nil
+				degraded("mount-witness-refresh-failed", effectiveRef), "witness: "+refreshErr), nil
 		}
 	}
 
@@ -260,9 +273,12 @@ func Run(root string, m *manifest.Manifest, opts Options) (Result, error) {
 	// A refusal after the comparison settled reports the comparison it refused on,
 	// and carries whatever the run had already decided: an override exercised at the
 	// gate is still reported by a run that then refused for another reason.
-	refuseSettled := func(reason string, override bool, warnings []findings.Finding) Result {
+	refuseSettled := func(reason string, override bool, warnings []findings.Finding, detail ...string) Result {
+		act := optional(detail)
 		r := settled(ActionRefused, override, append(
-			[]findings.Finding{findings.New(reason, findings.Error, reasonProse(reason), mount.Name)},
+			[]findings.Finding{
+				findings.NewWithDetail(reason, findings.Error, reasonProse(reason, act), mount.Name, act),
+			},
 			warnings...,
 		))
 		r.Reason = reason
@@ -302,12 +318,12 @@ func Run(root string, m *manifest.Manifest, opts Options) (Result, error) {
 	// (b iii) The target is retained only once the gate has passed, so a refused run
 	// never establishes a pin ref for a commit it declined to move to.
 	if opts.Fetch {
-		store, _, err := mounts.RetainPinInStore(root, mount, identity, target)
+		store, retainErr, err := mounts.RetainPinInStore(root, mount, identity, target, opts.IgnoreContext)
 		if err != nil {
 			return Result{}, err
 		}
 		if store == "" {
-			return refuseSettled("mount-store-fetch-failed", override, warnings), nil
+			return refuseSettled("mount-store-fetch-failed", override, warnings, "target: "+retainErr), nil
 		}
 	}
 
@@ -423,9 +439,29 @@ func declarationUnchanged(text string, declaration declarationSnapshot) bool {
 	return false
 }
 
+// optional reads an optional trailing argument, absent being the empty string.
+func optional(values []string) string {
+	if len(values) > 0 {
+		return values[0]
+	}
+	return ""
+}
+
 // reasonProse renders a stable reason code as the sentence a person reads; the code
-// itself is what `--json` emits.
-func reasonProse(reason string) string {
+// itself is what `--json` emits. A code whose acts have different routes forward
+// carries one entry per act, keyed `<code>: <act>` exactly as the finding's detail
+// spells it, so the table stays the single source of every string this command
+// prints; every other code answers for all of its acts at once.
+func reasonProse(reason string, detail ...string) string {
+	if d := optional(detail); d != "" {
+		act := ""
+		if i := strings.Index(d, ": "); i > 0 {
+			act = d[:i]
+		}
+		if qualified, ok := Reasons[reason+": "+act]; ok {
+			return qualified
+		}
+	}
 	if prose, ok := Reasons[reason]; ok {
 		return prose
 	}
@@ -436,16 +472,22 @@ func reasonProse(reason string) string {
 // a person reads the sentence. The codes above `mount-unknown` are shared with
 // `mounts status`, whose prose lives beside the status reasons.
 var Reasons = map[string]string{
-	"mount-unknown":                       "no mount with this name is declared",
-	"mount-source-unnormalizable":         "source is not a normalizable locator",
-	"mount-no-tracking-ref":               "no trackingRef declared; the source's advertised default branch needs --fetch",
-	"mount-tracking-ref-invalid":          "trackingRef is not a fully qualified branch or tag",
-	"mount-default-ref-unavailable":       "the source advertises no default branch this run could resolve",
-	"mount-pin-unavailable":               "no reachable object store holds the pin (declare a hint, or pass --fetch)",
-	"mount-witness-unavailable":           "no object store holding the pin resolves the witness ref; run `leji mounts hydrate --fetch`",
-	"mount-source-ambiguous":              "more than one submodule matches the source; declare an explicit hint in .leji/mounts.local.json",
-	"mount-ancestry-incomplete":           "incomplete ancestry; the comparison repository cannot answer the range",
-	"mount-store-fetch-failed":            "the requested fetch could not retain the commit in the managed store",
+	"mount-unknown":                 "no mount with this name is declared",
+	"mount-source-unnormalizable":   "source is not a normalizable locator",
+	"mount-no-tracking-ref":         "no trackingRef declared; the source's advertised default branch needs --fetch",
+	"mount-tracking-ref-invalid":    "trackingRef is not a fully qualified branch or tag",
+	"mount-default-ref-unavailable": "the source advertises no default branch this run could resolve",
+	"mount-pin-unavailable":         "no reachable object store holds the pin (declare a hint, or pass --fetch)",
+	"mount-witness-unavailable":     "no object store holding the pin resolves the witness ref; run `leji mounts hydrate --fetch`",
+	"mount-source-ambiguous":        "more than one submodule matches the source; declare an explicit hint in .leji/mounts.local.json",
+	"mount-ancestry-incomplete":     "incomplete ancestry; the comparison repository cannot answer the range",
+	"mount-store-fetch-failed":      "the requested fetch could not retain the commit in the managed store",
+	// The current-pin act is the one an operator can route past: an upstream that
+	// rewrote its history no longer serves the commit this manifest pins, and the
+	// move is still available against a repository that does hold both operands.
+	"mount-store-fetch-failed: current pin": "the requested fetch could not retain the commit in the managed store; " +
+		"if a local hint holds the current pin and the target with complete ancestry, run without `--fetch`; " +
+		"to move past a rewritten upstream, pass `--to <oid> --allow-non-fast-forward` against such a hint",
 	"mount-witness-refresh-failed":        "the requested fetch could not refresh the managed witness ref",
 	"mount-target-unavailable":            "the requested target commit is not held by the comparison repository",
 	"mount-pin-not-fast-forward":          "the target is not a descendant of the current pin (pass --to <oid> --allow-non-fast-forward to move anyway)",

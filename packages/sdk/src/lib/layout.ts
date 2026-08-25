@@ -28,6 +28,15 @@ export const WORK_REL = `${LEJI_DIR}/work`;
 /** The private federation domain: managed object stores, projection cache, staging. */
 export const MOUNTS_REL = `${LEJI_DIR}/mounts`;
 
+/**
+ * The one metadata file the tool keeps directly under root `.leji/`, outside every
+ * role: the ignore file that keeps the tool's own tree out of the repository even
+ * when the root `.gitignore` never received the `.leji/` line. It belongs to no
+ * role, so the role rule below refuses it; the single named exception that allows
+ * it lives in `lib/fsx.ts`, where the REQUESTED entry is still visible.
+ */
+export const LEJI_IGNORE_REL: string = `${LEJI_DIR}/.gitignore`;
+
 /** True when `abs` is `dir` or sits underneath it. */
 function under(dir: string, abs: string): boolean {
    return abs === dir || abs.startsWith(dir + path.sep);
@@ -66,13 +75,19 @@ export function lejiRole(rootAbs: string, abs: string): string {
  * written or cleared, and — when refused — that it landed outside the repository,
  * the private role it crossed into, that the path could not be resolved at all
  * (permission/I/O, not mere absence), or that an exclusive create found the file
- * already there. */
+ * already there.
+ *
+ * `metadataFile` marks the one allowed target that belongs to no role,
+ * {@link LEJI_IGNORE_REL}. It is never produced here: only the named exception in
+ * `lib/fsx.ts` constructs it, on the requested entry, and a source-audit test
+ * pins that single constructor site. */
 export interface TargetVerdict {
    ok: boolean;
    role?: string;
    unresolvable?: boolean;
    outsideRoot?: true;
    exists?: true;
+   metadataFile?: true;
 }
 
 /**

@@ -3,15 +3,18 @@ import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as path from 'node:path';
 import { finding } from '../lib/findings.js';
-import { resolvedWithinRoot, stripSlash, walkTree } from '../lib/fsx.js';
-import { VIEWER_REL, servablePath } from '../lib/layout.js';
-import { effectiveIndexPath, loadManifest } from '../lib/manifest.js';
+import { openVerifiedSource, resolvedPath, resolvedWithinRoot, stripSlash, walkTree } from '../lib/fsx.js';
+import { VIEWER_REL, servablePath, writableTarget } from '../lib/layout.js';
+import { type Manifest, effectiveIndexPath, loadManifest } from '../lib/manifest.js';
 import { generateIndex } from './indexgen.js';
 import {
+   type IndexEntryLite,
    ACTIVE_EXTENSIONS,
+   OVERVIEW_REL,
    assembleSidebar,
    declaresInherits,
    relativeToRoot,
+   renderOverview,
    resolvedProfilePage,
    unresolvedProfilePage,
 } from './viewer.js';
@@ -94,12 +97,16 @@ export function urlPathToRel(urlPath: string): string {
  * under `.leji/` is denied by name, so the private roles are unreachable however
  * the request is spelled and whatever a symlink under the content root points at.
  * Returns the listening server; port 0 picks free.
+ *
+ * `opts.entries` is an index snapshot for the initial layer map: a caller that has
+ * just generated the viewer hands over what it projected, and a caller that passes
+ * none gets one live generation at startup instead.
  */
 export function serveViewer(
    root: string,
    port: number,
    rootRel = '',
-   opts: { log?: (line: string) => void } = {},
+   opts: { log?: (line: string) => void; entries?: IndexEntryLite[] } = {},
 ): Promise<http.Server> {
    const rootAbs = fs.realpathSync(path.resolve(root));
    const base = stripSlash(rootRel);
@@ -110,6 +117,12 @@ export function serveViewer(
       throw new Error(`viewer root "${rootRel}" escapes the layer root`);
    }
    const viewerAbs = path.join(rootAbs, VIEWER_REL);
+   // The content mount as it really is on disk: the boundary a resolved source is
+   // judged against has to be resolved itself, or a symlinked `rootPath` component
+   // would put every legitimate document outside its own mount.
+   const contentReal = resolvedPath(contentAbs) ?? contentAbs;
+   /** True when a RESOLVED path lies under the content mount. */
+   const withinContent = (resolved: string): boolean => resolved.startsWith(contentReal + path.sep);
 
    // Serve `sub` (a clean relative path) from under `mountRoot`; '' -> index.html.
    // realpath-contains the resolved target under its mount so a symlink can't escape.
@@ -159,7 +172,13 @@ export function serveViewer(
    // cached string at stat cost; any create, delete, or edit still lands on the
    // very next fetch. walkTree skips dotdirs, so the viewer's own artifacts
    // never invalidate the cache.
-   let sidebarCache: { key: string; body: string; indexJson: string | null } | null = null;
+   let sidebarCache: {
+      key: string;
+      body: string;
+      indexJson: string | null;
+      manifest: Manifest;
+      entries: IndexEntryLite[];
+   } | null = null;
    const treeFingerprint = (): string => {
       const parts: string[] = [];
       const add = (rel: string): void => {
@@ -174,6 +193,56 @@ export function serveViewer(
       for (const rel of walkTree(rootAbs, base || '.')) add(rel);
       return parts.join('\n');
    };
+
+   /** One live index generation behind every generated route, cached by the same
+    * fingerprint: the sidebar, the served context index, and the overview map are
+    * projections of ONE index per tree state, never of three. Null when the layer
+    * cannot be indexed right now (no manifest, an error finding, or a generator that
+    * threw), which is each route's cue to fall back. */
+   const liveIndex = (cachedKey?: string): { manifest: Manifest; entries: IndexEntryLite[] } | null => {
+      try {
+         // Inside the guard, never in a default argument: a fingerprint pass over an
+         // unreadable tree throws like anything else here, and that is a fallback.
+         const key = cachedKey ?? treeFingerprint();
+         if (sidebarCache !== null && sidebarCache.key === key) {
+            return { manifest: sidebarCache.manifest, entries: sidebarCache.entries };
+         }
+         const { manifest } = loadManifest(rootAbs);
+         if (manifest === null) return null;
+         const idx = generateIndex(rootAbs, manifest);
+         if (idx.findings.some((f) => f.severity === 'error')) return null;
+         const entries = idx.index?.entries ?? [];
+         sidebarCache = {
+            key,
+            body: assembleSidebar(rootAbs, manifest, entries, []),
+            indexJson: idx.index ? JSON.stringify(idx.index, null, 2) + '\n' : null,
+            manifest,
+            entries,
+         };
+         return { manifest, entries };
+      } catch {
+         return null;
+      }
+   };
+
+   // The layer map is process state, not a file. The overview route renders it into
+   // the page's markers per fetch, from the live index above; the last index that
+   // generated cleanly is kept, so a tree caught mid-edit still shows the map it last
+   // had rather than a page with a hole in it. The initial one is computed here, by
+   // the same generation the sidebar route makes per fetch, unless the caller handed
+   // over the snapshot its own generation just produced.
+   let lastGoodMap: { manifest: Manifest; entries: IndexEntryLite[] } | null = ((): {
+      manifest: Manifest;
+      entries: IndexEntryLite[];
+   } | null => {
+      if (opts.entries === undefined) return liveIndex();
+      try {
+         const { manifest } = loadManifest(rootAbs);
+         return manifest === null ? null : { manifest, entries: opts.entries };
+      } catch {
+         return null;
+      }
+   })();
 
    const server = http.createServer((req, res) => {
       // Access log: one terse line per request, after the status is known.
@@ -221,27 +290,10 @@ export function serveViewer(
       // document. When the tree is mid-edit and will not index cleanly, fall back
       // to the last generated artifact rather than failing the dashboard.
       if (rel === 'content/_sidebar.md') {
-         try {
-            const key = treeFingerprint();
-            if (sidebarCache !== null && sidebarCache.key === key) {
-               res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
-               res.end(sidebarCache.body);
-               return;
-            }
-            const { manifest } = loadManifest(rootAbs);
-            if (manifest) {
-               const idx = generateIndex(rootAbs, manifest);
-               if (!idx.findings.some((f) => f.severity === 'error')) {
-                  const sidebar = assembleSidebar(rootAbs, manifest, idx.index?.entries ?? [], []);
-                  const indexJson = idx.index ? JSON.stringify(idx.index, null, 2) + '\n' : null;
-                  sidebarCache = { key, body: sidebar, indexJson };
-                  res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
-                  res.end(sidebar);
-                  return;
-               }
-            }
-         } catch {
-            // fall through to the generated artifact
+         if (liveIndex() !== null && sidebarCache !== null) {
+            res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
+            res.end(sidebarCache.body);
+            return;
          }
          serveFrom(res, viewerAbs, '_sidebar.md');
          return;
@@ -254,16 +306,7 @@ export function serveViewer(
             const idxRel = manifest ? relativeToRoot(effectiveIndexPath(manifest), manifest.rootPath) : null;
             if (manifest && idxRel !== null && rel === `content/${idxRel}`) {
                const key = treeFingerprint();
-               if (sidebarCache === null || sidebarCache.key !== key) {
-                  const idx = generateIndex(rootAbs, manifest);
-                  if (!idx.findings.some((f) => f.severity === 'error')) {
-                     sidebarCache = {
-                        key,
-                        body: assembleSidebar(rootAbs, manifest, idx.index?.entries ?? [], []),
-                        indexJson: idx.index ? JSON.stringify(idx.index, null, 2) + '\n' : null,
-                     };
-                  }
-               }
+               liveIndex(key);
                if (sidebarCache !== null && sidebarCache.key === key && sidebarCache.indexJson !== null) {
                   res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
                   res.end(sidebarCache.indexJson);
@@ -279,6 +322,71 @@ export function serveViewer(
       // _sidebar.md. Reserved underscore name; served from the last generation.
       if (rel === 'content/_manifest.md') {
          serveFrom(res, viewerAbs, '_manifest.md');
+         return;
+      }
+      // The overview homepage is served RENDERED: the source bytes with the layer map
+      // substituted between the author's markers, so the counts a reader sees are the
+      // ones the tree has right now and the committed file is never rewritten to say
+      // so. The route is a content route first: it makes every check `serveFrom` makes
+      // on this path, with the same answers, plus the generation guards (repository
+      // containment, no private `.leji/` role), because this is the one content path
+      // the tool also writes.
+      //
+      // EVERY one of those checks is bound to the VERIFIED target, not to a path
+      // resolved beforehand: the guarded read judges the resolved location, opens it,
+      // proves the descriptor is that same regular file, and the bytes come from that
+      // descriptor. A pre-read `realpath` plus a separate read leaves the window this
+      // closes: a link swapped in between resolves somewhere else (inside the
+      // repository, outside the content mount) and the read follows it past a check
+      // that judged the old target.
+      if (rel === `content/${OVERVIEW_REL}`) {
+         const abs = path.join(contentAbs, OVERVIEW_REL);
+         // By name first, exactly as `serveFrom` does, before anything is resolved.
+         if (!servablePath(rootAbs, abs)) {
+            res.writeHead(404).end('not found');
+            return;
+         }
+         const resolvedRoot = resolvedPath(rootAbs) ?? rootAbs;
+         let source: Buffer | null = null;
+         let landed: string | null = null;
+         try {
+            const { fd, real } = openVerifiedSource(
+               abs,
+               (resolved) =>
+                  withinContent(resolved) &&
+                  servablePath(rootAbs, resolved) &&
+                  writableTarget(resolvedRoot, resolved, null).ok,
+            );
+            landed = real;
+            if (fd !== null) {
+               try {
+                  source = fs.readFileSync(fd);
+               } finally {
+                  fs.closeSync(fd);
+               }
+            }
+         } catch {
+            source = null;
+         }
+         if (source === null) {
+            // The refusal names where the source resolves NOW: outside the content
+            // mount is the mount's own answer (403), and everything else (a private
+            // role, a directory, an absent or unresolvable entry) is a plain miss.
+            res.writeHead(landed !== null && !withinContent(landed) ? 403 : 404).end(
+               landed !== null && !withinContent(landed) ? 'forbidden' : 'not found',
+            );
+            return;
+         }
+         // A live generation that fails outright (an unreadable content root, an
+         // invalid manifest, a document the walk cannot read) serves the last map that
+         // did generate; before the first one ever did, the source bytes as they are.
+         // A source without markers is served unchanged whatever the index says.
+         const index = liveIndex();
+         if (index !== null) lastGoodMap = index;
+         const map = index ?? lastGoodMap;
+         const rendered = map === null ? null : renderOverview(source.toString('utf8'), map.manifest, map.entries);
+         res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
+         res.end(rendered !== null && rendered.markersFound ? rendered.text : source);
          return;
       }
       if (rel === 'content' || rel.startsWith('content/')) {

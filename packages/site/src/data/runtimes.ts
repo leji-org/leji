@@ -31,7 +31,7 @@ export const runtimes: Runtime[] = [
    },
    {
       name: 'Go',
-      label: 'Go 1.23+',
+      label: 'Go 1.27+',
       icon: goIcon,
       command: 'go install github.com/leji-org/leji/packages/sdk-go/cmd/leji@latest',
       wide: true,

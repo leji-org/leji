@@ -7,6 +7,7 @@ package serve
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -142,14 +143,52 @@ func serveFrom(w http.ResponseWriter, rootAbs, mountRoot, sub string, inert bool
 }
 
 // sidebarCache is the live-sidebar cache entry: the tree fingerprint it was built
-// from, the assembled sidebar, and (when the index generated cleanly) the
-// serialized context index served live for the classification chip.
+// from, the assembled sidebar, (when the index generated cleanly) the serialized
+// context index served live for the classification chip, and the manifest and entries
+// that index projected, so the overview map is a projection of the same generation
+// rather than a second one.
 type sidebarCache struct {
 	key       string
 	body      string
 	indexJSON string
 	hasIndex  bool
+	manifest  *manifest.Manifest
+	entries   []indexgen.IndexEntry
 }
+
+// layerIndex is one clean generation of the layer: the manifest and the entries the
+// overview map is rendered from. Kept as process state (the last one that generated
+// cleanly), never as a file.
+type layerIndex struct {
+	manifest *manifest.Manifest
+	entries  []indexgen.IndexEntry
+}
+
+// Options are what a direct caller already knows and the server would otherwise
+// recompute. Entries is an index snapshot for the initial layer map: a caller that
+// has just generated the viewer hands over what it projected, and a caller that
+// passes none gets one live generation at startup instead.
+//
+// NIL is the only "no snapshot" spelling, standing for the reference's `undefined`;
+// an EMPTY non-nil slice is a snapshot that says the layer governs nothing, and it
+// suppresses the startup generation exactly as a full one does. `GenerateViewer`
+// never returns a nil `IndexEntries`, so a caller that passes what it projected
+// always passes a snapshot.
+type Options struct {
+	Entries []indexgen.IndexEntry
+}
+
+// testHookAfterAuthorize, when set by a test in this package, runs inside the overview
+// route's allow predicate once every check has passed on the resolved source and
+// before its bytes are taken. It exists for the one canary that has to land a symlink
+// swap in that window deterministically, and is nil in every other run.
+var testHookAfterAuthorize func()
+
+// testHookIndexGenerated, when set by a test in this package, runs once per live index
+// generation this server performs. It exists so a test can prove a generation did NOT
+// happen (the supplied snapshot suppressing the startup one), which no response can
+// show, and is nil in every other run.
+var testHookIndexGenerated func()
 
 // statusWriter records the status code written so the access log can report it.
 type statusWriter struct {
@@ -171,7 +210,27 @@ func (w *statusWriter) WriteHeader(code int) {
 // The generated sidebar and the stored context index are served live from the
 // tree (fingerprint-cached), so a long-running viewer never shows a deleted or
 // moved document. logf, when set, receives one terse access-log line per request.
-func newHandler(rootAbs, base, contentAbs, viewerAbs string, logf func(string)) http.Handler {
+func newHandler(rootAbs, base, contentAbs, viewerAbs string, logf func(string), opts Options) http.Handler {
+	// The content mount as it really is on disk: the boundary a resolved source is
+	// judged against has to be resolved itself, or a symlinked rootPath component would
+	// put every legitimate document outside its own mount.
+	contentReal := contentAbs
+	if resolved, ok := fsx.ResolvedPath(contentAbs); ok {
+		contentReal = resolved
+	}
+	// withinContent reports whether a RESOLVED path lies under the content mount.
+	withinContent := func(resolved string) bool {
+		return strings.HasPrefix(resolved, contentReal+string(filepath.Separator))
+	}
+	// The layer root in the same resolved, absolute form: rootAbs is whatever the
+	// caller named (the CLI's default `--root .` stays relative through EvalSymlinks),
+	// and the guards below judge a path the resolver has already absolutized. Judging
+	// an absolute source against a relative root reads as "outside the repository" and
+	// refuses every page.
+	resolvedRoot := rootAbs
+	if resolved, ok := fsx.ResolvedPath(rootAbs); ok {
+		resolvedRoot = resolved
+	}
 	// Live-sidebar cache, invalidated by a tree fingerprint: one stat pass over
 	// leji.json + every markdown file under the content root (paths, mtimes,
 	// sizes — no content reads). The common unchanged-tree reload serves the
@@ -211,6 +270,9 @@ func newHandler(rootAbs, base, contentAbs, viewerAbs string, logf func(string)) 
 		// An operational failure reading the stored index is the same "cannot refresh"
 		// answer a tree that will not index cleanly gives: the served page falls back to
 		// the generated artifact rather than taking down the preview server.
+		if testHookIndexGenerated != nil {
+			testHookIndexGenerated()
+		}
 		idx, ierr := indexgen.GenerateIndex(rootAbs, load.Manifest)
 		if ierr != nil {
 			return nil
@@ -225,13 +287,48 @@ func newHandler(rootAbs, base, contentAbs, viewerAbs string, logf func(string)) 
 			entries = idx.Index.Entries
 		}
 		var discard []findings.Finding
-		c := &sidebarCache{key: key, body: viewer.AssembleSidebar(rootAbs, load.Manifest, entries, &discard)}
+		c := &sidebarCache{
+			key:      key,
+			body:     viewer.AssembleSidebar(rootAbs, load.Manifest, entries, &discard),
+			manifest: load.Manifest,
+			entries:  entries,
+		}
 		if idx.Index != nil {
 			c.indexJSON = indexgen.SerializeIndex(idx.Index)
 			c.hasIndex = true
 		}
 		cache = c
 		return c
+	}
+	// liveIndex is the one live index generation behind every generated route, cached
+	// by the same fingerprint: the sidebar, the served context index, and the overview
+	// map are projections of ONE index per tree state, never of three. Nil when the
+	// layer cannot be indexed right now (no manifest, an error finding, or a generator
+	// that failed), which is each route's cue to fall back.
+	liveIndex := func() *sidebarCache {
+		mu.Lock()
+		defer mu.Unlock()
+		key := treeFingerprint()
+		c := cache
+		if c == nil || c.key != key {
+			c = refresh(key)
+		}
+		return c
+	}
+	// The layer map is process state, not a file. The overview route renders it into
+	// the page's markers per fetch, from the live index above; the last index that
+	// generated cleanly is kept, so a tree caught mid-edit still shows the map it last
+	// had rather than a page with a hole in it. The initial one is computed here, by
+	// the same generation the sidebar route makes per fetch, unless the caller handed
+	// over the snapshot its own generation just produced.
+	var lastGoodMu sync.Mutex
+	var lastGoodMap *layerIndex
+	if opts.Entries == nil {
+		if c := liveIndex(); c != nil {
+			lastGoodMap = &layerIndex{manifest: c.manifest, entries: c.entries}
+		}
+	} else if load := manifest.LoadManifest(rootAbs); load.Manifest != nil {
+		lastGoodMap = &layerIndex{manifest: load.Manifest, entries: opts.Entries}
 	}
 	serveText := func(w http.ResponseWriter, contentType, body string) {
 		w.Header().Set("content-type", contentType)
@@ -283,14 +380,7 @@ func newHandler(rootAbs, base, contentAbs, viewerAbs string, logf func(string)) 
 		// document. When the tree is mid-edit and will not index cleanly, fall back
 		// to the last generated artifact rather than failing the dashboard.
 		if rel == "content/_sidebar.md" {
-			mu.Lock()
-			key := treeFingerprint()
-			c := cache
-			if c == nil || c.key != key {
-				c = refresh(key)
-			}
-			mu.Unlock()
-			if c != nil {
+			if c := liveIndex(); c != nil {
 				serveText(w, "text/markdown; charset=utf-8", c.body)
 				return
 			}
@@ -303,14 +393,7 @@ func newHandler(rootAbs, base, contentAbs, viewerAbs string, logf func(string)) 
 			load := manifest.LoadManifest(rootAbs)
 			if load.Manifest != nil {
 				if idxRel, ok := viewer.RelativeToRoot(manifest.EffectiveIndexPath(load.Manifest), load.Manifest.RootPath); ok && rel == "content/"+idxRel {
-					mu.Lock()
-					key := treeFingerprint()
-					c := cache
-					if c == nil || c.key != key {
-						c = refresh(key)
-					}
-					mu.Unlock()
-					if c != nil && c.key == key && c.hasIndex {
+					if c := liveIndex(); c != nil && c.hasIndex {
 						serveText(w, "application/json; charset=utf-8", c.indexJSON)
 						return
 					}
@@ -322,6 +405,96 @@ func newHandler(rootAbs, base, contentAbs, viewerAbs string, logf func(string)) 
 		// _sidebar.md. Reserved underscore name; served from the last generation.
 		if rel == "content/_manifest.md" {
 			serveFrom(w, rootAbs, viewerAbs, "_manifest.md", false)
+			return
+		}
+		// The overview homepage is served RENDERED: the source bytes with the layer map
+		// substituted between the author's markers, so the counts a reader sees are the
+		// ones the tree has right now and the committed file is never rewritten to say
+		// so. The route is a content route first: it makes every check serveFrom makes
+		// on this path, with the same answers, plus the generation guards (repository
+		// containment, no private `.leji/` role), because this is the one content path
+		// the tool also writes.
+		//
+		// EVERY one of those checks is bound to the VERIFIED target, not to a path
+		// resolved beforehand: the guarded read judges the resolved location, opens it,
+		// proves the descriptor is that same regular file, and the bytes come from that
+		// descriptor. A pre-read realpath plus a separate read leaves the window this
+		// closes: a link swapped in between resolves somewhere else (inside the
+		// repository, outside the content mount) and the read follows it past a check
+		// that judged the old target.
+		if rel == "content/"+viewer.OverviewRel {
+			abs := filepath.Join(contentAbs, viewer.OverviewRel)
+			// By name first, exactly as serveFrom does, before anything is resolved.
+			if !layout.ServablePath(rootAbs, abs) {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte("not found"))
+				return
+			}
+			src, err := fsx.OpenVerifiedSource(abs, func(resolved string) bool {
+				ok := withinContent(resolved) &&
+					layout.ServablePath(resolvedRoot, resolved) &&
+					layout.WritableTarget(resolvedRoot, resolved, "").OK
+				if ok && testHookAfterAuthorize != nil {
+					testHookAfterAuthorize()
+				}
+				return ok
+			})
+			var source []byte
+			landed := ""
+			if err == nil {
+				if src.Resolved {
+					landed = src.Real
+				}
+				if src.File != nil {
+					body, rerr := io.ReadAll(src.File)
+					_ = src.File.Close()
+					if rerr == nil {
+						source = body
+					}
+				}
+			}
+			if source == nil {
+				// The refusal names where the source resolves NOW: outside the content
+				// mount is the mount's own answer (403), and everything else (a private
+				// role, a directory, an absent or unresolvable entry) is a plain miss.
+				if landed != "" && !withinContent(landed) {
+					w.WriteHeader(http.StatusForbidden)
+					_, _ = w.Write([]byte("forbidden"))
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte("not found"))
+				return
+			}
+			// A live generation that fails outright (an unreadable content root, an
+			// invalid manifest, a document the walk cannot read) serves the last map that
+			// did generate; before the first one ever did, the source bytes as they are.
+			// A source without markers is served unchanged whatever the index says.
+			var index *layerIndex
+			if c := liveIndex(); c != nil {
+				index = &layerIndex{manifest: c.manifest, entries: c.entries}
+			}
+			lastGoodMu.Lock()
+			if index != nil {
+				lastGoodMap = index
+			}
+			mapIndex := index
+			if mapIndex == nil {
+				mapIndex = lastGoodMap
+			}
+			lastGoodMu.Unlock()
+			body := source
+			if mapIndex != nil {
+				// Decoded the way Node's Buffer.toString('utf8') decodes, so a source that
+				// is not valid UTF-8 renders to the same bytes in all three SDKs. Only the
+				// rendered branch decodes; a markerless page is served raw below.
+				if text, markersFound := viewer.RenderOverview(viewer.DecodeUTF8(source), mapIndex.manifest, mapIndex.entries); markersFound {
+					body = []byte(text)
+				}
+			}
+			w.Header().Set("content-type", "text/markdown; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(body)
 			return
 		}
 		if rel == "content" || strings.HasPrefix(rel, "content/") {
@@ -401,8 +574,10 @@ func urlPathToRel(urlPath string) string {
 // Serve serves the viewer at the web root on 127.0.0.1, returning the listener and
 // http.Server. Port 0 picks a free port. rootRel is the context root (e.g. "docs");
 // the viewer is served at "/" and content docs under "/content/". logf, when set,
-// receives one access-log line per request.
-func Serve(root string, port int, rootRel string, logf func(string)) (net.Listener, *http.Server, error) {
+// receives one access-log line per request. A caller that has just generated the
+// viewer may hand over the index snapshot it projected as the initial layer map;
+// one that passes none gets a live generation at startup instead.
+func Serve(root string, port int, rootRel string, logf func(string), opts ...Options) (net.Listener, *http.Server, error) {
 	rootAbs := resolveRoot(root)
 	base := fsx.StripSlash(rootRel)
 	contentAbs := rootAbs
@@ -419,7 +594,11 @@ func Serve(root string, port int, rootRel string, logf func(string)) (net.Listen
 		return nil, nil, err
 	}
 	viewerAbs := layout.Abs(rootAbs, layout.ViewerRel)
-	srv := &http.Server{Handler: newHandler(rootAbs, base, contentAbs, viewerAbs, logf)}
+	options := Options{}
+	if len(opts) > 0 {
+		options = opts[0]
+	}
+	srv := &http.Server{Handler: newHandler(rootAbs, base, contentAbs, viewerAbs, logf, options)}
 	return ln, srv, nil
 }
 

@@ -106,16 +106,16 @@
       "size": 14016
     },
     "assets/vue.css": {
-      "sha256": "af5a18093a6f9e21be29bf782e29f86ba056e2998481b99327ebad78e289388f",
-      "size": 26849
+      "sha256": "61d5ec46e3b2235b55a5ed038ff4451ffef42b9a5fed5dfb926918082159dda3",
+      "size": 28873
     },
     "assets/zoom-image.min.js": {
       "sha256": "c142e32432c4fd0d47ea1a6d5640a66d4ffa9a331496a5bdb45c0449f6d381f9",
       "size": 17077
     },
     "index.html": {
-      "sha256": "786636be196dd20d1acf10f4bb3aad9476c65a563dceffd266fe6a223aaa6b14",
-      "size": 10806
+      "sha256": "c5b7f84230d0c6a2c59ae45e2dae69a327b5ec792b4134e07257aec84273428a",
+      "size": 11350
     }
   }
 }

@@ -1,10 +1,10 @@
 {
   "$schema": "https://leji.org/schemas/v1.0/context-index.schema.json",
   "schemaVersion": "1.0",
-  "generatedAt": "2026-08-21T13:04:16.912Z",
+  "generatedAt": "2026-08-25T23:11:39.546Z",
   "generator": {
     "name": "leji",
-    "version": "1.4.0"
+    "version": "1.4.1"
   },
   "rootPath": "docs/",
   "entries": [
@@ -91,6 +91,16 @@
       ]
     },
     {
+      "id": "dependency-pinning-and-refresh",
+      "path": "docs/decisions/0008-dependency-pinning-and-refresh.md",
+      "title": "Dependency pinning and refresh policy",
+      "category": "decisions",
+      "kind": "record",
+      "date": "2026-08-24",
+      "lastModified": "2026-08-25",
+      "contentHash": "sha256:421dabd4dea5c4c8"
+    },
+    {
       "id": "glossary",
       "path": "docs/domain/glossary.md",
       "title": "Glossary",
@@ -136,8 +146,8 @@
       "category": "practice",
       "kind": "intent",
       "summary": "What the leji CLI guarantees about where it writes and what it reads, and the one mechanism in each SDK that holds the guarantee.",
-      "lastModified": "2026-08-21",
-      "contentHash": "sha256:c651e5e0d6f2e10f",
+      "lastModified": "2026-08-25",
+      "contentHash": "sha256:97482200455e816d",
       "freshness": {
         "reviewAfter": "2027-02-17"
       }

@@ -16,14 +16,23 @@ import {
    type TargetVerdict,
    DIST_REL,
    LEJI_DIR,
+   LEJI_IGNORE_REL,
    VIEWER_REL,
    lejiRole,
    servablePath,
    writableTarget,
 } from '../lib/layout.js';
+import { type LejiIgnoreContext, ensureLejiIgnoreFile, newLejiIgnoreContext } from '../lib/leji-ignore.js';
 import { type Manifest } from '../lib/manifest.js';
 import { renderLintFindings } from '../lib/renderlint.js';
-import { ACTIVE_EXTENSIONS, buildIndexHtml, generateViewer, resolvedProfilePages } from './viewer.js';
+import {
+   ACTIVE_EXTENSIONS,
+   OVERVIEW_REL,
+   buildIndexHtml,
+   generateViewer,
+   renderOverview,
+   resolvedProfilePages,
+} from './viewer.js';
 
 /**
  * `leji export` (and `leji viewer build`, its co-equal name for the same
@@ -78,9 +87,13 @@ export interface BuildResult {
 }
 
 /** How one export run is driven. `strict` is the gate: a lint finding fails the run
- * before the target is cleared, mirroring `status --strict`. */
+ * before the target is cleared, mirroring `status --strict`. `ignoreContext` is the
+ * invocation's notice state for the self-managed `.leji/.gitignore`, passed through
+ * to the generation pass this run nests so one invocation notices once; a direct
+ * SDK call that omits it notices at most once for that call. */
 export interface BuildOptions {
    strict?: boolean;
+   ignoreContext?: LejiIgnoreContext;
 }
 
 /**
@@ -102,7 +115,11 @@ export const STRICT_LINT_RULES: ReadonlySet<string> = new Set(['render-unsupport
  * as a comment.
  */
 export function buildViewer(root: string, manifest: Manifest, outRel?: string, opts: BuildOptions = {}): BuildResult {
-   const gen = generateViewer(root, manifest);
+   // One context for the whole run, whether the caller supplied it or not: this
+   // command establishes two roles (the chrome it regenerates and its own output),
+   // and a caller that passes none is still one call.
+   const ignoreContext = opts.ignoreContext ?? newLejiIgnoreContext();
+   const gen = generateViewer(root, manifest, ignoreContext);
    // Every path below is resolved, root included, so the path a check judges is the
    // path the write lands on: a symlinked component — or a case-variant spelling of
    // a reserved role on a case-insensitive filesystem — resolves to its real name
@@ -374,6 +391,14 @@ export function buildViewer(root: string, manifest: Manifest, outRel?: string, o
    const cleared = rmGuarded(rootAbs, outAbs, DIST_REL);
    if (!cleared.ok) throw refusedDest(outAbs, cleared);
    mkdirDest(outContent);
+   // The output role exists: ensure the tool's own ignore file, as every role
+   // establisher does. The generation pass above shares this run's context, so an
+   // existing file is noticed once for the whole invocation rather than per role.
+   if (ensureLejiIgnoreFile(rootAbs, ignoreContext) === 'refused') {
+      throw new Error(
+         `refusing to write "${LEJI_IGNORE_REL}": it does not resolve to a regular file inside ${LEJI_DIR}/; remove the symlink`,
+      );
+   }
    for (const item of carried) {
       const dest = path.join(outContent, item.rel);
       if (item.dir) {
@@ -383,9 +408,21 @@ export function buildViewer(root: string, manifest: Manifest, outRel?: string, o
       // Markdown was read once already: the exported file is that snapshot, so what
       // the lint judged is what the export carries. A document the re-check dropped
       // has no snapshot and is not exported.
+      //
+      // The overview homepage is the one path whose exported copy is not its source:
+      // the layer map is substituted between its markers here, after the lint has
+      // judged the source bytes, from the entries the generation above already
+      // projected. The layer's own file is not touched, and the map an export carries
+      // is the map the local server renders from the same function.
       if (path.extname(item.rel).toLowerCase() === '.md') {
          const bytes = linted.get(item.rel);
-         if (bytes !== undefined) writeDest(dest, bytes);
+         if (bytes === undefined) continue;
+         if (item.rel === OVERVIEW_REL) {
+            const rendered = renderOverview(bytes.toString('utf8'), manifest, gen.indexEntries);
+            writeDest(dest, rendered.markersFound ? rendered.text : bytes);
+            continue;
+         }
+         writeDest(dest, bytes);
          continue;
       }
       const fd = openCarried(item.rel);

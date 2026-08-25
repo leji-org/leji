@@ -26,6 +26,7 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
 	"github.com/leji-org/leji/packages/sdk-go/internal/git"
 	"github.com/leji-org/leji/packages/sdk-go/internal/layout"
+	"github.com/leji-org/leji/packages/sdk-go/internal/lejiignore"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/writeplan"
 )
@@ -54,6 +55,10 @@ type Options struct {
 	// In/Out are overridable for tests; default to os.Stdin / os.Stdout.
 	In  io.Reader
 	Out io.Writer
+	// IgnoreContext is the invocation's notice state for the self-managed
+	// `.leji/.gitignore`, which this command ensures when it creates the onboarding
+	// workspace. Nil means a context local to this call.
+	IgnoreContext *lejiignore.Context
 }
 
 // workingModes are the layer's working modes: a team of one ("solo") or a team ("team").
@@ -480,6 +485,21 @@ func guardedOrRefuse(rel string, verdict layout.TargetVerdict, err error) error 
 	}
 	if !verdict.OK {
 		return escapeRefusal(rel)
+	}
+	return nil
+}
+
+// ensureLejiIgnoreOrRefuse ensures the tool's own ignore file: the transient
+// onboarding workspace is a `.leji/` role, so these commands ensure it exactly as
+// every other role establisher does. A refusal is the refusal this command has always
+// raised for an escaping target.
+func ensureLejiIgnoreOrRefuse(root string, ignoreContext *lejiignore.Context) error {
+	outcome, err := lejiignore.EnsureFile(root, ignoreContext)
+	if err != nil {
+		return err
+	}
+	if outcome == lejiignore.Refused {
+		return escapeRefusal(layout.LejiIgnoreRel)
 	}
 	return nil
 }
@@ -2004,6 +2024,12 @@ func InitLayer(opts Options) (Result, error) {
 			return Result{}, err
 		}
 	}
+	// The onboarding workspace is a `.leji/` role and now exists, so the tool ignores
+	// its own tree from inside: the nested counterpart to the root `.gitignore` line
+	// above, and the one that covers a layer whose root file never received it.
+	if err := ensureLejiIgnoreOrRefuse(root, opts.IgnoreContext); err != nil {
+		return Result{}, err
+	}
 
 	// The whole of the `leji index` rule, not half of it: WriteIndex reports a hard
 	// generation failure in Result.Findings with a nil error, so checking only the
@@ -2732,6 +2758,10 @@ type AdoptOptions struct {
 	// NoAgents skips generating the portable `AGENTS.md` pointer (written by
 	// default when absent; an existing file keeps the migrate/--wire-adapters flow).
 	NoAgents bool
+	// IgnoreContext is the invocation's notice state for the self-managed
+	// `.leji/.gitignore`, which this command ensures when it creates the onboarding
+	// workspace. Nil means a context local to this call.
+	IgnoreContext *lejiignore.Context
 }
 
 // AdoptResult is the init result plus what adoption found and did.
@@ -3081,6 +3111,12 @@ func AdoptLayer(opts AdoptOptions) (AdoptResult, error) {
 				return AdoptResult{}, err
 			}
 		}
+	}
+	// The onboarding workspace is a `.leji/` role and now exists, so the tool ignores
+	// its own tree from inside: the nested counterpart to the root `.gitignore` line
+	// above, and the one that covers a layer whose root file never received it.
+	if err := ensureLejiIgnoreOrRefuse(root, opts.IgnoreContext); err != nil {
+		return AdoptResult{}, err
 	}
 
 	// Same rule as `leji index`: WriteIndex reports a hard generation failure in

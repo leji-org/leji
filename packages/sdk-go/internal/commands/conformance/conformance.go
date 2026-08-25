@@ -16,6 +16,7 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
 	"github.com/leji-org/leji/packages/sdk-go/internal/git"
 	"github.com/leji-org/leji/packages/sdk-go/internal/layer"
+	"github.com/leji-org/leji/packages/sdk-go/internal/lejiignore"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	mountslib "github.com/leji-org/leji/packages/sdk-go/internal/mounts"
 )
@@ -91,7 +92,12 @@ func countAttested(items []ChecklistItem) int {
 // Report scores the layer. ClaimedLevel/VerifiedLevel are "" for none. With
 // federation it runs the networked pin-reachability probe; the error return
 // carries its filesystem failures (TS exceptions).
-func Report(root string, federation bool) (Result, error) {
+// ignoreContext is the invocation's notice state for the self-managed
+// `.leji/.gitignore`. Only the `--federation` probe reaches a mounts operation that
+// can establish a role, and it reaches one PER DECLARED MOUNT, so the context is
+// threaded rather than left to each call: one invocation notices at most once,
+// however many mounts it probes.
+func Report(root string, federation bool, ignoreContext ...*lejiignore.Context) (Result, error) {
 	var items []ChecklistItem
 	var fs []findings.Finding
 	m := manifest.LoadManifest(root).Manifest
@@ -285,7 +291,7 @@ func Report(root string, federation bool) (Result, error) {
 			type badMount struct{ name, state, detail string }
 			var bad *badMount
 			for _, mt := range mounts {
-				r, rerr := mountslib.CheckPinReachability(root, mountslib.MountDecl{Name: mt.Name, Source: mt.Source, Pin: mt.Pin, TrackingRef: mt.TrackingRef})
+				r, rerr := mountslib.CheckPinReachability(root, mountslib.MountDecl{Name: mt.Name, Source: mt.Source, Pin: mt.Pin, TrackingRef: mt.TrackingRef}, lejiignore.From(ignoreContext...))
 				if rerr != nil {
 					return Result{}, rerr
 				}

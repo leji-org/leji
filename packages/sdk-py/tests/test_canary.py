@@ -23,6 +23,7 @@ from typing import Callable
 
 import pytest
 
+from helpers.snapshot import snapshot_tree
 from leji import build_viewer, generate_viewer, load_manifest
 from leji import export_cmd, fsx
 from leji.serve_cmd import serve_viewer
@@ -99,30 +100,6 @@ def _materialize(factory: pytest.TempPathFactory, name: str, seeds: list[dict]) 
         targets.append(to)
         _copy_seed(_fixture_abs(directory, src), to_abs)
     return directory
-
-
-def _snapshot(directory: Path) -> list[tuple[str, str]]:
-    """Every path under `directory` as `rel -> content digest` (directories as
-    `rel/` -> ''), so a comparison covers appearance and disappearance as well as
-    content."""
-    acc: list[tuple[str, str]] = []
-
-    def walk(rel: str) -> None:
-        base = directory if rel == "" else directory / rel
-        for entry in sorted(base.iterdir(), key=lambda p: p.name):
-            child = entry.name if rel == "" else f"{rel}/{entry.name}"
-            if entry.is_symlink():
-                acc.append((child, "non-regular"))
-            elif entry.is_dir():
-                acc.append((child + "/", ""))
-                walk(child)
-            elif entry.is_file():
-                acc.append((child, hashlib.sha256(entry.read_bytes()).hexdigest()))
-            else:
-                acc.append((child, "non-regular"))
-
-    walk("")
-    return sorted(acc)
 
 
 def _files_under(directory: Path) -> list[str]:
@@ -314,9 +291,9 @@ def test_layout_fixture_canary_and_idempotency(
 
     # --- idempotency ---------------------------------------------------------
     if (expected_export.get("rerun") or {}).get("byteIdentical"):
-        after_first = _snapshot(directory)
+        after_first = snapshot_tree(directory, repo_root=directory)
         build_viewer(str(directory), manifest)
-        assert _snapshot(directory) == after_first, (
+        assert snapshot_tree(directory, repo_root=directory) == after_first, (
             "a second run is a byte-level no-op across the whole working tree"
         )
 
@@ -514,14 +491,16 @@ def test_check_before_act_generation_refuses_viewer_aliased_into_a_private_role(
     (aliased / "assets" / "planted.txt").write_text(f"{TOKEN}\n", encoding="utf-8")
     (directory / ".leji" / "viewer").symlink_to(Path("work") / "chrome")
     manifest = _load(directory)
-    before = _snapshot(aliased)
+    before = snapshot_tree(aliased, repo_root=directory)
 
     gen = generate_viewer(str(directory), manifest)
     assert any(f.rule == "viewer-target-refused" and f.severity == "error" for f in gen.findings), (
         "generation refuses with a hard error (non-zero exit)"
     )
     assert gen.written == [], "and writes nothing"
-    assert _snapshot(aliased) == before, "the aliased private role is byte-identical"
+    assert snapshot_tree(aliased, repo_root=directory) == before, (
+        "the aliased private role is byte-identical"
+    )
 
     # build_viewer regenerates first, so it inherits the refusal and never reaches the
     # destructive clean/copy: no export is produced either.
@@ -529,7 +508,9 @@ def test_check_before_act_generation_refuses_viewer_aliased_into_a_private_role(
     assert any(f.rule == "viewer-target-refused" for f in built.findings), (
         "the export inherits the refusal"
     )
-    assert _snapshot(aliased) == before, "still untouched after build_viewer"
+    assert snapshot_tree(aliased, repo_root=directory) == before, (
+        "still untouched after build_viewer"
+    )
     assert not (directory / ".leji" / "dist").exists(), "no export was written"
 
 
@@ -545,10 +526,10 @@ def test_check_before_act_default_output_refuses_dist_into_a_private_role(
     (planted / "planted").write_text(f"{TOKEN}\n", encoding="utf-8")
     (directory / ".leji" / "dist").symlink_to(Path("mounts") / "store" / "x")
     manifest = _load(directory)
-    before = _snapshot(directory / ".leji" / "mounts")
+    before = snapshot_tree(directory / ".leji" / "mounts", repo_root=directory)
     with pytest.raises(RuntimeError, match="reserved for the tool's own roles"):
         build_viewer(str(directory), manifest, None)
-    assert _snapshot(directory / ".leji" / "mounts") == before, (
+    assert snapshot_tree(directory / ".leji" / "mounts", repo_root=directory) == before, (
         "nothing was cleared or written in the private role"
     )
     assert (planted / "planted").read_text(encoding="utf-8") == f"{TOKEN}\n"
@@ -664,7 +645,7 @@ def test_check_before_act_generation_refuses_an_overview_seed_aliased_into_a_pri
         role_dir.mkdir(parents=True, exist_ok=True)
         (directory / "overview.md").symlink_to(Path(".leji") / role / "new.md")
         manifest = _load(directory)
-        before = _snapshot(role_dir)
+        before = snapshot_tree(role_dir, repo_root=directory)
 
         gen = generate_viewer(str(directory), manifest)
         assert any(
@@ -676,7 +657,9 @@ def test_check_before_act_generation_refuses_an_overview_seed_aliased_into_a_pri
         ), f"generation refuses the overview.md seed into .leji/{role} with a hard error"
         assert "overview.md" not in gen.written, "overview.md is not reported written"
         assert not (role_dir / "new.md").exists(), "nothing was written through the alias"
-        assert _snapshot(role_dir) == before, f"the aliased .leji/{role} is byte-identical"
+        assert snapshot_tree(role_dir, repo_root=directory) == before, (
+            f"the aliased .leji/{role} is byte-identical"
+        )
 
     # Generation-side case variant: a `.LEJI/` spelling of a role folds to the role on
     # a case-insensitive volume, so the resolved target is judged, not the spelling.
@@ -742,13 +725,13 @@ def test_export_refuses_a_nested_dangling_out_redirecting_into_a_private_role(
     manifest = _load(directory)
     # redirect -> .leji/mounts/ghost, and ghost does NOT exist: a dangling intermediate.
     (directory / "redirect").symlink_to(Path(".leji") / "mounts" / "ghost")
-    mounts_before = _snapshot(directory / ".leji" / "mounts")
+    mounts_before = snapshot_tree(directory / ".leji" / "mounts", repo_root=directory)
     with pytest.raises(RuntimeError, match="reserved for the tool's own roles"):
         build_viewer(str(directory), manifest, "redirect/export")
     assert not (directory / ".leji" / "mounts" / "ghost").exists(), (
         "the dangling target was not created by the build"
     )
-    assert _snapshot(directory / ".leji" / "mounts") == mounts_before, (
+    assert snapshot_tree(directory / ".leji" / "mounts", repo_root=directory) == mounts_before, (
         "nothing was cleared or written in the private role"
     )
 
@@ -773,10 +756,10 @@ def test_export_refuses_a_chained_dangling_out_that_ends_in_a_private_role(
     manifest = _load(directory)
     (directory / "redirect").symlink_to("hop")
     (directory / "hop").symlink_to(Path(".leji") / "work" / "ghost")
-    work_before = _snapshot(directory / ".leji" / "work")
+    work_before = snapshot_tree(directory / ".leji" / "work", repo_root=directory)
     with pytest.raises(RuntimeError, match="reserved for the tool's own roles"):
         build_viewer(str(directory), manifest, "redirect/export")
-    assert _snapshot(directory / ".leji" / "work") == work_before, (
+    assert snapshot_tree(directory / ".leji" / "work", repo_root=directory) == work_before, (
         "nothing was cleared or written in the private role"
     )
 
@@ -829,7 +812,7 @@ def test_check_before_act_refuses_a_case_variant_alias_through_a_non_enumerable_
     (aliased / "assets" / "planted.txt").write_text(f"{TOKEN}\n", encoding="utf-8")
     (directory / ".leji" / "viewer").symlink_to(Path("..") / ".LEJI" / "work" / "chrome")
     manifest = _load(directory)
-    before = _snapshot(aliased)
+    before = snapshot_tree(aliased, repo_root=directory)
     # Searchable and writable, but unlistable: the repository directory is the one that
     # holds the canonical spelling of `.leji`.
     directory.chmod(0o311)
@@ -839,7 +822,9 @@ def test_check_before_act_refuses_a_case_variant_alias_through_a_non_enumerable_
             f.rule == "viewer-target-refused" and f.severity == "error" for f in gen.findings
         ), "generation refuses an unresolvable viewer target"
         assert gen.written == [], "and writes nothing"
-        assert _snapshot(aliased) == before, "the aliased private role is byte-identical"
+        assert snapshot_tree(aliased, repo_root=directory) == before, (
+            "the aliased private role is byte-identical"
+        )
     finally:
         directory.chmod(0o755)
 
@@ -849,14 +834,14 @@ def test_check_before_act_refuses_a_case_variant_alias_through_a_non_enumerable_
     (other / ".leji" / "mounts" / "store" / "empty").mkdir(parents=True)
     (other / ".leji" / "dist").symlink_to(Path("..") / ".LEJI" / "mounts" / "store" / "empty")
     other_manifest = _load(other)
-    mounts_before = _snapshot(other / ".leji" / "mounts")
+    mounts_before = snapshot_tree(other / ".leji" / "mounts", repo_root=other)
     other.chmod(0o311)
     try:
         with pytest.raises(RuntimeError, match=r"cannot be resolved \(permission or I/O error\)"):
             build_viewer(str(other), other_manifest, None)
     finally:
         other.chmod(0o755)
-    assert _snapshot(other / ".leji" / "mounts") == mounts_before, (
+    assert snapshot_tree(other / ".leji" / "mounts", repo_root=other) == mounts_before, (
         "nothing was cleared or written in the private role"
     )
 
@@ -1048,7 +1033,7 @@ def test_export_refuses_a_dangling_output_entry_and_creates_nothing(
 
     (directory / ".leji" / "dist").symlink_to(Path("..") / "site")
     (directory / "published").symlink_to("elsewhere")
-    before = _snapshot(directory)
+    before = snapshot_tree(directory, repo_root=directory)
 
     with pytest.raises(RuntimeError, match="it is a dangling symlink"):
         build_viewer(str(directory), manifest, None)
@@ -1059,4 +1044,4 @@ def test_export_refuses_a_dangling_output_entry_and_creates_nothing(
     assert (directory / "published").is_symlink(), "the --out link is left in place"
     assert not (directory / "site").exists(), "the default link destination was never created"
     assert not (directory / "elsewhere").exists(), "the --out link destination was never created"
-    assert _snapshot(directory) == before, "and the tree is byte-identical"
+    assert snapshot_tree(directory, repo_root=directory) == before, "and the tree is byte-identical"

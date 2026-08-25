@@ -58,6 +58,36 @@ import { validateLayer, writeIndex, conformanceReport } from '@leji-org/leji';
 const { findings } = validateLayer('.');
 ```
 
+## Generated files
+
+The CLI keeps everything it generates under one `.leji/` directory at the
+repository root, in four roles: `mounts/` (materialized federation mounts),
+`viewer/` (generated viewer chrome), `dist/` (exported viewer builds), and
+`work/` (the transient onboarding workspace). All of it is machine-local, and
+none of it is committed. The first time a command creates one of those roles,
+the CLI writes `.leji/.gitignore` containing `*`, so the directory ignores
+itself; an existing `.leji/.gitignore` is left as it is, with a notice on
+stderr. `leji init` and `leji adopt` also add a bare `.leji/` line to the
+repository's root `.gitignore`.
+
+`.leji/mounts.local.json` is a per-machine hints file: it points the resolver
+at local checkouts of the context layers a federation mounts. The CLI reads it
+and never writes it. Do not commit it; a path on one machine is not a path on
+another.
+
+Migrating from an earlier version:
+
+- If `.leji/mounts.local.json` was committed, untrack it with
+  `git rm --cached .leji/mounts.local.json`, and keep the bare `.leji/` line in
+  the root `.gitignore`. Onboarding refuses to run while anything under
+  `.leji/` is tracked, and the nested `.leji/.gitignore` takes precedence over
+  any negation written at the root.
+- A `docs/.leji/` tree left by 1.3.x is unused in 1.4.x and can be deleted.
+
+Because the hints file stays uncommitted, a fresh clone hydrates its mounts
+through the resolver store or the manifest's remote URLs, so a pinned commit has
+to be reachable on its remote.
+
 - Specification: https://leji.org
 - Source: https://github.com/leji-org/leji (`packages/sdk`)
 - License: Apache-2.0

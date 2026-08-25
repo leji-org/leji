@@ -14,12 +14,26 @@ const {
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const ogImage = new URL('/og.png', Astro.site);
 
+// Analytics are opt-in at build time and off by default: this source ships with none, so a
+// plain build produces a site that loads nothing third-party. A deployment that wants
+// analytics sets both values in the build environment, PUBLIC_ANALYTICS_SCRIPT being the
+// full script URL and PUBLIC_ANALYTICS_SITE the site token that script expects. Either one
+// alone does nothing, since a script without its token cannot report anyway.
+const analyticsScript = (import.meta.env.PUBLIC_ANALYTICS_SCRIPT ?? '').trim();
+const analyticsSite = (import.meta.env.PUBLIC_ANALYTICS_SITE ?? '').trim();
+const analyticsEnabled = analyticsScript !== '' && analyticsSite !== '';
+// Only the origin reaches the policy: a CSP source matches by origin, and a bad URL here
+// should fail the build loudly rather than ship a policy nobody can read.
+const analyticsSource = analyticsEnabled ? ` ${new URL(analyticsScript).origin}` : '';
+
 // CSP, kept in lockstep with public/_headers except the directives that have no effect in a <meta> policy:
 // frame-ancestors and X-Content-Type-Options are response headers only, and live in public/_headers alone.
+// The policy is first-party only unless the build supplies analytics, in which case that one
+// origin joins the three directives its beacon needs and nothing else changes.
 const CSP =
-   "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; " +
-   "script-src 'self' 'unsafe-inline' https://cdn.usefathom.com; " +
-   "connect-src 'self' https://cdn.usefathom.com; " +
+   `default-src 'self'; img-src 'self' data:${analyticsSource}; style-src 'self' 'unsafe-inline'; ` +
+   `script-src 'self' 'unsafe-inline'${analyticsSource}; ` +
+   `connect-src 'self'${analyticsSource}; ` +
    "font-src 'self'; base-uri 'self'; object-src 'none'";
 
 // Sitewide structured data, public information only.
@@ -74,7 +88,7 @@ const siteLd = {
       <meta name="twitter:description" content={description} />
       <meta name="twitter:image" content={ogImage} />
       <script type="application/ld+json" set:html={JSON.stringify(siteLd)} />
-      <script is:inline src="https://cdn.usefathom.com/script.js" data-site="MCHQQKYG" defer></script>
+      {analyticsEnabled && <script is:inline src={analyticsScript} data-site={analyticsSite} defer />}
    </head>
    <body>
       <a class="skip-link" href="#content">Skip to content</a>

@@ -305,13 +305,57 @@ func resolveLink(abs string) string {
 	return filepath.Join(filepath.Dir(abs), target)
 }
 
-// judgeTarget is one judged target: the verdict layout.WritableTarget returned for
-// the resolved path, and that resolved path. resolved is "" (and ok false) only when
-// the path could not be resolved at all.
+// metadataFileVerdict is the ONE declared exception to the role rule, and the only
+// place a MetadataFile verdict is constructed: `<root>/.leji/.gitignore`, the ignore
+// file the tool keeps for its own tree. It belongs to no role, so
+// layout.WritableTarget refuses it and cannot be the judge here: the rule it needs
+// is about the REQUESTED entry, which WritableTarget never sees.
+//
+// ok false means "not this path": every other target falls through to the rule
+// unchanged. Otherwise the verdict is allowed on all three conditions, checked on the
+// ORIGINAL directory entries so a link is caught rather than followed:
+//
+//  1. the requested path is exactly `<root>/.leji/.gitignore`, and it resolves to
+//     itself (a `.LEJI/` spelling on a case-insensitive filesystem resolves to the
+//     name the filesystem holds and is not this path);
+//  2. `<root>/.leji` is a real directory, never a symlink;
+//  3. the entry is absent or a regular file, never a symlink or anything else.
+//
+// When a condition fails the exception REFUSES rather than falling back to an
+// allowance: today's verdict stands when it already refuses (a `.leji` symlinked out
+// of the repository is OutsideRoot, exactly as it is now), and a redirect that
+// happens to land on ordinary content is refused as the requested path's own role,
+// never written through. The exception can only narrow, never widen.
+func metadataFileVerdict(rootAbs, targetAbs, resolved, ownRoleRel string) (layout.TargetVerdict, bool) {
+	expected := layout.Abs(rootAbs, layout.LejiIgnoreRel)
+	requested, err := filepath.Abs(targetAbs)
+	if err != nil || requested != expected {
+		return layout.TargetVerdict{}, false
+	}
+	dir, derr := os.Lstat(layout.Abs(rootAbs, layout.LejiDir))
+	entry, eerr := os.Lstat(expected)
+	entryAllowed := (eerr != nil && os.IsNotExist(eerr)) || (eerr == nil && entry.Mode().IsRegular())
+	if resolved == expected && derr == nil && dir.IsDir() && entryAllowed {
+		return layout.TargetVerdict{OK: true, MetadataFile: true}, true
+	}
+	verdict := layout.WritableTarget(rootAbs, resolved, ownRoleRel)
+	if verdict.OK {
+		return layout.TargetVerdict{Role: layout.LejiRole(rootAbs, expected)}, true
+	}
+	return verdict, true
+}
+
+// judgeTarget is one judged target: the verdict the rule returned for the resolved
+// path, which is layout.WritableTarget's except at the one declared exception above,
+// and that resolved path. resolved is "" (and ok false) only when the path could not
+// be resolved at all.
 func judgeTarget(rootAbs, targetAbs, ownRoleRel string) (verdict layout.TargetVerdict, resolved string, ok bool) {
 	real, ok := ResolvedPathUnder(rootAbs, targetAbs)
 	if !ok {
 		return layout.TargetVerdict{Unresolvable: true}, "", false
+	}
+	if exception, isException := metadataFileVerdict(rootAbs, targetAbs, real, ownRoleRel); isException {
+		return exception, real, true
 	}
 	return layout.WritableTarget(rootAbs, real, ownRoleRel), real, true
 }
@@ -701,7 +745,13 @@ func VerifiedTargetRead(rootAbs, targetAbs, ownRoleRel string) (TargetRead, erro
 	}
 	var refusal RefusalReason
 	src, err := openVerifiedSourceUnder(rootAbs, targetAbs, func(resolved string) bool {
-		verdict := layout.WritableTarget(rootAbs, resolved, ownRoleRel)
+		// The same rule the write will be judged by, the declared exception included:
+		// the read-then-act pair must agree, or the one target that belongs to no role
+		// could be read here and refused at the write (or the reverse).
+		verdict, isException := metadataFileVerdict(rootAbs, targetAbs, resolved, ownRoleRel)
+		if !isException {
+			verdict = layout.WritableTarget(rootAbs, resolved, ownRoleRel)
+		}
 		if verdict.OK {
 			return true
 		}

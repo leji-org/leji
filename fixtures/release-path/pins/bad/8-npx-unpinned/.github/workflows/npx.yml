@@ -1,0 +1,12 @@
+name: npx without a version
+# Rule 8: npx fetches the package at run time, so an unpinned name here is the
+# same floating install as npm install -g, one step closer to a registry.
+
+on: [push]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: npx --yes jsr publish

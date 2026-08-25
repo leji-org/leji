@@ -54,7 +54,8 @@ from .ecosystem import EcosystemReport, detect_ecosystem, runner_argv
 from .findings import Finding, has_errors
 from .gitutil import tracked_under, working_tree_clean
 from .indexgen import write_index
-from .layout import LEJI_DIR, WORK_REL, TargetVerdict
+from .layout import LEJI_DIR, LEJI_IGNORE_REL, WORK_REL, TargetVerdict
+from .leji_ignore import LejiIgnoreContext, ensure_leji_ignore_file
 from .manifest import (
     Manifest,
     bind_agent_in_manifest_text,
@@ -377,6 +378,18 @@ def _assert_no_symlink_escape(root: Path, abs_path: Path, rel: str) -> None:
     not-yet-existing target under a symlinked ancestor) escapes ``root``."""
     if not resolved_within_root(str(root), abs_path):
         raise InitPathError(f'refusing to write through a symlink that escapes the target: "{rel}"')
+
+
+def _ensure_leji_ignore_or_refuse(
+    root: str, ignore_context: Optional[LejiIgnoreContext] = None
+) -> None:
+    """The transient onboarding workspace is a ``.leji/`` role, so these commands ensure
+    the tool's own ignore file exactly as every other role establisher does. A refusal is
+    the refusal this command has always raised for an escaping target."""
+    if ensure_leji_ignore_file(root, ignore_context) == "refused":
+        raise InitPathError(
+            f'refusing to write through a symlink that escapes the target: "{LEJI_IGNORE_REL}"'
+        )
 
 
 def _init_role(rel: str) -> Optional[str]:
@@ -1463,6 +1476,10 @@ def init_layer(
     # Skip generating the portable `AGENTS.md` pointer (written by default when
     # absent; an existing file is never touched).
     no_agents: bool = False,
+    # The invocation's notice state for the self-managed `.leji/.gitignore`, which this
+    # command ensures when it creates the onboarding workspace. None means a context
+    # local to this call.
+    ignore_context: Optional[LejiIgnoreContext] = None,
 ) -> InitResult:
     """Bootstrap a context layer. Interactive unless ``yes``. Refuses to run
     when leji.json already exists; never overwrites existing files."""
@@ -1597,6 +1614,10 @@ def init_layer(
         if w.rel == changelog_rel:
             continue
         _write_file_once(root, w.rel, w.content, written)
+    # The onboarding workspace is a `.leji/` role and now exists, so the tool ignores its
+    # own tree from inside: the nested counterpart to the root `.gitignore` line above,
+    # and the one that covers a layer whose root file never received it.
+    _ensure_leji_ignore_or_refuse(str(root), ignore_context)
 
     # The whole of the `leji index` rule, not half of it: write_index declines to
     # write on a hard generation finding, so the file is not claimed, the dependent
@@ -1749,6 +1770,10 @@ def adopt_layer(
     # Skip generating the portable `AGENTS.md` pointer (written by default when
     # absent; an existing file keeps the migrate/--wire-adapters flow).
     no_agents: bool = False,
+    # The invocation's notice state for the self-managed `.leji/.gitignore`, which this
+    # command ensures when it creates the onboarding workspace. None means a context
+    # local to this call.
+    ignore_context: Optional[LejiIgnoreContext] = None,
 ) -> AdoptResult:
     """Bring Leji into an existing repository: reuse an existing docs root, migrate any
     vendor entrypoints into the layer (originals untouched), and seed the scaffold.
@@ -1964,6 +1989,10 @@ def adopt_layer(
             written.append(w.rel)
         else:
             _write_file_once(root, w.rel, w.content, written)
+    # The onboarding workspace is a `.leji/` role and now exists, so the tool ignores its
+    # own tree from inside: the nested counterpart to the root `.gitignore` line above,
+    # and the one that covers a layer whose root file never received it.
+    _ensure_leji_ignore_or_refuse(str(root), ignore_context)
 
     # Same rule as `leji index`: the file is claimed only when it was written, and
     # the findings travel out so the caller reports them and fails.
@@ -2759,12 +2788,17 @@ def _approval_guard_script(leji_rel: str) -> str:
 GuardAction = str  # "installed" | "unchanged"
 
 
-def ensure_approval_guard(root: str, root_path: str) -> GuardAction:
+def ensure_approval_guard(
+    root: str, root_path: str, ignore_context: Optional[LejiIgnoreContext] = None
+) -> GuardAction:
     """Write the guard script under the onboarding workspace (`.leji/work/hooks/`)
     and merge its PreToolUse entry into .claude/settings.json (created if absent,
     other settings preserved). Idempotent: an existing guard entry is left untouched.
     ``root_path`` no longer selects the workspace — it is one root-relative tree —
-    and is kept only so the exported signature holds."""
+    and is kept only so the exported signature holds. ``ignore_context`` is the
+    invocation's notice state for the self-managed `.leji/.gitignore`, which this
+    function ensures because it creates `.leji/work/hooks/`; None means a context local
+    to this call."""
     del root_path
     root_abs = Path(root).resolve()
     leji_rel = WORK_REL
@@ -2805,6 +2839,8 @@ def ensure_approval_guard(root: str, root_path: str) -> GuardAction:
         if isinstance(h, dict)
     )
     _write_file_atomic(root_abs, script_abs, script_rel, _approval_guard_script(leji_rel))
+    # `.leji/work/hooks/` now exists: this is a role establisher like any other.
+    _ensure_leji_ignore_or_refuse(str(root_abs), ignore_context)
     if present:
         return "unchanged"
     pre.append(
@@ -2834,6 +2870,9 @@ class GuardOfferOptions:
     interactive: bool
     agent: Optional[str] = None
     io: Optional[HandoffIO] = None
+    #: The invocation's notice state for the self-managed ``.leji/.gitignore``, passed
+    #: through to the install this offer nests.
+    ignore_context: Optional[LejiIgnoreContext] = None
 
 
 def offer_approval_guard(opts: GuardOfferOptions) -> None:
@@ -2864,7 +2903,7 @@ def offer_approval_guard(opts: GuardOfferOptions) -> None:
     ).lower()
     if answer not in ("", "y", "yes"):
         return
-    action = ensure_approval_guard(opts.root, opts.root_path)
+    action = ensure_approval_guard(opts.root, opts.root_path, opts.ignore_context)
     print(
         "Onboarding guard added (this repository only: .claude/settings.json hook + "
         ".leji/work/hooks/approval-guard.mjs; removed at finalize)."

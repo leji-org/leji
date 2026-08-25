@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { type Finding, finding } from '../lib/findings.js';
 import { guardRoot, verifiedTargetRead, writeFileAtomicGuarded } from '../lib/fsx.js';
+import { type LejiIgnoreContext } from '../lib/leji-ignore.js';
 import { MANIFEST_FILENAME, type Manifest, replaceMountPinInManifestText } from '../lib/manifest.js';
 import {
    type MountDecl,
@@ -24,7 +25,8 @@ import {
  * claim of freshness. `--fetch` observes the declared source — and nothing else —
  * in three acts: retain the current pin, refresh the witness once, and (after the
  * gate passes) retain the target. Any of them failing REFUSES the move; a pin move
- * is not best-effort, which is `hydrate`'s model rather than this one.
+ * is not best-effort, which is `hydrate`'s model rather than this one. The reason
+ * names the act.
  *
  * The manifest is rewritten by replacing the addressed pin's own byte span
  * (`replaceMountPinInManifestText`), never by reserializing, so the three SDKs
@@ -64,6 +66,11 @@ export interface UpdatePinOptions {
    dryRun?: boolean;
    /** Injectable observation clock, so tests and fixtures are stable. */
    now?: () => Date;
+   /** The invocation's notice state for the self-managed `.leji/.gitignore`. One
+    * `--fetch` run retains TWICE (the current pin, then the target), and both
+    * establish the managed store, so the context is threaded rather than left to
+    * each call: one invocation notices at most once. */
+   ignoreContext?: LejiIgnoreContext;
 }
 
 /** A pin at the length every human-facing line uses. */
@@ -99,6 +106,7 @@ export function updatePinRun(root: string, manifest: Manifest, opts: UpdatePinOp
       reason: string,
       partial: Partial<UpdatePinResult['mount']> = {},
       pinReport: StatusResult['pinReport'] | null = null,
+      detail?: string,
    ): UpdatePinResult => ({
       mount: {
          name: opts.name,
@@ -112,7 +120,7 @@ export function updatePinRun(root: string, manifest: Manifest, opts: UpdatePinOp
       action: 'refused',
       override: false,
       reason,
-      findings: [finding(reason, 'error', MOUNT_UPDATE_PIN_REASONS[reason] ?? reason, opts.name)],
+      findings: [finding(reason, 'error', updatePinReasonProse(reason, detail), opts.name, detail)],
    });
 
    if (!mount) return refuse('mount-unknown');
@@ -167,13 +175,24 @@ export function updatePinRun(root: string, manifest: Manifest, opts: UpdatePinOp
    // the managed store holds both operands, then refresh the witness exactly once.
    // A failure here refuses the move — best-effort belongs to `hydrate`.
    if (opts.fetch) {
-      const retained = retainPinInStore(root, mount, identity, mount.pin);
+      const retained = retainPinInStore(root, mount, identity, mount.pin, opts.ignoreContext);
       if (retained.repo === null) {
-         return refuse('mount-store-fetch-failed', {}, degraded('mount-store-fetch-failed', effectiveRef));
+         return refuse(
+            'mount-store-fetch-failed',
+            {},
+            degraded('mount-store-fetch-failed', effectiveRef),
+            `current pin: ${retained.error}`,
+         );
       }
       const witnessMount: MountDecl = { ...mount, trackingRef: effectiveRef };
-      if (!refreshWitness(retained.repo, witnessMount, identity)) {
-         return refuse('mount-witness-refresh-failed', {}, degraded('mount-witness-refresh-failed', effectiveRef));
+      const refreshed = refreshWitness(retained.repo, witnessMount, identity);
+      if (!refreshed.ok) {
+         return refuse(
+            'mount-witness-refresh-failed',
+            {},
+            degraded('mount-witness-refresh-failed', effectiveRef),
+            `witness: ${refreshed.error}`,
+         );
       }
    }
 
@@ -230,9 +249,14 @@ export function updatePinRun(root: string, manifest: Manifest, opts: UpdatePinOp
    // A refusal after the comparison settled reports the comparison it refused on,
    // and carries whatever the run had already decided: an override exercised at the
    // gate is still reported by a run that then refused for another reason.
-   const refuseSettled = (reason: string, override = false, warnings: Finding[] = []): UpdatePinResult => ({
+   const refuseSettled = (
+      reason: string,
+      override = false,
+      warnings: Finding[] = [],
+      detail?: string,
+   ): UpdatePinResult => ({
       ...settled('refused', override, [
-         finding(reason, 'error', MOUNT_UPDATE_PIN_REASONS[reason] ?? reason, mount.name),
+         finding(reason, 'error', updatePinReasonProse(reason, detail), mount.name, detail),
          ...warnings,
       ]),
       reason,
@@ -266,8 +290,10 @@ export function updatePinRun(root: string, manifest: Manifest, opts: UpdatePinOp
    // (b iii) The target is retained only once the gate has passed, so a refused run
    // never establishes a pin ref for a commit it declined to move to.
    if (opts.fetch) {
-      const retainedTarget = retainPinInStore(root, mount, identity, target);
-      if (retainedTarget.repo === null) return refuseSettled('mount-store-fetch-failed', override, warnings);
+      const retainedTarget = retainPinInStore(root, mount, identity, target, opts.ignoreContext);
+      if (retainedTarget.repo === null) {
+         return refuseSettled('mount-store-fetch-failed', override, warnings, `target: ${retainedTarget.error}`);
+      }
    }
 
    // (g) `--dry-run` stops here. The store and network acts `--fetch` was asked for
@@ -332,6 +358,21 @@ function declarationUnchanged(
    );
 }
 
+/**
+ * The sentence a refusal shows. A code whose acts have different routes forward
+ * carries one entry per act, keyed `<code>: <act>` exactly as the finding's
+ * `detail` spells it, so the table stays the single source of every string this
+ * command prints; every other code answers for all of its acts at once.
+ */
+function updatePinReasonProse(reason: string, detail?: string): string {
+   if (detail !== undefined) {
+      const act = detail.slice(0, Math.max(detail.indexOf(': '), 0));
+      const qualified = MOUNT_UPDATE_PIN_REASONS[`${reason}: ${act}`];
+      if (qualified !== undefined) return qualified;
+   }
+   return MOUNT_UPDATE_PIN_REASONS[reason] ?? reason;
+}
+
 /** Prose for this command's stable reason codes: `--json` emits the code, a person
  * reads the sentence. The codes above `mount-unknown` are shared with
  * `mounts status`, whose prose lives beside the status reasons. */
@@ -348,6 +389,13 @@ export const MOUNT_UPDATE_PIN_REASONS: Record<string, string> = {
       'more than one submodule matches the source; declare an explicit hint in .leji/mounts.local.json',
    'mount-ancestry-incomplete': 'incomplete ancestry; the comparison repository cannot answer the range',
    'mount-store-fetch-failed': 'the requested fetch could not retain the commit in the managed store',
+   // The current-pin act is the one an operator can route past: an upstream that
+   // rewrote its history no longer serves the commit this manifest pins, and the
+   // move is still available against a repository that does hold both operands.
+   'mount-store-fetch-failed: current pin':
+      'the requested fetch could not retain the commit in the managed store; if a local hint holds the current pin ' +
+      'and the target with complete ancestry, run without `--fetch`; to move past a rewritten upstream, pass ' +
+      '`--to <oid> --allow-non-fast-forward` against such a hint',
    'mount-witness-refresh-failed': 'the requested fetch could not refresh the managed witness ref',
    'mount-target-unavailable': 'the requested target commit is not held by the comparison repository',
    'mount-pin-not-fast-forward':

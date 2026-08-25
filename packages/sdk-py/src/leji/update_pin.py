@@ -8,7 +8,8 @@ Offline by default: the target is the last successfully observed witness, never 
 claim of freshness. ``--fetch`` observes the declared source — and nothing else — in
 three acts: retain the current pin, refresh the witness once, and (after the gate
 passes) retain the target. Any of them failing REFUSES the move; a pin move is not
-best-effort, which is ``hydrate``'s model rather than this one.
+best-effort, which is ``hydrate``'s model rather than this one. The reason names the
+act.
 
 The manifest is rewritten by replacing the addressed pin's own byte span
 (:func:`~leji.manifest.replace_mount_pin_in_manifest_text`), never by reserializing,
@@ -25,6 +26,7 @@ from typing import Optional
 
 from .findings import Finding
 from .fsx import guard_root, verified_target_read, write_file_atomic_guarded
+from .leji_ignore import LejiIgnoreContext
 from .manifest import (
     MANIFEST_FILENAME,
     Manifest,
@@ -72,6 +74,15 @@ MOUNT_UPDATE_PIN_REASONS: dict[str, str] = {
     "mount-store-fetch-failed": (
         "the requested fetch could not retain the commit in the managed store"
     ),
+    # The current-pin act is the one an operator can route past: an upstream that
+    # rewrote its history no longer serves the commit this manifest pins, and the
+    # move is still available against a repository that does hold both operands.
+    "mount-store-fetch-failed: current pin": (
+        "the requested fetch could not retain the commit in the managed store; "
+        "if a local hint holds the current pin and the target with complete ancestry, "
+        "run without `--fetch`; to move past a rewritten upstream, pass "
+        "`--to <oid> --allow-non-fast-forward` against such a hint"
+    ),
     "mount-witness-refresh-failed": (
         "the requested fetch could not refresh the managed witness ref"
     ),
@@ -87,6 +98,19 @@ MOUNT_UPDATE_PIN_REASONS: dict[str, str] = {
         "the pin was moved to a commit that is not a descendant of it"
     ),
 }
+
+
+def _update_pin_reason_prose(reason: str, detail: str | None = None) -> str:
+    """The sentence a refusal shows. A code whose acts have different routes forward
+    carries one entry per act, keyed ``<code>: <act>`` exactly as the finding's
+    ``detail`` spells it, so the table stays the single source of every string this
+    command prints; every other code answers for all of its acts at once."""
+    if detail is not None:
+        act = detail[: max(detail.find(": "), 0)]
+        qualified = MOUNT_UPDATE_PIN_REASONS.get(f"{reason}: {act}")
+        if qualified is not None:
+            return qualified
+    return MOUNT_UPDATE_PIN_REASONS.get(reason, reason)
 
 
 @dataclass
@@ -155,9 +179,15 @@ def update_pin_run(  # noqa: C901
     fetch: bool = False,
     dry_run: bool = False,
     now: dt.datetime | None = None,
+    ignore_context: LejiIgnoreContext | None = None,
 ) -> UpdatePinResult:
     """Move one mount's pin. Every refusal is a stated ``reason`` code plus an error
-    finding, so the exit status, the human line and the JSON document always agree."""
+    finding, so the exit status, the human line and the JSON document always agree.
+
+    ``ignore_context`` is the invocation's notice state for the self-managed
+    ``.leji/.gitignore``. One ``--fetch`` run retains TWICE (the current pin, then the
+    target), and both establish the managed store, so the context is threaded rather
+    than left to each call: one invocation notices at most once."""
     # One observation time for the whole run, as ``status`` takes one for its whole
     # execution.
     observed_at = _now_iso(now)
@@ -177,6 +207,7 @@ def update_pin_run(  # noqa: C901
         reason: str,
         partial: dict[str, object] | None = None,
         pin_report: dict[str, object] | None = None,
+        detail: str | None = None,
     ) -> UpdatePinResult:
         block: dict[str, object] = {
             "name": name,
@@ -192,7 +223,15 @@ def update_pin_run(  # noqa: C901
             action="refused",
             override=False,
             reason=reason,
-            findings=[Finding(reason, "error", MOUNT_UPDATE_PIN_REASONS.get(reason, reason), name)],
+            findings=[
+                Finding(
+                    reason,
+                    "error",
+                    _update_pin_reason_prose(reason, detail),
+                    name,
+                    detail=detail,
+                )
+            ],
         )
 
     if mount is None or entry is None:
@@ -255,21 +294,24 @@ def update_pin_run(  # noqa: C901
     # the managed store holds both operands, then refresh the witness exactly once.
     # A failure here refuses the move — best-effort belongs to ``hydrate``.
     if fetch:
-        retained = retain_pin_in_store(root, mount, identity, mount.pin)
+        retained = retain_pin_in_store(root, mount, identity, mount.pin, ignore_context)
         if retained.repo is None:
             return refuse(
                 "mount-store-fetch-failed",
                 None,
                 degraded("mount-store-fetch-failed", effective_ref),
+                f"current pin: {retained.error}",
             )
         witness_mount = MountDecl(
             name=mount.name, source=mount.source, pin=mount.pin, tracking_ref=effective_ref
         )
-        if not refresh_witness(retained.repo, witness_mount, identity):
+        refreshed = refresh_witness(retained.repo, witness_mount, identity)
+        if not refreshed.ok:
             return refuse(
                 "mount-witness-refresh-failed",
                 None,
                 degraded("mount-witness-refresh-failed", effective_ref),
+                f"witness: {refreshed.error}",
             )
 
     # (c) The comparison repository and the ONE witness snapshot this run uses for
@@ -327,13 +369,22 @@ def update_pin_run(  # noqa: C901
     # and carries whatever the run had already decided: an override exercised at the
     # gate is still reported by a run that then refused for another reason.
     def refuse_settled(
-        reason: str, override: bool = False, warnings: list[Finding] | None = None
+        reason: str,
+        override: bool = False,
+        warnings: list[Finding] | None = None,
+        detail: str | None = None,
     ) -> UpdatePinResult:
         result = settled(
             "refused",
             override,
             [
-                Finding(reason, "error", MOUNT_UPDATE_PIN_REASONS.get(reason, reason), mount.name),
+                Finding(
+                    reason,
+                    "error",
+                    _update_pin_reason_prose(reason, detail),
+                    mount.name,
+                    detail=detail,
+                ),
                 *(warnings or []),
             ],
         )
@@ -372,9 +423,14 @@ def update_pin_run(  # noqa: C901
     # (b iii) The target is retained only once the gate has passed, so a refused run
     # never establishes a pin ref for a commit it declined to move to.
     if fetch:
-        retained_target = retain_pin_in_store(root, mount, identity, target)
+        retained_target = retain_pin_in_store(root, mount, identity, target, ignore_context)
         if retained_target.repo is None:
-            return refuse_settled("mount-store-fetch-failed", override, warnings)
+            return refuse_settled(
+                "mount-store-fetch-failed",
+                override,
+                warnings,
+                f"target: {retained_target.error}",
+            )
 
     # (g) ``--dry-run`` stops here. The store and network acts ``--fetch`` was asked
     # for have already happened; only the manifest rewrite is suppressed.

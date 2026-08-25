@@ -18,12 +18,16 @@
          Docsify sets element styles at runtime; that is not a script-execution path.
          frame-src 'none' closes the framing path: without it a governed document
          could frame a same-origin /content/ page, which inherits none of this.
-         The local server sends the same policy as a response header on every
-         response, so it also covers documents fetched outside this shell.
+         The directive naming who may frame this page is deliberately absent: a meta
+         policy cannot deliver it, so claiming it here would protect nothing and cost
+         an ignored-directive console error on every page. The local server sends
+         this policy as a response header on every response, with that directive
+         added, so the served viewer is covered including documents fetched outside
+         this shell; a static host serving an export sets it in its own headers.
       -->
       <meta
          http-equiv="Content-Security-Policy"
-         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; frame-src 'none'"
+         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'"
       />
       <title>{{LEJI_NAME_HTML}}</title>
       <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -34,7 +38,8 @@
          /* Viewer default styling: white content, the brand canvas on the sidebar
             and its chrome, tight nesting — the shape teams hand-build for internal
             dashboards. Accents ride --theme-color (set by Docsify from
-            viewer.theme.primary). */
+            viewer.theme.primary); the text tones are the --leji-text* custom
+            properties assets/vue.css declares, which loads before this block. */
          body {
             background-color: #ffffff;
          }
@@ -48,7 +53,7 @@
             z-index: 5;
             font-size: 0.7rem;
             letter-spacing: 0.02em;
-            color: #555555;
+            color: var(--leji-text-body);
             background: #f7f8f5;
             border: 1px solid #cde5d9;
             border-radius: 999px;
@@ -80,7 +85,7 @@
             width: max-content;
             text-align: center;
             font-size: 0.8rem;
-            color: #999999;
+            color: var(--leji-text-body);
             animation: lj-nav-pulse 1.2s ease-in-out infinite;
          }
          @keyframes lj-nav-pulse {
@@ -94,7 +99,7 @@
             content: none !important;
          }
          .sidebar-nav li > a {
-            color: #2c3e50;
+            color: var(--leji-text);
             padding: 6px 0;
          }
          .sidebar-nav li > a:hover {
@@ -136,7 +141,7 @@
          /* Group headers: the theme's default bold rendering, at full size. */
          .sidebar-nav li > strong,
          .sidebar-nav li > p > strong {
-            color: #1a1a1a;
+            color: var(--leji-text);
             font-weight: 600;
             user-select: none;
          }
@@ -178,7 +183,7 @@
          }
          .sidebar-nav ul ul li > a {
             font-size: 14px;
-            color: #555;
+            color: var(--leji-text-body);
             padding: 2px 0;
          }
          .sidebar-nav ul ul li > a:hover {
@@ -197,7 +202,7 @@
          .search input {
             background-color: #ffffff;
             border: 1px solid #cde5d9;
-            color: #2c3e50;
+            color: var(--leji-text-body);
          }
          .search .results-panel {
             background-color: #ffffff;
@@ -205,7 +210,7 @@
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
          }
          .search .results-panel .matching-post > a {
-            color: #2c3e50;
+            color: var(--leji-text);
          }
          .search .results-panel .matching-post > a:hover {
             color: var(--theme-color, #009f71);
@@ -241,7 +246,7 @@
             font-size: 11px;
             letter-spacing: normal;
             text-transform: none;
-            color: #9aa0a6;
+            color: var(--leji-text-body);
             z-index: 30;
          }
          .leji-powered a {

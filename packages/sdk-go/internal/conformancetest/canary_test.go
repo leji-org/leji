@@ -11,8 +11,6 @@ package conformancetest
 // `--strict` variants) takes every other fixture.
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,7 +19,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -211,61 +208,6 @@ func cpTree(t *testing.T, src, dst string) {
 			t.Fatal(err)
 		}
 	}
-}
-
-// snapshot is every path under dir as `rel -> content digest` (directories as
-// `rel/` -> ""), so a comparison covers appearance and disappearance as well as
-// content.
-//
-// A `.git/` at the ROOT is the harness's own scaffolding and is excluded: no run
-// under test can touch it, and git can. Background maintenance on a hosted runner
-// rewrites a repository's object store on its own schedule, which reaches a
-// comparison like this one two ways — a transient it opens and git removes
-// mid-walk (`open .git/objects/maintenance.lock: no such file or directory`), and a
-// pack that is simply not the pack the first snapshot saw. Both are the runner's
-// git, never the subject, and both were seen on one rc run. Only the root is
-// skipped: a `.git` deeper inside a fixture is content that fixture ships, and the
-// TS and Python siblings of this helper draw the line in the same place.
-func snapshot(t *testing.T, dir string) []string {
-	t.Helper()
-	var out []string
-	var walk func(rel string)
-	walk = func(rel string) {
-		abs := dir
-		if rel != "" {
-			abs = filepath.Join(dir, filepath.FromSlash(rel))
-		}
-		entries, err := os.ReadDir(abs)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, e := range entries {
-			if rel == "" && e.Name() == ".git" {
-				continue
-			}
-			childRel := e.Name()
-			if rel != "" {
-				childRel = rel + "/" + e.Name()
-			}
-			switch {
-			case e.IsDir():
-				out = append(out, childRel+"/\x00")
-				walk(childRel)
-			case e.Type().IsRegular():
-				body, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(childRel)))
-				if err != nil {
-					t.Fatal(err)
-				}
-				sum := sha256.Sum256(body)
-				out = append(out, childRel+"\x00"+hex.EncodeToString(sum[:]))
-			default:
-				out = append(out, childRel+"\x00non-regular")
-			}
-		}
-	}
-	walk("")
-	sort.Strings(out)
-	return out
 }
 
 // countToken counts recursive occurrences of the token under dir (an absent dir
@@ -493,11 +435,11 @@ func TestLayoutFixturesCanaryAndIdempotency(t *testing.T) {
 
 			// --- idempotency -------------------------------------------------------
 			if exp.Export.Rerun.ByteIdentical {
-				afterFirst := snapshot(t, dir)
+				afterFirst := snapshotTree(t, dir, dir)
 				if _, err := export.BuildViewer(dir, m, "", export.Options{}); err != nil {
 					t.Fatalf("second BuildViewer: %v", err)
 				}
-				afterSecond := snapshot(t, dir)
+				afterSecond := snapshotTree(t, dir, dir)
 				if !equalStrings(afterFirst, afterSecond) {
 					t.Fatalf("a second run must be a byte-level no-op across the whole working tree\nfirst=%v\nsecond=%v",
 						diffStrings(afterFirst, afterSecond), diffStrings(afterSecond, afterFirst))
@@ -720,7 +662,7 @@ func TestCheckBeforeActGenerationRefusesViewerAliasedIntoPrivateRole(t *testing.
 		t.Fatal(err)
 	}
 	m := mustLoad(t, dir)
-	before := snapshot(t, aliased)
+	before := snapshotTree(t, aliased, dir)
 
 	gen, err := viewer.GenerateViewer(dir, m)
 	if err != nil {
@@ -732,7 +674,7 @@ func TestCheckBeforeActGenerationRefusesViewerAliasedIntoPrivateRole(t *testing.
 	if len(gen.Written) != 0 {
 		t.Fatalf("generation must write nothing, got %v", gen.Written)
 	}
-	if !equalStrings(before, snapshot(t, aliased)) {
+	if !equalStrings(before, snapshotTree(t, aliased, dir)) {
 		t.Fatal("the aliased private role must be byte-identical")
 	}
 
@@ -745,7 +687,7 @@ func TestCheckBeforeActGenerationRefusesViewerAliasedIntoPrivateRole(t *testing.
 	if !hasRefusal(built.Findings) {
 		t.Fatalf("the export must inherit the refusal, got %v", built.Findings)
 	}
-	if !equalStrings(before, snapshot(t, aliased)) {
+	if !equalStrings(before, snapshotTree(t, aliased, dir)) {
 		t.Fatal("still untouched after BuildViewer")
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".leji", "dist")); err == nil {
@@ -769,12 +711,12 @@ func TestCheckBeforeActDefaultOutputRefusesDistIntoPrivateRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := mustLoad(t, dir)
-	before := snapshot(t, filepath.Join(dir, ".leji", "mounts"))
+	before := snapshotTree(t, filepath.Join(dir, ".leji", "mounts"), dir)
 	_, err := export.BuildViewer(dir, m, "", export.Options{})
 	if err == nil || !strings.Contains(err.Error(), "reserved for the tool's own roles") {
 		t.Fatalf("the default output must be refused, got %v", err)
 	}
-	if !equalStrings(before, snapshot(t, filepath.Join(dir, ".leji", "mounts"))) {
+	if !equalStrings(before, snapshotTree(t, filepath.Join(dir, ".leji", "mounts"), dir)) {
 		t.Fatal("nothing must be cleared or written in the private role")
 	}
 	body, rerr := os.ReadFile(filepath.Join(planted, "planted"))
@@ -925,7 +867,7 @@ func TestCheckBeforeActOverviewSeedRefusedIntoPrivateRole(t *testing.T) {
 			t.Fatal(err)
 		}
 		m := mustLoad(t, dir)
-		before := snapshot(t, roleDir)
+		before := snapshotTree(t, roleDir, dir)
 
 		gen, err := viewer.GenerateViewer(dir, m)
 		if err != nil {
@@ -950,7 +892,7 @@ func TestCheckBeforeActOverviewSeedRefusedIntoPrivateRole(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(roleDir, "new.md")); err == nil {
 			t.Fatal("nothing must be written through the alias")
 		}
-		if !equalStrings(before, snapshot(t, roleDir)) {
+		if !equalStrings(before, snapshotTree(t, roleDir, dir)) {
 			t.Fatalf("the aliased .leji/%s must be byte-identical", role)
 		}
 	}
@@ -1092,7 +1034,7 @@ func TestExportRefusesNestedDanglingOutIntoPrivateRole(t *testing.T) {
 	if err := os.Symlink(filepath.Join(".leji", "mounts", "ghost"), filepath.Join(dir, "redirect")); err != nil {
 		t.Fatal(err)
 	}
-	mountsBefore := snapshot(t, filepath.Join(dir, ".leji", "mounts"))
+	mountsBefore := snapshotTree(t, filepath.Join(dir, ".leji", "mounts"), dir)
 	_, err := export.BuildViewer(dir, m, "redirect/export", export.Options{})
 	if err == nil || !strings.Contains(err.Error(), "reserved for the tool's own roles") {
 		t.Fatalf("a nested dangling --out into a private role must be refused, got %v", err)
@@ -1100,7 +1042,7 @@ func TestExportRefusesNestedDanglingOutIntoPrivateRole(t *testing.T) {
 	if _, serr := os.Stat(filepath.Join(dir, ".leji", "mounts", "ghost")); serr == nil {
 		t.Fatal("the dangling target must not be created by the build")
 	}
-	if !equalStrings(mountsBefore, snapshot(t, filepath.Join(dir, ".leji", "mounts"))) {
+	if !equalStrings(mountsBefore, snapshotTree(t, filepath.Join(dir, ".leji", "mounts"), dir)) {
 		t.Fatal("nothing must be cleared or written in the private role")
 	}
 
@@ -1129,12 +1071,12 @@ func TestExportRefusesChainedDanglingOutIntoPrivateRole(t *testing.T) {
 	if err := os.Symlink(filepath.Join(".leji", "work", "ghost"), filepath.Join(dir, "hop")); err != nil {
 		t.Fatal(err)
 	}
-	workBefore := snapshot(t, filepath.Join(dir, ".leji", "work"))
+	workBefore := snapshotTree(t, filepath.Join(dir, ".leji", "work"), dir)
 	_, err := export.BuildViewer(dir, m, "redirect/export", export.Options{})
 	if err == nil || !strings.Contains(err.Error(), "reserved for the tool's own roles") {
 		t.Fatalf("a chained dangling --out into a private role must be refused, got %v", err)
 	}
-	if !equalStrings(workBefore, snapshot(t, filepath.Join(dir, ".leji", "work"))) {
+	if !equalStrings(workBefore, snapshotTree(t, filepath.Join(dir, ".leji", "work"), dir)) {
 		t.Fatal("nothing must be cleared or written in the private role")
 	}
 }
@@ -1184,7 +1126,7 @@ func TestExportRefusesADanglingOutputEntry(t *testing.T) {
 	if err := os.Symlink("elsewhere", filepath.Join(dir, "published")); err != nil {
 		t.Fatal(err)
 	}
-	before := snapshot(t, dir)
+	before := snapshotTree(t, dir, dir)
 
 	if _, err := export.BuildViewer(dir, m, "", export.Options{}); err == nil ||
 		!strings.Contains(err.Error(), "it is a dangling symlink") {
@@ -1206,7 +1148,7 @@ func TestExportRefusesADanglingOutputEntry(t *testing.T) {
 			t.Fatalf("the link destination %s was created", gone)
 		}
 	}
-	if !equalStrings(before, snapshot(t, dir)) {
+	if !equalStrings(before, snapshotTree(t, dir, dir)) {
 		t.Fatal("the tree must be byte-identical")
 	}
 }
@@ -1242,7 +1184,7 @@ func TestCheckBeforeActRefusesCaseVariantAliasThroughNonEnumerableDirectory(t *t
 		t.Fatal(err)
 	}
 	m := mustLoad(t, dir)
-	before := snapshot(t, aliased)
+	before := snapshotTree(t, aliased, dir)
 	// Searchable and writable, but unlistable: the repository directory is the one that
 	// holds the canonical spelling of `.leji`.
 	if err := os.Chmod(dir, 0o311); err != nil {
@@ -1260,7 +1202,7 @@ func TestCheckBeforeActRefusesCaseVariantAliasThroughNonEnumerableDirectory(t *t
 	if len(gen.Written) != 0 {
 		t.Fatalf("generation must write nothing, got %v", gen.Written)
 	}
-	if !equalStrings(before, snapshot(t, aliased)) {
+	if !equalStrings(before, snapshotTree(t, aliased, dir)) {
 		t.Fatal("the aliased private role must be byte-identical")
 	}
 	_ = os.Chmod(dir, 0o755)
@@ -1276,7 +1218,7 @@ func TestCheckBeforeActRefusesCaseVariantAliasThroughNonEnumerableDirectory(t *t
 		t.Fatal(err)
 	}
 	om := mustLoad(t, other)
-	mountsBefore := snapshot(t, filepath.Join(other, ".leji", "mounts"))
+	mountsBefore := snapshotTree(t, filepath.Join(other, ".leji", "mounts"), other)
 	if err := os.Chmod(other, 0o311); err != nil {
 		t.Fatal(err)
 	}
@@ -1286,7 +1228,7 @@ func TestCheckBeforeActRefusesCaseVariantAliasThroughNonEnumerableDirectory(t *t
 		t.Fatalf("the default output must be refused as unresolvable, got %v", berr)
 	}
 	_ = os.Chmod(other, 0o755)
-	if !equalStrings(mountsBefore, snapshot(t, filepath.Join(other, ".leji", "mounts"))) {
+	if !equalStrings(mountsBefore, snapshotTree(t, filepath.Join(other, ".leji", "mounts"), other)) {
 		t.Fatal("nothing must be cleared or written in the private role")
 	}
 }

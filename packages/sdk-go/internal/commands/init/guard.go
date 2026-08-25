@@ -13,6 +13,7 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
 	"github.com/leji-org/leji/packages/sdk-go/internal/jsonenc"
 	"github.com/leji-org/leji/packages/sdk-go/internal/layout"
+	"github.com/leji-org/leji/packages/sdk-go/internal/lejiignore"
 )
 
 // The onboarding approval guard: a transient Claude Code PreToolUse hook that
@@ -150,8 +151,10 @@ func decodeOrderedValue(dec *json.Decoder) (any, error) {
 // .claude/settings.json (created if absent, other settings preserved).
 // Idempotent: an existing guard entry is left untouched. rootPath no longer
 // selects the workspace — it is one root-relative tree — and is kept only so the
-// exported signature holds.
-func EnsureApprovalGuard(root, rootPath string) (GuardAction, error) {
+// exported signature holds. ignoreContext is the invocation's notice state for the
+// self-managed `.leji/.gitignore`, which this function ensures because it creates
+// `.leji/work/hooks/`; omitted means a context local to this call.
+func EnsureApprovalGuard(root, rootPath string, ignoreContext ...*lejiignore.Context) (GuardAction, error) {
 	_ = rootPath
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
@@ -216,6 +219,10 @@ func EnsureApprovalGuard(root, rootPath string) (GuardAction, error) {
 	if err := writeFileAtomic(rootAbs, scriptAbs, scriptRel, approvalGuardScript(lejiRel)); err != nil {
 		return "", err
 	}
+	// `.leji/work/hooks/` now exists: this is a role establisher like any other.
+	if err := ensureLejiIgnoreOrRefuse(rootAbs, lejiignore.From(ignoreContext...)); err != nil {
+		return "", err
+	}
 	if present {
 		return "unchanged", nil
 	}
@@ -245,6 +252,9 @@ type GuardOfferOptions struct {
 	Interactive bool
 	// Agent forces a specific launchable host (claude-code/codex); empty means detect.
 	Agent string
+	// IgnoreContext is the invocation's notice state for the self-managed
+	// `.leji/.gitignore`, passed through to the install this offer nests.
+	IgnoreContext *lejiignore.Context
 }
 
 // OfferApprovalGuard offers the onboarding approval guard for a Claude Code
@@ -280,7 +290,7 @@ func OfferApprovalGuard(opts GuardOfferOptions, hio *HandoffIO, out io.Writer) e
 	if !(answer == "" || answer == "y" || answer == "yes") {
 		return nil
 	}
-	action, err := EnsureApprovalGuard(opts.Root, opts.RootPath)
+	action, err := EnsureApprovalGuard(opts.Root, opts.RootPath, opts.IgnoreContext)
 	if err != nil {
 		return err
 	}

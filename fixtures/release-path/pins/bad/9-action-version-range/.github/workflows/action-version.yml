@@ -1,0 +1,14 @@
+name: Action version range
+# Rule 9: the action is SHA-pinned, and the tool it installs is not. A range
+# input is a floating install wearing a pinned action's clothes.
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: "~> v2"
+          args: release --clean

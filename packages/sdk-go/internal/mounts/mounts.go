@@ -39,6 +39,7 @@ import (
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
 	"github.com/leji-org/leji/packages/sdk-go/internal/layout"
+	"github.com/leji-org/leji/packages/sdk-go/internal/lejiignore"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/schemas"
 )
@@ -118,16 +119,25 @@ type HydrateOutcome struct {
 	ProjectionFailed bool
 }
 
-// HydrateResult carries the per-mount outcomes, or a fatal refusal.
+// HydrateResult carries the per-mount outcomes, or a fatal refusal. Reasons is the
+// resolver's own reason for the one `--fetch` act that failed per mount, keyed by
+// mount name, for the caller's findings; it is a transport, never a document
+// member, and never serialized.
 type HydrateResult struct {
 	Outcomes []HydrateOutcome
 	Fatal    string
+	Reasons  map[string]string `json:"-"`
 }
 
 // HydrateOptions mirror hydrateMounts' opts.
 type HydrateOptions struct {
 	Fetch bool
 	Names []string
+	// IgnoreContext is the invocation's notice state for the self-managed
+	// `.leji/.gitignore`. Hydration establishes a store and a staging directory per
+	// declared mount and they are all one invocation, so a caller that has a context
+	// threads it; nil means one context local to this call.
+	IgnoreContext *lejiignore.Context
 }
 
 // LocateResult mirrors the TS LocateResult (nil pointers = JSON null).
@@ -250,12 +260,22 @@ func MountsDir(root string) string {
 // exception to the chokepoint, and it holds only because every one of its acts
 // happens under a root this function checked and returned — never under a path
 // re-joined from root.
-func establishMountsDir(root, dirAbs string) (string, bool, error) {
+func establishMountsDir(root, dirAbs string, ignoreContext *lejiignore.Context) (string, bool, error) {
 	verdict, real, err := fsx.MkdirpGuarded(fsx.GuardRoot(root), dirAbs, layout.MountsRel)
 	if err != nil {
 		return "", false, err
 	}
 	if !verdict.OK {
+		return "", false, nil
+	}
+	// A role under `.leji/` now exists, so the tool's own ignore file is ensured here
+	// as it is at every other establisher. A refusal is this destination refusing: the
+	// caller reports it as it reports any destination it could not establish.
+	ignored, ierr := lejiignore.EnsureFile(root, ignoreContext)
+	if ierr != nil {
+		return "", false, ierr
+	}
+	if ignored == lejiignore.Refused {
 		return "", false, nil
 	}
 	return real, true, nil
@@ -579,7 +599,7 @@ func retentionInjectedFailure(oid string) bool {
 // so the version of record and the version being moved to are equally safe from git
 // maintenance. repo "" means failure, with errMsg saying why (stable, Leji-authored
 // text: git stderr never reaches output).
-func RetainPinInStore(root string, mount MountDecl, sourceIdentity, oid string) (repo string, errMsg string, err error) {
+func RetainPinInStore(root string, mount MountDecl, sourceIdentity, oid string, ignoreContext ...*lejiignore.Context) (repo string, errMsg string, err error) {
 	failed := func(msg string) (string, string, error) {
 		return "", msg, nil
 	}
@@ -587,7 +607,7 @@ func RetainPinInStore(root string, mount MountDecl, sourceIdentity, oid string) 
 	if strings.HasPrefix(mount.Source, "-") {
 		return failed(`the source locator may not begin with "-"`)
 	}
-	store, ok, err := establishMountsDir(root, storeDir(root, sourceIdentity))
+	store, ok, err := establishMountsDir(root, storeDir(root, sourceIdentity), lejiignore.From(ignoreContext...))
 	if err != nil {
 		return "", "", err
 	}
@@ -631,21 +651,24 @@ func RetainPinInStore(root string, mount MountDecl, sourceIdentity, oid string) 
 // fetches, so a mount whose pin a hint already resolves still needs its store
 // populated here. repo "" means failure, with errMsg saying why (stable,
 // Leji-authored text: git stderr never reaches output).
-func FetchIntoStore(root string, mount MountDecl, sourceIdentity string) (repo string, witnessRefreshFailed bool, errMsg string, err error) {
-	store, errMsg, err := RetainPinInStore(root, mount, sourceIdentity, mount.Pin)
+// witnessErrMsg carries the witness reason beside the flag, never in errMsg: that
+// one is the store's own failure, and a mount whose store WAS established must not
+// start reporting the witness reason as the reason nothing holds its pin.
+func FetchIntoStore(root string, mount MountDecl, sourceIdentity string, ignoreContext ...*lejiignore.Context) (repo string, witnessRefreshFailed bool, errMsg, witnessErrMsg string, err error) {
+	store, errMsg, err := RetainPinInStore(root, mount, sourceIdentity, mount.Pin, lejiignore.From(ignoreContext...))
 	if err != nil || store == "" {
-		return "", false, errMsg, err
+		return "", false, errMsg, "", err
 	}
 	// The witness refresh is the second half of what `--fetch` was asked to do, so a
 	// run that attempts it and does not publish says so on its own terms. Reported
 	// only when it was actually attempted: a run that never got this far has already
 	// reported the fetch failure that stopped it.
 	if mount.TrackingRef != "" && ValidTrackingRef(mount.TrackingRef) {
-		if !RefreshWitness(store, mount, sourceIdentity) {
-			return store, true, "", nil
+		if ok, reason := RefreshWitness(store, mount, sourceIdentity); !ok {
+			return store, true, "", reason, nil
 		}
 	}
-	return store, false, "", nil
+	return store, false, "", "", nil
 }
 
 // RefreshWitness refreshes the managed witness ref: fetch the tracking ref to a
@@ -654,7 +677,10 @@ func FetchIntoStore(root string, mount MountDecl, sourceIdentity string) (repo s
 // a non-fast-forward upstream move. No lock: git's ref update is atomic, a lost
 // swap means another writer published first (a valid outcome), and a failure
 // leaves the previous witness in place.
-func RefreshWitness(store string, mount MountDecl, sourceIdentity string) bool {
+//
+// A refusal names which half did not happen, in stable Leji-authored text: the
+// caller reports the witness act, and the act alone says nothing about why.
+func RefreshWitness(store string, mount MountDecl, sourceIdentity string) (ok bool, errMsg string) {
 	witnessRef := WitnessRefFor(sourceIdentity, mount.TrackingRef)
 	tempRef := fmt.Sprintf("%s/tmp/%d-%s", WitnessRefNamespace, os.Getpid(), randomHex(8))
 	spec := "+" + mount.TrackingRef + ":" + tempRef
@@ -689,7 +715,15 @@ func RefreshWitness(store string, mount MountDecl, sourceIdentity string) bool {
 	// Cleanup is not part of the outcome: the canonical ref has already moved, and a
 	// surviving temporary is inert (nothing reads the tmp namespace as a witness).
 	RunGit([]string{"-C", store, "update-ref", "-d", tempRef}, "")
-	return published
+	if published {
+		return true, ""
+	}
+	// Two failure classes, and no third: the tracking ref never arrived, or it
+	// arrived and the canonical ref would not take it.
+	if tip == "" {
+		return false, "the tracking ref could not be fetched from the source"
+	}
+	return false, "the witness ref could not be published"
 }
 
 func randomHex(n int) string {
@@ -1662,9 +1696,19 @@ func NowISO() string {
 // carries filesystem failures (TS exceptions); everything else is an outcome or
 // the fatal refusal.
 func HydrateMounts(root string, m *manifest.Manifest, opts HydrateOptions) (HydrateResult, error) {
+	// One context for the whole run: hydration establishes a store and a staging
+	// directory per declared mount, and they are all one invocation.
+	ignoreContext := opts.IgnoreContext
+	if ignoreContext == nil {
+		ignoreContext = lejiignore.NewContext()
+	}
+	reasons := map[string]string{}
 	tracked := TrackedCacheFiles(root)
 	if len(tracked) > 0 {
-		return HydrateResult{Fatal: fmt.Sprintf("git-tracked files under .leji/mounts/ (%s); the cache is never committed", tracked[0])}, nil
+		return HydrateResult{
+			Fatal:   fmt.Sprintf("git-tracked files under .leji/mounts/ (%s); the cache is never committed", tracked[0]),
+			Reasons: reasons,
+		}, nil
 	}
 	var mounts []MountDecl
 	for _, mount := range declaredMounts(m) {
@@ -1701,13 +1745,22 @@ func HydrateMounts(root string, m *manifest.Manifest, opts HydrateOptions) (Hydr
 		witnessRefreshFailed := false
 		var storeFetched *bool
 		if opts.Fetch {
-			repo, refreshFailed, msg, ferr := FetchIntoStore(root, mount, identity)
+			repo, refreshFailed, msg, witnessMsg, ferr := FetchIntoStore(root, mount, identity, ignoreContext)
 			if ferr != nil {
 				return HydrateResult{}, ferr
 			}
 			witnessRefreshFailed, fetchedErr = refreshFailed, msg
 			established := repo != ""
 			storeFetched = &established
+			// At most one act can fail: a store that was not established is never asked
+			// to refresh a witness, so one reason per mount is the whole vocabulary here.
+			failedAct := witnessMsg
+			if !established {
+				failedAct = msg
+			}
+			if failedAct != "" {
+				reasons[mount.Name] = failedAct
+			}
 		}
 		// A requested fetch that did not establish the store is reported on its own
 		// terms, whatever the projection then manages from a hint or the cache.
@@ -1747,7 +1800,7 @@ func HydrateMounts(root string, m *manifest.Manifest, opts HydrateOptions) (Hydr
 		// filesystem, and under a per-process name, so no two producers collide. The
 		// staging directory is established through the chokepoint and every act below
 		// works from the RESOLVED path it returned, the cache entry included.
-		staging, staged, err := establishMountsDir(root, filepath.Join(cacheDir, ".staging-"+stagingToken()))
+		staging, staged, err := establishMountsDir(root, filepath.Join(cacheDir, ".staging-"+stagingToken()), ignoreContext)
 		if err != nil {
 			return HydrateResult{}, err
 		}
@@ -1832,7 +1885,7 @@ func HydrateMounts(root string, m *manifest.Manifest, opts HydrateOptions) (Hydr
 	// Nothing is recorded: a mount's cache key is derivable from its declaration, and
 	// whether it is hydrated is the marker on disk. A state file would only be a second
 	// copy of both, and one that two concurrent partial runs can each drop entries from.
-	return HydrateResult{Outcomes: outcomes}, nil
+	return HydrateResult{Outcomes: outcomes, Reasons: reasons}, nil
 }
 
 func contains(list []string, s string) bool {
@@ -2360,7 +2413,7 @@ var headSymrefRe = regexp.MustCompile(`(?m)^ref:\s+(\S+)\s+HEAD`)
 // the witness ref into the resolver store. Any failure to reach the source
 // reports `unknown`, never a guess. The error return carries filesystem
 // failures (TS exceptions).
-func CheckPinReachability(root string, mount MountDecl) (ReachabilityResult, error) {
+func CheckPinReachability(root string, mount MountDecl, ignoreContext ...*lejiignore.Context) (ReachabilityResult, error) {
 	identity, idOK := NormalizeSource(mount.Source)
 	if !idOK {
 		return ReachabilityResult{State: "unknown", Detail: "source is not a normalizable locator"}, nil
@@ -2389,7 +2442,7 @@ func CheckPinReachability(root string, mount MountDecl) (ReachabilityResult, err
 	tip := strings.Split(line, "\t")[0]
 	// Establish ancestry in the resolver store: fetch the witness ref (full history,
 	// no promisor state), then ask whether the pin is an ancestor of its tip.
-	store, established, err := establishMountsDir(root, filepath.Join(MountsDir(root), "store", Sha256Hex(identity)))
+	store, established, err := establishMountsDir(root, filepath.Join(MountsDir(root), "store", Sha256Hex(identity)), lejiignore.From(ignoreContext...))
 	if err != nil {
 		return ReachabilityResult{}, err
 	}

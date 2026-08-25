@@ -18,6 +18,7 @@ from .manifest import (
     effective_changelog_path,
     load_manifest,
 )
+from .leji_ignore import LejiIgnoreContext
 from .mounts import MountDecl, check_pin_reachability, normalize_source
 from .validate import check_changelog_append_only, mount_surfacing_findings, validate_layer
 
@@ -83,10 +84,20 @@ def _count_attested(items: list[ChecklistItem]) -> int:
     return sum(1 for it in items if it.id in _PROCESS_ATTESTED_IDS)
 
 
-def conformance_report(root: str, federation: bool = False) -> ConformanceResult:
+def conformance_report(
+    root: str,
+    federation: bool = False,
+    ignore_context: LejiIgnoreContext | None = None,
+) -> ConformanceResult:
     """Machine-checkable items pass or fail; process items (review gate, CI,
     federation consumers) are reported as `manual` and never block a level.
-    A claim above the verified level is an error."""
+    A claim above the verified level is an error.
+
+    ``ignore_context`` is the invocation's notice state for the self-managed
+    ``.leji/.gitignore``. Only the ``--federation`` probe reaches a mounts operation
+    that can establish a role, and it reaches one PER DECLARED MOUNT, so the context is
+    threaded rather than left to each call: one invocation notices at most once,
+    however many mounts it probes."""
     items: list[ChecklistItem] = []
     findings: list[Finding] = []
     manifest = load_manifest(root).manifest
@@ -311,6 +322,7 @@ def conformance_report(root: str, federation: bool = False) -> ConformanceResult
                         pin=m["pin"],
                         tracking_ref=m.get("trackingRef"),
                     ),
+                    ignore_context,
                 )
                 if r.state != "reachable":
                     bad = (m["name"], r.state, r.detail)

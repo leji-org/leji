@@ -1,8 +1,12 @@
 #!/usr/bin/env sh
 # Pre-push guard: (1) branch-naming allowlist, (2) version coherence across
-# manifests and prose, then (3) TruffleHog secret scan on the commits being pushed
-# (defense in depth on top of pre-commit and CI). Reads ref updates on stdin per
-# the git pre-push contract.
+# manifests and prose, (3) TruffleHog secret scan on the commits being pushed
+# (defense in depth on top of pre-commit and CI), (4) release-path pins, and
+# (5) on the refs that lead to a tag, the distribution gate the PyPI upload
+# performs. Reads ref updates on stdin per the git pre-push contract.
+#
+# Stages 3 to 5 all run and the hook exits once: a missing tool skips its own
+# stage with a warning and never the stages after it.
 #
 # The branch-name check is fast local feedback; the server-side ruleset on origin
 # is the authoritative gate (this hook is bypassable with --no-verify).
@@ -60,31 +64,82 @@ else
    echo "⚠ node not found — skipping local version check (CI still checks)."
 fi
 
+_status=0
+_root="$(git rev-parse --show-toplevel)"
+
 # (3) TruffleHog secret scan.
-if ! command -v trufflehog >/dev/null 2>&1; then
+if command -v trufflehog >/dev/null 2>&1; then
+   repo="file://$_root"
+   th=0
+
+   while read -r local_ref local_sha remote_ref remote_sha; do
+      [ "$local_sha" = "$ZERO" ] && continue # deleting a ref: nothing to scan
+      if [ "$remote_sha" = "$ZERO" ]; then
+         echo "trufflehog: scanning new ref $local_ref (full history)…"
+         trufflehog git "$repo" --only-verified --fail --no-update || th=1
+      else
+         echo "trufflehog: scanning ${remote_sha}..${local_sha}…"
+         trufflehog git "$repo" --since-commit "$remote_sha" --only-verified --fail --no-update || th=1
+      fi
+   done <<EOF
+$_refs
+EOF
+
+   if [ "$th" -ne 0 ]; then
+      echo ""
+      echo "✖ trufflehog found a verified secret in the commits you're pushing (see above)."
+      echo "  Rewrite history to remove it before pushing. Last resort: git push --no-verify"
+      _status=1
+   fi
+else
    echo "⚠ trufflehog not installed — skipping local pre-push secret scan (CI still scans)."
-   exit 0
 fi
 
-repo="file://$(git rev-parse --show-toplevel)"
-status=0
+# (4) Release-path pins: every install the release path performs names an exact
+# version. Milliseconds, and a property of the whole tree like the version check
+# above. CI runs the same checker plus its self-test; this is local feedback.
+if ! sh "$_root/scripts/check-release-pins.sh"; then
+   echo ""
+   echo "✖ an install on the release path is not exactly pinned (see above)."
+   echo "  Pin it, or override with: git push --no-verify"
+   _status=1
+fi
 
-while read -r local_ref local_sha remote_ref remote_sha; do
-   [ "$local_sha" = "$ZERO" ] && continue # deleting a ref — nothing to scan
-   if [ "$remote_sha" = "$ZERO" ]; then
-      echo "trufflehog: scanning new ref $local_ref (full history)…"
-      trufflehog git "$repo" --only-verified --fail --no-update || status=1
-   else
-      echo "trufflehog: scanning ${remote_sha}..${local_sha}…"
-      trufflehog git "$repo" --since-commit "$remote_sha" --only-verified --fail --no-update || status=1
-   fi
+# (5) The distribution gate, on the refs that lead to a tag: release/* and rc/*
+# branches, and the sdk-py tag itself. Seconds and a venv, too heavy for everyday
+# branches and exactly right where the next step is an irreversible upload. The
+# publish action runs this same twine check after the tag exists, where its
+# rejection can no longer be corrected in place.
+_needs_dist=0
+while read -r _lref _lsha _rref _rsha; do
+   [ "$_lsha" = "$ZERO" ] && continue # a deletion builds nothing
+   case "$_rref" in
+      refs/heads/release/* | refs/heads/rc/* | refs/tags/packages/sdk-py/v*) _needs_dist=1 ;;
+   esac
 done <<EOF
 $_refs
 EOF
 
-if [ "$status" -ne 0 ]; then
-   echo ""
-   echo "✖ trufflehog found a verified secret in the commits you're pushing (see above)."
-   echo "  Rewrite history to remove it before pushing. Last resort: git push --no-verify"
+if [ "$_needs_dist" -eq 1 ]; then
+   # shellcheck source=scripts/lib/twine-check.sh
+   . "$_root/scripts/lib/twine-check.sh"
+   _py="$(select_python)"
+   if [ -z "$_py" ]; then
+      echo "⚠ no Python >= 3.10 found, skipping the local distribution check (CI still checks)."
+   else
+      echo "twine: building packages/sdk-py and running twine check --strict…"
+      _dist_tmp="$(mktemp -d)"
+      if ! twine_check "$_py" "$_root/packages/sdk-py" "$_dist_tmp"; then
+         echo ""
+         echo "✖ the built distribution fails twine check --strict (see above)."
+         echo "  The PyPI upload runs the same check, after the tag. Fix it first,"
+         echo "  or override with: git push --no-verify"
+         _status=1
+      fi
+      rm -rf "$_dist_tmp"
+   fi
+fi
+
+if [ "$_status" -ne 0 ]; then
    exit 1
 fi

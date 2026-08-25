@@ -37,6 +37,7 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/jsonenc"
 	"github.com/leji-org/leji/packages/sdk-go/internal/layer"
 	"github.com/leji-org/leji/packages/sdk-go/internal/layout"
+	"github.com/leji-org/leji/packages/sdk-go/internal/lejiignore"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/mounts"
 	"github.com/leji-org/leji/packages/sdk-go/internal/schemas"
@@ -451,7 +452,7 @@ func printUnindexedNudge(count int) {
 //
 // Exits: 0 written (warnings allowed), 1 an error finding — or, under `--strict`, a
 // lint finding — with the target left byte-untouched, 2 a usage error or a refusal.
-func runExport(f flags) int {
+func runExport(f flags, ignoreContext *lejiignore.Context) int {
 	load := manifest.LoadManifest(f.root)
 	out := ""
 	if f.hasOut {
@@ -467,7 +468,7 @@ func runExport(f flags) int {
 		}
 		return reportExport(f, export.BuildResult{Out: declared, Findings: load.Findings})
 	}
-	r, err := export.BuildViewer(f.root, load.Manifest, out, export.Options{Strict: f.strict})
+	r, err := export.BuildViewer(f.root, load.Manifest, out, export.Options{Strict: f.strict, IgnoreContext: ignoreContext})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
 		return 2
@@ -670,7 +671,12 @@ func printFindings(fs []findings.Finding) {
 		if f.Severity == findings.Error {
 			sev = "error  "
 		}
-		fmt.Printf("%s %s%s: %s\n", sev, f.Rule, where, f.Message)
+		// A rule that names the act it failed at says which one, on the same line.
+		detail := ""
+		if f.Detail != "" {
+			detail = " (detail: " + f.Detail + ")"
+		}
+		fmt.Printf("%s %s%s: %s%s\n", sev, f.Rule, where, f.Message, detail)
 	}
 }
 
@@ -704,6 +710,11 @@ func findingToMap(f findings.Finding) *jsonObj {
 		o.set("construct", f.Construct)
 	}
 	o.set("message", f.Message)
+	// A rule with more than one act names the one it failed at, immediately after
+	// the message; every other rule carries no such key.
+	if f.Detail != "" {
+		o.set("detail", f.Detail)
+	}
 	return o
 }
 
@@ -901,6 +912,13 @@ func Run(argv []string) int {
 			return 2
 		}
 	}
+
+	// One notice state for this invocation, created at the command entry point and
+	// handed to every path that can create a `.leji/` role: whatever a command
+	// establishes, it says at most once that it left an existing `.leji/.gitignore`
+	// alone. A second repository, or a long-lived host calling the SDK directly, never
+	// inherits it.
+	ignoreContext := lejiignore.NewContext()
 
 	switch command {
 	case "validate":
@@ -1392,7 +1410,7 @@ func Run(argv []string) int {
 			fmt.Fprintln(os.Stderr, usage)
 			return 2
 		}
-		result, rerr := conformance.Report(f.root, f.federation == "verify")
+		result, rerr := conformance.Report(f.root, f.federation == "verify", ignoreContext)
 		if rerr != nil {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", rerr.Error())
 			return 2
@@ -1487,6 +1505,7 @@ func Run(argv []string) int {
 				AllowNonFastForward: f.allowNonFF,
 				Fetch:               f.fetch,
 				DryRun:              f.dryRun,
+				IgnoreContext:       ignoreContext,
 			})
 			if uerr != nil {
 				fmt.Fprintf(os.Stderr, "leji: %s\n", uerr.Error())
@@ -1495,7 +1514,7 @@ func Run(argv []string) int {
 			return reportUpdatePin(f, r)
 		}
 		if sub == "hydrate" {
-			r, err := mounts.HydrateMounts(f.root, load.Manifest, mounts.HydrateOptions{Fetch: f.fetch})
+			r, err := mounts.HydrateMounts(f.root, load.Manifest, mounts.HydrateOptions{Fetch: f.fetch, IgnoreContext: ignoreContext})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
 				return 2
@@ -1515,7 +1534,7 @@ func Run(argv []string) int {
 					projectionFailed:     o.ProjectionFailed,
 				})
 			}
-			issues := mountFindings(rows)
+			issues := mountFindings(rows, r.Reasons)
 			hadError := false
 			for _, o := range r.Outcomes {
 				if o.Status == "error" {
@@ -1592,7 +1611,7 @@ func Run(argv []string) int {
 		}
 		// No per-row findings here: `status` never fetches, so it has nothing of
 		// its own to report.
-		issues := mountFindings(nil)
+		issues := mountFindings(nil, nil)
 		if f.json {
 			fmt.Println(mountsStatusJSON(rows, issues))
 		} else {
@@ -1631,7 +1650,7 @@ func Run(argv []string) int {
 		}
 		return 0
 	case "export":
-		return runExport(f)
+		return runExport(f, ignoreContext)
 	case "view", "viewer":
 		// `leji view` is an alias for `leji viewer serve` that also opens the browser.
 		// `leji viewer` generates only; `leji viewer serve` serves.
@@ -1647,7 +1666,7 @@ func Run(argv []string) int {
 			return 2
 		}
 		if command == "viewer" && sub == "build" {
-			return runExport(f)
+			return runExport(f, ignoreContext)
 		}
 		wantServe := isAlias || sub == "serve"
 		wantOpen := f.open || isAlias
@@ -1655,7 +1674,7 @@ func Run(argv []string) int {
 		if load.Manifest == nil {
 			return emit("viewer", load.Findings, f.json, nil)
 		}
-		result, err := viewer.GenerateViewer(f.root, load.Manifest)
+		result, err := viewer.GenerateViewer(f.root, load.Manifest, ignoreContext)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
 			return 2
@@ -1686,7 +1705,10 @@ func Run(argv []string) int {
 		if !f.json {
 			logf = func(line string) { fmt.Println(line) }
 		}
-		ln, srv, err := serve.Serve(f.root, port, load.Manifest.RootPath, logf)
+		// The generation above just projected the index: the first layer map is that
+		// snapshot rather than a second generation of the same tree.
+		ln, srv, err := serve.Serve(f.root, port, load.Manifest.RootPath, logf,
+			serve.Options{Entries: result.IndexEntries})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
 			return 2
@@ -1738,7 +1760,7 @@ func Run(argv []string) int {
 		if f.dir == "." && f.root != "." {
 			dir = f.root
 		}
-		opts := initcmd.AdoptOptions{Dir: dir, Yes: f.yes, DryRun: f.dryRun, WireAdapters: f.wireAdapters, NoAgents: f.noAgents, Agent: f.agent, Mode: f.mode}
+		opts := initcmd.AdoptOptions{Dir: dir, Yes: f.yes, DryRun: f.dryRun, WireAdapters: f.wireAdapters, NoAgents: f.noAgents, Agent: f.agent, Mode: f.mode, IgnoreContext: ignoreContext}
 		if f.hasName {
 			opts.Name = f.name
 		}
@@ -1788,7 +1810,7 @@ func Run(argv []string) int {
 			dependencyFailed = initcmd.DependencyAddFailed(offer)
 		}
 		mcp := initcmd.OfferMcpInstall(initcmd.McpOfferOptions{Root: result.Root, Detected: result.Detected, Interactive: interactive, Agent: f.agent}, hio, os.Stdout)
-		if gerr := initcmd.OfferApprovalGuard(initcmd.GuardOfferOptions{Root: result.Root, RootPath: result.Manifest.RootPath, Detected: result.Detected, Interactive: interactive, Agent: f.agent}, hio, os.Stdout); gerr != nil {
+		if gerr := initcmd.OfferApprovalGuard(initcmd.GuardOfferOptions{Root: result.Root, RootPath: result.Manifest.RootPath, Detected: result.Detected, Interactive: interactive, Agent: f.agent, IgnoreContext: ignoreContext}, hio, os.Stdout); gerr != nil {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", gerr.Error())
 			return 2
 		}
@@ -1813,7 +1835,7 @@ func Run(argv []string) int {
 		}
 		// StdinTTY gates the interactive mode question the same way the handoff
 		// offer is gated: piped/CI runs never see it.
-		opts := initcmd.Options{Dir: dir, Yes: f.yes, Level: f.level, DryRun: f.dryRun, NoAgents: f.noAgents, Agent: f.agent, Mode: f.mode, StdinTTY: stdinIsTTY()}
+		opts := initcmd.Options{Dir: dir, Yes: f.yes, Level: f.level, DryRun: f.dryRun, NoAgents: f.noAgents, Agent: f.agent, Mode: f.mode, StdinTTY: stdinIsTTY(), IgnoreContext: ignoreContext}
 		if f.hasName {
 			opts.Name = f.name
 		}
@@ -1846,7 +1868,7 @@ func Run(argv []string) int {
 			Root: result.Root, Report: initEco, Interactive: interactive,
 		}, os.Stdout)
 		mcp := initcmd.OfferMcpInstall(initcmd.McpOfferOptions{Root: result.Root, Detected: result.Detected, Interactive: interactive, Agent: f.agent}, hio, os.Stdout)
-		if gerr := initcmd.OfferApprovalGuard(initcmd.GuardOfferOptions{Root: result.Root, RootPath: result.Manifest.RootPath, Detected: result.Detected, Interactive: interactive, Agent: f.agent}, hio, os.Stdout); gerr != nil {
+		if gerr := initcmd.OfferApprovalGuard(initcmd.GuardOfferOptions{Root: result.Root, RootPath: result.Manifest.RootPath, Detected: result.Detected, Interactive: interactive, Agent: f.agent, IgnoreContext: ignoreContext}, hio, os.Stdout); gerr != nil {
 			fmt.Fprintf(os.Stderr, "leji: %s\n", gerr.Error())
 			return 2
 		}
@@ -2235,7 +2257,9 @@ func nullableStr(p *string) any {
 // observed and nothing beyond it. The row-level warnings describe the run that is
 // happening, never a remembered one, and all are visibility rather than failure —
 // `hydrate` stays best-effort, so none moves the exit code.
-func mountFindings(rows []mountFindingRow) []findings.Finding {
+// reasons carries the resolver's reason for the one `--fetch` act that failed, per
+// mount: the finding names the act, the reason says what the act ran into.
+func mountFindings(rows []mountFindingRow, reasons map[string]string) []findings.Finding {
 	var out []findings.Finding
 	for _, r := range rows {
 		// An unavailable mount whose pinned layer would not project: the outcome alone
@@ -2249,20 +2273,31 @@ func mountFindings(rows []mountFindingRow) []findings.Finding {
 				r.name,
 			))
 		}
+		reason := reasons[r.name]
 		if r.storeFetched != nil && !*r.storeFetched {
-			out = append(out, findings.New(
+			detail := ""
+			if reason != "" {
+				detail = "current pin: " + reason
+			}
+			out = append(out, findings.NewWithDetail(
 				"mount-store-fetch-failed",
 				findings.Warning,
 				"the managed store could not be established by the requested fetch",
 				r.name,
+				detail,
 			))
 		}
 		if r.witnessRefreshFailed {
-			out = append(out, findings.New(
+			detail := ""
+			if reason != "" {
+				detail = "witness: " + reason
+			}
+			out = append(out, findings.NewWithDetail(
 				"mount-witness-refresh-failed",
 				findings.Warning,
 				"the managed witness ref could not be refreshed by the requested fetch",
 				r.name,
+				detail,
 			))
 		}
 	}
@@ -2449,11 +2484,26 @@ func reportUpdatePin(f flags, r updatepin.Result) int {
 	case updatepin.ActionDryRun:
 		fmt.Printf("Would update leji.json: %s pin %s → %s (dry run)%s\n", r.Mount.Name, from12, to12, overridden)
 	case updatepin.ActionRefused:
-		prose := updatepin.Reasons[r.Reason]
+		// The refusal's own finding is what the document carries, so the human line
+		// is read off it rather than looked up a second time: one sentence, and the
+		// act it failed at when the rule names one.
+		prose, detail := "", ""
+		for _, f := range sorted {
+			if f.Severity == findings.Error {
+				prose, detail = f.Message, f.Detail
+				break
+			}
+		}
+		if prose == "" {
+			prose = updatepin.Reasons[r.Reason]
+		}
 		if prose == "" {
 			prose = r.Reason
 		}
-		fmt.Printf("Refused: %s\n", prose)
+		if detail != "" {
+			detail = " (detail: " + detail + ")"
+		}
+		fmt.Printf("Refused: %s%s\n", prose, detail)
 	}
 	if ok {
 		return 0

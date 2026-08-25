@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { exists, guardRoot, isDir, isFile, mkdirpGuarded, readTextWithin } from './fsx.js';
 import { MOUNTS_REL } from './layout.js';
+import { type LejiIgnoreContext, ensureLejiIgnoreFile, newLejiIgnoreContext } from './leji-ignore.js';
 import { type Manifest, allStringsScalar } from './manifest.js';
 import { schemaErrors } from './schemas.js';
 import { byteCompare } from './text.js';
@@ -182,9 +183,14 @@ export function mountsDir(root: string): string {
  * chokepoint, and it holds only because every one of its acts happens under a root
  * this function checked and returned — never under a path re-joined from `root`.
  */
-function establishMountsDir(root: string, dirAbs: string): string | null {
+function establishMountsDir(root: string, dirAbs: string, ignoreContext?: LejiIgnoreContext): string | null {
    const established = mkdirpGuarded(guardRoot(root), dirAbs, MOUNTS_REL);
-   return established.ok ? established.real : null;
+   if (!established.ok) return null;
+   // A role under `.leji/` now exists, so the tool's own ignore file is ensured here
+   // as it is at every other establisher. A refusal is this destination refusing:
+   // the caller reports it as it reports any destination it could not establish.
+   if (ensureLejiIgnoreFile(root, ignoreContext) === 'refused') return null;
+   return established.real;
 }
 
 /** Machine-local resolution hints (never committed): .leji/mounts.local.json. */
@@ -393,12 +399,13 @@ export function retainPinInStore(
    mount: MountDecl,
    sourceIdentity: string,
    oid: string,
+   ignoreContext?: LejiIgnoreContext,
 ): { repo: string | null; error?: string } {
    // Details are stable, Leji-authored text: git stderr never reaches output.
    const failed = (error: string) => ({ repo: null, error });
    // The locator becomes argv here: anything option-shaped is refused, never passed.
    if (mount.source.startsWith('-')) return failed('the source locator may not begin with "-"');
-   const store = establishMountsDir(root, storeDir(root, sourceIdentity));
+   const store = establishMountsDir(root, storeDir(root, sourceIdentity), ignoreContext);
    if (store === null) return failed('the managed store could not be initialized');
    if (!isGitRepo(store)) {
       if (!runGit(['init', '--bare', '-q', store]).ok) return failed('the managed store could not be initialized');
@@ -442,8 +449,9 @@ export function fetchIntoStore(
    root: string,
    mount: MountDecl,
    sourceIdentity: string,
-): { repo: string | null; witnessRefreshFailed?: boolean; error?: string } {
-   const retained = retainPinInStore(root, mount, sourceIdentity, mount.pin);
+   ignoreContext?: LejiIgnoreContext,
+): { repo: string | null; witnessRefreshFailed?: boolean; error?: string; witnessError?: string } {
+   const retained = retainPinInStore(root, mount, sourceIdentity, mount.pin, ignoreContext);
    if (retained.repo === null) return retained;
    const store = retained.repo;
    // The witness refresh is the second half of what `--fetch` was asked to do, so a
@@ -451,7 +459,11 @@ export function fetchIntoStore(
    // only when it was actually attempted: a run that never got this far has already
    // reported the fetch failure that stopped it.
    if (mount.trackingRef !== undefined && validTrackingRef(mount.trackingRef)) {
-      if (!refreshWitness(store, mount, sourceIdentity)) return { repo: store, witnessRefreshFailed: true };
+      // The witness reason travels beside the flag, never in `error`: that one is
+      // the store's own failure, and a mount whose store WAS established must not
+      // start reporting the witness reason as the reason nothing holds its pin.
+      const refreshed = refreshWitness(store, mount, sourceIdentity);
+      if (!refreshed.ok) return { repo: store, witnessRefreshFailed: true, witnessError: refreshed.error };
    }
    return { repo: store };
 }
@@ -469,8 +481,15 @@ export function refOid(repo: string, ref: string): string | null {
  * upstream move. No lock: git's ref update is atomic, a lost swap means another
  * writer published first (a valid outcome), and a failure leaves the previous
  * witness in place.
+ *
+ * A refusal names which half did not happen, in stable Leji-authored text: the
+ * caller reports the witness act, and the act alone says nothing about why.
  */
-export function refreshWitness(store: string, mount: MountDecl, sourceIdentity: string): boolean {
+export function refreshWitness(
+   store: string,
+   mount: MountDecl,
+   sourceIdentity: string,
+): { ok: boolean; error?: string } {
    const witnessRef = witnessRefFor(sourceIdentity, mount.trackingRef!);
    const tempRef = `${WITNESS_REF_NAMESPACE}/tmp/${process.pid}-${crypto.randomBytes(8).toString('hex')}`;
    const spec = `+${mount.trackingRef}:${tempRef}`;
@@ -508,7 +527,16 @@ export function refreshWitness(store: string, mount: MountDecl, sourceIdentity: 
    // Cleanup is not part of the outcome: the canonical ref has already moved, and a
    // surviving temporary is inert (nothing reads the tmp namespace as a witness).
    runGit(['-C', store, 'update-ref', '-d', tempRef]);
-   return published;
+   if (published) return { ok: true };
+   // Two failure classes, and no third: the tracking ref never arrived, or it
+   // arrived and the canonical ref would not take it.
+   return {
+      ok: false,
+      error:
+         tip === null
+            ? 'the tracking ref could not be fetched from the source'
+            : 'the witness ref could not be published',
+   };
 }
 
 interface TreeEntry {
@@ -1159,16 +1187,27 @@ function declaredMounts(manifest: Manifest): MountDecl[] {
    }));
 }
 
+/**
+ * Hydrate the declared mounts. `reasons` carries the resolver's own reason for the
+ * one `--fetch` act that failed per mount, keyed by mount name, for the caller's
+ * findings; it is a transport, never a document member, and the writers of
+ * `mounts hydrate --json` pick their fields explicitly so it is never serialized.
+ */
 export function hydrateMounts(
    root: string,
    manifest: Manifest,
-   opts: { fetch?: boolean; names?: string[] } = {},
-): { outcomes: HydrateOutcome[]; fatal?: string } {
+   opts: { fetch?: boolean; names?: string[]; ignoreContext?: LejiIgnoreContext } = {},
+): { outcomes: HydrateOutcome[]; fatal?: string; reasons: Map<string, string> } {
+   // One context for the whole run: hydration establishes a store and a staging
+   // directory per declared mount, and they are all one invocation.
+   const ignoreContext = opts.ignoreContext ?? newLejiIgnoreContext();
+   const reasons = new Map<string, string>();
    const tracked = trackedCacheFiles(root);
    if (tracked.length > 0) {
       return {
          outcomes: [],
          fatal: `git-tracked files under .leji/mounts/ (${tracked[0]}); the cache is never committed`,
+         reasons,
       };
    }
    const mounts = declaredMounts(manifest).filter((m) => !opts.names || opts.names.includes(m.name));
@@ -1196,7 +1235,11 @@ export function hydrateMounts(
       // --fetch populates the store for every declared mount, cached or already
       // resolvable: the store is the only witness namespace the resolver owns,
       // and `status` never fetches.
-      const fetched = opts.fetch ? fetchIntoStore(root, mount, identity) : null;
+      const fetched = opts.fetch ? fetchIntoStore(root, mount, identity, ignoreContext) : null;
+      // At most one act can fail: a store that was not established is never asked to
+      // refresh a witness, so one reason per mount is the whole vocabulary here.
+      const failedAct = fetched?.repo === null ? fetched.error : fetched?.witnessError;
+      if (failedAct !== undefined) reasons.set(mount.name, failedAct);
       // A requested fetch that did not establish the store is reported on its own
       // terms, whatever the projection then manages from a hint or the cache.
       const outcome = (o: HydrateOutcome): HydrateOutcome => ({
@@ -1236,7 +1279,7 @@ export function hydrateMounts(
       // filesystem, and under a per-process name, so no two producers collide. The
       // staging directory is established through the chokepoint and every act below
       // works from the RESOLVED path it returned, the cache entry included.
-      const staging = establishMountsDir(root, path.join(cacheDir, `.staging-${stagingToken()}`));
+      const staging = establishMountsDir(root, path.join(cacheDir, `.staging-${stagingToken()}`), ignoreContext);
       if (staging === null) {
          outcomes.push(
             outcome({
@@ -1300,7 +1343,7 @@ export function hydrateMounts(
    // Nothing is recorded: a mount's cache key is derivable from its declaration, and
    // whether it is hydrated is the marker on disk. A state file would only be a second
    // copy of both, and one that two concurrent partial runs can each drop entries from.
-   return { outcomes };
+   return { outcomes, reasons };
 }
 
 /**
@@ -1649,7 +1692,11 @@ export interface ReachabilityResult {
  * store. Any failure to reach the source reports `unknown`, never a guess, and
  * every detail is stable text: git stderr never reaches conformance output.
  */
-export function checkPinReachability(root: string, mount: MountDecl): ReachabilityResult {
+export function checkPinReachability(
+   root: string,
+   mount: MountDecl,
+   ignoreContext?: LejiIgnoreContext,
+): ReachabilityResult {
    const identity = normalizeSource(mount.source);
    if (identity === null) {
       return { state: 'unknown', witnessRef: null, detail: 'source is not a normalizable locator' };
@@ -1677,7 +1724,7 @@ export function checkPinReachability(root: string, mount: MountDecl): Reachabili
    const tip = line.split('\t')[0];
    // Establish ancestry in the resolver store: fetch the witness ref (full history,
    // no promisor state), then ask whether the pin is an ancestor of its tip.
-   const store = establishMountsDir(root, path.join(mountsDir(root), 'store', sha256Hex(identity)));
+   const store = establishMountsDir(root, path.join(mountsDir(root), 'store', sha256Hex(identity)), ignoreContext);
    if (store === null) {
       return { state: 'unknown', witnessRef, detail: 'the managed store could not be initialized' };
    }

@@ -2,6 +2,11 @@
 # TruffleHog secret scan on staged changes. The same scan runs in CI
 # (.github/workflows/ci.yml → secret-scan).
 #
+# The staged list is piped straight into xargs -0: `-z` carries raw UTF-8 path
+# bytes and NUL delimiters, while plain --name-only octal-quotes non-ASCII
+# paths (trufflehog then fails lstat and skips the file). A shell variable
+# cannot hold NULs, so the list never lands in one.
+#
 # Bypass for a confirmed false positive (last resort): git commit --no-verify
 
 if ! command -v trufflehog >/dev/null 2>&1; then
@@ -10,13 +15,12 @@ if ! command -v trufflehog >/dev/null 2>&1; then
    exit 0
 fi
 
-files=$(git diff --cached --name-only --diff-filter=ACM)
-[ -z "$files" ] && exit 0
+git diff --cached --quiet --diff-filter=ACM && exit 0
 
 echo "trufflehog: scanning staged files…"
 # Lob excluded: its test-key pattern matches pytest function names (FP since
 # trufflehog 3.96.0); keep in sync with ci.yml → secret-scan.
-printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 trufflehog filesystem --only-verified --fail --no-update --exclude-detectors=lob || {
+git diff --cached --name-only -z --diff-filter=ACM | xargs -0 trufflehog filesystem --only-verified --fail --no-update --exclude-detectors=lob || {
    echo ""
    echo "✖ trufflehog found a verified secret in your staged changes (see above)."
    echo "  Remove it before committing. Last resort (false positive): git commit --no-verify"

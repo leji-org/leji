@@ -96,6 +96,18 @@ jobs:
       # published tarball or on pkg.go.dev, where it cannot be corrected in place.
       - run: npm run version:check
 
+  release-pins:
+    name: Release-path pins (checker + self-test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The hook that runs this locally is bypassable with --no-verify, so the
+      # authoritative run is here.
+      - run: sh scripts/check-release-pins.sh
+      # And the checker itself is checked: a scanner that matches nothing also
+      # exits 0, so the fixtures prove each rule still fires.
+      - run: sh scripts/check-release-pins.sh --self-test
+
   node-sdk:
     name: Node SDK (build + test, Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
@@ -169,33 +181,48 @@ jobs:
           named test/export.test.ts 2 '^strict: .+$'
 
   mcp:
-    name: MCP server (build + test)
+    name: MCP server (build + test, Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The server publishes engines.node >=22, so the floor is exercised here
+        # for the same reason it is on the SDK job above: a suite that only ever
+        # runs on the newest runtime tests everything except what it claims.
+        node-version: [22, 24]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version: ${{ matrix.node-version }}
       - run: npm ci
       - run: npm run build -w packages/sdk
       - run: npm run build -w packages/mcp
       - run: npm test -w packages/mcp
 
   python-sdk:
-    name: Python SDK (lint + type + test)
+    name: Python SDK (lint + type + test, Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both ends of what the package claims on PyPI, and the version in the
+        # middle that the rest of CI runs on: 3.10 is the requires-python floor,
+        # 3.14 the newest classifier, and a suite exercised only at one point in
+        # that span tests neither promise.
+        python-version: ["3.10", "3.12", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - name: Install
         working-directory: packages/sdk-py
-        run: python -m pip install --upgrade pip && pip install -e ".[dev]"
+        run: python -m pip install pip==26.2.1 && pip install -e ".[dev]"
       - name: Ruff
         working-directory: packages/sdk-py
         run: ruff check . && ruff format --check .
@@ -205,6 +232,13 @@ jobs:
       - name: Pytest
         working-directory: packages/sdk-py
         run: pytest -q
+      # The PyPI upload runs twine check --strict and refuses what it cannot
+      # render, after the tag exists. The same check on every PR, on a
+      # distribution built here, so metadata never reaches a tag unrendered.
+      - name: twine check --strict (the publish action's own gate)
+        run: |
+          . scripts/lib/twine-check.sh
+          twine_check python3 packages/sdk-py "$RUNNER_TEMP/twine-gate"
 
   go-sdk:
     name: Go SDK (fmt + vet + test)
@@ -215,7 +249,7 @@ jobs:
           submodules: recursive
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.23"
+          go-version: "1.27.0"
           cache-dependency-path: packages/sdk-go/go.sum
       - name: gofmt
         working-directory: packages/sdk-go
@@ -230,7 +264,8 @@ jobs:
       - name: goreleaser check
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
-          version: "~> v2"
+          # The same goreleaser the release job installs (scripts/release-pins.env).
+          version: "v2.18.0"
           workdir: packages/sdk-go
           args: check
 
@@ -246,7 +281,7 @@ jobs:
           node-version: 24
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.23"
+          go-version: "1.27.0"
           cache-dependency-path: packages/sdk-go/go.sum
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -267,7 +302,7 @@ jobs:
           node-version: 24
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.23"
+          go-version: "1.27.0"
           cache-dependency-path: packages/sdk-go/go.sum
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -276,7 +311,7 @@ jobs:
       - run: npm run build -w packages/sdk
       - name: Install the Python SDK
         working-directory: packages/sdk-py
-        run: python -m pip install --upgrade pip && pip install -e ".[dev]"
+        run: python -m pip install pip==26.2.1 && pip install -e ".[dev]"
       # Compiled here, where the network still exists, so nothing inside the
       # namespace needs to reach a module proxy to build what it runs.
       - name: Compile the Go fixture tests
@@ -322,6 +357,32 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npm run build -w leji-site
+
+  ui-smoke:
+    name: UI smoke (viewer, export, and site in a browser)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: npm ci
+      # Both builds are inputs to the suite: it runs the CLI out of packages/sdk/dist
+      # and previews the site out of packages/site/dist.
+      - run: npm run build -w packages/sdk
+      - run: npm run build -w packages/site
+      - run: npm run browsers -w packages/e2e
+      - run: npm run e2e -w packages/e2e
+      # Traces and screenshots are retained only for failures, so a red job is
+      # inspectable without a rerun and a green one uploads nothing.
+      - name: Playwright report and traces
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-smoke-report
+          path: |
+            packages/e2e/report/
+            packages/e2e/test-results/
 
   dogfood:
     name: Dogfood (repo conforms to its own spec)

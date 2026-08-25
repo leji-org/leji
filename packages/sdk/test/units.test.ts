@@ -1,7 +1,10 @@
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
+import * as Module from 'node:module';
+import { createRequire } from 'node:module';
 import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -9,6 +12,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import * as vm from 'node:vm';
 import {
+   buildLayerMap,
    buildSidebar,
    buildManifestPage,
    ciProviderFromRemote,
@@ -22,6 +26,7 @@ import {
    generateViewer,
    loadManifest,
    pickDocsRoot,
+   renderOverview,
    seedChangelogIfMissing,
    serializeChangelog,
    statusReport,
@@ -1213,7 +1218,7 @@ test('viewer: brand config (logo, primary color, title, favicon, pins) flows int
    );
 });
 
-test('viewer: seeds an editable overview homepage with a generated layer map', () => {
+test('viewer: seeds an editable overview homepage whose markers stand empty', () => {
    const dir = copyExample();
    const { manifest } = loadManifest(dir);
    generateViewer(dir, manifest!);
@@ -1221,30 +1226,55 @@ test('viewer: seeds an editable overview homepage with a generated layer map', (
    assert.ok(fs.existsSync(overview), 'overview.md seeded at the content root');
    const text = fs.readFileSync(overview, 'utf8');
    assert.match(text, /^# acme-billing-context$/m, 'titled with the layer name');
-   assert.match(text, /<!-- leji:generated-map:start -->/, 'carries the regen markers');
-   assert.match(text, /```mermaid\nflowchart LR/, 'the map is a mermaid flowchart');
-   assert.match(text, /boot --> cat_domain/, 'boot links to the domain category');
-   assert.match(text, /cat_domain\["📖 Domain · 1 doc"\]/, 'categories carry counts, never per-doc nodes');
-   assert.ok(!text.includes('n_glossary'), 'no per-document nodes (unreadable at scale)');
+   assert.match(text, /<!-- leji:generated-map:start -->/, 'carries the map markers');
+   // The map is derived from the index, so the seed carries the placement mark and
+   // one line saying where the map comes from, never a copy of the map itself.
+   assert.equal(
+      text.split('<!-- leji:generated-map:start -->\n')[1].split('\n<!-- leji:generated-map:end -->')[0],
+      '<!-- the layer map is rendered here by the viewer and by leji export -->',
+      'the markers wrap exactly the rendering note',
+   );
+   assert.ok(!text.includes('```mermaid\nflowchart LR'), 'no map is written into the source file');
+   assert.match(text, /this file is never rewritten/, 'the seed says so in its own prose');
 });
 
-test('viewer: overview is seeded once; only the marked map block is regenerated', () => {
+test('viewer: the layer map is rendered from the index, never written into the source', () => {
    const dir = copyExample();
    const { manifest } = loadManifest(dir);
    generateViewer(dir, manifest!);
    const overview = path.join(dir, 'docs', 'overview.md');
-   // The owner rewrites the prose but keeps the markers.
+   const seeded = fs.readFileSync(overview);
+   // A second run over the same tree writes nothing: the seed happens once.
+   generateViewer(dir, manifest!);
+   assert.deepEqual(fs.readFileSync(overview), seeded, 'a second run leaves the seeded page byte-identical');
+   // The owner rewrites the prose, keeps the markers, and leaves a stale map inside
+   // them. Adding a document changes the counts the map would show.
    const edited = `# My own title\n\nHand-written intro.\n\n<!-- leji:generated-map:start -->\nstale\n<!-- leji:generated-map:end -->\n\nMore prose.\n`;
    fs.writeFileSync(overview, edited);
+   fs.writeFileSync(path.join(dir, 'docs', 'domain', 'pricing.md'), '# Pricing\n\nHow we price.\n');
+   const before = crypto.createHash('sha256').update(fs.readFileSync(overview)).digest('hex');
    const result = generateViewer(dir, manifest!);
-   const after = fs.readFileSync(overview, 'utf8');
-   assert.match(after, /^# My own title$/m, 'owner prose preserved');
-   assert.match(after, /More prose\./, 'trailing prose preserved');
-   assert.match(after, /```mermaid\nflowchart LR/, 'the stale map block was refreshed');
-   assert.ok(!after.includes('\nstale\n'), 'old map content replaced');
+   assert.equal(
+      crypto.createHash('sha256').update(fs.readFileSync(overview)).digest('hex'),
+      before,
+      'a reindex that changes the map leaves overview.md byte-identical',
+   );
    assert.ok(
       !result.findings.some((f) => f.rule === 'overview-markers-missing'),
       'no warning when the markers are intact',
+   );
+   // The map exists at render time, from the same entries the run projected.
+   const rendered = renderOverview(edited, manifest!, result.indexEntries);
+   assert.equal(rendered.markersFound, true, 'the markers are the placement mark');
+   assert.match(rendered.text, /^# My own title$/m, 'owner prose preserved around the map');
+   assert.match(rendered.text, /More prose\./, 'trailing prose preserved');
+   assert.match(rendered.text, /```mermaid\nflowchart LR/, 'the rendered page carries the map');
+   assert.ok(!rendered.text.includes('\nstale\n'), 'the stale block is ignored, not merged');
+   assert.match(rendered.text, /cat_domain\["📖 Domain · 2 docs"\]/, 'the rendered counts are the tree of today');
+   // The rendered map is exactly what buildLayerMap produces for those entries.
+   assert.ok(
+      rendered.text.includes('```mermaid\n' + buildLayerMap(manifest!, result.indexEntries) + '\n```'),
+      'the map block is buildLayerMap between fences',
    );
 });
 
@@ -1258,9 +1288,16 @@ test('viewer: an overview without markers is left untouched and warns', () => {
    const result = generateViewer(dir, manifest!);
    assert.equal(fs.readFileSync(overview, 'utf8'), custom, 'a marker-less overview is never modified');
    assert.ok(
-      result.findings.some((f) => f.rule === 'overview-markers-missing' && f.severity === 'warning'),
-      'warns that the map was not refreshed',
+      result.findings.some(
+         (f) =>
+            f.rule === 'overview-markers-missing' &&
+            f.severity === 'warning' &&
+            f.message === 'overview.md has no generated-map markers; the map is not rendered',
+      ),
+      'warns that the map has nowhere to render',
    );
+   // With nowhere to put it, the page renders as its own source bytes.
+   assert.deepEqual(renderOverview(custom, manifest!, result.indexEntries), { text: custom, markersFound: false });
 });
 
 test('viewer build: exports a self-contained static folder carrying the protect warning', async () => {
@@ -1814,6 +1851,251 @@ test('viewer: serve serves the scaffold on localhost', async () => {
       assert.equal(dotLeji.status, 404, 'the .leji dir is reachable only through the mounts');
       const traversal = await fetch(`http://127.0.0.1:${port}/..%2f..%2fetc%2fpasswd`);
       assert.notEqual(traversal.status, 200, 'path traversal refused');
+   } finally {
+      server.close();
+   }
+});
+
+// --- the overview map is served, never stored ---
+// The layer map used to be written into the committed overview.md on every run that
+// changed a document count. It is now substituted between the author's markers when
+// the page is read: these pin the served half (the export's is in export.test.ts).
+
+test('viewer: serve renders the layer map into the overview page, never into the file', async () => {
+   const dir = copyExample();
+   const { manifest } = loadManifest(dir);
+   generateViewer(dir, manifest!);
+   const overview = path.join(dir, 'docs', 'overview.md');
+   // A document added after the seed: the served map counts the tree of right now.
+   fs.writeFileSync(path.join(dir, 'docs', 'domain', 'pricing.md'), '# Pricing\n\nHow we price.\n');
+   const before = fs.readFileSync(overview);
+   const { server, port } = await serveOnFreePort(dir, manifest!.rootPath);
+   try {
+      const res = await fetch(`http://127.0.0.1:${port}/content/overview.md`);
+      assert.equal(res.status, 200);
+      assert.equal(res.headers.get('content-type'), 'text/markdown; charset=utf-8');
+      const text = await res.text();
+      const entries = generateViewer(dir, manifest!).indexEntries;
+      assert.ok(
+         text.includes('```mermaid\n' + buildLayerMap(manifest!, entries) + '\n```'),
+         'the served map is exactly what buildLayerMap produces for the live index',
+      );
+      assert.match(text, /cat_domain\["📖 Domain · 2 docs"\]/, 'the document added after the seed is counted');
+      assert.equal(
+         text,
+         renderOverview(before.toString('utf8'), manifest!, entries).text,
+         'the served page is the source with the marked span substituted',
+      );
+      assert.deepEqual(fs.readFileSync(overview), before, 'serving the page never writes it');
+   } finally {
+      server.close();
+   }
+});
+
+test('viewer: serve keeps the last good map when the layer stops indexing, and recovers', async () => {
+   const dir = copyExample();
+   const { manifest } = loadManifest(dir);
+   generateViewer(dir, manifest!);
+   const overview = path.join(dir, 'docs', 'overview.md');
+   const source = fs.readFileSync(overview, 'utf8');
+   const { server, port } = await serveOnFreePort(dir, manifest!.rootPath);
+   const overviewText = async (): Promise<string> => {
+      const res = await fetch(`http://127.0.0.1:${port}/content/overview.md`);
+      assert.equal(res.status, 200);
+      return res.text();
+   };
+   try {
+      const good = await overviewText();
+      assert.match(good, /```mermaid\nflowchart LR/, 'a healthy tree renders the fresh map');
+      // A genuine generation failure: the manifest no longer parses, so this fetch
+      // has no index at all. The page keeps the map it last had rather than losing it.
+      const manifestAbs = path.join(dir, 'leji.json');
+      const manifestText = fs.readFileSync(manifestAbs, 'utf8');
+      fs.writeFileSync(manifestAbs, '{ not json');
+      assert.equal(await overviewText(), good, 'the last good map is served while the tree cannot be indexed');
+      // Repaired, with the tree moved on: the map is the one the tree has now.
+      fs.writeFileSync(manifestAbs, manifestText);
+      fs.writeFileSync(path.join(dir, 'docs', 'domain', 'pricing.md'), '# Pricing\n\nHow we price.\n');
+      assert.match(await overviewText(), /cat_domain\["📖 Domain · 2 docs"\]/, 'the repaired tree renders afresh');
+      assert.equal(fs.readFileSync(overview, 'utf8'), source, 'none of it wrote the source file');
+   } finally {
+      server.close();
+   }
+});
+
+test('viewer: serve refuses an overview.md that resolves out of the content root', async () => {
+   const dir = fs.realpathSync(copyExample());
+   const { manifest } = loadManifest(dir);
+   generateViewer(dir, manifest!);
+   const overview = path.join(dir, 'docs', 'overview.md');
+   // An ordinary file elsewhere in the repository: the route is a content route
+   // first, and a content route serves nothing from outside its own mount.
+   fs.writeFileSync(path.join(dir, 'elsewhere.md'), '# Elsewhere\n');
+   fs.rmSync(overview);
+   fs.symlinkSync(path.join(dir, 'elsewhere.md'), overview);
+   const { server, port } = await serveOnFreePort(dir, manifest!.rootPath);
+   try {
+      const res = await fetch(`http://127.0.0.1:${port}/content/overview.md`);
+      assert.equal(res.status, 403, 'a target outside the content mount is refused');
+      assert.ok(!(await res.text()).includes('Elsewhere'), 'and nothing of it is served');
+   } finally {
+      server.close();
+   }
+});
+
+test('viewer: an overview.md retargeted between requests is the page or an ordinary refusal (settled states)', async () => {
+   // SETTLED STATES ONLY. The retargeting here happens between requests, never inside
+   // one: the swapper and the request handler share this thread, and the route's
+   // resolve-check-read sequence is synchronous, so no swap can land inside it. What
+   // this holds is the state machine either side of a swap, over many alternations.
+   // The window itself is the deterministic canary below, which injects the swap
+   // inside the sequence and is the load-bearing test of the binding.
+   const dir = fs.realpathSync(copyExample());
+   const { manifest } = loadManifest(dir);
+   generateViewer(dir, manifest!);
+   const overview = path.join(dir, 'docs', 'overview.md');
+   // The real page moves aside and overview.md becomes a link to it: the legitimate
+   // target is then a symlink too, so the swap changes only where it points.
+   const inside = path.join(dir, 'docs', 'home.md');
+   fs.renameSync(overview, inside);
+   const outside = path.join(dir, 'outside.md');
+   const secret = 'SECRET-OUTSIDE-THE-CONTENT-ROOT';
+   fs.writeFileSync(outside, `# Outside\n\n${secret}\n`);
+   fs.symlinkSync(inside, overview);
+   const { server, port } = await serveOnFreePort(dir, manifest!.rootPath);
+   const point = (target: string): void => {
+      fs.rmSync(overview, { force: true });
+      fs.symlinkSync(target, overview);
+   };
+   try {
+      let swapping = true;
+      let swaps = 0;
+      const swapper = (async (): Promise<void> => {
+         while (swapping) {
+            point(outside);
+            swaps++;
+            await new Promise((r) => setImmediate(r));
+            point(inside);
+            swaps++;
+            await new Promise((r) => setImmediate(r));
+         }
+      })();
+      const statuses = new Set<number>();
+      for (let i = 0; i < 60; i++) {
+         const res = await fetch(`http://127.0.0.1:${port}/content/overview.md`);
+         statuses.add(res.status);
+         assert.ok(!(await res.text()).includes(secret), `response ${i} carried bytes from outside the mount`);
+      }
+      swapping = false;
+      await swapper;
+      assert.ok(swaps > 0, 'the swap actually ran against the live server');
+      assert.ok(
+         [...statuses].every((s) => s === 200 || s === 403 || s === 404),
+         `only the page or an ordinary content-route refusal: ${[...statuses].join(', ')}`,
+      );
+      // Not vacuous: requests really did land on the swapped-in target, and were
+      // refused rather than served.
+      assert.ok(statuses.has(403), `the swap was seen by the route: ${[...statuses].join(', ')}`);
+      // Settled, both ways, so the statuses above are not the whole claim.
+      point(outside);
+      const refused = await fetch(`http://127.0.0.1:${port}/content/overview.md`);
+      assert.equal(refused.status, 403, 'a target outside the content mount is refused');
+      assert.ok(!(await refused.text()).includes(secret));
+      point(inside);
+      const served = await fetch(`http://127.0.0.1:${port}/content/overview.md`);
+      assert.equal(served.status, 200, 'and the legitimate target still serves');
+      assert.match(await served.text(), /```mermaid\nflowchart LR/, 'with the map rendered into it');
+   } finally {
+      server.close();
+   }
+});
+
+test('check-before-act: an overview.md swapped between the authorization and the read is refused, never served', async () => {
+   // The window the overview route's binding exists for: the link is retargeted AFTER
+   // the resolution that authorizes the source and BEFORE the bytes are taken, at a
+   // target inside the repository but outside the content mount, where the private-role
+   // and containment guards alone say yes. Deterministic, not a race: the patched
+   // resolver performs the swap inline, so the window is exercised on every run (the
+   // idiom the export canaries use).
+   //
+   // Mutation that reddens: give the route back its pre-review shape, a `realpathSync`
+   // that authorizes the path followed by a read that resolves the path again
+   // (`verifiedTargetRead`), and the swapped-in file's bytes are served with a 200.
+   const dir = fs.realpathSync(copyExample());
+   const { manifest } = loadManifest(dir);
+   generateViewer(dir, manifest!);
+   const overview = path.join(dir, 'docs', 'overview.md');
+   // The legitimate target is a real page inside the content root; overview.md is the
+   // link, so the swap changes only where it points.
+   const inside = path.join(dir, 'docs', 'home.md');
+   fs.renameSync(overview, inside);
+   const outside = path.join(dir, 'outside.md');
+   const secret = 'SECRET-OUTSIDE-THE-CONTENT-ROOT';
+   fs.writeFileSync(outside, `# Outside\n\n${secret}\n`);
+   fs.symlinkSync(inside, overview);
+   const { server, port } = await serveOnFreePort(dir, manifest!.rootPath);
+
+   // Builtin ESM bindings are snapshotted at link time, hence the CJS patch plus the
+   // resync. BOTH spellings are patched: `resolvedPath` (and so the verified open)
+   // resolves with `realpathSync.native`, while a route that authorizes with the
+   // JavaScript `realpathSync` must fall into the same window, or the mutation above
+   // could not be observed.
+   const require = createRequire(import.meta.url);
+   const nodeFs = require('node:fs') as Record<string, unknown>;
+   type Realpath = ((p: unknown, o?: unknown) => string) & { native: (p: unknown, o?: unknown) => string };
+   const original = nodeFs.realpathSync as Realpath;
+   const originalNative = original.native;
+   let armed = false;
+   let swapped = false;
+   // Called with the answer the real resolver just produced: the caller is about to
+   // judge or open THAT path, and the entry it came from is retargeted first.
+   const swapAfter = (p: unknown, answer: string): string => {
+      if (armed && !swapped && typeof p === 'string' && path.resolve(p) === overview) {
+         swapped = true;
+         fs.rmSync(overview, { force: true });
+         fs.symlinkSync(outside, overview);
+      }
+      return answer;
+   };
+   const patched = ((p: unknown, o?: unknown) => swapAfter(p, original(p, o))) as Realpath;
+   patched.native = (p: unknown, o?: unknown): string => swapAfter(p, originalNative(p, o));
+   nodeFs.realpathSync = patched;
+   Module.syncBuiltinESMExports();
+   let res: Response;
+   let body: string;
+   try {
+      armed = true;
+      res = await fetch(`http://127.0.0.1:${port}/content/overview.md`);
+      body = await res.text();
+   } finally {
+      armed = false;
+      nodeFs.realpathSync = original;
+      Module.syncBuiltinESMExports();
+      server.close();
+   }
+
+   assert.ok(swapped, 'the link was retargeted inside the route, after the authorizing resolution');
+   assert.equal(fs.readlinkSync(overview), outside, 'and it still points outside the content mount');
+   assert.ok(!body.includes(secret), `no byte from outside the content mount was served: ${JSON.stringify(body)}`);
+   // The mapping the ordinary content route uses: the source resolves outside the
+   // mount, so the mount answers, and it answers before anything is read.
+   assert.equal(res.status, 403, `the swapped-in target is refused: ${res.status}`);
+});
+
+test('viewer: serve refuses an overview.md symlinked into a private .leji role', async () => {
+   // The content root here IS the repository root, so the private role is inside the
+   // mount and the servable whitelist is the check that answers: refused as today.
+   const dir = fs.realpathSync(copyExample());
+   const { manifest } = loadManifest(dir);
+   generateViewer(dir, manifest!);
+   fs.mkdirSync(path.join(dir, '.leji', 'work'), { recursive: true });
+   fs.writeFileSync(path.join(dir, '.leji', 'work', 'private.md'), '# Private notes\n');
+   fs.symlinkSync(path.join(dir, '.leji', 'work', 'private.md'), path.join(dir, 'overview.md'));
+   const { server, port } = await serveOnFreePort(dir, '.');
+   try {
+      const res = await fetch(`http://127.0.0.1:${port}/content/overview.md`);
+      assert.equal(res.status, 404, 'a private role is not servable, however it is reached');
+      assert.ok(!(await res.text()).includes('Private notes'), 'and nothing of it is served');
    } finally {
       server.close();
    }

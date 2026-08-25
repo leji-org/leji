@@ -26,7 +26,8 @@ import {
    writeFileAtomicGuarded,
    writeFileGuarded,
 } from '../lib/fsx.js';
-import { type TargetVerdict, LEJI_DIR, WORK_REL } from '../lib/layout.js';
+import { type TargetVerdict, LEJI_DIR, LEJI_IGNORE_REL, WORK_REL } from '../lib/layout.js';
+import { type LejiIgnoreContext, ensureLejiIgnoreFile } from '../lib/leji-ignore.js';
 import { type PlanEntry, type PlannedWrite, buildWritePlan } from '../lib/writeplan.js';
 import {
    type DetectedHost,
@@ -67,6 +68,10 @@ export interface InitOptions {
    /** Skip generating the portable `AGENTS.md` pointer (written by default when
     * absent; an existing file is never touched). */
    noAgents?: boolean;
+   /** The invocation's notice state for the self-managed `.leji/.gitignore`, which
+    * this command ensures when it creates the onboarding workspace. Omitted means a
+    * context local to this call. */
+   ignoreContext?: LejiIgnoreContext;
 }
 
 /** The layer's working mode: a team of one (`solo`) or a team (`team`). */
@@ -426,6 +431,15 @@ function initRole(rel: string): string | null {
 function guardedOrRefuse(rel: string, verdict: TargetVerdict): void {
    if (!verdict.ok) {
       throw new Error(`refusing to write through a symlink that escapes the target: "${rel}"`);
+   }
+}
+
+/** The transient onboarding workspace is a `.leji/` role, so these commands ensure
+ * the tool's own ignore file exactly as every other role establisher does. A
+ * refusal is the refusal this command has always raised for an escaping target. */
+function ensureLejiIgnoreOrRefuse(root: string, ignoreContext?: LejiIgnoreContext): void {
+   if (ensureLejiIgnoreFile(root, ignoreContext) === 'refused') {
+      throw new Error(`refusing to write through a symlink that escapes the target: "${LEJI_IGNORE_REL}"`);
    }
 }
 
@@ -1934,6 +1948,10 @@ export async function initLayer(options: InitOptions): Promise<InitResult> {
       if (w.rel === changelogRel) continue;
       writeFileOnce(root, w.rel, w.content, written);
    }
+   // The onboarding workspace is a `.leji/` role and now exists, so the tool ignores
+   // its own tree from inside: the nested counterpart to the root `.gitignore` line
+   // above, and the one that covers a layer whose root file never received it.
+   ensureLejiIgnoreOrRefuse(root, options.ignoreContext);
    // The whole of the `leji index` rule, not half of it: writeIndex declines to
    // write on a hard generation finding, so the file is not claimed, the dependent
    // changelog is not seeded, and the findings travel out for the caller to report.
@@ -2021,6 +2039,10 @@ export interface AdoptOptions {
    /** Skip generating the portable `AGENTS.md` pointer (written by default when
     * absent; an existing file keeps the migrate/--wire-adapters flow). */
    noAgents?: boolean;
+   /** The invocation's notice state for the self-managed `.leji/.gitignore`, which
+    * this command ensures when it creates the onboarding workspace. Omitted means a
+    * context local to this call. */
+   ignoreContext?: LejiIgnoreContext;
 }
 
 /** Result of `adoptLayer`: the init result plus what adoption found and did. */
@@ -2269,6 +2291,10 @@ export async function adoptLayer(options: AdoptOptions): Promise<AdoptResult> {
          writeFileOnce(root, w.rel, w.content, written);
       }
    }
+   // The onboarding workspace is a `.leji/` role and now exists, so the tool ignores
+   // its own tree from inside: the nested counterpart to the root `.gitignore` line
+   // above, and the one that covers a layer whose root file never received it.
+   ensureLejiIgnoreOrRefuse(root, options.ignoreContext);
    // Same rule as `leji index`: the file is claimed only when it was written, and
    // the findings travel out so the caller reports them and fails.
    const index = writeIndex(root, manifest);
@@ -2879,8 +2905,11 @@ export type GuardAction = 'installed' | 'unchanged';
  * merge its PreToolUse entry into .claude/settings.json (created if absent, other
  * settings preserved). Idempotent: an existing guard entry is left untouched.
  * `rootPath` no longer selects the workspace — it is one root-relative tree — and
- * is kept only so the exported signature holds. */
-export function ensureApprovalGuard(root: string, rootPath: string): GuardAction {
+ * is kept only so the exported signature holds. `ignoreContext` is the invocation's
+ * notice state for the self-managed `.leji/.gitignore`, which this function ensures
+ * because it creates `.leji/work/hooks/`; omitted means a context local to this
+ * call. */
+export function ensureApprovalGuard(root: string, rootPath: string, ignoreContext?: LejiIgnoreContext): GuardAction {
    void rootPath;
    const rootAbs = path.resolve(root);
    const lejiRel = WORK_REL;
@@ -2906,6 +2935,8 @@ export function ensureApprovalGuard(root: string, rootPath: string): GuardAction
    const pre = (hooks.PreToolUse ??= []) as { matcher?: string; hooks?: { command?: string }[] }[];
    const present = pre.some((e) => (e.hooks ?? []).some((h) => (h.command ?? '').includes('approval-guard.mjs')));
    writeFileAtomic(rootAbs, scriptAbs, scriptRel, approvalGuardScript(lejiRel));
+   // `.leji/work/hooks/` now exists: this is a role establisher like any other.
+   ensureLejiIgnoreOrRefuse(rootAbs, ignoreContext);
    if (present) return 'unchanged';
    pre.push({
       matcher: 'AskUserQuestion',
@@ -2925,6 +2956,9 @@ export interface GuardOfferOptions {
    interactive: boolean;
    agent?: string;
    io?: HandoffIo;
+   /** The invocation's notice state for the self-managed `.leji/.gitignore`, passed
+    * through to the install this offer nests. */
+   ignoreContext?: LejiIgnoreContext;
 }
 
 /** Offer the onboarding approval guard for a Claude Code handoff. Silent when
@@ -2949,7 +2983,7 @@ export async function offerApprovalGuard(opts: GuardOfferOptions): Promise<void>
       )
    ).toLowerCase();
    if (!(answer === '' || answer === 'y' || answer === 'yes')) return;
-   const action = ensureApprovalGuard(opts.root, opts.rootPath);
+   const action = ensureApprovalGuard(opts.root, opts.rootPath, opts.ignoreContext);
    console.log(
       action === 'installed'
          ? 'Onboarding guard added (this repository only: .claude/settings.json hook + .leji/work/hooks/approval-guard.mjs; removed at finalize).'

@@ -15,7 +15,8 @@ import {
    writeFileGuarded,
 } from '../lib/fsx.js';
 import { parseFrontmatter } from '../lib/frontmatter.js';
-import { LEJI_DIR, VIEWER_REL, servablePath, writableTarget } from '../lib/layout.js';
+import { LEJI_DIR, LEJI_IGNORE_REL, VIEWER_REL, servablePath, writableTarget } from '../lib/layout.js';
+import { type LejiIgnoreContext, ensureLejiIgnoreFile } from '../lib/leji-ignore.js';
 import {
    type ScannedProfile,
    resolveAgentProfile,
@@ -47,6 +48,10 @@ export interface ViewerResult {
    written: string[];
    findings: Finding[];
    entries: number;
+   /** The index entries this run projected, so a caller that renders from the same
+    * generation (the export's overview map) reads one snapshot rather than making a
+    * second one. Empty when the run refused to project anything. */
+   indexEntries: IndexEntryLite[];
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -594,6 +599,11 @@ function sidebarLabel(root: string, relPath: string, rootRel: string): string {
    return filenameLabel(rootRel);
 }
 
+/** The overview homepage, named relative to the context root: the one content path
+ * the tool seeds, and the one whose read renders the layer map into it. Shared by
+ * generation, the local server's route, and the export's copy. */
+export const OVERVIEW_REL = 'overview.md';
+
 /**
  * The browse zone: every markdown file under rootPath that is NOT governed (in the
  * index) and NOT viewer/layer chrome (boot profile, agent profiles, category index
@@ -606,7 +616,7 @@ function referenceTree(root: string, manifest: Manifest, governedPaths: Set<stri
    const profilesDir = effectiveAgentProfilesPath(manifest);
    const indexFiles = new Set<string>();
    for (const cat of CATEGORY_IDS) for (const f of manifest.categories[cat]?.indexes ?? []) indexFiles.add(f);
-   const overviewRel = rootDirRel === '.' ? 'overview.md' : `${rootDirRel}/overview.md`;
+   const overviewRel = rootDirRel === '.' ? OVERVIEW_REL : `${rootDirRel}/${OVERVIEW_REL}`;
    const sidebarRel = rootDirRel === '.' ? '_sidebar.md' : `${rootDirRel}/_sidebar.md`;
    const manifestPageRel = rootDirRel === '.' ? '_manifest.md' : `${rootDirRel}/_manifest.md`;
    const nodes: TreeNode[] = [];
@@ -623,10 +633,16 @@ function referenceTree(root: string, manifest: Manifest, governedPaths: Set<stri
    return nodes;
 }
 
-// The overview homepage is seeded once, then user-owned. `leji viewer` regenerates
-// only the layer map between these markers, leaving surrounding prose untouched.
+// The overview homepage is seeded once, then user-owned. The markers are the author's
+// placement mark for the layer map: the map is substituted between them at render
+// time, by the viewer and by `leji export`, and the file itself is never rewritten.
 const MAP_START = '<!-- leji:generated-map:start -->';
 const MAP_END = '<!-- leji:generated-map:end -->';
+
+/** The line the seed leaves between the markers, so a reader of the source file
+ * knows why the span is empty. Whatever an author leaves there is ignored at
+ * render, this line included. */
+const MAP_PLACEHOLDER = '<!-- the layer map is rendered here by the viewer and by leji export -->';
 
 /** A deterministic mermaid map of the layer: boot profile -> populated categories
  * with document counts. Deliberately category-altitude: per-document nodes turn
@@ -653,7 +669,32 @@ function mapBlock(manifest: Manifest, entries: IndexEntryLite[]): string {
    return `${MAP_START}\n\`\`\`mermaid\n${buildLayerMap(manifest, entries)}\n\`\`\`\n${MAP_END}`;
 }
 
-type IndexEntryLite = { id: string; path: string; title: string; category: string };
+/**
+ * The overview homepage as it is READ, never as it is stored: the source bytes with
+ * the marked span replaced by the map this index projects. The one function behind
+ * both consumers (the local server renders it per fetch, the export renders the copy
+ * it writes), so the served and the exported page carry the same bytes.
+ *
+ * Whatever stands between the markers in source is ignored: the map is derived from
+ * the index, so the file is never rewritten to hold it. Without the marker pair
+ * there is nowhere to put the map, and the source is returned unchanged
+ * (`markersFound` false) for the caller to warn about.
+ */
+export function renderOverview(
+   source: string,
+   manifest: Manifest,
+   entries: IndexEntryLite[],
+): { text: string; markersFound: boolean } {
+   const start = source.indexOf(MAP_START);
+   const end = source.indexOf(MAP_END);
+   if (start < 0 || end <= start) return { text: source, markersFound: false };
+   return {
+      text: source.slice(0, start) + mapBlock(manifest, entries) + source.slice(end + MAP_END.length),
+      markersFound: true,
+   };
+}
+
+export type IndexEntryLite = { id: string; path: string; title: string; category: string };
 
 /** Normalize any value to one safe markdown-inline token: strip C0/C1/DEL control
  * characters, collapse ASCII whitespace runs to a single space, then neutralize the
@@ -1065,18 +1106,21 @@ export function resolvedProfilePages(root: string, manifest: Manifest): { rel: s
 }
 
 /** The starter overview/home page: a short explainer the owner can edit freely,
- * plus the auto-generated layer map inside the regen markers. */
-function buildOverviewSeed(manifest: Manifest, entries: IndexEntryLite[]): string {
+ * plus the empty marker pair the layer map is rendered into. Written once, when no
+ * overview.md stands at the content root, and never rewritten after that. */
+function buildOverviewSeed(manifest: Manifest): string {
    return `# ${manifest.name}
 
 This is the **Leji context layer** for \`${manifest.name}\`: the shared, validated context
 people and coding agents read before working in this repository. Start with the boot
 profile, then browse the categories in the sidebar.
 
-This page is yours to edit. The map below is regenerated by \`leji viewer\` between the
-markers; the prose around it is left untouched.
+This page is yours to edit. The map below is rendered between the markers by the viewer
+and by \`leji export\`; this file is never rewritten.
 
-${mapBlock(manifest, entries)}
+${MAP_START}
+${MAP_PLACEHOLDER}
+${MAP_END}
 
 - Write a \`\`\`mermaid code block in any document and it renders as a diagram here.
 - Run \`leji conformance\` to see the level this layer claims and verifies.
@@ -1255,12 +1299,20 @@ export function buildIndexHtml(root: string, manifest: Manifest, base: ChromeBas
       .replace(/\{\{([A-Z_]+)\}\}/g, (whole, key: string) => substitutions[key] ?? whole);
 }
 
-export function generateViewer(root: string, manifest: Manifest): ViewerResult {
+/**
+ * Generate the viewer chrome into `.leji/viewer/`.
+ *
+ * `ignoreContext` is the invocation's notice state for the self-managed
+ * `.leji/.gitignore` (this run creates a role, so it ensures that file): a caller
+ * that has one passes it through, and a direct SDK call that passes none notices at
+ * most once for that call.
+ */
+export function generateViewer(root: string, manifest: Manifest, ignoreContext?: LejiIgnoreContext): ViewerResult {
    const result = generateIndex(root, manifest);
    // Don't project a viewer from a tree that can't be indexed cleanly: surface the
    // errors and write nothing, the same refusal writeIndex makes.
    if (result.findings.some((f) => f.severity === 'error')) {
-      return { written: [], findings: result.findings, entries: 0 };
+      return { written: [], findings: result.findings, entries: 0, indexEntries: [] };
    }
    const entries = result.index?.entries ?? [];
    const findingsEarly: Finding[] = [];
@@ -1297,7 +1349,7 @@ export function generateViewer(root: string, manifest: Manifest): ViewerResult {
             VIEWER_REL,
          ),
       );
-      return { written, findings, entries: 0 };
+      return { written, findings, entries: 0, indexEntries: [] };
    }
 
    // Every `.leji/viewer/` write goes back through the chokepoint with the viewer's
@@ -1324,6 +1376,20 @@ export function generateViewer(root: string, manifest: Manifest): ViewerResult {
       writeViewerFile(`${viewerDir}/${name}`, content);
    }
 
+   // The role now exists, so the tool ignores its own tree from inside: a layer
+   // whose root .gitignore never carried the `.leji/` line is clean after this run.
+   // A refusal is an error finding like any other refused write here.
+   if (ensureLejiIgnoreFile(resolvedRoot, ignoreContext) === 'refused') {
+      findings.push(
+         finding(
+            'viewer-target-refused',
+            'error',
+            `refusing to write ${LEJI_IGNORE_REL}: it does not resolve to a regular file inside ${LEJI_DIR}/; remove the symlink`,
+            LEJI_IGNORE_REL,
+         ),
+      );
+   }
+
    // Copy vendored viewer assets alongside the page so nothing loads from a remote
    // CDN. The provenance note is documentation, never shipped.
    const assetsSrc = path.join(templatesDir(), 'viewer', 'assets');
@@ -1338,16 +1404,18 @@ export function generateViewer(root: string, manifest: Manifest): ViewerResult {
    }
 
    // The overview page is user-owned content (not chrome): seeded once, never
-   // overwritten. Regeneration refreshes only the marked map block; if the owner
-   // removed the markers, the page is left entirely alone.
+   // written again. The layer map is rendered between its markers when the page is
+   // read (by the local server and by the export), so a reindex that changes the
+   // document counts leaves this file exactly as its author last saved it. If the
+   // markers are gone there is nowhere to render the map, which is a warning.
    //
    // Check-before-act: overview.md is content — its target must resolve WITHIN
    // the layer root AND never into a private `.leji/` role. It is judged on the
    // RESOLVED path (ownRole `null`: content has no `.leji/` role) BEFORE anything is
    // read or written, so an overview.md symlinked into `.leji/work/` or
-   // `.leji/mounts/` is refused before the seed or the refresh writes through it —
-   // and the write itself then lands via the guarded-write chokepoint on that path.
-   const overviewRel = rootDir === '.' ? 'overview.md' : `${rootDir}/overview.md`;
+   // `.leji/mounts/` is refused before the seed writes through it or the page is read,
+   // and the seed itself then lands via the guarded-write chokepoint on that path.
+   const overviewRel = rootDir === '.' ? OVERVIEW_REL : `${rootDir}/${OVERVIEW_REL}`;
    const overviewAbs = path.join(root, overviewRel);
    const overviewResolved = resolvedPath(overviewAbs);
    const overviewVerdict =
@@ -1368,7 +1436,7 @@ export function generateViewer(root: string, manifest: Manifest): ViewerResult {
       );
    } else if (overviewRead.status === 'refused') {
       // A standing entry that cannot be verified as a regular file inside the layer:
-      // the map is neither seeded through it nor refreshed from bytes read by path.
+      // the page is neither seeded through it nor read from a path that could redirect.
       findings.push(
          finding(
             'viewer-target-refused',
@@ -1378,25 +1446,19 @@ export function generateViewer(root: string, manifest: Manifest): ViewerResult {
          ),
       );
    } else if (overviewRead.status === 'absent') {
-      const seeded = writeFileGuarded(resolvedRoot, overviewAbs, null, buildOverviewSeed(manifest, entries));
+      const seeded = writeFileGuarded(resolvedRoot, overviewAbs, null, buildOverviewSeed(manifest));
       if (seeded.ok) written.push(overviewRel);
    } else {
-      // The refresh rewrites the page it just read, so those bytes come from the
-      // verified descriptor rather than from a second read by pathname.
-      const existing = overviewRead.bytes.toString('utf8');
-      const start = existing.indexOf(MAP_START);
-      const end = existing.indexOf(MAP_END);
-      if (start >= 0 && end > start) {
-         const updated = existing.slice(0, start) + mapBlock(manifest, entries) + existing.slice(end + MAP_END.length);
-         if (updated !== existing) {
-            writeFileGuarded(resolvedRoot, overviewAbs, null, updated);
-         }
-      } else {
+      // A standing page is READ and not written: the only thing generation decides
+      // here is whether the map has a place to be rendered into. The bytes come from
+      // the verified descriptor rather than from a second read by pathname, so the
+      // page the guards judged is the page the answer is about.
+      if (!renderOverview(overviewRead.bytes.toString('utf8'), manifest, entries).markersFound) {
          findings.push(
             finding(
                'overview-markers-missing',
                'warning',
-               'overview.md has no generated-map markers; left as-is (map not refreshed)',
+               'overview.md has no generated-map markers; the map is not rendered',
                overviewRel,
             ),
          );
@@ -1409,7 +1471,7 @@ export function generateViewer(root: string, manifest: Manifest): ViewerResult {
    // file at the context root, so no diff churn). Regenerated every run; pinned.
    writeViewerFile(`${viewerDir}/_manifest.md`, buildManifestPage(manifest, mountStatus(root, manifest)));
 
-   return { written, findings, entries: entries.length };
+   return { written, findings, entries: entries.length, indexEntries: entries };
 }
 
 /**

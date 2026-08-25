@@ -1,0 +1,12 @@
+name: Global install from an expanded URL
+# Rule 3: it ends in .tgz and it is still not a local artifact. Only a target
+# rooted at $ROOT/ on a marked line is the built-here case.
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: npm install -g "$URL/tool.tgz"

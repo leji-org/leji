@@ -8,7 +8,17 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { buildViewer, loadCliSpec, loadManifest, renderCommandHelp, run, serveViewer } from '../dist/index.js';
+import {
+   buildLayerMap,
+   buildViewer,
+   generateViewer,
+   loadCliSpec,
+   loadManifest,
+   renderCommandHelp,
+   renderOverview,
+   run,
+   serveViewer,
+} from '../dist/index.js';
 // The lint class is the command's own policy, not SDK surface: it stays inside its
 // module, which an in-repo test reads directly.
 import { STRICT_LINT_RULES } from '../dist/commands/export.js';
@@ -256,7 +266,10 @@ test('route-equivalence: every route the served layer names reads identically fr
    // The corpus: the two generated chrome pages served under the content root, every
    // link the sidebar names, and every document the stored index names. Enumerated
    // from the artifacts themselves, so a layer that grows a document grows the test.
-   const routes = new Set<string>(['_sidebar.md', '_manifest.md']);
+   // `overview.md` is named explicitly: it is the homepage, so no sidebar entry
+   // points at it, and it is the one page whose bytes are rendered rather than
+   // copied. Served and exported must still be the same document.
+   const routes = new Set<string>(['_sidebar.md', '_manifest.md', 'overview.md']);
    const sidebar = fs.readFileSync(path.join(outContent, '_sidebar.md'), 'utf8');
    for (const m of sidebar.matchAll(/]\((\/[^)]+)\)/g)) routes.add(m[1].replace(/^\//, ''));
    const indexRel = manifest.machine?.indexPath ?? 'context-index.json';
@@ -504,5 +517,59 @@ test('canonical-json: a failure before the pipeline emits the export document, u
    const withOut = await quiet(() => run(['export', '--root', dir, '--out', 'site', '--json']));
    assert.equal(withOut.value, 1);
    assert.equal((JSON.parse(withOut.stdout) as { out: string }).out, 'site');
+   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// --- the exported overview carries the map; the lint reads the source ----------
+
+test('overview: the exported copy carries the rendered map, and the lint judges the source bytes', async () => {
+   const dir = tmpCopy(path.join(fixturesDir, 'valid-unified-leji-fresh'), 'leji-export-overview-');
+   // An author's page: prose around the markers, and inside them a stale hand-edit
+   // carrying an out-of-subset construct. The construct's line number is what proves
+   // which bytes the lint read, since the substitution below changes every line after
+   // the markers.
+   const overview = path.join(dir, 'docs', 'overview.md');
+   const source =
+      '# The layer\n\nIntro prose.\n\n<!-- leji:generated-map:start -->\nA raw <span>element</span> left inside the markers.\n<!-- leji:generated-map:end -->\n\nClosing prose.\n';
+   fs.writeFileSync(overview, source);
+
+   const { value: exit, stdout } = await quiet(() => run(['export', '--root', dir, '--json']));
+   assert.equal(exit, 0, `the export ran: ${stdout}`);
+   const doc = JSON.parse(stdout) as { findings: { rule: string; path?: string; line?: number }[] };
+   assert.ok(
+      doc.findings.some((f) => f.rule === 'render-unsupported' && f.path === 'docs/overview.md' && f.line === 6),
+      `the lint reported the construct at its line in the SOURCE: ${JSON.stringify(doc.findings)}`,
+   );
+
+   // The source is the author's file: untouched by an export that renders from it.
+   assert.equal(fs.readFileSync(overview, 'utf8'), source, 'the export never writes the page it renders from');
+   const exported = fs.readFileSync(path.join(dir, '.leji', 'dist', 'content', 'overview.md'), 'utf8');
+   const { manifest } = loadManifest(dir);
+   const entries = generateViewer(dir, manifest!).indexEntries;
+   assert.equal(
+      exported,
+      renderOverview(source, manifest!, entries).text,
+      'the exported copy is the source with the marked span substituted',
+   );
+   assert.ok(exported.includes('```mermaid\n' + buildLayerMap(manifest!, entries) + '\n```'), 'the map is the map');
+   assert.match(exported, /^# The layer$/m, 'the prose around the markers rides along');
+   assert.match(exported, /Closing prose\./, 'including what follows them');
+   assert.ok(!exported.includes('<span>'), 'and the stale hand-edit between them is gone');
+   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('overview: an exported page without markers is the source, byte for byte', async () => {
+   const dir = tmpCopy(path.join(fixturesDir, 'valid-unified-leji-fresh'), 'leji-export-nomarkers-');
+   const overview = path.join(dir, 'docs', 'overview.md');
+   const source = '# Fully custom\n\nNo markers here at all.\n';
+   fs.writeFileSync(overview, source);
+   const { value: exit } = await quiet(() => run(['export', '--root', dir, '--json']));
+   assert.equal(exit, 0);
+   assert.equal(fs.readFileSync(overview, 'utf8'), source, 'the source is untouched');
+   assert.equal(
+      fs.readFileSync(path.join(dir, '.leji', 'dist', 'content', 'overview.md'), 'utf8'),
+      source,
+      'with nowhere to render the map, the exported copy is the source',
+   );
    fs.rmSync(dir, { recursive: true, force: true });
 });

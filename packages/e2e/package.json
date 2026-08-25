@@ -1,0 +1,16 @@
+{
+  "name": "@leji-org/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "UI smoke suite: the served viewer, the same layer exported and served statically, and the site, judged in a real browser.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "browsers": "playwright install --with-deps chromium",
+    "e2e": "node run.mjs",
+    "report": "playwright show-report report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  }
+}

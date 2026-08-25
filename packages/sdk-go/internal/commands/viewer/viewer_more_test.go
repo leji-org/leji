@@ -1,6 +1,9 @@
 package viewer
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"math"
 	"os"
 	"path/filepath"
@@ -171,7 +174,7 @@ func TestBuildSidebarProjection(t *testing.T) {
 	}
 }
 
-func TestGenerateViewerSeedsOverviewMap(t *testing.T) {
+func TestGenerateViewerSeedsOverviewWithEmptyMarkers(t *testing.T) {
 	dir := exampleCopy(t)
 	m := manifest.LoadManifest(dir).Manifest
 	if _, err := GenerateViewer(dir, m); err != nil {
@@ -187,34 +190,53 @@ func TestGenerateViewerSeedsOverviewMap(t *testing.T) {
 		t.Fatalf("expected the overview titled with the layer name, got: %s", s)
 	}
 	if !strings.Contains(s, "<!-- leji:generated-map:start -->") {
-		t.Fatal("expected the regen markers")
+		t.Fatal("expected the map markers")
 	}
-	if !strings.Contains(s, "```mermaid\nflowchart LR") {
-		t.Fatal("expected the map to be a mermaid flowchart")
+	// The map is derived from the index, so the seed carries the placement mark and
+	// one line saying where the map comes from, never a copy of the map itself.
+	between := strings.SplitN(s, "<!-- leji:generated-map:start -->\n", 2)[1]
+	between = strings.SplitN(between, "\n<!-- leji:generated-map:end -->", 2)[0]
+	if between != "<!-- the layer map is rendered here by the viewer and by leji export -->" {
+		t.Fatalf("expected the markers to wrap exactly the rendering note, got: %q", between)
 	}
-	if !strings.Contains(s, "boot --> cat_domain") {
-		t.Fatal("expected boot to link to the domain category")
+	if strings.Contains(s, "```mermaid\nflowchart LR") {
+		t.Fatal("expected no map written into the source file")
 	}
-	if !strings.Contains(s, "cat_domain[\"📖 Domain · 1 doc\"]") {
-		t.Fatal("expected categories to carry counts, never per-doc nodes")
-	}
-	if strings.Contains(s, "n_glossary") {
-		t.Fatal("expected no per-document nodes (unreadable at scale)")
+	if !strings.Contains(s, "this file is never rewritten") {
+		t.Fatal("expected the seed to say so in its own prose")
 	}
 }
 
-func TestGenerateViewerOverviewSeededOnce(t *testing.T) {
+func TestGenerateViewerRendersTheMapAndNeverWritesTheSource(t *testing.T) {
 	dir := exampleCopy(t)
 	m := manifest.LoadManifest(dir).Manifest
 	if _, err := GenerateViewer(dir, m); err != nil {
 		t.Fatalf("GenerateViewer: %v", err)
 	}
 	overview := filepath.Join(dir, m.RootPath, "overview.md")
-	// The owner rewrites the prose but keeps the markers.
+	seeded, err := os.ReadFile(overview)
+	if err != nil {
+		t.Fatalf("read overview: %v", err)
+	}
+	// A second run over the same tree writes nothing: the seed happens once.
+	if _, err := GenerateViewer(dir, m); err != nil {
+		t.Fatalf("GenerateViewer: %v", err)
+	}
+	again, err := os.ReadFile(overview)
+	if err != nil {
+		t.Fatalf("read overview: %v", err)
+	}
+	if !bytes.Equal(again, seeded) {
+		t.Fatal("expected a second run to leave the seeded page byte-identical")
+	}
+	// The owner rewrites the prose, keeps the markers, and leaves a stale map inside
+	// them. Adding a document changes the counts the map would show.
 	edited := "# My own title\n\nHand-written intro.\n\n<!-- leji:generated-map:start -->\nstale\n<!-- leji:generated-map:end -->\n\nMore prose.\n"
 	if err := os.WriteFile(overview, []byte(edited), 0o644); err != nil {
 		t.Fatalf("write overview: %v", err)
 	}
+	writeUnder(t, dir, "docs/domain/pricing.md", "# Pricing\n\nHow we price.\n")
+	before := sha256.Sum256([]byte(edited))
 	res, err := GenerateViewer(dir, m)
 	if err != nil {
 		t.Fatalf("GenerateViewer: %v", err)
@@ -223,23 +245,33 @@ func TestGenerateViewerOverviewSeededOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read overview: %v", err)
 	}
-	s := string(after)
-	if !strings.Contains(s, "# My own title") {
-		t.Fatal("expected owner prose preserved")
-	}
-	if !strings.Contains(s, "More prose.") {
-		t.Fatal("expected trailing prose preserved")
-	}
-	if !strings.Contains(s, "```mermaid\nflowchart LR") {
-		t.Fatal("expected the stale map block to be refreshed")
-	}
-	if strings.Contains(s, "\nstale\n") {
-		t.Fatal("expected old map content replaced")
+	if sha256.Sum256(after) != before {
+		t.Fatal("expected a reindex that changes the map to leave overview.md byte-identical")
 	}
 	for _, f := range res.Findings {
 		if f.Rule == "overview-markers-missing" {
 			t.Fatal("expected no warning when the markers are intact")
 		}
+	}
+	// The map exists at render time, from the same entries the run projected.
+	rendered, markersFound := RenderOverview(edited, m, res.IndexEntries)
+	if !markersFound {
+		t.Fatal("expected the markers to be the placement mark")
+	}
+	if !strings.Contains(rendered, "# My own title") {
+		t.Fatal("expected owner prose preserved around the map")
+	}
+	if !strings.Contains(rendered, "More prose.") {
+		t.Fatal("expected trailing prose preserved")
+	}
+	if strings.Contains(rendered, "\nstale\n") {
+		t.Fatal("expected the stale block ignored, not merged")
+	}
+	if !strings.Contains(rendered, "cat_domain[\"📖 Domain · 2 docs\"]") {
+		t.Fatal("expected the rendered counts to be the tree of today")
+	}
+	if !strings.Contains(rendered, "```mermaid\n"+buildLayerMap(m, res.IndexEntries)+"\n```") {
+		t.Fatal("expected the map block to be buildLayerMap between fences")
 	}
 }
 
@@ -351,12 +383,17 @@ func TestGenerateViewerOverviewWithoutMarkersWarns(t *testing.T) {
 	}
 	warned := false
 	for _, f := range res.Findings {
-		if f.Rule == "overview-markers-missing" && f.Severity == findings.Warning {
+		if f.Rule == "overview-markers-missing" && f.Severity == findings.Warning &&
+			f.Message == "overview.md has no generated-map markers; the map is not rendered" {
 			warned = true
 		}
 	}
 	if !warned {
-		t.Fatal("expected a warning that the map was not refreshed")
+		t.Fatalf("expected a warning that the map has nowhere to render, got: %v", res.Findings)
+	}
+	// With nowhere to put it, the page renders as its own source bytes.
+	if text, markersFound := RenderOverview(custom, m, res.IndexEntries); text != custom || markersFound {
+		t.Fatalf("expected a marker-less page to render as its source, got %q / %v", text, markersFound)
 	}
 }
 
@@ -676,5 +713,82 @@ func TestMdLinkDest(t *testing.T) {
 		if got := mdLinkDest(tc.in); got != tc.want {
 			t.Fatalf("mdLinkDest(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// --- the rendered page decodes the way the reference decodes ---
+// The overview is rendered from a STRING, and the three SDKs must turn the same bytes
+// into the same string or the rendered page diverges on any source that is not valid
+// UTF-8. Node substitutes U+FFFD per maximal subpart; Go's own conversions do not.
+// Every expectation below was captured from Node (`Buffer.from(bytes).toString('utf8')`)
+// and is pinned here, so a change to DecodeUTF8 that drifts from the reference reddens.
+
+func TestDecodeUTF8MatchesNodeBufferToString(t *testing.T) {
+	cases := []struct {
+		name  string
+		in    []byte
+		want  string // the exact bytes Node produced, as UTF-8
+		nodeH string // and their hex, so a failure names the reference directly
+	}{
+		{"valid ascii", []byte("hello"), "hello", "68656c6c6f"},
+		{"valid emoji", []byte{0xF0, 0x9F, 0x98, 0x80}, "\U0001F600", "f09f9880"},
+		{"lone FF between ascii", []byte{0x61, 0xFF, 0x62}, "a�b", "61efbfbd62"},
+		{"lone continuation", []byte{0x80}, "�", "efbfbd"},
+		{"truncated 3-byte at eof", []byte{0xE2, 0x82}, "�", "efbfbd"},
+		{"truncated 3-byte then ascii", []byte{0xE2, 0x82, 0x41}, "�A", "efbfbd41"},
+		{"overlong 2-byte", []byte{0xC0, 0x80}, "��", "efbfbdefbfbd"},
+		{"surrogate", []byte{0xED, 0xA0, 0x80}, "���", "efbfbdefbfbdefbfbd"},
+		{"past U+10FFFF", []byte{0xF4, 0x90, 0x80, 0x80}, "����", "efbfbdefbfbdefbfbdefbfbd"},
+		{"overlong 4-byte", []byte{0xF0, 0x82, 0x82, 0xAC}, "����", "efbfbdefbfbdefbfbdefbfbd"},
+		{"E0 80 80", []byte{0xE0, 0x80, 0x80}, "���", "efbfbdefbfbdefbfbd"},
+		{"truncated 4-byte, two bytes", []byte{0xF0, 0x9F}, "�", "efbfbd"},
+		{"truncated 4-byte, three bytes", []byte{0xF0, 0x9F, 0x98}, "�", "efbfbd"},
+		{"FE FF", []byte{0xFE, 0xFF}, "��", "efbfbdefbfbd"},
+		{"lead then ascii", []byte{0xC2, 0x41}, "�A", "efbfbd41"},
+	}
+	for _, c := range cases {
+		got := DecodeUTF8(c.in)
+		if hex.EncodeToString([]byte(got)) != c.nodeH {
+			t.Errorf("%s: DecodeUTF8(% x) = %q (%s), Node gives %q (%s)",
+				c.name, c.in, got, hex.EncodeToString([]byte(got)), c.want, c.nodeH)
+		}
+	}
+}
+
+func TestRenderOverviewOnInvalidUTF8IsByteIdenticalToTheReference(t *testing.T) {
+	// The whole rendered document, pinned against the reference. Source and expectation
+	// were captured by running the TypeScript SDK's own `renderOverview` over these
+	// bytes (packages/sdk/dist/index.js), with the invalid sequences deliberately placed
+	// OUTSIDE the marker span (a lone 0xFF before it and an overlong C0 80 after it),
+	// so what this pins is the decode and not the substitution. The truncated E2 82
+	// inside the span is dropped with the span, as it is in every SDK.
+	const srcHex = "232054ff746c650a0a3c212d2d206c656a693a67656e6572617465642d6d61703a73" +
+		"7461727420" + "2d2d3e0a7374616c6520e282206d61700a3c212d2d206c656a693a67656e657261" +
+		"7465642d6d61703a656e64202d2d3e0a0a5461c080696c0a"
+	const wantHex = "232054efbfbd746c650a0a3c212d2d206c656a693a67656e6572617465642d6d61703a" +
+		"7374617274202d2d3e0a6060606d65726d6169640a666c6f776368617274204c520a2020626f6f" +
+		"745b22f09fa49620426f6f742070726f66696c65225d0a20206361745f646f6d61696e5b22f09f" +
+		"939620446f6d61696e20c2b7203120646f63225d0a2020626f6f74202d2d3e206361745f646f6d" +
+		"61696e0a6060600a3c212d2d206c656a693a67656e6572617465642d6d61703a656e64202d2d3e" +
+		"0a0a5461efbfbdefbfbd696c0a"
+	src, err := hex.DecodeString(srcHex)
+	if err != nil {
+		t.Fatalf("decode the pinned source: %v", err)
+	}
+	entries := []indexgen.IndexEntry{{ID: "a", Path: "docs/domain/a.md", Title: "A", Category: "domain"}}
+	got, markersFound := RenderOverview(DecodeUTF8(src), &manifest.Manifest{Name: "fixture"}, entries)
+	if !markersFound {
+		t.Fatal("the pinned source carries the marker pair")
+	}
+	if hex.EncodeToString([]byte(got)) != wantHex {
+		t.Fatalf("rendered bytes differ from the reference's\n got: %s\nwant: %s\n\ngot text:\n%s",
+			hex.EncodeToString([]byte(got)), wantHex, got)
+	}
+	// The invalid bytes are gone and the replacement stands where the reference put it.
+	if bytes.ContainsRune([]byte(got), 0xFF) {
+		t.Fatal("no raw invalid byte may survive the render")
+	}
+	if !strings.Contains(got, "# T�tle") || !strings.Contains(got, "Ta��il") {
+		t.Fatalf("the replacements are not where the reference puts them:\n%s", got)
 	}
 }

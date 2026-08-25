@@ -15,7 +15,7 @@
     "schemas/agent-profile.schema.json": "sha256:9597a0ff39db7587daf210177fdc7ede41f9efeaab54596289534209826ba657",
     "schemas/context-changelog.schema.json": "sha256:616fd7bddd1f07638e2cbdc2cfa665166f4739283c5194eca34fbf923218ced4",
     "schemas/context-index.schema.json": "sha256:c3618e356622793326076a424d53843bfccf00511520cdba010c6946262ab440",
-    "schemas/context-manifest.schema.json": "sha256:dd24a91bb4938f6b6b986928140a997774d5c90bcb720bfc57ef5d7e332b56e2",
+    "schemas/context-manifest.schema.json": "sha256:3d8ea744f37f06ceabc277da05d852c89895eb2f47d5aece5eecea76345a7cd4",
     "schemas/decision-record.schema.json": "sha256:f5db3e68be8b2233b9029949d79109b4784ce43ef1a1cd26e44a0427c8915b07"
   }
 }

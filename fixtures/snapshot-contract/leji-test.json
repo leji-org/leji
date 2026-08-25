@@ -1,0 +1,30 @@
+{
+  "note": "The byte contract for each SDK's shared badge/canary tree-snapshot helper. Not a layer: it carries no expected.json, so the layer harnesses skip it. The walked payload is payload/; the seeds and the goldens sit beside it, outside the walk, so a golden never has to contain its own digest.",
+  "seeds": [
+    { "from": "_git-seed", "to": "payload/.git" },
+    { "from": "pkg-git-seed", "to": "payload/pkg/.git" }
+  ],
+  "ordering": {
+    "note": "The declared order is bytewise over UTF-8. payload/ｚ.txt (EF BD 9A) and payload/😀.txt (F0 9F 98 80, UTF-16 D83D DE00) are the vector that separates it from a UTF-16 code-unit sort: bytewise puts the first before the second, a JavaScript default sort puts them the other way, so a port that sorts UTF-16 units fails the golden instead of passing on ASCII.",
+    "vectors": ["payload/ｚ.txt", "payload/😀.txt"]
+  },
+  "runtime": {
+    "note": "git tracks neither an empty directory nor a symlink target this fixture may keep dangling, so the golden test creates both in its own working copy before it walks.",
+    "directories": ["payload/empty"],
+    "symlinks": [{ "at": "payload/link", "to": "a.txt" }]
+  },
+  "goldens": {
+    "repo": {
+      "file": "golden-repo.txt",
+      "walk": "payload",
+      "repoRoot": "payload",
+      "note": "the whole-repository call: the repository's own .git is excluded, pkg/.git is content"
+    },
+    "subtree": {
+      "file": "golden-subtree.txt",
+      "walk": "payload/pkg",
+      "repoRoot": "payload",
+      "note": "the subtree call: paths are relative to the walked directory and the subtree's .git is content. The same walk with repoRoot payload/pkg drops the .git lines, which the golden test derives from this file."
+    }
+  }
+}

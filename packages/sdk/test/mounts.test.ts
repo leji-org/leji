@@ -505,6 +505,44 @@ test('mounts: a requested fetch that fails is visible, and stays availability ra
    assert.ok(!JSON.stringify(payload).includes('fatal:'), 'git stderr never reaches canonical output');
 });
 
+test('mounts: a hydrate whose source no longer serves the pin names the act, row unchanged', async () => {
+   const { host, sibling, pin } = mountedPair();
+   // The upstream rewrote its history: the branch the pin sat on is gone, its
+   // objects are pruned, and what the source advertises is unrelated to it. The
+   // hint is that same checkout, so nothing local holds the pin either.
+   git(sibling, 'branch', 'old');
+   git(sibling, 'checkout', '-q', '--orphan', 'rewritten');
+   git(sibling, 'rm', '-q', '-rf', '.');
+   commitFile(sibling, 'rewritten.md');
+   git(sibling, 'checkout', '-q', '-B', 'main');
+   git(sibling, 'branch', '-D', 'old');
+   git(sibling, 'branch', '-D', 'rewritten');
+   git(sibling, 'reflog', 'expire', '--expire=now', '--all');
+   git(sibling, 'gc', '-q', '--prune=now');
+   git(sibling, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
+   assert.throws(() => git(sibling, 'cat-file', '-e', pin), 'the pin is unavailable in the source');
+   const cli = await withSourceRewrite(sibling, () =>
+      runCli(['mounts', 'hydrate', '--fetch', '--json', '--root', host]),
+   );
+   const payload = JSON.parse(cli.stdout);
+   // Best-effort, as ever: the mount stays unavailable and the run does not fail.
+   assert.equal(cli.code, 0);
+   assert.equal(payload.outcomes[0].status, 'unavailable');
+   // The outcome row is the row it has always been: the detail it already carried.
+   assert.equal(payload.outcomes[0].detail, 'the pin could not be fetched from the source');
+   assert.deepEqual(Object.keys(payload.findings[0]), ['rule', 'severity', 'path', 'message', 'detail']);
+   assert.equal(payload.findings[0].rule, 'mount-store-fetch-failed');
+   assert.equal(payload.findings[0].detail, 'current pin: the pin could not be fetched from the source');
+   // The reasons the findings were built from are a transport, never a member of
+   // the document: the writer picks its fields, and this is not one of them.
+   assert.ok(!JSON.stringify(payload).includes('reasons'));
+   const human = await withSourceRewrite(sibling, () => runCli(['mounts', 'hydrate', '--fetch', '--root', host]));
+   assert.match(
+      human.stdout,
+      /^warning mount-store-fetch-failed acme-product-context: the managed store could not be established by the requested fetch \(detail: current pin: the pin could not be fetched from the source\)$/m,
+   );
+});
+
 test('mounts: a witness refresh that fails in this run is visible, and nothing about it is recorded', async () => {
    const { host, sibling } = mountedPair();
    git(sibling, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
@@ -527,6 +565,9 @@ test('mounts: a witness refresh that fails in this run is visible, and nothing a
       payload.findings.map((f: { rule: string; severity: string; path: string }) => [f.rule, f.severity, f.path]),
       [['mount-witness-refresh-failed', 'warning', 'acme-product-context']],
    );
+   // Which act, and the resolver's own reason for it: the same encoding update-pin
+   // freezes, from the best-effort command that only warns.
+   assert.equal(payload.findings[0].detail, 'witness: the tracking ref could not be fetched from the source');
    // Nothing about the failure persists, because nothing persists at all…
    assert.ok(!fs.existsSync(path.join(host, '.leji', 'mounts', 'state.json')), 'no state file is written');
    // …so an offline status, which cannot know a witness is fresh, says nothing of it.
@@ -1339,6 +1380,10 @@ test('mounts: a lost compare-and-swap is a confirmed mismatch; an operational fa
       JSON.parse(cli.stdout).findings.map((f: { rule: string; severity: string }) => [f.rule, f.severity]),
       [['mount-witness-refresh-failed', 'warning']],
    );
+   // The witness act's second failure class, which is not the first one: a ref that
+   // arrived and would not publish, never a ref that never arrived.
+   assert.equal(r.reasons.get('acme-product-context'), 'the witness ref could not be published');
+   assert.equal(JSON.parse(cli.stdout).findings[0].detail, 'witness: the witness ref could not be published');
 });
 
 // --- The canonical-schema gate, and the portability rules the closure holds -----

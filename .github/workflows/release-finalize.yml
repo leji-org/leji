@@ -13,7 +13,7 @@ on:
       release_tag:
         description: "Tag the draft release is attached to (the goreleaser/Go tag)"
         required: true
-        default: "packages/sdk-go/v1.4.0"
+        default: "packages/sdk-go/v1.4.1"
 
 permissions:
   contents: write # publish the release

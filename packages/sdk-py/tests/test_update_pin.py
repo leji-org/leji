@@ -172,6 +172,43 @@ def build_acme_sibling(directory: Path) -> None:
     git(directory, "config", "uploadpack.allowAnySHA1InWant", "true")
 
 
+def build_orphan_target_repo(directory: Path) -> tuple[str, str]:
+    """The rewritten upstream before anything is pruned: ``a`` on its own branch
+    ``old``, and an unrelated orphan on ``main``. A repository in this shape holds
+    BOTH commits, which is what the refusal's route calls a local hint; pruning it is
+    what makes a source that can no longer serve the pin."""
+    directory.mkdir(parents=True, exist_ok=True)
+    git(directory, "init", "-q", "-b", "old", ".")
+    pin = _commit(directory, "a.md")
+    git(directory, "checkout", "-q", "--orphan", "main")
+    git(directory, "rm", "-q", "-rf", ".")
+    target = _commit(directory, "o.md")
+    return pin, target
+
+
+def build_orphan_target_source(directory: Path) -> tuple[str, str]:
+    """The orphan-target scaffold: a source that no longer serves the commit the host
+    pins, while still advertising a target unrelated to it: an upstream that rewrote
+    its history, which is the case the ``current pin`` act exists to name. Both halves
+    are asserted here, because a scaffold that quietly kept the pin reachable (which
+    is what pruning a branch the target still reaches would do) would prove nothing on
+    any platform's git."""
+    pin, target = build_orphan_target_repo(directory)
+    git(directory, "branch", "-D", "old")
+    git(directory, "reflog", "expire", "--expire=now", "--all")
+    git(directory, "gc", "-q", "--prune=now")
+    # Fetching a commit by id is how the resolver retains a pin: the source serves one
+    # the way a real host does, so the refusal is the missing object and never a
+    # server declining to serve an unadvertised id.
+    git(directory, "config", "uploadpack.allowAnySHA1InWant", "true")
+    with pytest.raises(subprocess.CalledProcessError):
+        git(directory, "cat-file", "-e", pin)
+    assert re.search(rf"{target}\s+refs/heads/main", git(directory, "ls-remote", str(directory))), (
+        "the target is advertised"
+    )
+    return pin, target
+
+
 def _store_path(host: Path) -> Path:
     key = hashlib.sha256(ACME_IDENTITY.encode("utf-8")).hexdigest()
     return host / ".leji" / "mounts" / "store" / key
@@ -443,6 +480,12 @@ def test_fixture_update_pin_block(fixture: str, block: dict, case: dict, tmp_pat
         {"rule": f["rule"], "severity": f["severity"], "path": f.get("path")}
         for f in doc["findings"]
     ] == expected_findings, f"{case['id']}: the exact findings"
+    # Only a rule with more than one act names one: every other refusal is the
+    # document it was before the act detail existed.
+    for f in doc["findings"]:
+        if f["rule"] in ("mount-store-fetch-failed", "mount-witness-refresh-failed"):
+            continue
+        assert "detail" not in f, f"{case['id']}: {f['rule']} carries no detail"
     if "comparisonRepository" in case:
         assert doc["pinReport"]["comparisonRepository"] == case["comparisonRepository"]
     if "comparedRef" in case:
@@ -582,10 +625,203 @@ def test_a_target_that_cannot_be_retained_under_fetch_refuses_the_move(tmp_path)
     assert doc["reason"] == "mount-store-fetch-failed"
     assert doc["mount"]["to"] == OID_B, "the target it declined to retain is still reported"
     assert [f["rule"] for f in doc["findings"]] == ["mount-store-fetch-failed"]
+    # The act is named, and it is the TARGET's: the same rule id, from the other side
+    # of the gate, is a different act with no route past it.
+    assert (
+        doc["findings"][0]["detail"]
+        == "target: the pin could not be retained by a ref in the managed store"
+    )
+    assert (
+        doc["findings"][0]["message"]
+        == "the requested fetch could not retain the commit in the managed store"
+    )
     assert (host / "leji.json").read_bytes() == before, "leji.json is byte-untouched"
     # The refusal leaves the CURRENT pin retained: fetched objects and refs stay,
     # which is exactly what the help text says a failed --fetch may leave behind.
     assert git(_store_path(host), "rev-parse", pin_ref_for(ACME_IDENTITY, OID_A)) == OID_A
+
+
+# --- which act failed, and the route past the one that has one ----------------
+
+ROUTE_SENTENCE = (
+    "the requested fetch could not retain the commit in the managed store; "
+    "if a local hint holds the current pin and the target with complete ancestry, "
+    "run without `--fetch`; to move past a rewritten upstream, pass "
+    "`--to <oid> --allow-non-fast-forward` against such a hint"
+)
+
+
+def test_a_current_pin_the_source_no_longer_serves_refuses_at_that_act(tmp_path) -> None:
+    source = tmp_path / "source"
+    host = tmp_path / "host"
+    pin, target = build_orphan_target_source(source)
+    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    repin(host, pin, "keep")
+    before = (host / "leji.json").read_bytes()
+    argv = ["mounts", "update-pin", "product-context", "--fetch", "--root", str(host)]
+    env = _routed_env(source)
+    code, stdout = run_cli_proc([*argv, "--json"], env)
+    assert code == 1, stdout
+    doc = json.loads(stdout)
+    assert doc["reason"] == "mount-store-fetch-failed"
+    assert doc["mount"]["to"] is None, "the run refused before it had a target"
+    assert (
+        doc["findings"][0]["detail"] == "current pin: the pin could not be fetched from the source"
+    )
+    # `detail` sits immediately after `message`: the key order the three SDKs freeze.
+    assert list(doc["findings"][0]) == ["rule", "severity", "path", "message", "detail"]
+    assert doc["findings"][0]["message"] == ROUTE_SENTENCE
+    # The same sentence reaches a person, with the act on the same line.
+    human_code, human = run_cli_proc(argv, env)
+    assert human_code == 1, human
+    assert human.strip() == (
+        f"Refused: {ROUTE_SENTENCE} "
+        "(detail: current pin: the pin could not be fetched from the source)"
+    )
+    assert (host / "leji.json").read_bytes() == before, "leji.json is byte-untouched"
+    assert target != pin, "the advertised target is not the commit the host pins"
+
+
+def test_the_same_injected_retention_failure_aimed_at_the_current_pin(tmp_path) -> None:
+    sibling = tmp_path / "sibling"
+    host = tmp_path / "host"
+    build_acme_sibling(sibling)
+    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    repin(host, OID_A, "keep")
+    # One hook, two acts: it names a commit, and each act retains its own, so the
+    # pin's id aims it at the act before the gate rather than the one after it.
+    env = _routed_env(sibling)
+    env["LEJI_TEST_FAIL_PIN_REF"] = OID_A
+    code, stdout = run_cli_proc(
+        ["mounts", "update-pin", "product-context", "--fetch", "--root", str(host), "--json"], env
+    )
+    assert code == 1, stdout
+    doc = json.loads(stdout)
+    assert doc["reason"] == "mount-store-fetch-failed"
+    assert (
+        doc["findings"][0]["detail"]
+        == "current pin: the pin could not be retained by a ref in the managed store"
+    )
+    assert doc["findings"][0]["message"] == ROUTE_SENTENCE
+
+
+def test_a_tracking_ref_the_source_does_not_advertise_refuses_at_the_witness_act(tmp_path) -> None:
+    sibling = tmp_path / "sibling"
+    host = tmp_path / "host"
+    build_acme_sibling(sibling)
+    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    repin(host, OID_A, "keep")
+    # The store already holds the pin, so its retention needs no network at all and
+    # the witness refresh is the only act left that can fail.
+    build_store(
+        host, sibling, {"pin": OID_A, "witnessRef": None, "witnessOid": None, "depth": None}
+    )
+    mp = host / "leji.json"
+    mp.write_text(
+        mp.read_text(encoding="utf-8").replace("refs/heads/main", "refs/heads/release", 1),
+        encoding="utf-8",
+    )
+    code, stdout = run_cli_proc(
+        ["mounts", "update-pin", "product-context", "--fetch", "--root", str(host), "--json"],
+        _routed_env(sibling),
+    )
+    assert code == 1, stdout
+    doc = json.loads(stdout)
+    assert doc["reason"] == "mount-witness-refresh-failed"
+    assert (
+        doc["findings"][0]["detail"]
+        == "witness: the tracking ref could not be fetched from the source"
+    )
+    # The witness act has no route of its own: the rule's own sentence stands.
+    assert (
+        doc["findings"][0]["message"]
+        == "the requested fetch could not refresh the managed witness ref"
+    )
+
+
+def test_a_hydrate_whose_source_no_longer_serves_the_pin_names_the_act(tmp_path) -> None:
+    source = tmp_path / "source"
+    host = tmp_path / "host"
+    pin, _ = build_orphan_target_source(source)
+    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    repin(host, pin, "keep")
+    env = _routed_env(source)
+    code, stdout = run_cli_proc(
+        ["mounts", "hydrate", "--fetch", "--json", "--root", str(host)], env
+    )
+    # Best-effort, as ever: the mount stays unavailable and the run does not fail.
+    assert code == 0, stdout
+    payload = json.loads(stdout)
+    assert payload["outcomes"][0]["status"] == "unavailable"
+    # The outcome row is the row it has always been: the detail it already carried.
+    assert payload["outcomes"][0]["detail"] == "the pin could not be fetched from the source"
+    assert list(payload["findings"][0]) == ["rule", "severity", "path", "message", "detail"]
+    assert payload["findings"][0]["rule"] == "mount-store-fetch-failed"
+    assert (
+        payload["findings"][0]["detail"]
+        == "current pin: the pin could not be fetched from the source"
+    )
+    # The reasons the findings were built from are a transport, never a member of the
+    # document: the writer picks its fields, and this is not one of them.
+    assert "reasons" not in stdout
+    _, human = run_cli_proc(["mounts", "hydrate", "--fetch", "--root", str(host)], env)
+    assert (
+        "warning mount-store-fetch-failed product-context: the managed store could not be "
+        "established by the requested fetch "
+        "(detail: current pin: the pin could not be fetched from the source)\n"
+    ) in human
+
+
+def test_the_route_the_current_pin_refusal_advertises(tmp_path) -> None:
+    source = tmp_path / "source"
+    hint = tmp_path / "hint"
+    host = tmp_path / "host"
+    # One recipe, two repositories: the source is pruned, the hint keeps `old`, so it
+    # holds the current pin and the orphan target with complete ancestry.
+    pin, target = build_orphan_target_source(source)
+    assert build_orphan_target_repo(hint) == (pin, target), "the hint holds the same two commits"
+    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    repin(host, pin, "keep")
+    (host / ".leji").mkdir(parents=True, exist_ok=True)
+    (host / ".leji" / "mounts.local.json").write_text(
+        json.dumps({"mounts": {"product-context": {"repo": str(hint)}}}) + "\n", encoding="utf-8"
+    )
+    before = (host / "leji.json").read_bytes()
+    move = ["mounts", "update-pin", "product-context", "--to", target, "--allow-non-fast-forward"]
+    # With `--fetch` the source is asked for the current pin first, and that act is the
+    # one that fails: the hint holding both operands does not save the run.
+    code, stdout = run_cli_proc(
+        [*move, "--fetch", "--root", str(host), "--json"], _routed_env(source)
+    )
+    assert code == 1, stdout
+    refused = json.loads(stdout)
+    assert refused["reason"] == "mount-store-fetch-failed"
+    assert (
+        refused["findings"][0]["detail"]
+        == "current pin: the pin could not be fetched from the source"
+    )
+    assert (host / "leji.json").read_bytes() == before, "leji.json is byte-untouched"
+    # The store that refused run established holds nothing, so the move below is the
+    # hint's answer and no leftover managed operand.
+    with pytest.raises(subprocess.CalledProcessError):
+        git(_store_path(host), "cat-file", "-e", pin)
+    # Without `--fetch`, exactly as the refusal says: the hint answers, the override
+    # carries the move past the rewritten history, and the pin moves.
+    moved_code, moved_out = run_cli_proc([*move, "--root", str(host), "--json"], _plain_env())
+    assert moved_code == 0, moved_out
+    moved = json.loads(moved_out)
+    assert moved["action"] == "updated"
+    assert moved["override"] is True
+    assert moved["pinReport"]["comparisonRepository"] == "hint"
+    assert moved["pinReport"]["witnessProvenance"] == "unmanaged"
+    assert moved["pinReport"]["ancestryComplete"] is True, "the hint answers the range"
+    assert moved["mount"]["from"] == pin
+    assert moved["mount"]["to"] == target
+    assert [(f["rule"], f["severity"]) for f in moved["findings"]] == [
+        ("mount-pin-non-fast-forward-override", "warning")
+    ]
+    after = (host / "leji.json").read_text(encoding="utf-8")
+    assert after == before.decode("utf-8").replace(pin, target, 1), "exactly the pin span moved"
 
 
 def test_a_target_the_manifest_no_longer_pins_from_is_refused_by_the_scanner(tmp_path) -> None:
