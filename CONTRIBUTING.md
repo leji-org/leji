@@ -11,7 +11,7 @@ npm run setup:go # Go: installs goreleaser (the only Go dev tool not bundled wit
 npm test         # runs the Node, Python, and Go suites
 ```
 
-Prerequisites: Node 24+, a Python >=3.10 (the Python SDK pins 3.12 via `packages/sdk-py/.python-version`), and Go 1.27+. The `setup:*` scripts detect each toolchain and print install hints if it is missing. Both are idempotent and machine-local (the Python `.venv` is git-ignored), so re-run them after cloning or switching machines.
+Prerequisites: Node 24+, a Python >=3.10 (the Python SDK pins 3.12 via `packages/sdk-py/.python-version`), and Go 1.26.6+. The `setup:*` scripts detect each toolchain and print install hints if it is missing. Both are idempotent and machine-local (the Python `.venv` is git-ignored), so re-run them after cloning or switching machines.
 
 **Running your work-in-progress CLI**, two channels, one machine-wide at a time:
 
@@ -25,7 +25,7 @@ Prerequisites: Node 24+, a Python >=3.10 (the Python SDK pins 3.12 via `packages
 - **Spec proposals.** Open an issue first: the problem, the intent, and the lived case behind it. Leji specifies proven practice; proposals grounded in something a real team does carry more weight than ideas in the abstract.
 - **Pull requests.** Normative changes (anything under `spec/` or `schemas/`) ride PR review and require a `CHANGELOG.md` entry plus a machine-readable `CHANGELOG.json` entry. Yes, the spec dogfoods itself.
 - **Contributor terms.** Every commit needs a DCO sign-off (`git commit -s`); contributions ship under the license for their content type. See [Contributor terms](#contributor-terms).
-- **Tooling.** SDK changes need tests and must keep `leji validate` passing against `examples/`. The Node, Python, and Go SDKs (`packages/sdk`, `packages/sdk-py`, `packages/sdk-go`) are behaviorally identical: a behavior change in one rides into all three, pinned by the shared `fixtures/` suite. Behavior develops and proves out fully in the TypeScript SDK first, the canonical implementation, against the LIVE channel ([testing-cli-adoptions](docs/practice/testing-cli-adoptions.md)); the Go and Python ports are made only from settled TypeScript behavior, pinned by the shared fixtures at port time. The Go SDK builds with Go 1.27+; `gofmt`, `go vet ./...`, and `go test ./...` must pass.
+- **Tooling.** SDK changes need tests and must keep `leji validate` passing against `examples/`. The Node, Python, and Go SDKs (`packages/sdk`, `packages/sdk-py`, `packages/sdk-go`) are behaviorally identical: a behavior change in one rides into all three, pinned by the shared `fixtures/` suite. Behavior develops and proves out fully in the TypeScript SDK first, the canonical implementation, against the LIVE channel ([testing-cli-adoptions](docs/practice/testing-cli-adoptions.md)); the Go and Python ports are made only from settled TypeScript behavior, pinned by the shared fixtures at port time. The Go SDK builds with Go 1.26.6+; `gofmt`, `go vet ./...`, and `go test ./...` must pass.
 - **Language policy (Node side).** TypeScript + ESM everywhere: SDK source and tests, the site (`astro.config.ts` included), and repo scripts (run natively by Node's type stripping; develop on Node 24+). The one deliberate exception is `packages/create-leji/index.js`, a zero-build published shim. No `.mjs`: every package declares `"type": "module"`.
 - **Style.** Spec prose is plain English, normative keywords per RFC 2119 (MUST/SHOULD/MAY), human-readable first.
 

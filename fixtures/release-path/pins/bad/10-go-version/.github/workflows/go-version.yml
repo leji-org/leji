@@ -1,0 +1,14 @@
+name: Go patch drift
+# Rule 10: a patch-level go-version that is not the GO_VERSION the tuple names.
+# It satisfies rule 5, so the job looks pinned while running a toolchain the
+# module never declared.
+
+on: [push]
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.5"

@@ -85,8 +85,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.26.6"
           cache-dependency-path: packages/sdk-go/go.sum
+      # The standard library govulncheck reports on is the toolchain's own, so a
+      # scan on an unpinned Go audits a standard library the module never ships.
+      - name: The Go toolchain is the pinned one (scripts/release-pins.env)
+        run: |
+          set -euo pipefail
+          . scripts/lib/release-pins.sh
+          load_release_pins scripts/release-pins.env
+          INSTALLED="$(go env GOVERSION)"
+          test "$INSTALLED" = "go${GO_VERSION}" || { echo "::error::Go $INSTALLED is not the pinned go${GO_VERSION}"; exit 1; }
+          echo "Go $INSTALLED"
       # govulncheck reports the vulnerabilities this code can actually reach, so
       # a finding here is a call path, not an inventory entry.
       - name: govulncheck

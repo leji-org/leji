@@ -10,11 +10,12 @@
 #   . scripts/lib/release-pins.sh
 #   load_release_pins scripts/release-pins.env || exit 2
 #
-# On success the eight values are set in the calling shell. On failure it prints
+# On success the nine values are set in the calling shell. On failure it prints
 # `release-pins.env:<line>: <what>` on stderr and returns 2.
 
 # The expected keys, and the shape each value must have.
 #   X.Y.Z   NPM_VERSION PIP_VERSION BUILD_VERSION TWINE_VERSION JSR_VERSION
+#           GO_VERSION
 #   vX.Y.Z  PYPI_PUBLISH_ACTION_VERSION GORELEASER_VERSION
 #   40 hex  PYPI_PUBLISH_ACTION_SHA
 load_release_pins() {
@@ -47,7 +48,7 @@ load_release_pins() {
             ;;
       esac
       case "$_rp_key" in
-         NPM_VERSION | PIP_VERSION | BUILD_VERSION | TWINE_VERSION | JSR_VERSION) _rp_shape='^[0-9]+\.[0-9]+\.[0-9]+$' ;;
+         NPM_VERSION | PIP_VERSION | BUILD_VERSION | TWINE_VERSION | JSR_VERSION | GO_VERSION) _rp_shape='^[0-9]+\.[0-9]+\.[0-9]+$' ;;
          PYPI_PUBLISH_ACTION_VERSION | GORELEASER_VERSION) _rp_shape='^v[0-9]+\.[0-9]+\.[0-9]+$' ;;
          PYPI_PUBLISH_ACTION_SHA) _rp_shape='^[0-9a-f]{40}$' ;;
          *)
@@ -65,7 +66,7 @@ load_release_pins() {
    done < "$_rp_file"
 
    for _rp_key in NPM_VERSION PIP_VERSION BUILD_VERSION TWINE_VERSION JSR_VERSION \
-      PYPI_PUBLISH_ACTION_VERSION PYPI_PUBLISH_ACTION_SHA GORELEASER_VERSION; do
+      PYPI_PUBLISH_ACTION_VERSION PYPI_PUBLISH_ACTION_SHA GORELEASER_VERSION GO_VERSION; do
       case " $_rp_seen " in
          *" $_rp_key "*) ;;
          *)

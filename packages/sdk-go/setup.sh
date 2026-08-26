@@ -7,7 +7,7 @@ set -eu
 
 if ! command -v go >/dev/null 2>&1; then
    echo "leji sdk-go: Go not found on PATH." >&2
-   echo "  Install Go 1.27+ from https://go.dev/dl/ (or 'brew install go'), then re-run 'npm run setup:go'." >&2
+   echo "  Install Go 1.26.6+ from https://go.dev/dl/ (or 'brew install go'), then re-run 'npm run setup:go'." >&2
    exit 1
 fi
 echo "leji sdk-go: using $(go version)"
