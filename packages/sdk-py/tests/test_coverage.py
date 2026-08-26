@@ -327,7 +327,9 @@ def test_cli_docs_serve_starts_and_stops(tmp_path, monkeypatch, capsys) -> None:
             self.shutdown_called = True
 
     fake = FakeServer()
-    monkeypatch.setattr(cli, "serve_viewer", lambda _root, _port, _root_rel="", log=None: fake)
+    monkeypatch.setattr(
+        cli, "serve_viewer", lambda _root, _port, _root_rel="", log=None, entries=None: fake
+    )
     code = cli.main(["viewer", "serve", "--root", str(layer)])
     out = capsys.readouterr().out
     assert code == 0
@@ -350,7 +352,9 @@ def test_cli_view_command_opens_browser(tmp_path, monkeypatch, capsys) -> None:
             pass
 
     monkeypatch.setattr(
-        cli, "serve_viewer", lambda _root, _port, _root_rel="", log=None: FakeServer()
+        cli,
+        "serve_viewer",
+        lambda _root, _port, _root_rel="", log=None, entries=None: FakeServer(),
     )
     opened: list[str] = []
     monkeypatch.setattr(cli, "open_browser", lambda url: opened.append(url))

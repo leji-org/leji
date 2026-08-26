@@ -17,6 +17,10 @@ export interface Finding {
     * contract. */
    construct?: string;
    message: string;
+   /** Which act a rule with more than one failed at, and the resolver's own reason
+    * for it: `"<act>: <reason>"`. Serialized immediately after `message`, so the
+    * three SDKs emit the same bytes; absent for every rule that names no act. */
+   detail?: string;
 }
 
 export interface FindingSummary {
@@ -24,8 +28,9 @@ export interface FindingSummary {
    warnings: number;
 }
 
-export function finding(rule: string, severity: Severity, message: string, path?: string): Finding {
-   return path === undefined ? { rule, severity, message } : { rule, severity, path, message };
+export function finding(rule: string, severity: Severity, message: string, path?: string, detail?: string): Finding {
+   const base = path === undefined ? { rule, severity, message } : { rule, severity, path, message };
+   return detail === undefined ? base : { ...base, detail };
 }
 
 /** Findings in canonical order: (path, line, rule, construct), message last as the

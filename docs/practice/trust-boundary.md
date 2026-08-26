@@ -28,6 +28,12 @@ federation store and projection cache). It is gitignored. Exactly one role is se
 serves as the chrome around your content; every other role is denied by name, and no
 export carries a byte of any of them.
 
+The tree also ignores itself: the first time a command creates a role under `.leji/`,
+it ensures `.leji/.gitignore` holds exactly `*`, so a repository whose own root
+`.gitignore` never received the `.leji/` line still commits none of it. That one file
+sits directly under `.leji/` and belongs to no role, which is why it is the single
+named exception below.
+
 ## The containment rule
 
 Every write and every clear is judged on the RESOLVED target, immediately before the act:
@@ -40,7 +46,8 @@ Every write and every clear is judged on the RESOLVED target, immediately before
 2. **Its own role, or no role.** A target that lands under root `.leji/` is refused unless
    the acting command owns that exact role. The export writes into `.leji/dist/` and
    nowhere else under `.leji/`; the viewer writes into `.leji/viewer/`; content such as
-   `overview.md` has no `.leji/` role at all, so any `.leji/` landing refuses it.
+   `overview.md` has no `.leji/` role at all, so any `.leji/` landing refuses it. The
+   metadata-file exception below is the one target this rule allows outside every role.
 3. **Unresolvable is refused.** A path that cannot be resolved because of a permission or
    I/O error is not rebuilt from its spelling and written to. Only genuine absence is
    treated as a not-yet-created target, resolved through its nearest existing ancestor so
@@ -62,7 +69,8 @@ Two sentences carry it, and every SDK implements both:
   it, so the file that was judged is the file that is read. That covers every
   read-modify-write in the tool: the `.gitignore` merge, the manifest edit that binds an
   agent, the pre-commit hook merge, the CI workflow merge, the agent-host settings
-  merge, the overview map refresh, the stored index that generation carries ids from,
+  merge, the overview page the viewer seeds and then renders from,
+  the stored index that generation carries ids from,
   the changelog compaction, the vendor entrypoints an adoption archives and rewrites,
   and the export marker that authorizes clearing a previous export.
 
@@ -133,6 +141,35 @@ descriptor `openWriteGuarded` returned, and these three exceptions, which are al
   happens before there is a repository root for the rule to be about.
 - **Verification staging under the OS temp directory**: verifying a cached projection is a
   read-only question, so asking it must not write into the tree being asked about.
+
+### The metadata file, the one exception to the role rule
+
+Everything above is about which symbols may touch the filesystem raw. One exception is
+about the role rule itself: `.leji/.gitignore`, the file that keeps the tool's tree out
+of the repository. It sits directly under `.leji/`, so it belongs to no role and rule 2
+would refuse it. It is judged where the REQUESTED target is still visible, never by the
+role rule, which sees only the resolved path, and only ALL THREE of these make it
+writable:
+
+1. the requested path is exactly the layer root's `.leji/.gitignore`, and it resolves to
+   itself;
+2. the root's `.leji` is a real directory, not a symlink;
+3. the entry is absent or a regular file, not a symlink and not anything else.
+
+Any other case is refused, never allowed: a `.leji` symlinked out of the tree refuses
+exactly as it does today, and an entry that redirects onto ordinary content is refused
+rather than written through. Each SDK constructs this verdict at exactly ONE named
+symbol, which its source-audit test pins the way the write allow-list is pinned, so
+the exception cannot quietly grow a second site. That pin covers every statically spelled
+construction of the verdict, reflective forms included; a key assembled at runtime is the
+one class no static audit can see, and it is named here so it is a known residual, not a
+gap nobody looked at.
+
+The file is written under the read-then-act rule like every other read-modify-write
+here: what stands at the target is read verified, `*` plus a newline is created
+exclusively when nothing does, a file already holding those bytes is left alone, and a
+file holding anything else is left BYTE-IDENTICAL; the run says so once on stderr,
+under every output mode including `--json`, and merges nothing.
 
 The subprocess allowances are separate and just as explicit. Most are `git`, and all but
 one of those are read-only queries about the host repository; the exception is the

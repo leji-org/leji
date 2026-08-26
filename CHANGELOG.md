@@ -1,5 +1,124 @@
 # Changelog
 
+## Unreleased
+
+A hardening release. The CLI keeps its own generated tree out of git, the viewer takes the
+brand's typography, the federation commands say which act failed and how to recover, and the
+release path is pinned end to end under a recorded refresh policy. No normative specification
+change and no schema constraint change (one description string is clarified); the spec stays on
+the frozen v1.0 line and all reference packages move to 1.4.1 together.
+
+### Added
+
+- **A recorded dependency pinning and refresh policy**, at
+  `docs/decisions/0008-dependency-pinning-and-refresh.md`: which dependency classes are pinned
+  exactly and which stay compatible ranges, that every release refreshes the exact pins and
+  re-pins actions to current SHAs, and a 90-day floor that runs the refresh even when no
+  release is cut. `SECURITY.md` carries the matching public commitment: reports acknowledged
+  and triaged on a best-effort basis, typically within 7 days; a forward-only patch release
+  where a compatible fix exists; patches on the latest minor line only.
+- **A scheduled dependency audit** (`.github/workflows/dependency-audit.yml`): monthly, and on
+  any change to a dependency manifest, `npm audit` runs over the root lockfile at high or
+  above, `pip-audit` over the Python SDK's resolved runtime closure, and `govulncheck` over the
+  Go SDK. The scanners are pinned like everything else on the release path.
+- **A pin check for the release path**, `scripts/check-release-pins.sh`: it refuses `@latest`,
+  `--upgrade`, a `pip install` or `npm install -g` without an exact version, a `go-version`
+  without a patch component, and a `uses:` without a 40-hex SHA. Contributors get it as a stage
+  of the pre-push hook; CI runs it as its own job, with a self-test that proves each rule still
+  fires, and the pre-publish smoke runs it in layer 0. Alongside it, the PyPI upload's own
+  `twine check --strict` now runs on the gates that come before a tag: in the pre-publish
+  smoke, in CI on every pull request, and in the pre-push hook when a `release/*` or `rc/*`
+  ref is pushed. The tag-triggered release workflow runs the same check once more on the
+  distribution it built, so the upload action is never the first thing to see a rejection.
+- **A browser smoke suite** at `packages/e2e` (Playwright on Chromium) over the served viewer,
+  an exported tree, and the site, so the live and static renderings are checked against one
+  set of assertions: `npm run e2e` locally, a `ui-smoke` job in CI that keeps traces and
+  screenshots on failure. It is a private workspace and ships in no published package.
+
+### Changed
+
+- **The layer map is rendered, not written.** `overview.md` is seeded once and never
+  rewritten after that: the map between its `leji:generated-map` markers is substituted
+  when the page is read, by `leji view` and by `leji export`, so reindexing a layer
+  changes `context-index.json` and leaves the committed page alone. Nothing rewrites an
+  existing file, and a map an earlier version left in your `overview.md` is now ignored
+  at render. To clear it by hand, delete every line between
+  `<!-- leji:generated-map:start -->` and `<!-- leji:generated-map:end -->`.
+- **The CLI ignores its own directory from inside.** The first time a command creates a role
+  under `.leji/` (`mounts/`, `viewer/`, `dist/`, `work/`), it writes `.leji/.gitignore` holding
+  exactly `*`, so a repository whose root `.gitignore` never received the `.leji/` line commits
+  none of that tree either. `leji init` and `leji adopt` still add the root line. An existing
+  `.leji/.gitignore` is left byte-identical and never merged, with one notice per invocation on
+  stderr (on stderr under `--json` too, never in the document), so your own file is kept by
+  being left alone. The write refuses like every other: a symlinked `.leji`, or an entry that
+  is not a regular file, is never written through.
+- **The generated tree and the local hints file are documented** in the root and SDK READMEs:
+  the four `.leji/` roles, that none of it is committed, and that `.leji/mounts.local.json` is
+  a per-machine hints file the CLI reads and never writes. Migrating from an earlier version:
+  if that hints file was committed, untrack it with `git rm --cached .leji/mounts.local.json`
+  and keep the bare `.leji/` line at the root, since onboarding refuses while anything under
+  `.leji/` is tracked and the nested ignore file takes precedence over a negation written at
+  the root; a `docs/.leji/` tree left by 1.3.x is unused in 1.4.x and can be deleted. With the
+  hints file uncommitted, a fresh clone hydrates through the resolver store or the manifest's
+  remote URLs, so a pinned commit has to be reachable on its remote.
+- **The viewer takes the brand's typography.** Headings and emphasis, body copy, and a muted
+  tone are declared once as `--leji-text`, `--leji-text-body`, and `--leji-text-muted`, and
+  replace the stock theme's neutral greys throughout the shell and the content. Body links and
+  inline code now take the fixed accessible green `--leji-link` (`#007D59`, AA on white and on
+  the inline-code ground) instead of the accent, so contrast holds for every value of
+  `viewer.theme.primary`; the chrome (navigation, active sidebar entries, search highlights,
+  the progress bar) still takes the accent, and the accent's own fallback is Leji green rather
+  than the stock docsify green, so a context layer that declares none is rendered in the brand
+  color. The manifest schema's description of `viewer.theme.primary` says the same: it drives
+  the viewer chrome, active states, and diagram accents, and body text does not follow it. The
+  field's validation is unchanged.
+- **leji.org ships analytics-free.** The site source loads nothing third-party: the analytics
+  script, and its origin in `img-src`, `script-src`, and `connect-src`, appear only when a
+  build sets both `PUBLIC_ANALYTICS_SCRIPT` and `PUBLIC_ANALYTICS_SITE`. `public/_headers`
+  carries a first-party-only policy to match. A deployment adds its own analytics, and the
+  Trust page states it that way.
+- **The published floors are exercised.** CI runs the Python SDK at 3.10, 3.12, and 3.14 (the
+  `requires-python` floor, the version the rest of CI uses, and the newest classifier) and the
+  MCP server on Node 22 and 24, the floor its `engines.node` declares. The pre-publish smoke
+  installs the SDK, `create-leji`, and the MCP server tarballs into a Node 22 container and
+  drives all three there, and its result line says so when Docker is absent and the leg is
+  skipped. The Go SDK is built and tested at Go 1.27.0, which is now also the floor its
+  `go.mod` declares, so every floor named here is a floor CI exercises.
+- **The Go floor moves to 1.27.0.** `packages/sdk-go/go.mod` declares `go 1.27.0` (up from
+  `go 1.23`), and `golang.org/x/text` moves to v0.41.0 with it. Building the Go SDK, or
+  `go install`ing the `leji` binary from source, now needs Go 1.27.0 or newer; the published
+  release binaries are unaffected, since they carry no toolchain requirement. `CONTRIBUTING.md`
+  and the Go setup script state the new floor.
+- **The test suites pin what they used to sample**: the badge and canary suites in all three
+  SDKs share one directory-snapshot helper held to a golden fixture, the capture-cap test
+  asserts bytes and termination rather than elapsed time, and the homepage's hero transcript is
+  pinned to what the CLI actually prints.
+
+### Fixed
+
+- **`mounts update-pin --fetch` names the act that failed.** A `--fetch` run observes the
+  declared source in three acts (retain the current pin, refresh the witness, retain the
+  target) and a refusal reported only the rule. Findings now carry an optional `detail` string,
+  serialized immediately after `message`, reading `<act>: <reason>` with the act named as
+  `current pin`, `target`, or `witness`; the human line appends the same as
+  `(detail: <act>: <reason>)`. Where the current pin is the act that failed, the message also
+  gives the route forward: run without `--fetch` against a local hint that holds the current
+  pin and the target with complete ancestry, or pass `--to <oid> --allow-non-fast-forward`
+  against such a hint to move past an upstream that rewrote its history.
+- **`mounts hydrate --fetch` reports the same detail** on its per-mount findings, so a
+  hydration that could not establish the store or refresh the witness says which act it was and
+  what the resolver ran into. Neither command's flow changes: a failed act still refuses.
+- **The viewer's meta CSP no longer claims `frame-ancestors`.** A `<meta>` policy cannot
+  deliver that directive, so the browser ignored it and logged an error on every page.
+  `leji viewer serve` still sends it as a response header. A static host serving an export from
+  `.leji/dist/` sets that directive itself, the way this repository's site does in
+  `packages/site/public/_headers`.
+- **The pre-commit secret scan sees non-ASCII paths.** The staged list reached the scanner
+  through `git diff --cached --name-only`, which octal-quotes a non-ASCII path, so those files
+  failed `lstat` and went unscanned. The hook pipes the `-z` form straight into `xargs -0`
+  instead. The pre-push hook now also runs every stage and exits once, so a missing tool skips
+  its own stage and never the ones after it.
+
 ## 1.4.0 · 2026-08-21
 
 The OSS feature program: export, badge, pin updates, rendering parity, a unified `.leji/`

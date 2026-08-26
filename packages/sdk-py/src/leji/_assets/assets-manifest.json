@@ -5,7 +5,7 @@
     "schemas/agent-profile.schema.json": "sha256:9597a0ff39db7587daf210177fdc7ede41f9efeaab54596289534209826ba657",
     "schemas/context-changelog.schema.json": "sha256:616fd7bddd1f07638e2cbdc2cfa665166f4739283c5194eca34fbf923218ced4",
     "schemas/context-index.schema.json": "sha256:c3618e356622793326076a424d53843bfccf00511520cdba010c6946262ab440",
-    "schemas/context-manifest.schema.json": "sha256:dd24a91bb4938f6b6b986928140a997774d5c90bcb720bfc57ef5d7e332b56e2",
+    "schemas/context-manifest.schema.json": "sha256:3d8ea744f37f06ceabc277da05d852c89895eb2f47d5aece5eecea76345a7cd4",
     "schemas/decision-record.schema.json": "sha256:f5db3e68be8b2233b9029949d79109b4784ce43ef1a1cd26e44a0427c8915b07",
     "templates/README.md": "sha256:3fa28c144a26076cc75dc2a6d23014d61370abcb2073afa7d5bd3f26af4884c7",
     "templates/agent-profile.md": "sha256:fb1cf77aeaffc10718795231b936a7eab9b54c9221f4de072677e3afd3656545",
@@ -42,9 +42,9 @@
     "templates/viewer/assets/source-sans-pro-600-vietnamese.woff2": "sha256:615c0d875de2ec25e22bba41b5cd0e1184517a90916cfac8a4be8467539a5c8f",
     "templates/viewer/assets/third-party-licenses.txt": "sha256:010843d18dd532c01a574a44e86699966ca633fd5bbafe79125bb4c9e247f5b6",
     "templates/viewer/assets/viewer-boot.js": "sha256:39b1335cc5e4783865d0d83dd187248338bb7ae369e48e30d153780df810bf54",
-    "templates/viewer/assets/vue.css": "sha256:af5a18093a6f9e21be29bf782e29f86ba056e2998481b99327ebad78e289388f",
+    "templates/viewer/assets/vue.css": "sha256:61d5ec46e3b2235b55a5ed038ff4451ffef42b9a5fed5dfb926918082159dda3",
     "templates/viewer/assets/zoom-image.min.js": "sha256:c142e32432c4fd0d47ea1a6d5640a66d4ffa9a331496a5bdb45c0449f6d381f9",
-    "templates/viewer/index.html": "sha256:127dadfdca91e9e93739b4e2898ab1ec33fe0b5658354288d960e3e2989f6998",
+    "templates/viewer/index.html": "sha256:fd6e43cde0d72678dd26c9ad38753f046ed3c5e3e550fbd211c0f4307edd8806",
     "templates/writing-style.md": "sha256:ee17bb1b97cbe87c4d8ef59b80b2e1d03d997d8839a98d3eb2080c540efa7b2c"
   }
 }

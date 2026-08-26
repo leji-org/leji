@@ -1,0 +1,26 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": []
+  },
+  "seeds": [
+    {
+      "from": "docs/.leji-seed",
+      "to": "docs/.leji"
+    }
+  ],
+  "lejiIgnore": {
+    "scenarios": [
+      {
+        "id": "C",
+        "note": "A layer adopted before the unified layout: the old docs/.leji/ tree is the documented migration case, and nothing under the root .leji/ is untracked after a run.",
+        "args": ["viewer", "build"],
+        "exit": 0,
+        "ignoreFile": "regular",
+        "bytes": "*\n",
+        "notices": 0,
+        "untrackedUnderLeji": []
+      }
+    ]
+  }
+}

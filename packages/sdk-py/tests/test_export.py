@@ -19,9 +19,11 @@ import re
 import shutil
 from pathlib import Path
 
+from leji import generate_viewer, load_manifest, render_overview
 from leji.cli import main
 from leji.export_cmd import STRICT_LINT_RULES
 from leji.schemas import load_cli_spec
+from leji.viewer_cmd import build_layer_map
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO_ROOT / "examples" / "monorepo"
@@ -428,3 +430,98 @@ def test_export_flavor_carries_no_root_absolute_url(tmp_path: Path, capsys) -> N
         exported_asset = (directory / ".leji" / "dist").joinpath(*rel.split("/")).read_bytes()
         served_asset = (directory / ".leji" / "viewer").joinpath(*rel.split("/")).read_bytes()
         assert exported_asset == served_asset, f"{rel} must be flavor-neutral"
+
+
+# --- the exported overview carries the map; the lint reads the source ----------
+
+
+def test_exported_overview_carries_the_rendered_map_and_the_lint_judges_the_source(
+    tmp_path: Path, capsys
+) -> None:
+    directory = _copy(FIXTURES / "valid-unified-leji-fresh", tmp_path / "layer")
+    # An author's page: prose around the markers, and inside them a stale hand-edit
+    # carrying an out-of-subset construct. The construct's line number is what proves
+    # which bytes the lint read, since the substitution below changes every line after
+    # the markers.
+    overview = directory / "docs" / "overview.md"
+    source = (
+        "# The layer\n\nIntro prose.\n\n<!-- leji:generated-map:start -->\n"
+        "A raw <span>element</span> left inside the markers.\n"
+        "<!-- leji:generated-map:end -->\n\nClosing prose.\n"
+    )
+    overview.write_text(source, encoding="utf-8")
+
+    assert main(["export", "--root", str(directory), "--json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    assert any(
+        f["rule"] == "render-unsupported" and f["path"] == "docs/overview.md" and f["line"] == 6
+        for f in doc["findings"]
+    ), f"the lint reported the construct at its line in the SOURCE: {doc['findings']}"
+
+    # The source is the author's file: untouched by an export that renders from it.
+    assert overview.read_text(encoding="utf-8") == source
+    exported = (directory / ".leji" / "dist" / "content" / "overview.md").read_text(
+        encoding="utf-8"
+    )
+    manifest = load_manifest(str(directory)).manifest
+    entries = generate_viewer(str(directory), manifest).index_entries
+    assert exported == render_overview(source, manifest, entries).text, (
+        "the exported copy is the source with the marked span substituted"
+    )
+    assert ("```mermaid\n" + build_layer_map(manifest, entries) + "\n```") in exported
+    assert "# The layer" in exported, "the prose around the markers rides along"
+    assert "Closing prose." in exported, "including what follows them"
+    assert "<span>" not in exported, "and the stale hand-edit between them is gone"
+
+
+def test_exported_overview_without_markers_is_the_source_byte_for_byte(
+    tmp_path: Path, capsys
+) -> None:
+    directory = _copy(FIXTURES / "valid-unified-leji-fresh", tmp_path / "layer")
+    overview = directory / "docs" / "overview.md"
+    source = "# Fully custom\n\nNo markers here at all.\n"
+    overview.write_text(source, encoding="utf-8")
+    assert main(["export", "--root", str(directory), "--json"]) == 0
+    capsys.readouterr()
+    assert overview.read_text(encoding="utf-8") == source, "the source is untouched"
+    assert (directory / ".leji" / "dist" / "content" / "overview.md").read_text(
+        encoding="utf-8"
+    ) == source, "with nowhere to render the map, the exported copy is the source"
+
+
+def test_exported_overview_decodes_invalid_utf8_like_the_reference(tmp_path: Path, capsys) -> None:
+    # An authored page carrying invalid UTF-8 OUTSIDE the marker span. The exported copy
+    # is rendered, so it is decoded first, and it must be decoded the way Node decodes.
+    directory = _copy(FIXTURES / "valid-unified-leji-fresh", tmp_path / "layer")
+    overview = directory / "docs" / "overview.md"
+    source = (
+        b"# T\xfftle\n\nIntro.\n\n<!-- leji:generated-map:start -->\nstale\n"
+        b"<!-- leji:generated-map:end -->\n\nTa\xc0\x80il\n"
+    )
+    overview.write_bytes(source)
+    assert main(["export", "--root", str(directory), "--json"]) == 0
+    capsys.readouterr()
+    assert overview.read_bytes() == source, "the source is untouched, invalid bytes included"
+    exported = (directory / ".leji" / "dist" / "content" / "overview.md").read_bytes()
+    manifest = load_manifest(str(directory)).manifest
+    entries = generate_viewer(str(directory), manifest).index_entries
+    want = render_overview(source.decode("utf-8", errors="replace"), manifest, entries)
+    assert want.markers_found
+    assert exported == want.text.encode("utf-8"), "the exported copy is the reference rendering"
+    text = exported.decode("utf-8")
+    assert "# T�tle" in text and "Ta��il" in text
+    assert b"\xff" not in exported, "no raw invalid byte reaches the export of a rendered page"
+
+
+def test_exported_markerless_overview_keeps_its_raw_bytes(tmp_path: Path, capsys) -> None:
+    # The other half of the same rule: with no markers there is nothing to render, so the
+    # export copies the snapshot it linted, invalid byte and all.
+    directory = _copy(FIXTURES / "valid-unified-leji-fresh", tmp_path / "layer")
+    overview = directory / "docs" / "overview.md"
+    source = b"# Fully custom\n\nNo markers, and a raw \xff byte.\n"
+    overview.write_bytes(source)
+    assert main(["export", "--root", str(directory), "--json"]) == 0
+    capsys.readouterr()
+    assert (directory / ".leji" / "dist" / "content" / "overview.md").read_bytes() == source, (
+        "a markerless page exports as its raw bytes"
+    )

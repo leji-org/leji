@@ -39,6 +39,7 @@ from .viewer_cmd import (
     ViewerResult,
     build_sidebar,
     generate_viewer,
+    render_overview,
     resolve_viewer_port,
 )
 from .findings import Finding, Severity, sort_findings, summarize
@@ -56,6 +57,15 @@ from .init_cmd import (
     entering_via_boot,
     handoff_offer,
     init_layer,
+)
+from .layout import LEJI_IGNORE_REL
+from .leji_ignore import (
+    LEJI_IGNORE_CONTENT,
+    LEJI_IGNORE_NOTICE,
+    LejiIgnoreContext,
+    LejiIgnoreOutcome,
+    ensure_leji_ignore_file,
+    new_leji_ignore_context,
 )
 from .manifest import Manifest, claimed_level, load_manifest
 from .route import (
@@ -92,7 +102,12 @@ __all__ = [
     "HOST_SPECS",
     "HostSpec",
     "InitResult",
+    "LEJI_IGNORE_CONTENT",
+    "LEJI_IGNORE_NOTICE",
+    "LEJI_IGNORE_REL",
     "LIVE_STATUSES",
+    "LejiIgnoreContext",
+    "LejiIgnoreOutcome",
     "Manifest",
     "OUT_RULE",
     "PlanEntry",
@@ -126,6 +141,7 @@ __all__ = [
     "detect_ecosystem",
     "detect_layer",
     "ensure_ci_workflow",
+    "ensure_leji_ignore_file",
     "enter_layer",
     "entering_via_boot",
     "freshness_report",
@@ -143,7 +159,9 @@ __all__ = [
     "generate_index",
     "init_layer",
     "load_manifest",
+    "new_leji_ignore_context",
     "open_browser",
+    "render_overview",
     "render_write_plan",
     "resolve_viewer_port",
     "serialize_changelog",

@@ -1,6 +1,5 @@
 import { strict as assert } from 'node:assert';
 import { execFile, execFileSync } from 'node:child_process';
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as os from 'node:os';
@@ -9,6 +8,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { type ConformanceLevel, badgeMarkdown, badgeRun, renderBadge } from '../dist/index.js';
+import { snapshotTree } from './helpers/snapshot.ts';
 
 // Two halves of one contract. First the constants: every level rendered and
 // byte-compared against `fixtures/badge/`, the sole oracle, plus the `--out`
@@ -210,11 +210,11 @@ test('a run that writes nothing establishes no directory on the way to not writi
       fs.writeFileSync(path.join(parent, 'sibling.txt'), 'untouched\n');
       const foreign = 'not a badge\n';
       fs.writeFileSync(path.join(parent, 'badge.svg'), foreign);
-      const before = snapshot(dir);
+      const before = snapshotTree(dir);
       const r = badgeRun(dir, 'pub/badge.svg');
       assert.equal(r.refusal, 'pub/badge.svg exists and is not a leji badge; remove or rename it');
       assert.equal(fs.readFileSync(path.join(parent, 'badge.svg'), 'utf8'), foreign, 'the target is byte-untouched');
-      assert.deepEqual([...snapshot(dir).entries()].sort(), [...before.entries()].sort(), 'the tree is untouched');
+      assert.deepEqual(snapshotTree(dir), before, 'the tree is untouched');
    } finally {
       fs.rmSync(dir, { recursive: true, force: true });
    }
@@ -231,7 +231,7 @@ test('a --out whose parent resolves outside the repository is refused, and reads
       const planted = 'somebody elses file\n';
       fs.writeFileSync(path.join(outside, 'x.svg'), planted);
       fs.symlinkSync(outside, path.join(dir, 'pub'), 'dir');
-      const before = snapshot(dir);
+      const before = snapshotTree(dir);
 
       const r = badgeRun(dir, 'pub/x.svg');
       assert.ok(r.usageError !== undefined || r.refusal !== undefined, 'the escape is refused');
@@ -239,7 +239,7 @@ test('a --out whose parent resolves outside the repository is refused, and reads
       assert.equal(r.action, null);
       assert.equal(fs.readFileSync(path.join(outside, 'x.svg'), 'utf8'), planted, 'the outside file is untouched');
       assert.deepEqual(fs.readdirSync(outside).sort(), ['x.svg'], 'nothing was created outside the repository');
-      assert.deepEqual([...snapshot(dir).entries()].sort(), [...before.entries()].sort(), 'and nothing inside it');
+      assert.deepEqual(snapshotTree(dir), before, 'and nothing inside it');
    } finally {
       fs.rmSync(dir, { recursive: true, force: true });
       fs.rmSync(outside, { recursive: true, force: true });
@@ -289,7 +289,7 @@ test('a --out that is a dangling symlink inside the repository is refused, nothi
       // would follow the link and create the destination; a standing entry that
       // could not be verified as a badge is a refusal instead.
       fs.symlinkSync('missing-file.svg', path.join(dir, 'leji-badge.svg'));
-      const before = snapshot(dir);
+      const before = snapshotTree(dir);
 
       const r = badgeRun(dir);
       assert.equal(
@@ -305,7 +305,7 @@ test('a --out that is a dangling symlink inside the repository is refused, nothi
       );
       assert.ok(fs.lstatSync(path.join(dir, 'leji-badge.svg')).isSymbolicLink(), 'the link itself is left alone');
       assert.ok(!fs.existsSync(path.join(dir, 'missing-file.svg')), 'the link destination was never created');
-      assert.deepEqual([...snapshot(dir).entries()].sort(), [...before.entries()].sort(), 'the tree is untouched');
+      assert.deepEqual(snapshotTree(dir), before, 'the tree is untouched');
    } finally {
       fs.rmSync(dir, { recursive: true, force: true });
    }
@@ -330,7 +330,7 @@ test('a --out that is a unix socket is refused as a document, not as a crash', a
          return;
       }
       assert.ok(fs.lstatSync(target).isSocket(), 'the target is a socket');
-      const before = snapshot(dir);
+      const before = snapshotTree(dir);
 
       const r = badgeRun(dir);
       assert.equal(
@@ -345,7 +345,7 @@ test('a --out that is a unix socket is refused as a document, not as a crash', a
          [{ rule: 'badge-target-refused', severity: 'error', path: 'leji-badge.svg' }],
       );
       assert.ok(fs.lstatSync(target).isSocket(), 'the socket itself is left alone');
-      assert.deepEqual([...snapshot(dir).entries()].sort(), [...before.entries()].sort(), 'the tree is untouched');
+      assert.deepEqual(snapshotTree(dir), before, 'the tree is untouched');
 
       // Through the real bin: the refusal is the ordinary badge document at exit 2,
       // which is exactly what the escaping error used to deny this case.
@@ -392,7 +392,7 @@ test('a --out symlinked to a unix socket in the repository is refused as a docum
       fs.symlinkSync('sock', target);
       assert.ok(fs.lstatSync(target).isSymbolicLink(), 'the target is a symlink');
       assert.ok(fs.statSync(target).isSocket(), 'and it resolves to the socket');
-      const before = snapshot(dir);
+      const before = snapshotTree(dir);
 
       const r = badgeRun(dir);
       assert.equal(
@@ -408,7 +408,7 @@ test('a --out symlinked to a unix socket in the repository is refused as a docum
       );
       assert.ok(fs.lstatSync(target).isSymbolicLink(), 'the link itself is left alone');
       assert.ok(fs.lstatSync(sock).isSocket(), 'and so is the socket it points at');
-      assert.deepEqual([...snapshot(dir).entries()].sort(), [...before.entries()].sort(), 'the tree is untouched');
+      assert.deepEqual(snapshotTree(dir), before, 'the tree is untouched');
 
       // Through the real bin: the ordinary badge document at exit 2, not the generic
       // handler's bare error.
@@ -463,32 +463,6 @@ async function runCliProc(args: string[]): Promise<CliResult> {
       const err = e as { code?: number; stdout?: string };
       return { code: err.code ?? 1, stdout: err.stdout ?? '' };
    }
-}
-
-/** Every path under `dir` as `rel -> digest`, so a comparison covers appearance
- * and disappearance as well as content. `.git/` is the harness's own scaffolding
- * and is excluded: a second CLI run cannot touch it. */
-function snapshot(dir: string, rel = '', acc = new Map<string, string>()): Map<string, string> {
-   const abs = rel === '' ? dir : path.join(dir, rel);
-   for (const entry of fs.readdirSync(abs, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
-      if (rel === '' && entry.name === '.git') continue;
-      const childRel = rel === '' ? entry.name : `${rel}/${entry.name}`;
-      if (entry.isDirectory()) {
-         acc.set(childRel + '/', '');
-         snapshot(dir, childRel, acc);
-      } else if (entry.isFile()) {
-         acc.set(
-            childRel,
-            crypto
-               .createHash('sha256')
-               .update(fs.readFileSync(path.join(dir, childRel)))
-               .digest('hex'),
-         );
-      } else {
-         acc.set(childRel, 'non-regular');
-      }
-   }
-   return acc;
 }
 
 /** Exactly the keys `--json` emits, under every outcome: a consumer parses one
@@ -637,7 +611,7 @@ for (const name of fs.readdirSync(fixturesDir).sort()) {
          }
 
          if (block.rerun) {
-            const afterFirst = snapshot(dir);
+            const afterFirst = snapshotTree(dir);
             const second = await runCliProc([...args, '--root', dir, '--json']);
             assert.equal(second.code, 0, 'the steady state exits 0');
             // The whole document again, not just `action`: the steady state is the
@@ -650,8 +624,8 @@ for (const name of fs.readdirSync(fixturesDir).sort()) {
             );
             if (block.rerun.byteIdentical) {
                assert.deepEqual(
-                  [...snapshot(dir).entries()].sort(),
-                  [...afterFirst.entries()].sort(),
+                  snapshotTree(dir),
+                  afterFirst,
                   'a second run is a byte-level no-op across the whole working tree',
                );
             }

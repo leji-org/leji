@@ -1,7 +1,10 @@
 """Unit tests mirroring packages/sdk/test/units.test.ts."""
 
+import binascii
+import hashlib
 import http.client
 import json
+import os
 import posixpath
 import re
 import shutil
@@ -20,12 +23,15 @@ from leji import (
     freshness_report,
     generate_viewer,
     load_manifest,
+    render_overview,
     route,
+    serve_viewer,
     status_report,
     validate_layer,
     write_index,
 )
 from leji.fsx import under_path, walk_md
+from leji.viewer_cmd import build_layer_map
 from leji.manifest import bind_agent_in_manifest_text
 from leji.layer import (
     excluded_from_categories,
@@ -748,7 +754,7 @@ def test_viewer_build_sidebar_skips_out_of_root_boot_and_renders_plain_entries(
     assert "Empty group" not in sidebar
 
 
-def test_viewer_seeds_overview_with_layer_map(tmp_path: Path) -> None:
+def test_viewer_seeds_overview_with_empty_markers(tmp_path: Path) -> None:
     layer = _copy(EXAMPLE, tmp_path)
     manifest = load_manifest(str(layer)).manifest
     generate_viewer(str(layer), manifest)
@@ -757,31 +763,52 @@ def test_viewer_seeds_overview_with_layer_map(tmp_path: Path) -> None:
     text = overview.read_text()
     assert "# acme-billing-context" in text
     assert "<!-- leji:generated-map:start -->" in text
-    assert "```mermaid\nflowchart LR" in text
-    assert "boot --> cat_domain" in text
-    # Categories carry counts, never per-doc nodes (unreadable at scale).
-    assert 'cat_domain["📖 Domain · 1 doc"]' in text
-    assert "n_glossary" not in text
+    # The map is derived from the index, so the seed carries the placement mark and one
+    # line saying where the map comes from, never a copy of the map itself.
+    between = text.split("<!-- leji:generated-map:start -->\n")[1].split(
+        "\n<!-- leji:generated-map:end -->"
+    )[0]
+    assert between == "<!-- the layer map is rendered here by the viewer and by leji export -->"
+    assert "```mermaid\nflowchart LR" not in text
+    assert "this file is never rewritten" in text
 
 
-def test_viewer_overview_seeded_once(tmp_path: Path) -> None:
+def test_viewer_map_is_rendered_from_the_index_never_written_into_the_source(
+    tmp_path: Path,
+) -> None:
     layer = _copy(EXAMPLE, tmp_path)
     manifest = load_manifest(str(layer)).manifest
     generate_viewer(str(layer), manifest)
     overview = layer / "docs" / "overview.md"
+    seeded = overview.read_bytes()
+    # A second run over the same tree writes nothing: the seed happens once.
+    generate_viewer(str(layer), manifest)
+    assert overview.read_bytes() == seeded, "a second run leaves the seeded page byte-identical"
+    # The owner rewrites the prose, keeps the markers, and leaves a stale map inside
+    # them. Adding a document changes the counts the map would show.
     edited = (
         "# My own title\n\nHand-written intro.\n\n"
         "<!-- leji:generated-map:start -->\nstale\n<!-- leji:generated-map:end -->\n\n"
         "More prose.\n"
     )
     overview.write_text(edited)
+    (layer / "docs" / "domain" / "pricing.md").write_text("# Pricing\n\nHow we price.\n")
+    before = hashlib.sha256(overview.read_bytes()).hexdigest()
     result = generate_viewer(str(layer), manifest)
-    after = overview.read_text()
-    assert "# My own title" in after
-    assert "More prose." in after
-    assert "```mermaid\nflowchart LR" in after
-    assert "\nstale\n" not in after
+    assert hashlib.sha256(overview.read_bytes()).hexdigest() == before, (
+        "a reindex that changes the map leaves overview.md byte-identical"
+    )
     assert not any(f.rule == "overview-markers-missing" for f in result.findings)
+    # The map exists at render time, from the same entries the run projected.
+    rendered = render_overview(edited, manifest, result.index_entries)
+    assert rendered.markers_found
+    assert "# My own title" in rendered.text
+    assert "More prose." in rendered.text
+    assert "\nstale\n" not in rendered.text
+    assert 'cat_domain["📖 Domain · 2 docs"]' in rendered.text
+    assert (
+        "```mermaid\n" + build_layer_map(manifest, result.index_entries) + "\n```"
+    ) in rendered.text
 
 
 def test_viewer_overview_without_markers_warns(tmp_path: Path) -> None:
@@ -794,8 +821,13 @@ def test_viewer_overview_without_markers_warns(tmp_path: Path) -> None:
     result = generate_viewer(str(layer), manifest)
     assert overview.read_text() == custom
     assert any(
-        f.rule == "overview-markers-missing" and f.severity == "warning" for f in result.findings
+        f.rule == "overview-markers-missing"
+        and f.severity == "warning"
+        and f.message == "overview.md has no generated-map markers; the map is not rendered"
+        for f in result.findings
     )
+    # With nowhere to put it, the page renders as its own source bytes.
+    assert render_overview(custom, manifest, result.index_entries) == (custom, False)
 
 
 def test_viewer_mermaid_disabled(tmp_path: Path) -> None:
@@ -1510,6 +1542,304 @@ def test_viewer_serve_rejects_a_foreign_host(tmp_path: Path) -> None:
             assert status(host) == 403, host
     finally:
         server.shutdown()
+
+
+# --- the overview map is served, never stored ---
+# The layer map used to be written into the committed overview.md on every run that
+# changed a document count. It is now substituted between the author's markers when
+# the page is read: these pin the served half (the export's is in test_export.py).
+
+
+def _overview_layer(tmp_path: Path) -> tuple[Path, dict]:
+    """The example layer with its viewer generated, at its resolved path (symlink
+    targets and mount comparisons below are about real locations)."""
+    layer = Path(os.path.realpath(_copy(EXAMPLE, tmp_path)))
+    manifest = load_manifest(str(layer)).manifest
+    generate_viewer(str(layer), manifest)
+    return layer, manifest
+
+
+def test_serve_renders_the_layer_map_into_the_overview_page(tmp_path: Path) -> None:
+    layer, manifest = _overview_layer(tmp_path)
+    overview = layer / "docs" / "overview.md"
+    # A document added after the seed: the served map counts the tree of right now.
+    (layer / "docs" / "domain" / "pricing.md").write_text("# Pricing\n\nHow we price.\n")
+    before = overview.read_bytes()
+    server, port = _serve_on_free_port(layer, manifest["rootPath"])
+    try:
+        status, body = _get(port, "/content/overview.md")
+        assert status == 200
+        text = body.decode("utf-8")
+        entries = generate_viewer(str(layer), manifest).index_entries
+        assert ("```mermaid\n" + build_layer_map(manifest, entries) + "\n```") in text, (
+            "the served map is exactly what build_layer_map produces for the live index"
+        )
+        assert 'cat_domain["📖 Domain · 2 docs"]' in text
+        assert text == render_overview(before.decode("utf-8"), manifest, entries).text
+        assert overview.read_bytes() == before, "serving the page never writes it"
+    finally:
+        server.shutdown()
+
+
+def test_serve_renders_the_overview_from_a_relative_root(tmp_path: Path, monkeypatch) -> None:
+    # What the CLI actually passes: `--root .`. serve_viewer absolutizes it, so the
+    # route's guards judge a resolved source against a resolved root. Judging one
+    # against a relative root reads as "outside the repository" and refuses every page,
+    # which no absolute-path test can catch (the Go port failed exactly this way).
+    layer, manifest = _overview_layer(tmp_path)
+    monkeypatch.chdir(layer)
+    server, port = _serve_on_free_port(Path("."), manifest["rootPath"])
+    try:
+        status, body = _get(port, "/content/overview.md")
+        assert status == 200, "a relative root still serves the overview"
+        assert "```mermaid\nflowchart LR" in body.decode("utf-8")
+    finally:
+        server.shutdown()
+
+
+def test_serve_keeps_the_last_good_map_when_the_layer_stops_indexing(tmp_path: Path) -> None:
+    layer, manifest = _overview_layer(tmp_path)
+    overview = layer / "docs" / "overview.md"
+    source = overview.read_text()
+    server, port = _serve_on_free_port(layer, manifest["rootPath"])
+
+    def overview_text() -> str:
+        status, body = _get(port, "/content/overview.md")
+        assert status == 200
+        return body.decode("utf-8")
+
+    try:
+        good = overview_text()
+        assert "```mermaid\nflowchart LR" in good, "a healthy tree renders the fresh map"
+        # A genuine generation failure: the manifest no longer parses, so this fetch has
+        # no index at all. The page keeps the map it last had rather than losing it.
+        manifest_abs = layer / "leji.json"
+        manifest_text = manifest_abs.read_text()
+        manifest_abs.write_text("{ not json")
+        assert overview_text() == good, "the last good map is served while the tree cannot index"
+        # Repaired, with the tree moved on: the map is the one the tree has now.
+        manifest_abs.write_text(manifest_text)
+        (layer / "docs" / "domain" / "pricing.md").write_text("# Pricing\n\nHow we price.\n")
+        assert 'cat_domain["📖 Domain · 2 docs"]' in overview_text()
+        assert overview.read_text() == source, "none of it wrote the source file"
+    finally:
+        server.shutdown()
+
+
+def test_serve_refuses_an_overview_that_resolves_out_of_the_content_root(tmp_path: Path) -> None:
+    layer, manifest = _overview_layer(tmp_path)
+    overview = layer / "docs" / "overview.md"
+    # An ordinary file elsewhere in the repository: the route is a content route first,
+    # and a content route serves nothing from outside its own mount.
+    (layer / "elsewhere.md").write_text("# Elsewhere\n")
+    overview.unlink()
+    overview.symlink_to(layer / "elsewhere.md")
+    server, port = _serve_on_free_port(layer, manifest["rootPath"])
+    try:
+        status, body = _get(port, "/content/overview.md")
+        assert status == 403, "a target outside the content mount is refused"
+        assert b"Elsewhere" not in body, "and nothing of it is served"
+    finally:
+        server.shutdown()
+
+
+def test_serve_refuses_an_overview_symlinked_into_a_private_role(tmp_path: Path) -> None:
+    # The content root here IS the repository root, so the private role is inside the
+    # mount and the servable whitelist is the check that answers: refused as today.
+    layer, _ = _overview_layer(tmp_path)
+    private = layer / ".leji" / "work" / "private.md"
+    private.parent.mkdir(parents=True, exist_ok=True)
+    private.write_text("# Private notes\n")
+    (layer / "overview.md").symlink_to(private)
+    server, port = _serve_on_free_port(layer, ".")
+    try:
+        status, body = _get(port, "/content/overview.md")
+        assert status == 404, "a private role is not servable, however it is reached"
+        assert b"Private notes" not in body, "and nothing of it is served"
+    finally:
+        server.shutdown()
+
+
+def test_check_before_act_overview_swapped_between_authorization_and_read_is_refused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # The window the overview route's binding exists for: the link is retargeted AFTER
+    # the resolution that authorizes the source and BEFORE the bytes are taken, at a
+    # target inside the repository but outside the content mount, where the private-role
+    # and containment guards alone say yes. Deterministic, not a race: the patched
+    # resolver performs the swap inline, so the window is exercised on every run (the
+    # idiom the export canaries use).
+    #
+    # Mutation that reddens: give the route the pre-review shape, a resolved_path that
+    # authorizes the path followed by a read that resolves the path again
+    # (verified_target_read), and the swapped-in file's bytes are served with a 200.
+    from leji import fsx
+
+    layer, manifest = _overview_layer(tmp_path)
+    overview = layer / "docs" / "overview.md"
+    # The legitimate target is a real page inside the content root; overview.md is the
+    # link, so the swap changes only where it points.
+    inside = layer / "docs" / "home.md"
+    overview.rename(inside)
+    outside = layer / "outside.md"
+    secret = "SECRET-OUTSIDE-THE-CONTENT-ROOT"
+    outside.write_text(f"# Outside\n\n{secret}\n")
+    overview.symlink_to(inside)
+    server, port = _serve_on_free_port(layer, manifest["rootPath"])
+
+    state = {"swapped": False}
+    real_resolver = fsx.resolved_path_under
+
+    def swapping_resolver(base: str, abs_path: str):
+        # Called with the answer the real resolver just produced: the caller is about to
+        # judge or open THAT path, and the entry it came from is retargeted first.
+        answer = real_resolver(base, abs_path)
+        if not state["swapped"] and os.path.abspath(abs_path) == str(overview):
+            state["swapped"] = True
+            overview.unlink()
+            overview.symlink_to(outside)
+        return answer
+
+    monkeypatch.setattr(fsx, "resolved_path_under", swapping_resolver)
+    try:
+        status, body = _get(port, "/content/overview.md")
+    finally:
+        monkeypatch.undo()
+        server.shutdown()
+
+    assert state["swapped"], "the link was retargeted inside the route, after the resolution"
+    assert os.readlink(overview) == str(outside), "and it still points outside the mount"
+    assert secret not in body.decode("utf-8"), "no byte from outside the content mount was served"
+    # The mapping the ordinary content route uses: the source resolves outside the
+    # mount, so the mount answers, and it answers before anything is read.
+    assert status == 403, "the swapped-in target is refused"
+
+
+# --- the rendered page decodes the way the reference decodes ---
+# The overview is rendered from a STRING, so the three SDKs must turn the same bytes into
+# the same string or the rendered page diverges on any source that is not valid UTF-8.
+# The expectations below were captured from the TypeScript SDK itself and are pinned.
+
+# Node's `Buffer.from(bytes).toString('utf8')`, one row per invalid shape: U+FFFD per
+# maximal subpart, so `E2 82` at the end is one replacement and `C0 80` is two.
+_NODE_DECODE_VECTORS = [
+    ("valid ascii", "68656c6c6f", "68656c6c6f"),
+    ("valid emoji", "f09f9880", "f09f9880"),
+    ("lone FF between ascii", "61ff62", "61efbfbd62"),
+    ("lone continuation", "80", "efbfbd"),
+    ("truncated 3-byte at eof", "e282", "efbfbd"),
+    ("truncated 3-byte then ascii", "e28241", "efbfbd41"),
+    ("overlong 2-byte", "c080", "efbfbdefbfbd"),
+    ("surrogate", "eda080", "efbfbdefbfbdefbfbd"),
+    ("past U+10FFFF", "f4908080", "efbfbdefbfbdefbfbdefbfbd"),
+    ("overlong 4-byte", "f08282ac", "efbfbdefbfbdefbfbdefbfbd"),
+    ("E0 80 80", "e08080", "efbfbdefbfbdefbfbd"),
+    ("truncated 4-byte, two bytes", "f09f", "efbfbd"),
+    ("truncated 4-byte, three bytes", "f09f98", "efbfbd"),
+    ("FE FF", "feff", "efbfbdefbfbd"),
+    ("lead then ascii", "c241", "efbfbd41"),
+]
+
+# One rendered document, whole, as the reference produced it: the invalid sequences sit
+# OUTSIDE the marker span (a lone 0xFF before it, an overlong C0 80 after it), so what is
+# pinned is the decode and not the substitution. The truncated E2 82 inside the span is
+# dropped with the span, as it is in every SDK.
+_REFERENCE_SOURCE_HEX = (
+    "232054ff746c650a0a3c212d2d206c656a693a67656e6572617465642d6d61703a7374617274202d2d3e"
+    "0a7374616c6520e282206d61700a3c212d2d206c656a693a67656e6572617465642d6d61703a656e6420"
+    "2d2d3e0a0a5461c080696c0a"
+)
+_REFERENCE_RENDERED_HEX = (
+    "232054efbfbd746c650a0a3c212d2d206c656a693a67656e6572617465642d6d61703a"
+    "7374617274202d2d3e0a6060606d65726d6169640a666c6f776368617274204c520a2020626f6f"
+    "745b22f09fa49620426f6f742070726f66696c65225d0a20206361745f646f6d61696e5b22f09f"
+    "939620446f6d61696e20c2b7203120646f63225d0a2020626f6f74202d2d3e206361745f646f6d"
+    "61696e0a6060600a3c212d2d206c656a693a67656e6572617465642d6d61703a656e64202d2d3e"
+    "0a0a5461efbfbdefbfbd696c0a"
+)
+
+
+def test_utf8_decode_matches_node_buffer_to_string() -> None:
+    for name, src_hex, want_hex in _NODE_DECODE_VECTORS:
+        decoded = binascii.unhexlify(src_hex).decode("utf-8", errors="replace")
+        assert decoded.encode("utf-8").hex() == want_hex, name
+
+
+def test_render_overview_on_invalid_utf8_is_byte_identical_to_the_reference() -> None:
+    source = binascii.unhexlify(_REFERENCE_SOURCE_HEX)
+    entries = [{"id": "a", "path": "docs/domain/a.md", "title": "A", "category": "domain"}]
+    rendered = render_overview(
+        source.decode("utf-8", errors="replace"), {"name": "fixture"}, entries
+    )
+    assert rendered.markers_found
+    assert rendered.text.encode("utf-8").hex() == _REFERENCE_RENDERED_HEX
+    assert "# T�tle" in rendered.text and "Ta��il" in rendered.text
+
+
+def test_serve_decodes_invalid_utf8_like_the_reference(tmp_path: Path) -> None:
+    # The served half of the decode rule: a rendered page is decoded the way Node decodes,
+    # and a markerless one is served as its raw bytes.
+    layer, manifest = _overview_layer(tmp_path)
+    overview = layer / "docs" / "overview.md"
+    rendered_source = (
+        b"# T\xfftle\n\n<!-- leji:generated-map:start -->\nstale\n"
+        b"<!-- leji:generated-map:end -->\n\nTa\xc0\x80il\n"
+    )
+    overview.write_bytes(rendered_source)
+    server, port = _serve_on_free_port(layer, manifest["rootPath"])
+    try:
+        status, body = _get(port, "/content/overview.md")
+        assert status == 200
+        entries = generate_viewer(str(layer), manifest).index_entries
+        want = render_overview(rendered_source.decode("utf-8", errors="replace"), manifest, entries)
+        assert want.markers_found
+        assert body == want.text.encode("utf-8"), "the served page is the reference rendering"
+        assert "# T�tle" in body.decode("utf-8")
+        assert "Ta��il" in body.decode("utf-8")
+        assert b"\xff" not in body, "no raw invalid byte is served from a rendered page"
+        # Markerless: nothing to render, so the source bytes go out exactly as they stand.
+        markerless = b"# Custom\n\nA raw \xff byte.\n"
+        overview.write_bytes(markerless)
+        status, body = _get(port, "/content/overview.md")
+        assert status == 200
+        assert body == markerless, "a markerless page is served as its raw bytes"
+    finally:
+        server.shutdown()
+
+
+def test_zero_entry_snapshot_suppresses_the_startup_generation(tmp_path: Path, monkeypatch) -> None:
+    # A successful generation over a layer that governs nothing projects ZERO entries, not
+    # "no snapshot". `None` is the only "no snapshot" spelling here, and an empty list is a
+    # snapshot that suppresses the startup generation exactly as a full one does: the same
+    # class the Go port failed on with a nil slice.
+    from leji import serve_cmd
+
+    layer, manifest = _overview_layer(tmp_path)
+    result = generate_viewer(str(layer), manifest)
+    assert result.index_entries is not None, "a successful generation always carries a snapshot"
+
+    generations = 0
+    real_generate_index = serve_cmd.generate_index
+
+    def counting_generate_index(*args, **kwargs):
+        nonlocal generations
+        generations += 1
+        return real_generate_index(*args, **kwargs)
+
+    monkeypatch.setattr(serve_cmd, "generate_index", counting_generate_index)
+
+    # An empty snapshot is still a snapshot: nothing is generated at startup.
+    server = serve_viewer(str(layer), 0, manifest["rootPath"], entries=[])
+    try:
+        assert generations == 0, "the supplied snapshot must suppress the startup generation"
+    finally:
+        server.server_close()
+    # Not vacuous: with no snapshot at all the startup generation does run.
+    server = serve_viewer(str(layer), 0, manifest["rootPath"])
+    try:
+        assert generations >= 1, "without a snapshot the server generates at startup"
+    finally:
+        server.server_close()
 
 
 def test_viewer_port_precedence(tmp_path: Path) -> None:

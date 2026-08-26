@@ -33,6 +33,13 @@ WORK_REL = f"{LEJI_DIR}/work"
 #: The private federation domain: managed object stores, projection cache, staging.
 MOUNTS_REL = f"{LEJI_DIR}/mounts"
 
+#: The one metadata file the tool keeps directly under root ``.leji/``, outside every
+#: role: the ignore file that keeps the tool's own tree out of the repository even
+#: when the root ``.gitignore`` never received the ``.leji/`` line. It belongs to no
+#: role, so the role rule below refuses it; the single named exception that allows it
+#: lives in ``fsx.py``, where the REQUESTED entry is still visible.
+LEJI_IGNORE_REL = f"{LEJI_DIR}/.gitignore"
+
 
 def role_abs(root_abs: str, rel: str) -> str:
     """Join a repository-root-relative role path (POSIX, as the constants above
@@ -75,19 +82,32 @@ def leji_role(root_abs: str, abs_path: str) -> str:
     return "" if rest == "." else rest.split(os.sep)[0]
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TargetVerdict:
     """The verdict of :func:`writable_target`: whether a tool-owned target may be
     written or cleared, and — when refused — that it landed outside the repository,
     the private role it crossed into, that the path could not be resolved at all
     (permission/I/O, not mere absence), or that an exclusive create found the file
-    already there."""
+    already there.
+
+    ``metadata_file`` marks the one allowed target that belongs to no role,
+    :data:`LEJI_IGNORE_REL`. It is never produced here: only the named exception in
+    ``fsx.py`` constructs it, on the requested entry, and a source-audit test pins that
+    single constructor site.
+
+    KEYWORD-ONLY, deliberately. The pin that keeps ``metadata_file`` to one constructor
+    reads NAMES, so a positional ``TargetVerdict(True, "", False, False, False, True)``
+    would set the field without ever spelling it. ``kw_only`` removes that spelling from
+    the language rather than leaving it to an audit to chase: a positional construction
+    is now a ``TypeError``, not a silent second exception. The audit flags it too, so the
+    refusal is visible at review time as well as at run time."""
 
     ok: bool = False
     role: str = ""
     unresolvable: bool = False
     outside_root: bool = False
     exists: bool = False
+    metadata_file: bool = False
 
 
 def writable_target(root_abs: str, resolved_abs: str, own_role_rel: Optional[str]) -> TargetVerdict:

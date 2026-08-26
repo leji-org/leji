@@ -1,0 +1,26 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": []
+  },
+  "seeds": [
+    {
+      "from": ".leji-seed",
+      "to": ".leji"
+    }
+  ],
+  "lejiIgnore": {
+    "scenarios": [
+      {
+        "id": "D",
+        "note": "Somebody else's .leji/.gitignore is left byte-identical, said once on stderr, and never in the JSON document.",
+        "args": ["export", "--json"],
+        "exit": 0,
+        "ignoreFile": "regular",
+        "bytes": "# kept by the repository owner\n!keep-me\n",
+        "notices": 1,
+        "jsonParses": true
+      }
+    ]
+  }
+}

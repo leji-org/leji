@@ -176,6 +176,44 @@ function buildAcmeSibling(dir: string): void {
    git(dir, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
 }
 
+/** The rewritten upstream before anything is pruned: `a` on its own branch `old`,
+ * and an unrelated orphan on `main`. A repository in this shape holds BOTH commits,
+ * which is what the refusal's route calls a local hint; pruning it is what makes a
+ * source that can no longer serve the pin. */
+function buildOrphanTargetRepo(dir: string): { pin: string; target: string } {
+   fs.mkdirSync(dir, { recursive: true });
+   git(dir, 'init', '-q', '-b', 'old', '.');
+   const pin = commit(dir, 'a.md');
+   git(dir, 'checkout', '-q', '--orphan', 'main');
+   git(dir, 'rm', '-q', '-rf', '.');
+   const target = commit(dir, 'o.md');
+   return { pin, target };
+}
+
+/**
+ * The orphan-target scaffold: a source that no longer serves the commit the host
+ * pins, while still advertising a target unrelated to it: an upstream that rewrote
+ * its history, which is the case the `current pin` act exists to name. `a` is
+ * committed on `old`, `main` is rebuilt as an orphan, `old` is deleted, and the
+ * reflog and the object store are pruned, so nothing reaches `a` any more. Both
+ * halves are asserted here, because a scaffold that quietly kept the pin reachable
+ * (which is what pruning a branch the target still reaches would do) would prove
+ * nothing on any platform's git.
+ */
+function buildOrphanTargetSource(dir: string): { pin: string; target: string } {
+   const { pin, target } = buildOrphanTargetRepo(dir);
+   git(dir, 'branch', '-D', 'old');
+   git(dir, 'reflog', 'expire', '--expire=now', '--all');
+   git(dir, 'gc', '-q', '--prune=now');
+   // Fetching a commit by id is how the resolver retains a pin: the source serves
+   // one the way a real host does, so the refusal is the missing object and never
+   // a server declining to serve an unadvertised id.
+   git(dir, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
+   assert.throws(() => git(dir, 'cat-file', '-e', pin), 'the pin is unavailable in the source');
+   assert.match(git(dir, 'ls-remote', dir), new RegExp(`${target}\\s+refs/heads/main`), 'the target is advertised');
+   return { pin, target };
+}
+
 interface StoreSpec {
    pin: string | null;
    witnessRef: string | null;
@@ -333,6 +371,18 @@ interface CliResult {
    stdout: string;
 }
 
+/** The declared source is a locator no test may reach, so it is routed at git's own
+ * level to the repository the scaffold built. */
+function routedEnv(routed: string): NodeJS.ProcessEnv {
+   return {
+      ...process.env,
+      GIT_DIR: undefined,
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: `url.${routed}.insteadOf`,
+      GIT_CONFIG_VALUE_0: ACME_SOURCE,
+   };
+}
+
 async function runCliProc(args: string[], env: NodeJS.ProcessEnv): Promise<CliResult> {
    try {
       const { stdout } = await execFileAsync('node', [cli, ...args], { cwd: repoRoot, env });
@@ -346,7 +396,7 @@ async function runCliProc(args: string[], env: NodeJS.ProcessEnv): Promise<CliRe
 interface UpdatePinDocument {
    command: string;
    ok: boolean;
-   findings: { rule: string; severity: string; path?: string; message: string }[];
+   findings: { rule: string; severity: string; path?: string; message: string; detail?: string }[];
    summary: { errors: number; warnings: number };
    mount: {
       name: string;
@@ -441,6 +491,12 @@ for (const name of fs.readdirSync(fixturesDir).sort()) {
                ].sort((a, b) => (a.rule < b.rule ? -1 : 1)),
                `${c.id}: the exact findings`,
             );
+            // Only a rule with more than one act names one: every other refusal is
+            // the document it was before the act detail existed.
+            for (const f of doc.findings) {
+               if (f.rule === 'mount-store-fetch-failed' || f.rule === 'mount-witness-refresh-failed') continue;
+               assert.ok(!('detail' in f), `${c.id}: ${f.rule} carries no detail`);
+            }
             if (c.comparisonRepository !== undefined) {
                assert.equal(
                   doc.pinReport?.comparisonRepository,
@@ -527,11 +583,7 @@ test('a target that cannot be retained under --fetch refuses the move, manifest 
       // one reachable path. It names the TARGET, so retaining the current pin — the
       // act before the gate — still succeeds and the refusal is unambiguous.
       const r = await runCliProc(['mounts', 'update-pin', 'product-context', '--fetch', '--root', host, '--json'], {
-         ...process.env,
-         GIT_DIR: undefined,
-         GIT_CONFIG_COUNT: '1',
-         GIT_CONFIG_KEY_0: `url.${sibling}.insteadOf`,
-         GIT_CONFIG_VALUE_0: ACME_SOURCE,
+         ...routedEnv(sibling),
          LEJI_TEST_FAIL_PIN_REF: OID.b,
       });
       assert.equal(r.code, 1, r.stdout);
@@ -543,12 +595,168 @@ test('a target that cannot be retained under --fetch refuses the move, manifest 
          doc.findings.map((f) => f.rule),
          ['mount-store-fetch-failed'],
       );
+      // The act is named, and it is the TARGET's: the same rule id, from the other
+      // side of the gate, is a different act with no route past it.
+      assert.equal(doc.findings[0].detail, 'target: the pin could not be retained by a ref in the managed store');
+      assert.equal(doc.findings[0].message, 'the requested fetch could not retain the commit in the managed store');
       assert.deepEqual(fs.readFileSync(path.join(host, 'leji.json')), before, 'leji.json is byte-untouched');
       // The refusal leaves the CURRENT pin retained: fetched objects and refs stay,
       // which is exactly what the help text says a failed --fetch may leave behind.
       const key = crypto.createHash('sha256').update(ACME_IDENTITY).digest('hex');
       const store = path.join(host, '.leji', 'mounts', 'store', key);
       assert.equal(git(store, 'rev-parse', pinRefFor(ACME_IDENTITY, OID.a)), OID.a);
+   } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+   }
+});
+
+test('the same injected retention failure, aimed at the CURRENT pin, names that act instead', async () => {
+   const dir = tmpdir('leji-updatepin-retain-current-');
+   try {
+      const sibling = path.join(dir, 'sibling');
+      const host = path.join(dir, 'host');
+      buildAcmeSibling(sibling);
+      fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), host, { recursive: true });
+      repin(host, OID.a, 'keep');
+      // One hook, two acts: it names a commit, and each act retains its own, so the
+      // pin's id aims it at the act before the gate rather than the one after it.
+      const r = await runCliProc(['mounts', 'update-pin', 'product-context', '--fetch', '--root', host, '--json'], {
+         ...routedEnv(sibling),
+         LEJI_TEST_FAIL_PIN_REF: OID.a,
+      });
+      assert.equal(r.code, 1, r.stdout);
+      const doc = JSON.parse(r.stdout) as UpdatePinDocument;
+      assert.equal(doc.reason, 'mount-store-fetch-failed');
+      assert.equal(doc.findings[0].detail, 'current pin: the pin could not be retained by a ref in the managed store');
+      assert.match(doc.findings[0].message, /^the requested fetch could not retain the commit in the managed store;/);
+   } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+   }
+});
+
+test('a current pin the source no longer serves refuses at that act, with the route past it', async () => {
+   const dir = tmpdir('leji-updatepin-orphan-');
+   try {
+      const source = path.join(dir, 'source');
+      const host = path.join(dir, 'host');
+      const { pin, target } = buildOrphanTargetSource(source);
+      fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), host, { recursive: true });
+      repin(host, pin, 'keep');
+      const before = fs.readFileSync(path.join(host, 'leji.json'));
+      const argv = ['mounts', 'update-pin', 'product-context', '--fetch', '--root', host];
+      const r = await runCliProc([...argv, '--json'], routedEnv(source));
+      assert.equal(r.code, 1, r.stdout);
+      const doc = JSON.parse(r.stdout) as UpdatePinDocument;
+      assert.equal(doc.reason, 'mount-store-fetch-failed');
+      assert.equal(doc.mount.to, null, 'the run refused before it had a target');
+      assert.equal(doc.findings[0].detail, 'current pin: the pin could not be fetched from the source');
+      // `detail` sits immediately after `message`: the key order the ports freeze.
+      assert.deepEqual(Object.keys(doc.findings[0]), ['rule', 'severity', 'path', 'message', 'detail']);
+      assert.equal(
+         doc.findings[0].message,
+         'the requested fetch could not retain the commit in the managed store; if a local hint holds the current ' +
+            'pin and the target with complete ancestry, run without `--fetch`; to move past a rewritten upstream, ' +
+            'pass `--to <oid> --allow-non-fast-forward` against such a hint',
+      );
+      // The same sentence reaches a person, with the act on the same line.
+      const human = await runCliProc(argv, routedEnv(source));
+      assert.equal(human.code, 1, human.stdout);
+      assert.equal(
+         human.stdout.trim(),
+         `Refused: ${doc.findings[0].message} (detail: current pin: the pin could not be fetched from the source)`,
+      );
+      assert.deepEqual(fs.readFileSync(path.join(host, 'leji.json')), before, 'leji.json is byte-untouched');
+      assert.notEqual(target, pin, 'the advertised target is not the commit the host pins');
+   } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+   }
+});
+
+test('the route the current-pin refusal advertises: the hint moves the pin, --fetch still refuses', async () => {
+   const dir = tmpdir('leji-updatepin-route-');
+   try {
+      const source = path.join(dir, 'source');
+      const hint = path.join(dir, 'hint');
+      const host = path.join(dir, 'host');
+      // One recipe, two repositories: the source is pruned, the hint keeps `old`, so
+      // it holds the current pin and the orphan target with complete ancestry.
+      const { pin, target } = buildOrphanTargetSource(source);
+      const held = buildOrphanTargetRepo(hint);
+      assert.deepEqual(held, { pin, target }, 'the hint holds the same two commits');
+      fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), host, { recursive: true });
+      repin(host, pin, 'keep');
+      fs.mkdirSync(path.join(host, '.leji'), { recursive: true });
+      fs.writeFileSync(
+         path.join(host, '.leji', 'mounts.local.json'),
+         JSON.stringify({ mounts: { 'product-context': { repo: hint } } }) + '\n',
+      );
+      const before = fs.readFileSync(path.join(host, 'leji.json'));
+      const move = ['mounts', 'update-pin', 'product-context', '--to', target, '--allow-non-fast-forward'];
+      // With `--fetch` the source is asked for the current pin first, and that act is
+      // the one that fails: the hint holding both operands does not save the run.
+      const refused = await runCliProc([...move, '--fetch', '--root', host, '--json'], routedEnv(source));
+      assert.equal(refused.code, 1, refused.stdout);
+      const refusedDoc = JSON.parse(refused.stdout) as UpdatePinDocument;
+      assert.equal(refusedDoc.reason, 'mount-store-fetch-failed');
+      assert.equal(refusedDoc.findings[0].detail, 'current pin: the pin could not be fetched from the source');
+      assert.deepEqual(fs.readFileSync(path.join(host, 'leji.json')), before, 'leji.json is byte-untouched');
+      // The store that refused run established holds nothing, so the move below is
+      // the hint's answer and no leftover managed operand.
+      const store = path.join(
+         host,
+         '.leji',
+         'mounts',
+         'store',
+         crypto.createHash('sha256').update(ACME_IDENTITY).digest('hex'),
+      );
+      assert.throws(() => git(store, 'cat-file', '-e', pin), 'the managed store never got the pin');
+      // Without `--fetch`, exactly as the refusal says: the hint answers, the
+      // override carries the move past the rewritten history, and the pin moves.
+      const moved = await runCliProc([...move, '--root', host, '--json'], { ...process.env, GIT_DIR: undefined });
+      assert.equal(moved.code, 0, moved.stdout);
+      const movedDoc = JSON.parse(moved.stdout) as UpdatePinDocument;
+      assert.equal(movedDoc.action, 'updated');
+      assert.equal(movedDoc.override, true);
+      assert.equal(movedDoc.pinReport?.comparisonRepository, 'hint');
+      assert.equal(movedDoc.pinReport?.witnessProvenance, 'unmanaged');
+      assert.equal(movedDoc.pinReport?.ancestryComplete, true, 'the hint answers the range');
+      assert.equal(movedDoc.mount.from, pin);
+      assert.equal(movedDoc.mount.to, target);
+      assert.deepEqual(
+         movedDoc.findings.map((f) => [f.rule, f.severity]),
+         [['mount-pin-non-fast-forward-override', 'warning']],
+      );
+      const after = fs.readFileSync(path.join(host, 'leji.json'), 'utf8');
+      assert.ok(after.includes(`"pin": "${target}"`), 'the manifest now pins the target');
+      assert.equal(after, before.toString('utf8').replace(pin, target), 'exactly the pin span moved');
+   } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+   }
+});
+
+test('a tracking ref the source does not advertise refuses at the witness act', async () => {
+   const dir = tmpdir('leji-updatepin-witness-');
+   try {
+      const sibling = path.join(dir, 'sibling');
+      const host = path.join(dir, 'host');
+      buildAcmeSibling(sibling);
+      fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), host, { recursive: true });
+      repin(host, OID.a, 'keep');
+      // The store already holds the pin, so its retention needs no network at all and
+      // the witness refresh is the only act left that can fail.
+      buildStore(host, sibling, { pin: OID.a, witnessRef: null, witnessOid: null, depth: null });
+      const mp = path.join(host, 'leji.json');
+      fs.writeFileSync(mp, fs.readFileSync(mp, 'utf8').replace('refs/heads/main', 'refs/heads/release'));
+      const r = await runCliProc(
+         ['mounts', 'update-pin', 'product-context', '--fetch', '--root', host, '--json'],
+         routedEnv(sibling),
+      );
+      assert.equal(r.code, 1, r.stdout);
+      const doc = JSON.parse(r.stdout) as UpdatePinDocument;
+      assert.equal(doc.reason, 'mount-witness-refresh-failed');
+      assert.equal(doc.findings[0].detail, 'witness: the tracking ref could not be fetched from the source');
+      // The witness act has no route of its own: the rule's own sentence stands.
+      assert.equal(doc.findings[0].message, 'the requested fetch could not refresh the managed witness ref');
    } finally {
       fs.rmSync(dir, { recursive: true, force: true });
    }

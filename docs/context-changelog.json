@@ -321,6 +321,35 @@
       "decisionRefs": [
         "commercial-hosted-viewer"
       ]
+    },
+    {
+      "id": "dependency-pinning-and-refresh-policy",
+      "date": "2026-08-24",
+      "type": "added",
+      "summary": "Decision 0008: pin classes, release-is-a-refresh, the 90-day floor, and the public security-response commitment.",
+      "paths": [
+        "docs/decisions/0008-dependency-pinning-and-refresh.md",
+        "SECURITY.md"
+      ],
+      "categories": [
+        "decisions",
+        "governance"
+      ],
+      "decisionRefs": [
+        "dependency-pinning-and-refresh"
+      ]
+    },
+    {
+      "id": "trust-boundary-metadata-file-exception",
+      "date": "2026-08-24",
+      "type": "changed",
+      "summary": "Trust boundary: the one named exception to the role rule (.leji/.gitignore, judged on the requested entry) and the runtime-assembled-key residual of its audit pin.",
+      "paths": [
+        "docs/practice/trust-boundary.md"
+      ],
+      "categories": [
+        "practice"
+      ]
     }
   ]
 }

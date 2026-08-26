@@ -24,6 +24,7 @@ from .findings import Finding, has_errors, sort_findings, summarize
 from .freshness import freshness_report
 from .indexgen import check_index, write_index
 from .layout import DIST_REL, VIEWER_REL
+from .leji_ignore import LejiIgnoreContext, new_leji_ignore_context
 from .gitutil import git_origin_url
 from .dependency import dependency_add_failed, offer_dependency
 from .ecosystem import (
@@ -343,17 +344,25 @@ def _print_findings(findings: list[Finding]) -> None:
         # A rule that locates a line says so, so a reader can go to it.
         where = f" {f.path}{'' if f.line is None else f':{f.line}'}" if f.path else ""
         label = "error  " if f.severity == "error" else "warning"
-        print(f"{label} {f.rule}{where}: {f.message}")
+        # A rule that names the act it failed at says which one, on the same line.
+        detail = "" if f.detail is None else f" (detail: {f.detail})"
+        print(f"{label} {f.rule}{where}: {f.message}{detail}")
 
 
-def _mount_findings(rows: list[dict[str, object]]) -> list[Finding]:
+def _mount_findings(
+    rows: list[dict[str, object]], reasons: dict[str, str] | None = None
+) -> list[Finding]:
     """The mount findings ``mounts hydrate`` and ``mounts status`` emit: what this
     run observed and nothing beyond it. The row-level warnings describe the run
     that is happening, never a remembered one, and all are visibility rather than
     failure — ``hydrate`` stays best-effort, so none moves the exit code. Emitted in
     declaration order, as Node emits them; the human renderer sorts, the JSON
-    surface does not."""
+    surface does not.
+
+    ``reasons`` is the resolver's reason for the one ``--fetch`` act that failed,
+    per mount: the finding names the act, the reason says what the act ran into."""
     out: list[Finding] = []
+    reasons = reasons or {}
     for row in rows:
         # An unavailable mount whose pinned layer would not project: the outcome
         # alone is not the diagnostic interface JSON consumers read, so the failure
@@ -369,6 +378,7 @@ def _mount_findings(rows: list[dict[str, object]]) -> list[Finding]:
                     path=cast("str", row["name"]),
                 )
             )
+        reason = reasons.get(cast("str", row["name"]))
         if row.get("storeFetched") is False:
             out.append(
                 Finding(
@@ -376,6 +386,7 @@ def _mount_findings(rows: list[dict[str, object]]) -> list[Finding]:
                     severity="warning",
                     message="the managed store could not be established by the requested fetch",
                     path=cast("str", row["name"]),
+                    detail=None if reason is None else f"current pin: {reason}",
                 )
             )
         if row.get("witnessRefreshFailed"):
@@ -385,6 +396,7 @@ def _mount_findings(rows: list[dict[str, object]]) -> list[Finding]:
                     severity="warning",
                     message="the managed witness ref could not be refreshed by the requested fetch",
                     path=cast("str", row["name"]),
+                    detail=None if reason is None else f"witness: {reason}",
                 )
             )
     return out
@@ -423,7 +435,7 @@ def _print_unindexed_nudge(count: int) -> None:
     print(f"{count} file(s) unindexed: add to a category index or leave as reference deliberately")
 
 
-def _run_export(args: argparse.Namespace) -> int:
+def _run_export(args: argparse.Namespace, ignore_context: LejiIgnoreContext) -> int:
     """The one export run, reached by both of its names: `leji export` (the front
     door) and `leji viewer build` (the viewer subsystem's name for the same
     operation, beside `viewer serve`). One code path, so the two are byte-identical
@@ -441,7 +453,12 @@ def _run_export(args: argparse.Namespace) -> int:
         return _report_export(
             args, BuildResult(out=out if out is not None else DIST_REL, findings=load.findings)
         )
-    return _report_export(args, build_viewer(args.root, load.manifest, out, strict=args.strict))
+    return _report_export(
+        args,
+        build_viewer(
+            args.root, load.manifest, out, strict=args.strict, ignore_context=ignore_context
+        ),
+    )
 
 
 def _report_export(args: argparse.Namespace, r: BuildResult) -> int:
@@ -542,8 +559,16 @@ def _report_update_pin(args: argparse.Namespace, r: UpdatePinResult) -> int:
             f"Would update leji.json: {r.mount['name']} pin {from12} → {to12} (dry run){overridden}"
         )
     elif r.action == "refused":
+        # The refusal's own finding is what the document carries, so the human line
+        # is read off it rather than looked up a second time: one sentence, and the
+        # act it failed at when the rule names one.
         reason = r.reason or ""
-        print(f"Refused: {MOUNT_UPDATE_PIN_REASONS.get(reason, reason)}")
+        refusal = next((f for f in findings if f.severity == "error"), None)
+        message = (
+            MOUNT_UPDATE_PIN_REASONS.get(reason, reason) if refusal is None else refusal.message
+        )
+        detail = "" if refusal is None or refusal.detail is None else f" (detail: {refusal.detail})"
+        print(f"Refused: {message}{detail}")
     return 0 if ok else 1
 
 
@@ -1455,6 +1480,13 @@ def main(argv: list[str] | None = None) -> int:
         print(USAGE)
         return 2
 
+    # One notice state for this invocation, created at the command entry point and
+    # handed to every path that can create a `.leji/` role: whatever a command
+    # establishes, it says at most once that it left an existing `.leji/.gitignore`
+    # alone. A second repository, or a long-lived host calling the SDK directly, never
+    # inherits it.
+    ignore_context = new_leji_ignore_context()
+
     try:
         if args.command == "validate":
             validate_result = validate_layer(args.root, content=args.content)
@@ -1840,7 +1872,11 @@ def main(argv: list[str] | None = None) -> int:
                 print("leji: --federation on conformance takes only verify\n", file=sys.stderr)
                 print(USAGE, file=sys.stderr)
                 return 2
-            conformance = conformance_report(args.root, federation=args.federation == "verify")
+            conformance = conformance_report(
+                args.root,
+                federation=args.federation == "verify",
+                ignore_context=ignore_context,
+            )
             if not args.json:
                 for check_item in conformance.items:
                     mark = {
@@ -1909,14 +1945,17 @@ def main(argv: list[str] | None = None) -> int:
                         allow_non_fast_forward=args.allow_non_fast_forward,
                         fetch=args.fetch,
                         dry_run=args.dry_run,
+                        ignore_context=ignore_context,
                     ),
                 )
             if subcommand == "hydrate":
-                hydrate = hydrate_mounts(args.root, load.manifest, fetch=args.fetch)
+                hydrate = hydrate_mounts(
+                    args.root, load.manifest, fetch=args.fetch, ignore_context=ignore_context
+                )
                 if hydrate.fatal is not None:
                     print(f"leji: {hydrate.fatal}", file=sys.stderr)
                     return 1
-                issues = _mount_findings(hydrate.outcomes)
+                issues = _mount_findings(hydrate.outcomes, hydrate.reasons)
                 had_error = any(o["status"] == "error" for o in hydrate.outcomes)
                 if args.json:
                     print(
@@ -2022,7 +2061,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "export" or (
             args.command == "viewer" and getattr(args, "subcommand", None) == "build"
         ):
-            return _run_export(args)
+            return _run_export(args, ignore_context)
 
         if args.command in ("viewer", "view"):
             # `view` aliases `viewer serve` and also opens the browser.
@@ -2032,7 +2071,7 @@ def main(argv: list[str] | None = None) -> int:
             load = load_manifest(args.root)
             if load.manifest is None:
                 return _emit("viewer", load.findings, args.json)
-            viewer_result = generate_viewer(args.root, load.manifest)
+            viewer_result = generate_viewer(args.root, load.manifest, ignore_context)
             # Terse by design: findings when something needs attention, one status
             # line otherwise. The full write list lives in --json.
             all_findings = [*load.findings, *viewer_result.findings]
@@ -2061,6 +2100,9 @@ def main(argv: list[str] | None = None) -> int:
                 resolve_viewer_port(load.manifest, args.port),
                 load.manifest["rootPath"],
                 log=None if args.json else lambda line: print(line, flush=True),
+                # The generation above just projected the index: the first layer map is
+                # that snapshot rather than a second generation of the same tree.
+                entries=viewer_result.index_entries,
             )
             port = server.server_address[1]
             # Display localhost (nicer, still a secure context); server stays bound
@@ -2105,6 +2147,7 @@ def main(argv: list[str] | None = None) -> int:
                 no_agents=args.no_agents,
                 agent=args.agent,
                 mode=args.mode,
+                ignore_context=ignore_context,
             )
             # The repository's own dependency ecosystem, read once and reported by
             # every output mode: the human block, the JSON document, and the offer.
@@ -2163,6 +2206,7 @@ def main(argv: list[str] | None = None) -> int:
                     detected=adopt_result.detected,
                     interactive=interactive,
                     agent=args.agent,
+                    ignore_context=ignore_context,
                 )
             )
             if not handoff_offer(
@@ -2189,6 +2233,7 @@ def main(argv: list[str] | None = None) -> int:
                 no_agents=args.no_agents,
                 agent=args.agent,
                 mode=args.mode,
+                ignore_context=ignore_context,
             )
             init_eco = detect_ecosystem(init_result.root)
             if init_result.dry_run:
@@ -2225,6 +2270,7 @@ def main(argv: list[str] | None = None) -> int:
                     detected=init_result.detected,
                     interactive=interactive,
                     agent=args.agent,
+                    ignore_context=ignore_context,
                 )
             )
             if not handoff_offer(

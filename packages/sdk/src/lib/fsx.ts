@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { type TargetVerdict, writableTarget } from './layout.js';
+import { type TargetVerdict, LEJI_DIR, LEJI_IGNORE_REL, lejiRole, writableTarget } from './layout.js';
 
 export function toPosix(p: string): string {
    return p.split(path.sep).join('/');
@@ -144,8 +144,49 @@ export function resolvedWithinRoot(rootAbs: string, abs: string): boolean {
    return real === realRoot || real.startsWith(realRoot + path.sep);
 }
 
-/** One judged target: the resolved path plus the verdict {@link writableTarget}
- * returned for it. `resolved` is null only when the path could not be resolved. */
+/**
+ * The ONE declared exception to the role rule, and the only place a `metadataFile`
+ * verdict is constructed: `<root>/.leji/.gitignore`, the ignore file the tool keeps
+ * for its own tree. It belongs to no role, so {@link writableTarget} refuses it and
+ * cannot be the judge here: the rule it needs is about the REQUESTED entry, which
+ * `writableTarget` never sees.
+ *
+ * Null means "not this path": every other target falls through to the rule
+ * unchanged. Otherwise the verdict is allowed on all three conditions, checked on
+ * the ORIGINAL directory entries so a link is caught rather than followed:
+ *
+ * 1. the requested path is exactly `<root>/.leji/.gitignore`, and it resolves to
+ *    itself (a `.LEJI/` spelling on a case-insensitive filesystem resolves to the
+ *    name the filesystem holds and is not this path);
+ * 2. `<root>/.leji` is a real directory, never a symlink;
+ * 3. the entry is absent or a regular file, never a symlink or anything else.
+ *
+ * When a condition fails the exception REFUSES rather than falling back to an
+ * allowance: today's verdict stands when it already refuses (a `.leji` symlinked
+ * out of the repository is `outsideRoot`, exactly as it is now), and a redirect
+ * that happens to land on ordinary content is refused as the requested path's own
+ * role, never written through. The exception can only narrow, never widen.
+ */
+function metadataFileVerdict(
+   rootAbs: string,
+   targetAbs: string,
+   resolved: string,
+   ownRoleRel: string | null,
+): TargetVerdict | null {
+   const expected = path.join(rootAbs, LEJI_IGNORE_REL);
+   if (path.resolve(targetAbs) !== expected) return null;
+   const dir = fs.lstatSync(path.join(rootAbs, LEJI_DIR), { throwIfNoEntry: false });
+   const entry = fs.lstatSync(expected, { throwIfNoEntry: false });
+   if (resolved === expected && dir?.isDirectory() === true && (entry === undefined || entry.isFile())) {
+      return { ok: true, metadataFile: true };
+   }
+   const verdict = writableTarget(rootAbs, resolved, ownRoleRel);
+   return verdict.ok ? { ok: false, role: lejiRole(rootAbs, expected) } : verdict;
+}
+
+/** One judged target: the resolved path plus the verdict the rule returned for it,
+ * which is {@link writableTarget}'s except at the one declared exception above.
+ * `resolved` is null only when the path could not be resolved. */
 function judgeTarget(
    rootAbs: string,
    targetAbs: string,
@@ -153,7 +194,8 @@ function judgeTarget(
 ): { verdict: TargetVerdict; resolved: string | null } {
    const resolved = resolvedPath(targetAbs);
    if (resolved === null) return { verdict: { ok: false, unresolvable: true }, resolved: null };
-   return { verdict: writableTarget(rootAbs, resolved, ownRoleRel), resolved };
+   const exception = metadataFileVerdict(rootAbs, targetAbs, resolved, ownRoleRel);
+   return { verdict: exception ?? writableTarget(rootAbs, resolved, ownRoleRel), resolved };
 }
 
 /**
@@ -452,7 +494,11 @@ export function verifiedTargetRead(rootAbs: string, targetAbs: string, ownRoleRe
    }
    let refusal: 'outside-root' | 'other-role' | null = null;
    const { fd, real } = openVerifiedSource(targetAbs, (resolved) => {
-      const verdict = writableTarget(rootAbs, resolved, ownRoleRel);
+      // The same rule the write will be judged by, the declared exception included:
+      // the read-then-act pair must agree, or the one target that belongs to no role
+      // could be read here and refused at the write (or the reverse).
+      const verdict =
+         metadataFileVerdict(rootAbs, targetAbs, resolved, ownRoleRel) ?? writableTarget(rootAbs, resolved, ownRoleRel);
       if (verdict.ok) return true;
       refusal = verdict.outsideRoot === true ? 'outside-root' : 'other-role';
       return false;

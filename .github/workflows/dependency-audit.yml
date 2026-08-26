@@ -1,0 +1,94 @@
+name: Dependency audit
+
+# Advisories against dependencies that have not changed: the pins are exact, so
+# nothing here moves on its own, and a monthly run is the only trigger that fires
+# when no one has committed anything. The pull-request, release/* and rc/* triggers
+# cover the other direction, a dependency surface that did change. Policy and failure
+# thresholds: docs/decisions/0008-dependency-pinning-and-refresh.md.
+# Actions and scanners are pinned, like everything else on the release path.
+
+on:
+  schedule:
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/dependency-audit.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "packages/*/package.json"
+      - "packages/sdk-py/pyproject.toml"
+      - "packages/sdk-go/go.mod"
+  push:
+    # release/* and rc/*: the audit runs against the exact bytes a release is cut
+    # from, on the branch the candidate is prepared on and on the one it is proven
+    # on.
+    branches: ["release/*", "rc/*"]
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    name: npm (root lockfile, all workspaces)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      # The scanner is npm itself, so it is pinned to the same version the
+      # release workflow publishes with, not to whatever the Node release bundles.
+      - run: npm install -g npm@12.0.2 && npm --version
+      - run: npm ci
+      # Every workspace resolves through the root lockfile, so one audit covers
+      # all of them. High or above fails the run.
+      - run: npm audit --audit-level=high
+
+  pip-audit:
+    name: Python (resolved dependency export, Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The same span the Python SDK is tested across, for the same reason: a
+        # dependency closure can be interpreter-conditioned, so an audit at one
+        # point in the span says nothing about the ends. 3.10 is the
+        # requires-python floor, 3.14 the newest classifier, 3.12 the version the
+        # rest of CI runs on.
+        python-version: ["3.10", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      # The audit boundary is the SDK's resolved runtime closure, not the runner's
+      # environment: install the package, export exactly what that resolved to,
+      # and audit the export. The SDK itself is excluded, being what is audited
+      # rather than a dependency of it, and pip-audit is installed only after the
+      # export so that its own dependencies stay out of the boundary.
+      - name: Resolve the SDK's dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e ./packages/sdk-py
+          .venv/bin/pip freeze --exclude-editable > resolved.txt
+          cat resolved.txt
+      - name: Audit the export
+        run: |
+          .venv/bin/pip install pip-audit==2.10.1
+          .venv/bin/pip-audit --strict -r resolved.txt
+
+  govulncheck:
+    name: Go (module and standard library)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
+          cache-dependency-path: packages/sdk-go/go.sum
+      # govulncheck reports the vulnerabilities this code can actually reach, so
+      # a finding here is a call path, not an inventory entry.
+      - name: govulncheck
+        working-directory: packages/sdk-go
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...

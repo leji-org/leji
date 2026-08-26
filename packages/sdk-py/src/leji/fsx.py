@@ -9,7 +9,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal, Optional, Union
 
-from .layout import TargetVerdict, writable_target
+from .layout import (
+    LEJI_DIR,
+    LEJI_IGNORE_REL,
+    TargetVerdict,
+    leji_role,
+    role_abs,
+    writable_target,
+)
 
 
 def to_posix(p: str) -> str:
@@ -216,14 +223,68 @@ def resolved_within_root(root: str, candidate: Path) -> bool:
     return real == real_root or real.startswith(real_root + os.sep)
 
 
+def _metadata_file_verdict(
+    root_abs: str, target_abs: str, resolved: str, own_role_rel: Optional[str]
+) -> Optional[TargetVerdict]:
+    """The ONE declared exception to the role rule, and the only place a
+    ``metadata_file`` verdict is constructed: ``<root>/.leji/.gitignore``, the ignore
+    file the tool keeps for its own tree. It belongs to no role, so
+    :func:`~leji.layout.writable_target` refuses it and cannot be the judge here: the
+    rule it needs is about the REQUESTED entry, which ``writable_target`` never sees.
+
+    None means "not this path": every other target falls through to the rule
+    unchanged. Otherwise the verdict is allowed on all three conditions, checked on the
+    ORIGINAL directory entries so a link is caught rather than followed:
+
+    1. the requested path is exactly ``<root>/.leji/.gitignore``, and it resolves to
+       itself (a ``.LEJI/`` spelling on a case-insensitive filesystem resolves to the
+       name the filesystem holds and is not this path);
+    2. ``<root>/.leji`` is a real directory, never a symlink;
+    3. the entry is absent or a regular file, never a symlink or anything else.
+
+    When a condition fails the exception REFUSES rather than falling back to an
+    allowance: today's verdict stands when it already refuses (a ``.leji`` symlinked out
+    of the repository is ``outside_root``, exactly as it is now), and a redirect that
+    happens to land on ordinary content is refused as the requested path's own role,
+    never written through. The exception can only narrow, never widen."""
+    expected = role_abs(root_abs, LEJI_IGNORE_REL)
+    if os.path.abspath(target_abs) != expected:
+        return None
+    try:
+        directory: Optional[os.stat_result] = os.lstat(role_abs(root_abs, LEJI_DIR))
+    except OSError:
+        directory = None
+    entry_allowed = False
+    try:
+        entry = os.lstat(expected)
+        entry_allowed = stat.S_ISREG(entry.st_mode)
+    except FileNotFoundError:
+        entry_allowed = True
+    except OSError:
+        entry_allowed = False
+    if (
+        resolved == expected
+        and directory is not None
+        and stat.S_ISDIR(directory.st_mode)
+        and entry_allowed
+    ):
+        return TargetVerdict(ok=True, metadata_file=True)
+    verdict = writable_target(root_abs, resolved, own_role_rel)
+    return TargetVerdict(role=leji_role(root_abs, expected)) if verdict.ok else verdict
+
+
 def _judge_target(
     root_abs: str, target_abs: str, own_role_rel: Optional[str]
 ) -> tuple[TargetVerdict, Optional[str]]:
-    """One judged target: the verdict :func:`~leji.layout.writable_target` returns
-    for its RESOLVED path, and that path — None only when it could not be resolved."""
+    """One judged target: the verdict the rule returns for its RESOLVED path, which is
+    :func:`~leji.layout.writable_target`'s except at the one declared exception above,
+    and that path, None only when it could not be resolved."""
     resolved = resolved_path_under(root_abs, target_abs)
     if resolved is None:
         return TargetVerdict(unresolvable=True), None
+    exception = _metadata_file_verdict(root_abs, target_abs, resolved, own_role_rel)
+    if exception is not None:
+        return exception, resolved
     return writable_target(root_abs, resolved, own_role_rel), resolved
 
 
@@ -599,7 +660,15 @@ def verified_target_read(
 
     def allow(resolved: str) -> bool:
         nonlocal refusal
-        verdict = writable_target(root_abs, resolved, own_role_rel)
+        # The same rule the write will be judged by, the declared exception included:
+        # the read-then-act pair must agree, or the one target that belongs to no role
+        # could be read here and refused at the write (or the reverse).
+        exception = _metadata_file_verdict(root_abs, target_abs, resolved, own_role_rel)
+        verdict = (
+            exception
+            if exception is not None
+            else writable_target(root_abs, resolved, own_role_rel)
+        )
         if verdict.ok:
             return True
         refusal = "outside-root" if verdict.outside_root else "other-role"

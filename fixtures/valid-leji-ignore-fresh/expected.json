@@ -1,0 +1,60 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": []
+  },
+  "lejiIgnore": {
+    "scenarios": [
+      {
+        "id": "A",
+        "note": "A layer whose root .gitignore never carried the .leji/ line is clean after the first role creation.",
+        "args": ["viewer", "build"],
+        "exit": 0,
+        "ignoreFile": "regular",
+        "bytes": "*\n",
+        "notices": 0,
+        "untrackedUnderLeji": []
+      },
+      {
+        "id": "B",
+        "note": "One invocation establishing two roles (chrome and export output) writes one file and says nothing.",
+        "args": ["export"],
+        "exit": 0,
+        "ignoreFile": "regular",
+        "bytes": "*\n",
+        "notices": 0,
+        "untrackedUnderLeji": []
+      },
+      {
+        "id": "E",
+        "note": "A .leji symlinked out of the repository is refused as it is today; no file is written through it.",
+        "plant": {
+          "symlinkAt": ".leji",
+          "symlinkTo": "outside",
+          "targetKind": "dir"
+        },
+        "args": ["viewer", "build"],
+        "exit": 1,
+        "ignoreFile": "absent",
+        "bytes": null,
+        "notices": 0
+      },
+      {
+        "id": "F",
+        "note": "A symlinked .leji/.gitignore is refused, and the file it points at is untouched.",
+        "plant": {
+          "symlinkAt": ".leji/.gitignore",
+          "symlinkTo": "decoy.txt",
+          "targetKind": "file",
+          "targetBytes": "not the ignore file\n"
+        },
+        "args": ["viewer", "build"],
+        "exit": 1,
+        "ignoreFile": "symlink",
+        "bytes": null,
+        "notices": 0,
+        "preserved": ["decoy.txt"]
+      }
+    ]
+  }
+}

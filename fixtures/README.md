@@ -21,9 +21,9 @@ repository plus an `expected.json` stating what `leji validate` must report.
   behavior would depend on the host repository's git state.
 - Beyond `validate`, a fixture may pin other commands with optional blocks:
   `"conformance": {exit, claimedLevel, verifiedLevel}`, `"indexCheck": {exit,
-  stale}`, `"export"`, `"trustCanary"`, `"badge"` and `"updatePin"` (below), plus
-  `"seeds"` (below). Harnesses assert them only when present, and ignore keys they
-  do not know.
+  stale}`, `"export"`, `"trustCanary"`, `"lejiIgnore"`, `"badge"` and `"updatePin"`
+  (below), plus `"seeds"` (below). Harnesses assert them only when present, and
+  ignore keys they do not know.
 - Schema-violation fixtures keep one violation per artifact entry so finding
   multiplicity stays identical across validator engines (Ajv vs jsonschema).
 
@@ -169,6 +169,65 @@ each harness, and **deliberately in no `expected.json`**: under `rootPath: "."` 
 fixture's own `expected.json` sits inside the content root and is exported like
 any other file, so a token literal there would count as a leak, and the scans
 would need an exclusion. `occurrences: 0` is worth more with nothing excluded.
+
+## The `lejiIgnore` block
+
+`"lejiIgnore"` pins the self-managed `.leji/.gitignore`: the tool ignores its own
+tree from inside, so a repository whose root `.gitignore` never received the
+`.leji/` line is still clean after the first command that creates a role under
+`.leji/`. Asserted only when present. It carries an ARRAY of scenarios, because the
+behavior turns on what already stands at the target and on which command runs, and
+one layer serves several of those.
+
+The block is the frozen contract for all three SDKs: the same scenario letters, the
+same trees, the same six questions. Paths are repository-root-relative POSIX inside
+the fixture working copy.
+
+| Field | Meaning |
+| --- | --- |
+| `id` | the scenario letter, unique within the block |
+| `note` | what this scenario exists to catch |
+| `args` | argv after `leji`. The harness appends `--root <copy>` |
+| `plant` | optional: one symlink the harness plants **before** the run (below). A fixture cannot commit a symlink, and two of the scenarios are about one |
+| `exit` | expected process exit code: `0` the run succeeded, `1` an error finding refused it |
+| `ignoreFile` | what stands at `.leji/.gitignore` after the run, judged on the ORIGINAL entry: `regular`, `symlink` (the planted link, never followed), or `absent` |
+| `bytes` | the exact content the file must hold when `ignoreFile` is `regular`; `null` otherwise. The created form is always `*` plus one newline |
+| `notices` | how many times the frozen stderr line `leji: .leji/.gitignore exists and was left as is (expected content: *)` appears. One invocation says it at most once, whatever it establishes |
+| `untrackedUnderLeji` | optional: `git status --porcelain` entries under the root `.leji/` after the run, sorted. Always `[]`. Asserted over a COMMITTED working copy (`git init`, `git add -A`, commit, then run), because the question is meaningless over an uncommitted tree |
+| `preserved` | optional: paths present before the run that must still be byte-identical after it |
+| `jsonParses` | optional: `true` means `args` carries `--json` and stdout must parse as one JSON document that does not carry the notice (it is stderr only, under every output mode) |
+
+### The `plant` field
+
+| Field | Meaning |
+| --- | --- |
+| `symlinkAt` | where the harness creates the symlink |
+| `symlinkTo` | what it points at: a fixture-root-relative POSIX path, or the literal `outside`, which the harness resolves to a directory it creates BESIDE the working copy (the one shape no contained path can express) |
+| `targetKind` | `dir` or `file`: what the harness creates at the target before linking to it |
+| `targetBytes` | for `file`, the bytes it is created with |
+
+### The six scenarios
+
+Lettered, and the letters are part of the contract:
+
+- **(A)** a fresh layer with no root `.leji/` line, `leji viewer build` → the file is
+  exactly `*` plus a newline and nothing under `.leji/` is untracked;
+- **(B)** the same layer, `leji export` → ONE invocation establishing two roles
+  (chrome and export output) writes one file and emits no notice;
+- **(C)** a layer adopted before the unified layout, carrying an old `docs/.leji/`
+  tree and no root line → nothing under the ROOT `.leji/` is untracked (the
+  `docs/.leji/` leftovers are the documented migration case, not this one's);
+- **(D)** a pre-existing `.leji/.gitignore` with somebody else's content → byte-identical
+  after the run, exactly one stderr notice, and `--json` stdout still parses;
+- **(E)** `.leji` is a symlink out of the repository → refused as it is today, and no
+  file is written through it;
+- **(F)** `.leji/.gitignore` is itself a symlink → refused, and the file it points at is
+  untouched.
+
+The swap case (an entry planted between the verified read and the exclusive create)
+is unit-level in each SDK rather than here, for the same reason the `updatePin`
+refusals are: producing it means driving the library with an interception, not
+preparing a state.
 
 ## The `badge` block
 
@@ -521,6 +580,53 @@ them one surface.
   pin, in the one spelling long enough to outgrow its column.` The label takes
   the line alone and the summary starts on the next line at the column, so it is
   never concatenated onto the label.
+
+## Snapshot contract: `fixtures/snapshot-contract/`
+
+The byte contract for the tree-snapshot helper each SDK's badge and canary suites
+share. It is not a layer and carries no `expected.json`, so every layer harness
+skips it; `leji-test.json` carries its declaration instead. One serialization,
+asserted by one golden test per SDK, is what keeps the three helpers a single
+contract rather than three that drift.
+
+A snapshot is one line per entry, paths POSIX and relative to the walked directory,
+the lines sorted **bytewise over UTF-8**:
+
+| Entry | Line |
+| --- | --- |
+| regular file | `path<TAB>sha256:<hex>` |
+| directory | `path/<TAB>dir`, so a created empty directory is visible |
+| symlink or any other non-regular entry | `path<TAB>non-regular`, never followed |
+
+Exactly one entry is excluded: `<repoRoot>/.git`, when it lies inside the walked
+directory. `repoRoot` defaults to the walked directory, which is the
+whole-repository call; a subtree call passes the repository root explicitly, so a
+nested `.git` stays content.
+
+- **The walked tree is `payload/`, and nothing else is inside it.** The seed
+  sources and the goldens are siblings of `payload/`, never children: the payload
+  is walked whole, so a golden placed inside it would have to contain its own
+  digest, and a seed source inside it would be recorded as content. That is also
+  why these seed sources are not dot-prefixed the way `.leji-seed/` is. A
+  dot-prefix exists to hide a seed from a content walk that would otherwise export
+  it; this walk records every entry it is given, dot-prefixed or not, so isolation
+  is positional here rather than by name.
+- **The two `.git` seeds follow the seed convention** (`from`/`to`, materialized by
+  the harness into its own working copy): `_git-seed` to `payload/.git` and
+  `pkg-git-seed` to `payload/pkg/.git`. Git refuses to track a directory named
+  `.git`, and the two together are what the exclusion contract is about: the first
+  is the repository's own and is excluded, the second is ordinary content.
+- **Two entries are created by the golden test, not committed:** `payload/empty/`,
+  because git tracks no empty directory, and the symlink `payload/link`, because a
+  seed carries no symlink. `leji-test.json` declares both.
+- **The goldens are frozen bytes.** `golden-repo.txt` is `payload` walked with
+  `repoRoot` `payload`; `golden-subtree.txt` is `payload/pkg` walked with
+  `repoRoot` `payload`. The third case, `payload/pkg` walked as its own repository
+  root, is the subtree golden minus its `.git` lines, derived by the test.
+- **`payload/ｚ.txt` and `payload/😀.txt` pin the sort.** Their UTF-8 order
+  (`EF BD 9A` before `F0 9F 98 80`) is the reverse of their UTF-16 code-unit order,
+  so an implementation sorting UTF-16 units, or sorting decoded paths in a runtime
+  that orders them that way, fails the golden instead of passing on ASCII.
 
 ## Ecosystem detection: `fixtures/ecosystem/`
 

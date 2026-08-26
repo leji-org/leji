@@ -8,9 +8,13 @@
 # an equivalent fallback either way: X-Frame-Options and X-Content-Type-Options
 # cannot be set by meta at all. Clickjacking and nosniff protection therefore
 # only exist where these are served as response headers.
+#
+# The policy below is first-party only, matching a site built with no analytics.
+# A deployment that turns analytics on adds that vendor's hosts to its own
+# response headers, next to the build values that enable the script.
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
   Link: </llms.txt>; rel="describedby"; type="text/markdown", </sitemap-index.xml>; rel="sitemap"
-  Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://cdn.usefathom.com; connect-src 'self' https://cdn.usefathom.com; font-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'

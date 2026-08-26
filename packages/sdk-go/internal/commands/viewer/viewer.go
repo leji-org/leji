@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/assets"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
@@ -28,6 +29,7 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/jsonenc"
 	"github.com/leji-org/leji/packages/sdk-go/internal/layer"
 	"github.com/leji-org/leji/packages/sdk-go/internal/layout"
+	"github.com/leji-org/leji/packages/sdk-go/internal/lejiignore"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/mounts"
 )
@@ -47,6 +49,14 @@ type Result struct {
 	Written  []string
 	Findings []findings.Finding
 	Entries  int
+	// IndexEntries is never nil after GenerateViewer returns, empty run included: it is
+	// the snapshot a caller hands the local server, and there nil means "no snapshot"
+	// (the reference's `undefined`) rather than "no entries".
+	//
+	// IndexEntries are the index entries this run projected, so a caller that renders
+	// from the same generation (the export's overview map) reads one snapshot rather
+	// than making a second one. Empty when the run refused to project anything.
+	IndexEntries []indexgen.IndexEntry
 }
 
 // categoryLabels label the layer-map (mermaid) category nodes; the sidebar
@@ -830,6 +840,11 @@ func sidebarLabel(root, relPath, rootRel string) string {
 	return filenameLabel(rootRel)
 }
 
+// OverviewRel is the overview homepage, named relative to the context root: the one
+// content path the tool seeds, and the one whose read renders the layer map into it.
+// Shared by generation, the local server's route, and the export's copy.
+const OverviewRel = "overview.md"
+
 // referenceTree is the browse zone: every markdown file under rootPath that is NOT
 // governed (in the index) and NOT viewer/layer chrome (boot profile, agent
 // profiles, category index files, overview.md, the generated _sidebar.md).
@@ -849,11 +864,11 @@ func referenceTree(root string, m *manifest.Manifest, governedPaths map[string]b
 			}
 		}
 	}
-	overviewRel := "overview.md"
+	overviewRel := OverviewRel
 	sidebarRel := "_sidebar.md"
 	manifestPageRel := "_manifest.md"
 	if rootDirRel != "." {
-		overviewRel = rootDirRel + "/overview.md"
+		overviewRel = rootDirRel + "/" + OverviewRel
 		sidebarRel = rootDirRel + "/_sidebar.md"
 		manifestPageRel = rootDirRel + "/_manifest.md"
 	}
@@ -883,11 +898,16 @@ func referenceTree(root string, m *manifest.Manifest, governedPaths map[string]b
 	return nodes
 }
 
-// The overview homepage is seeded once then user-owned. The layer map lives
-// between these markers; `leji viewer` regenerates only the marked block.
+// The overview homepage is seeded once then user-owned. The markers are the author's
+// placement mark for the layer map: the map is substituted between them at render
+// time, by the viewer and by `leji export`, and the file itself is never rewritten.
 const (
 	mapStart = "<!-- leji:generated-map:start -->"
 	mapEnd   = "<!-- leji:generated-map:end -->"
+	// mapPlaceholder is the line the seed leaves between the markers, so a reader of
+	// the source file knows why the span is empty. Whatever an author leaves there is
+	// ignored at render, this line included.
+	mapPlaceholder = "<!-- the layer map is rendered here by the viewer and by leji export -->"
 )
 
 // buildLayerMap renders a deterministic mermaid map of the layer: boot profile ->
@@ -928,19 +948,118 @@ func mapBlock(m *manifest.Manifest, entries []indexgen.IndexEntry) string {
 	return mapStart + "\n```mermaid\n" + buildLayerMap(m, entries) + "\n```\n" + mapEnd
 }
 
-// buildOverviewSeed is the starter home page: a short owner-editable explainer
-// plus the generated layer map inside the regen markers.
-func buildOverviewSeed(m *manifest.Manifest, entries []indexgen.IndexEntry) string {
+// DecodeUTF8 is Node's `Buffer.toString('utf8')`, which is what the reference SDK hands
+// RenderOverview: valid UTF-8 passes through untouched, and every invalid sequence
+// becomes U+FFFD, one replacement per MAXIMAL SUBPART: the WHATWG substitution rule V8
+// implements (`E2 82` at the end of the input is one replacement, `C0 80` is two).
+//
+// Go's own conversions answer differently: `string(b)` keeps the invalid bytes verbatim,
+// and a utf8.DecodeRune loop emits one replacement per BYTE. Either would make a rendered
+// overview carry different bytes from the reference's for the same source, so the decode
+// is spelled out here rather than borrowed. Only the RENDERED path decodes: a page whose
+// markers are missing is served and exported as its raw bytes in all three SDKs.
+func DecodeUTF8(b []byte) string {
+	// Already valid: the bytes are their own decoding, and the common case pays one scan.
+	if utf8.Valid(b) {
+		return string(b)
+	}
+	var out strings.Builder
+	out.Grow(len(b))
+	var (
+		codepoint   rune
+		bytesNeeded int
+		bytesSeen   int
+		lower       byte = 0x80
+		upper       byte = 0xBF
+	)
+	for i := 0; i < len(b); i++ {
+		c := b[i]
+		if bytesNeeded == 0 {
+			switch {
+			case c <= 0x7F:
+				out.WriteByte(c)
+			case c >= 0xC2 && c <= 0xDF:
+				bytesNeeded, codepoint = 1, rune(c&0x1F)
+			case c >= 0xE0 && c <= 0xEF:
+				if c == 0xE0 {
+					lower = 0xA0 // no overlong three-byte form
+				}
+				if c == 0xED {
+					upper = 0x9F // no surrogate
+				}
+				bytesNeeded, codepoint = 2, rune(c&0x0F)
+			case c >= 0xF0 && c <= 0xF4:
+				if c == 0xF0 {
+					lower = 0x90 // no overlong four-byte form
+				}
+				if c == 0xF4 {
+					upper = 0x8F // nothing past U+10FFFF
+				}
+				bytesNeeded, codepoint = 3, rune(c&0x07)
+			default:
+				out.WriteRune(utf8.RuneError)
+			}
+			continue
+		}
+		if c < lower || c > upper {
+			// The maximal subpart ends before this byte: one replacement for what was
+			// consumed, and the byte is reprocessed from a clean state rather than
+			// swallowed, which is why `C2 41` decodes to U+FFFD followed by "A".
+			codepoint, bytesNeeded, bytesSeen = 0, 0, 0
+			lower, upper = 0x80, 0xBF
+			out.WriteRune(utf8.RuneError)
+			i--
+			continue
+		}
+		lower, upper = 0x80, 0xBF
+		codepoint = codepoint<<6 | rune(c&0x3F)
+		bytesSeen++
+		if bytesSeen == bytesNeeded {
+			out.WriteRune(codepoint)
+			codepoint, bytesNeeded, bytesSeen = 0, 0, 0
+		}
+	}
+	if bytesNeeded != 0 {
+		out.WriteRune(utf8.RuneError) // a sequence the end of the input cut short
+	}
+	return out.String()
+}
+
+// RenderOverview is the overview homepage as it is READ, never as it is stored: the
+// source bytes with the marked span replaced by the map this index projects. The one
+// function behind both consumers (the local server renders it per fetch, the export
+// renders the copy it writes), so the served and the exported page carry the same
+// bytes.
+//
+// Whatever stands between the markers in source is ignored: the map is derived from
+// the index, so the file is never rewritten to hold it. Without the marker pair there
+// is nowhere to put the map, and the source is returned unchanged (markersFound
+// false) for the caller to warn about.
+func RenderOverview(source string, m *manifest.Manifest, entries []indexgen.IndexEntry) (text string, markersFound bool) {
+	start := strings.Index(source, mapStart)
+	end := strings.Index(source, mapEnd)
+	if start < 0 || end <= start {
+		return source, false
+	}
+	return source[:start] + mapBlock(m, entries) + source[end+len(mapEnd):], true
+}
+
+// buildOverviewSeed is the starter home page: a short owner-editable explainer plus
+// the empty marker pair the layer map is rendered into. Written once, when no
+// overview.md stands at the content root, and never rewritten after that.
+func buildOverviewSeed(m *manifest.Manifest) string {
 	return "# " + m.Name + `
 
 This is the **Leji context layer** for ` + "`" + m.Name + "`" + `: the shared, validated context
 people and coding agents read before working in this repository. Start with the boot
 profile, then browse the categories in the sidebar.
 
-This page is yours to edit. The map below is regenerated by ` + "`leji viewer`" + ` between the
-markers; the prose around it is left untouched.
+This page is yours to edit. The map below is rendered between the markers by the viewer
+and by ` + "`leji export`" + `; this file is never rewritten.
 
-` + mapBlock(m, entries) + `
+` + mapStart + `
+` + mapPlaceholder + `
+` + mapEnd + `
 
 - Write a ` + "```mermaid" + ` code block in any document and it renders as a diagram here.
 - Run ` + "`leji conformance`" + ` to see the level this layer claims and verifies.
@@ -1855,7 +1974,12 @@ func mermaidEnabled(m *manifest.Manifest) bool {
 // root `.leji/viewer/` role: a Docsify `index.html` and a `_sidebar.md` projected
 // from the index. Presentation is non-normative; this is the reference projection
 // of context-index.json into a browsable surface.
-func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
+//
+// ignoreContext is the invocation's notice state for the self-managed
+// `.leji/.gitignore` (this run creates a role, so it ensures that file): a caller
+// that has one passes it through, and a direct SDK call that passes none notices at
+// most once for that call.
+func GenerateViewer(root string, m *manifest.Manifest, ignoreContext ...*lejiignore.Context) (Result, error) {
 	result, err := indexgen.GenerateIndex(root, m)
 	if err != nil {
 		return Result{}, err
@@ -1864,11 +1988,16 @@ func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
 	// errors and write nothing, the same refusal WriteIndex makes.
 	for _, f := range result.Findings {
 		if f.Severity == findings.Error {
-			return Result{Written: nil, Findings: result.Findings, Entries: 0}, nil
+			return Result{Written: nil, Findings: result.Findings, Entries: 0,
+				IndexEntries: []indexgen.IndexEntry{}}, nil
 		}
 	}
-	var entries []indexgen.IndexEntry
-	if result.Index != nil {
+	// Non-nil even when the layer governs nothing: this slice is also the snapshot a
+	// caller hands the local server, where nil is the "I have no snapshot" signal (the
+	// reference's `undefined`). A successful generation over an empty layer projected an
+	// answer, and that answer is zero entries, not the absence of one.
+	entries := []indexgen.IndexEntry{}
+	if result.Index != nil && result.Index.Entries != nil {
 		entries = result.Index.Entries
 	}
 	var findingsEarly []findings.Finding
@@ -1952,7 +2081,8 @@ func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
 				"/ resolves outside the repository; remove the symlink"
 		}
 		findingList = append(findingList, findings.New("viewer-target-refused", findings.Error, message, layout.ViewerRel))
-		return Result{Written: written, Findings: findingList, Entries: 0}, nil
+		return Result{Written: written, Findings: findingList, Entries: 0,
+			IndexEntries: []indexgen.IndexEntry{}}, nil
 	}
 
 	// The chrome's role in the unified root `.leji/` (gitignored): outside the context
@@ -1982,19 +2112,34 @@ func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
 		}
 	}
 
+	// The role now exists, so the tool ignores its own tree from inside: a layer
+	// whose root .gitignore never carried the `.leji/` line is clean after this run.
+	// A refusal is an error finding like any other refused write here.
+	ignored, err := lejiignore.EnsureFile(resolvedRoot, lejiignore.From(ignoreContext...))
+	if err != nil {
+		return Result{}, err
+	}
+	if ignored == lejiignore.Refused {
+		findingList = append(findingList, findings.New("viewer-target-refused", findings.Error,
+			"refusing to write "+layout.LejiIgnoreRel+": it does not resolve to a regular file inside "+
+				layout.LejiDir+"/; remove the symlink", layout.LejiIgnoreRel))
+	}
+
 	// The overview/home page is user-owned content (not chrome): seeded once, never
-	// overwritten. On regen only the marked map block is refreshed; if the owner
-	// removed the markers, the page is left alone.
+	// written again. The layer map is rendered between its markers when the page is
+	// read (by the local server and by the export), so a reindex that changes the
+	// document counts leaves this file exactly as its author last saved it. If the
+	// markers are gone there is nowhere to render the map, which is a warning.
 	//
 	// Check-before-act: overview.md is content — its target must resolve WITHIN
 	// the layer root AND never into a private `.leji/` role. It is judged on the
 	// RESOLVED path (no `.leji/` role of its own) BEFORE anything is read or written,
 	// so an overview.md symlinked into `.leji/work/` or `.leji/mounts/` is refused
-	// before the seed or the refresh writes through it — and the write itself then
+	// before the seed writes through it or the page is read, and the seed itself then
 	// lands via the guarded-write chokepoint on that path.
-	overviewRel := "overview.md"
+	overviewRel := OverviewRel
 	if rootDir != "." {
-		overviewRel = rootDir + "/overview.md"
+		overviewRel = rootDir + "/" + OverviewRel
 	}
 	overviewAbs := filepath.Join(root, overviewRel)
 	overviewResolved, overviewResolvable := fsx.ResolvedPathUnder(resolvedRoot, overviewAbs)
@@ -2017,13 +2162,13 @@ func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
 				" (private); remove the symlink", overviewRel))
 	case overviewRead.Status == fsx.ReadRefused:
 		// A standing entry that cannot be verified as a regular file inside the layer:
-		// the map is neither seeded through it nor refreshed from bytes read by path.
+		// the page is neither seeded through it nor read from a path that could redirect.
 		findingList = append(findingList, findings.New("viewer-target-refused", findings.Error,
 			"refusing to write overview.md: it does not resolve to a regular file inside the repository; "+
 				"remove the symlink", overviewRel))
 	case overviewRead.Status == fsx.ReadAbsent:
 		seeded, err := fsx.WriteFileGuarded(resolvedRoot, overviewAbs, "",
-			[]byte(buildOverviewSeed(m, entries)), fsx.WriteOptions{})
+			[]byte(buildOverviewSeed(m)), fsx.WriteOptions{})
 		if err != nil {
 			return Result{}, err
 		}
@@ -2031,22 +2176,13 @@ func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
 			written = append(written, overviewRel)
 		}
 	default:
-		// The refresh rewrites the page it just read, so those bytes come from the
-		// verified descriptor rather than from a second read by pathname.
-		existing := string(overviewRead.Bytes)
-		start := strings.Index(existing, mapStart)
-		end := strings.Index(existing, mapEnd)
-		if start >= 0 && end > start {
-			updated := existing[:start] + mapBlock(m, entries) + existing[end+len(mapEnd):]
-			if updated != existing {
-				if _, err := fsx.WriteFileGuarded(resolvedRoot, overviewAbs, "",
-					[]byte(updated), fsx.WriteOptions{}); err != nil {
-					return Result{}, err
-				}
-			}
-		} else {
+		// A standing page is READ and not written: the only thing generation decides
+		// here is whether the map has a place to be rendered into. The bytes come from
+		// the verified descriptor rather than from a second read by pathname, so the
+		// page the guards judged is the page the answer is about.
+		if _, markersFound := RenderOverview(DecodeUTF8(overviewRead.Bytes), m, entries); !markersFound {
 			findingList = append(findingList, findings.New("overview-markers-missing", findings.Warning,
-				"overview.md has no generated-map markers; left as-is (map not refreshed)", overviewRel))
+				"overview.md has no generated-map markers; the map is not rendered", overviewRel))
 		}
 	}
 
@@ -2059,7 +2195,7 @@ func GenerateViewer(root string, m *manifest.Manifest) (Result, error) {
 		return Result{}, err
 	}
 
-	return Result{Written: written, Findings: findingList, Entries: len(entries)}, nil
+	return Result{Written: written, Findings: findingList, Entries: len(entries), IndexEntries: entries}, nil
 }
 
 // ActiveExtensions are the extensions a browser would run as an active,

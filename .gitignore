@@ -14,6 +14,11 @@ dist/
 # Leji generated viewer (leji viewer / view output)
 .leji/
 
+# UI smoke output (Playwright report, traces and screenshots)
+packages/e2e/report/
+packages/e2e/test-results/
+packages/e2e/.work/
+
 # Tests & coverage
 coverage/
 coverage.out

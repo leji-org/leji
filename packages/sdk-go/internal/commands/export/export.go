@@ -20,6 +20,7 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
 	"github.com/leji-org/leji/packages/sdk-go/internal/layout"
+	"github.com/leji-org/leji/packages/sdk-go/internal/lejiignore"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/renderlint"
 )
@@ -91,9 +92,13 @@ type BuildResult struct {
 }
 
 // Options is how one export run is driven. Strict is the gate: a lint finding fails
-// the run before the target is cleared, mirroring `status --strict`.
+// the run before the target is cleared, mirroring `status --strict`. IgnoreContext is
+// the invocation's notice state for the self-managed `.leji/.gitignore`, passed
+// through to the generation pass this run nests so one invocation notices once; a
+// direct SDK call that omits it notices at most once for that call.
 type Options struct {
-	Strict bool
+	Strict        bool
+	IgnoreContext *lejiignore.Context
 }
 
 // carriedItem is one entry the content walk enumerated: a rootPath-relative POSIX
@@ -118,7 +123,14 @@ var testHookAfterEnumerate func()
 // byte-untouched. The exported index.html carries the protect-your-context warning as
 // a comment.
 func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options) (BuildResult, error) {
-	gen, err := viewer.GenerateViewer(root, m)
+	// One context for the whole run, whether the caller supplied it or not: this
+	// command establishes two roles (the chrome it regenerates and its own output),
+	// and a caller that passes none is still one call.
+	ignoreContext := opts.IgnoreContext
+	if ignoreContext == nil {
+		ignoreContext = lejiignore.NewContext()
+	}
+	gen, err := viewer.GenerateViewer(root, m, ignoreContext)
 	if err != nil {
 		return BuildResult{}, err
 	}
@@ -470,6 +482,17 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 	if err := mkdirDest(outContent); err != nil {
 		return BuildResult{}, err
 	}
+	// The output role exists: ensure the tool's own ignore file, as every role
+	// establisher does. The generation pass above shares this run's context, so an
+	// existing file is noticed once for the whole invocation rather than per role.
+	ignored, err := lejiignore.EnsureFile(rootAbs, ignoreContext)
+	if err != nil {
+		return BuildResult{}, err
+	}
+	if ignored == lejiignore.Refused {
+		return BuildResult{}, errors.New(`refusing to write "` + layout.LejiIgnoreRel +
+			`": it does not resolve to a regular file inside ` + layout.LejiDir + `/; remove the symlink`)
+	}
 	for _, item := range carried {
 		dest := filepath.Join(outContent, filepath.FromSlash(item.rel))
 		if item.dir {
@@ -481,8 +504,22 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 		// Markdown was read once already: the exported file is that snapshot, so what
 		// the lint judged is what the export carries. A document the re-check dropped
 		// has no snapshot and is not exported.
+		//
+		// The overview homepage is the one path whose exported copy is not its source:
+		// the layer map is substituted between its markers here, after the lint has
+		// judged the source bytes, from the entries the generation above already
+		// projected. The layer's own file is not touched, and the map an export carries
+		// is the map the local server renders from the same function.
 		if strings.ToLower(path.Ext(item.rel)) == ".md" {
 			if bytes, ok := linted[item.rel]; ok {
+				if item.rel == viewer.OverviewRel {
+					// Decoded the way Node's Buffer.toString('utf8') decodes, so a source
+					// that is not valid UTF-8 exports as the same bytes in all three SDKs.
+					// Only the rendered branch decodes; a markerless page keeps its own.
+					if text, markersFound := viewer.RenderOverview(viewer.DecodeUTF8(bytes), m, gen.IndexEntries); markersFound {
+						bytes = []byte(text)
+					}
+				}
 				if err := writeDest(dest, bytes); err != nil {
 					return BuildResult{}, err
 				}

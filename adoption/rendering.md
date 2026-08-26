@@ -68,8 +68,9 @@ in a document is a thematic break.
 **A `mermaid` fence renders as a diagram where the renderer supports mermaid, and
 as a code block where it does not.** Both are conforming. Diagram support is
 therefore never a compatibility requirement, and a writer can use a diagram
-without stranding a reader whose renderer has none. The generated map on a
-seeded overview page uses this fence.
+without stranding a reader whose renderer has none. The layer map on an overview
+page uses this fence: the seeded page leaves its markers empty, and the viewer and
+`leji export` render the map between them when the page is read.
 
 **A `leji-index` fence is data and renders as code.** The block is the curated
 category map that tooling parses; a renderer displays it and never interprets it.
@@ -78,10 +79,10 @@ reach the reader as data rather than as interpreted markup.
 
 **HTML comments are legal and invisible.** They are the one HTML form a context
 layer uses, because Leji's own markers are comments: a generated block is
-delimited by comment markers so a regeneration can rewrite what sits between them
-and leave the surrounding prose alone. A renderer shows nothing for a comment, and
-keeps the comment in the bytes it serves so the next regeneration still finds its
-markers. Invisible does not mean structurally inert: a comment that opens a line
+delimited by comment markers so what sits between them can be rewritten, or
+substituted at render time, and the surrounding prose left alone. A renderer shows
+nothing for a comment, and keeps the comment in the bytes it serves so the next
+pass still finds its markers. Invisible does not mean structurally inert: a comment that opens a line
 absorbs the rest of that line into an HTML block (the CommonMark type-2 rule), so
 prose after it on the same line ends up outside the surrounding paragraph. A
 comment meant to sit mid-paragraph goes after text on its line, never first.

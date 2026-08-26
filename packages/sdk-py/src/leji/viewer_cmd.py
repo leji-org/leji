@@ -18,7 +18,7 @@ import posixpath
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import re
 
@@ -39,11 +39,13 @@ from .fsx import (
 from .indexgen import generate_index
 from .layout import (
     LEJI_DIR,
+    LEJI_IGNORE_REL,
     VIEWER_REL,
     role_abs,
     servable_path,
     writable_target,
 )
+from .leji_ignore import LejiIgnoreContext, ensure_leji_ignore_file
 from .layer import (
     ScannedProfile,
     resolve_agent_profile,
@@ -284,6 +286,10 @@ class ViewerResult:
     written: list[str] = field(default_factory=list)
     findings: list[Finding] = field(default_factory=list)
     entries: int = 0
+    #: The index entries this run projected, so a caller that renders from the same
+    #: generation (the export's overview map) reads one snapshot rather than making a
+    #: second one. Empty when the run refused to project anything.
+    index_entries: list[dict] = field(default_factory=list)
 
 
 def _relative_to_root(rel_path: str, root_path: str) -> Optional[str]:
@@ -693,6 +699,12 @@ def _sidebar_label(root: str, rel_path: str, root_rel: str) -> str:
     return _filename_label(root_rel)
 
 
+# The overview homepage, named relative to the context root: the one content path the
+# tool seeds, and the one whose read renders the layer map into it. Shared by
+# generation, the local server's route, and the export's copy.
+OVERVIEW_REL = "overview.md"
+
+
 def _reference_tree(root: str, manifest: Manifest, governed_paths: set[str]) -> list[TreeNode]:
     """The browse zone: every markdown file under rootPath that is NOT governed
     (in the index), NOT viewer/layer chrome (boot profile, agent profiles, the
@@ -705,7 +717,7 @@ def _reference_tree(root: str, manifest: Manifest, governed_paths: set[str]) -> 
     for cat in CATEGORY_IDS:
         for f in (manifest["categories"].get(cat) or {}).get("indexes", []):
             index_files.add(f)
-    overview_rel = "overview.md" if root_dir_rel == "." else f"{root_dir_rel}/overview.md"
+    overview_rel = OVERVIEW_REL if root_dir_rel == "." else f"{root_dir_rel}/{OVERVIEW_REL}"
     sidebar_rel = "_sidebar.md" if root_dir_rel == "." else f"{root_dir_rel}/_sidebar.md"
     manifest_page_rel = "_manifest.md" if root_dir_rel == "." else f"{root_dir_rel}/_manifest.md"
     nodes: list[TreeNode] = []
@@ -727,11 +739,17 @@ def _reference_tree(root: str, manifest: Manifest, governed_paths: set[str]) -> 
     return nodes
 
 
-# The overview homepage is seeded once and then user-owned. The layer map lives
-# between these markers; `leji viewer` regenerates only the marked block, leaving
-# the surrounding prose untouched.
+# The overview homepage is seeded once and then user-owned. The markers are the
+# author's placement mark for the layer map: the map is substituted between them at
+# render time, by the viewer and by `leji export`, and the file itself is never
+# rewritten.
 MAP_START = "<!-- leji:generated-map:start -->"
 MAP_END = "<!-- leji:generated-map:end -->"
+
+# The line the seed leaves between the markers, so a reader of the source file knows
+# why the span is empty. Whatever an author leaves there is ignored at render, this
+# line included.
+_MAP_PLACEHOLDER = "<!-- the layer map is rendered here by the viewer and by leji export -->"
 
 
 def build_layer_map(manifest: Manifest, entries: list[dict]) -> str:
@@ -758,9 +776,37 @@ def _map_block(manifest: Manifest, entries: list[dict]) -> str:
     return MAP_START + "\n```mermaid\n" + build_layer_map(manifest, entries) + "\n```\n" + MAP_END
 
 
-def _build_overview_seed(manifest: Manifest, entries: list[dict]) -> str:
+class RenderedOverview(NamedTuple):
+    """The overview homepage as it is read: the rendered text, and whether the marker
+    pair was there to render into."""
+
+    text: str
+    markers_found: bool
+
+
+def render_overview(source: str, manifest: Manifest, entries: list[dict]) -> RenderedOverview:
+    """The overview homepage as it is READ, never as it is stored: the source bytes
+    with the marked span replaced by the map this index projects. The one function
+    behind both consumers (the local server renders it per fetch, the export renders
+    the copy it writes), so the served and the exported page carry the same bytes.
+
+    Whatever stands between the markers in source is ignored: the map is derived from
+    the index, so the file is never rewritten to hold it. Without the marker pair there
+    is nowhere to put the map, and the source is returned unchanged (markers_found
+    False) for the caller to warn about."""
+    start = source.find(MAP_START)
+    end = source.find(MAP_END)
+    if start < 0 or end <= start:
+        return RenderedOverview(source, False)
+    return RenderedOverview(
+        source[:start] + _map_block(manifest, entries) + source[end + len(MAP_END) :], True
+    )
+
+
+def _build_overview_seed(manifest: Manifest) -> str:
     """The starter overview/home page: a short explainer the owner can edit freely,
-    plus the auto-generated layer map inside the regen markers."""
+    plus the empty marker pair the layer map is rendered into. Written once, when no
+    overview.md stands at the content root, and never rewritten after that."""
     name = manifest["name"]
     return (
         f"# {name}\n"
@@ -769,10 +815,12 @@ def _build_overview_seed(manifest: Manifest, entries: list[dict]) -> str:
         "people and coding agents read before working in this repository. Start with the boot\n"
         "profile, then browse the categories in the sidebar.\n"
         "\n"
-        "This page is yours to edit. The map below is regenerated by `leji viewer` between the\n"
-        "markers; the prose around it is left untouched.\n"
+        "This page is yours to edit. The map below is rendered between the markers by the viewer\n"
+        "and by `leji export`; this file is never rewritten.\n"
         "\n"
-        f"{_map_block(manifest, entries)}\n"
+        f"{MAP_START}\n"
+        f"{_MAP_PLACEHOLDER}\n"
+        f"{MAP_END}\n"
         "\n"
         "- Write a ```mermaid code block in any document and it renders as a diagram here.\n"
         "- Run `leji conformance` to see the level this layer claims and verifies.\n"
@@ -1485,9 +1533,16 @@ def _build_index_html(root: str, manifest: Manifest, base: str, findings: list[F
     )
 
 
-def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
+def generate_viewer(
+    root: str, manifest: Manifest, ignore_context: Optional[LejiIgnoreContext] = None
+) -> ViewerResult:
     """Write the Docsify index.html (frontmatter-stripping hook included) and the
-    projected _sidebar.md into the root `.leji/viewer/` role."""
+    projected _sidebar.md into the root `.leji/viewer/` role.
+
+    ``ignore_context`` is the invocation's notice state for the self-managed
+    ``.leji/.gitignore`` (this run creates a role, so it ensures that file): a caller
+    that has one passes it through, and a direct SDK call that passes none notices at
+    most once for that call."""
     result = generate_index(root, manifest)
     # Don't project a viewer from a tree that can't be indexed cleanly (a
     # category-conflict, a malformed or dangling index entry): surface the errors
@@ -1561,6 +1616,20 @@ def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
     for name, content in (("index.html", doc_html), ("_sidebar.md", sidebar)):
         write_viewer_file(f"{viewer_dir}/{name}", content)
 
+    # The role now exists, so the tool ignores its own tree from inside: a layer whose
+    # root .gitignore never carried the `.leji/` line is clean after this run. A refusal
+    # is an error finding like any other refused write here.
+    if ensure_leji_ignore_file(resolved_root, ignore_context) == "refused":
+        findings.append(
+            Finding(
+                "viewer-target-refused",
+                "error",
+                f"refusing to write {LEJI_IGNORE_REL}: it does not resolve to a regular "
+                f"file inside {LEJI_DIR}/; remove the symlink",
+                LEJI_IGNORE_REL,
+            )
+        )
+
     # Copy every vendored viewer asset (Docsify core, theme, the plugins, and the
     # webfonts) alongside index.html (no remote CDN). The provenance note is
     # documentation, never shipped.
@@ -1575,16 +1644,19 @@ def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
         write_viewer_file(f"{assets_rel_dir}/{asset_path.name}", asset_path.read_bytes())
 
     # The overview/home page is committed, user-owned content (not viewer chrome):
-    # seeded once and never overwritten. On regeneration, only the marked map block
-    # is refreshed; if the owner removed the markers, the page is left entirely alone.
+    # seeded once and never written again. The layer map is rendered between its
+    # markers when the page is read (by the local server and by the export), so a
+    # reindex that changes the document counts leaves this file exactly as its author
+    # last saved it. If the markers are gone there is nowhere to render the map, which
+    # is a warning.
     #
     # Check-before-act: overview.md is content — its target must resolve WITHIN
     # the layer root AND never into a private `.leji/` role. It is judged on the
     # RESOLVED path (own role None: content has no `.leji/` role) BEFORE anything is
     # read or written, so an overview.md symlinked into `.leji/work/` or
-    # `.leji/mounts/` is refused before the seed or the refresh writes through it —
-    # and the write itself then lands via the guarded-write chokepoint on that path.
-    overview_rel = "overview.md" if root_dir == "." else f"{root_dir}/overview.md"
+    # `.leji/mounts/` is refused before the seed writes through it or the page is read,
+    # and the seed itself then lands via the guarded-write chokepoint on that path.
+    overview_rel = OVERVIEW_REL if root_dir == "." else f"{root_dir}/{OVERVIEW_REL}"
     overview_abs = Path(root) / overview_rel
     overview_resolved = resolved_path_under(resolved_root, str(overview_abs))
     overview_verdict = (
@@ -1614,7 +1686,7 @@ def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
         )
     elif overview_read.status == "refused":
         # A standing entry that cannot be verified as a regular file inside the layer:
-        # the map is neither seeded through it nor refreshed from bytes read by path.
+        # the page is neither seeded through it nor read from a path that could redirect.
         findings.append(
             Finding(
                 "viewer-target-refused",
@@ -1625,30 +1697,30 @@ def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
             )
         )
     elif overview_read.status == "absent":
-        seed = _build_overview_seed(manifest, entries)
+        seed = _build_overview_seed(manifest)
         if write_file_guarded(resolved_root, str(overview_abs), None, seed).ok:
             written.append(overview_rel)
-    else:
-        # The refresh rewrites the page it just read, so those bytes come from the
-        # verified descriptor rather than from a second read by pathname.
-        existing = overview_read.text()
-        start = existing.find(MAP_START)
-        end = existing.find(MAP_END)
-        if start >= 0 and end > start:
-            updated = (
-                existing[:start] + _map_block(manifest, entries) + existing[end + len(MAP_END) :]
+    elif not render_overview(
+        # Decoded the way Node's Buffer.toString('utf8') decodes, which is what the
+        # reference hands render_overview here. `VerifiedTargetRead.text()` is strict and
+        # would raise on a page that is not valid UTF-8, where the reference reports the
+        # markers question and moves on; the page is not written either way.
+        overview_read.data.decode("utf-8", errors="replace"),
+        manifest,
+        entries,
+    ).markers_found:
+        # A standing page is READ and not written: the only thing generation decides
+        # here is whether the map has a place to be rendered into. The bytes come from
+        # the verified descriptor rather than from a second read by pathname, so the
+        # page the guards judged is the page the answer is about.
+        findings.append(
+            Finding(
+                "overview-markers-missing",
+                "warning",
+                "overview.md has no generated-map markers; the map is not rendered",
+                overview_rel,
             )
-            if updated != existing:
-                write_file_guarded(resolved_root, str(overview_abs), None, updated)
-        else:
-            findings.append(
-                Finding(
-                    "overview-markers-missing",
-                    "warning",
-                    "overview.md has no generated-map markers; left as-is (map not refreshed)",
-                    overview_rel,
-                )
-            )
+        )
 
     # The Manifest page: generated chrome, exactly like _sidebar.md. Written into the
     # gitignored viewer dir under a reserved underscore name (collision-free with the
@@ -1658,4 +1730,6 @@ def generate_viewer(root: str, manifest: Manifest) -> ViewerResult:
         f"{viewer_dir}/_manifest.md", build_manifest_page(manifest, mount_status(root, manifest))
     )
 
-    return ViewerResult(written=written, findings=findings, entries=len(entries))
+    return ViewerResult(
+        written=written, findings=findings, entries=len(entries), index_entries=entries
+    )

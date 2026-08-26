@@ -166,6 +166,11 @@ interface Scenario {
    args: string[];
    /** Extra env vars merged into the run (e.g. test-only fault injection). */
    env?: Record<string, string>;
+   /** The same, computed from the prepared run directory: for fault injection that
+    * names a commit the setup itself made. Merged over `env`, and subject to the
+    * same rule `extraArgs` is: every setup that uses one pins its commit dates and
+    * identity, so all three captures compute the same value. */
+   envFor?: (dir: string) => Record<string, string>;
    /** A second argv naming the same operation. Run over its own copy of the same
     * setup in every SDK and compared to that SDK's own run of `args`, so the two
     * names are proved co-equal per SDK as well as across them. */
@@ -175,6 +180,14 @@ interface Scenario {
     * uses one pins its commit dates and identity, so all three captures compute
     * the same tokens. */
    extraArgs?: (dir: string) => string[];
+   /** State to compare that lies OUTSIDE the captured repository, appended to the
+    * tree. `snapshot` walks the run directory and nothing above it, which is right
+    * for every scenario whose whole subject is inside the repository, but a
+    * scenario about a target the tool must REFUSE to reach has its evidence on the
+    * other side of that boundary, and a write landing there would otherwise be
+    * invisible to the comparison. Opt-in, and the returned text must be stable
+    * across captures: an absolute per-capture path in it would read as divergence. */
+   alsoSnapshot?: (dir: string) => string;
 }
 
 function nodeRun(args: string[], cwd: string): void {
@@ -1355,6 +1368,27 @@ function overviewStanding(plant: (abs: string) => void): (dir: string) => void {
       plant(abs);
    };
 }
+/** The example layer with an authored overview.md at the content root, plus a
+ * document that is not in the map its markers still hold: the page the SDK reads is
+ * stale, and the map it renders from the index is not. `plant` writes the page. */
+function overviewAuthored(body: string): (dir: string) => void {
+   return (dir) => {
+      copyExample(dir);
+      fs.writeFileSync(path.join(dir, 'docs', 'overview.md'), body);
+      fs.writeFileSync(path.join(dir, 'docs', 'domain', 'pricing.md'), '# Pricing\n\nHow we price.\n');
+   };
+}
+/** An authored page keeping the markers, with a stale map between them. */
+const OVERVIEW_STALE_MAP =
+   '# The layer\n\nIntro prose.\n\n<!-- leji:generated-map:start -->\n```mermaid\nflowchart LR\n  boot["🤖 Boot profile"]\n```\n<!-- leji:generated-map:end -->\n\nClosing prose.\n';
+/** An authored page with no markers at all: nowhere to render the map. */
+const OVERVIEW_NO_MARKERS = '# Fully custom\n\nNo markers here at all.\n';
+/** The example layer whose overview.md was already seeded by a previous run: the
+ * seed happens once, so this run must leave the page byte-identical. */
+function overviewSeeded(dir: string): void {
+   copyExample(dir);
+   nodeRun(['viewer'], dir);
+}
 /** A layer claiming indexed whose changelog name is a dangling symlink: the seed's
  * exclusive create treats any standing entry as already present. */
 function indexedDanglingChangelog(dir: string): void {
@@ -1477,6 +1511,83 @@ function fetchableWitnessless(dir: string): void {
 function fetchUnreachableWithStore(dir: string): void {
    storeWithoutWitness(dir);
 }
+/**
+ * The upstream rewrote its history: the commit the host pins sat on a branch that
+ * is now deleted and pruned, while the source still advertises a target unrelated
+ * to it (an orphan). The current-pin act is the one that fails, and it is the only
+ * act with a route past it. Pruning is what makes the pin genuinely unavailable
+ * (a pin the advertised target still reached would stay fetchable), so the
+ * scaffold rewrites the ref graph before publishing the source.
+ */
+function fetchPinPrunedFromSource(dir: string): void {
+   mountedFederatedHost(dir);
+   pruneAndPublishPin(dir, rewriteSiblingToOrphanTarget(dir));
+}
+/** The rewrite both orphan-target scaffolds share: the commit the host pins moves
+ * to a branch of its own and `main` becomes an unrelated orphan. Both ids are
+ * returned, because the scaffolds prove the topology rather than assume it. */
+function rewriteSiblingToOrphanTarget(dir: string): { pin: string; target: string } {
+   const sib = path.join(dir, 'sibling');
+   const pin = git(sib, 'rev-parse', 'HEAD');
+   git(sib, 'branch', 'old');
+   git(sib, 'checkout', '-q', '--orphan', 'rewritten');
+   git(sib, 'rm', '-q', '-rf', '.');
+   const target = commitIn(sib, 'rewritten.md');
+   git(sib, 'checkout', '-q', '-B', 'main');
+   git(sib, 'branch', '-D', 'rewritten');
+   return { pin, target };
+}
+/**
+ * Delete the pin's branch, prune it out of the repository, publish it as the
+ * declared source, and then ASSERT the topology the scenarios depend on: the
+ * source can no longer serve the pin, and what it still advertises on `main` is
+ * the orphan target. A ref-graph regression that left the pin fetchable would
+ * otherwise turn these scenarios into a different refusal that still passes
+ * parity, so the scaffold throws before any capture runs.
+ */
+function pruneAndPublishPin(dir: string, ids: { pin: string; target: string }): void {
+   const sib = path.join(dir, 'sibling');
+   git(sib, 'branch', '-D', 'old');
+   git(sib, 'reflog', 'expire', '--expire=now', '--all');
+   git(sib, 'gc', '-q', '--prune=now');
+   publishUpdatePinSource(dir);
+   let served = true;
+   try {
+      git(UPDATE_PIN_SOURCE, 'cat-file', '-e', ids.pin);
+   } catch {
+      served = false;
+   }
+   if (served) throw new Error('orphan-target scaffold: the published source still serves the pin');
+   const advertised = git(UPDATE_PIN_SOURCE, 'ls-remote', UPDATE_PIN_SOURCE, 'main');
+   if (!advertised.startsWith(`${ids.target}\t`)) {
+      throw new Error(`orphan-target scaffold: main advertises "${advertised}", not the orphan target ${ids.target}`);
+   }
+}
+/**
+ * The route the current-pin refusal advertises, set up end to end: a local hint
+ * holding BOTH the old pin and the orphan target with complete ancestry (a clone
+ * taken before the prune), no managed store at all, and a source that no longer
+ * serves the pin. Offline, `--to <oid> --allow-non-fast-forward` moves the pin
+ * through the hint; the same command with `--fetch` refuses at the current-pin
+ * act. The pair is what makes the sentence in the refusal true.
+ */
+function hintHoldsBothPrunedSource(dir: string): void {
+   mountedFederatedHost(dir);
+   const ids = rewriteSiblingToOrphanTarget(dir);
+   git(dir, 'clone', '-q', path.join(dir, 'sibling'), path.join(dir, 'hint'));
+   fs.writeFileSync(
+      path.join(dir, '.leji', 'mounts.local.json'),
+      JSON.stringify({ mounts: { 'acme-product-context': { repo: 'hint' } } }) + '\n',
+   );
+   pruneAndPublishPin(dir, ids);
+}
+/** A reachable source that does not advertise the declared tracking ref: the pin is
+ * already in the store, so the witness act is the only one left to fail. */
+function fetchWithoutTrackingRef(dir: string): void {
+   storeWithoutWitness(dir);
+   publishUpdatePinSource(dir);
+   patchMountField(dir, 'trackingRef', 'refs/heads/release');
+}
 const UPDATE_PIN_FETCH_ENV = {
    GIT_CONFIG_COUNT: '1',
    GIT_CONFIG_KEY_0: `url.${UPDATE_PIN_SOURCE}.insteadOf`,
@@ -1490,6 +1601,12 @@ const UPDATE_PIN_UNREACHABLE_ENV = {
 
 /** The witness tip the setup left on the sibling's main: what `--to` names. */
 const siblingTip = (dir: string): string => git(path.join(dir, 'sibling'), 'rev-parse', 'refs/heads/main');
+/** The commit the prepared manifest declares: what the current-pin act retains. */
+function declaredPin(dir: string): string {
+   const found = /"pin": "([0-9a-f]{40,64})"/.exec(fs.readFileSync(path.join(dir, 'leji.json'), 'utf8'));
+   if (found === null) throw new Error('the prepared manifest declares no pin');
+   return found[1];
+}
 const ABSENT_OID = 'f'.repeat(40);
 const UP = ['mounts', 'update-pin', 'acme-product-context'];
 
@@ -1624,6 +1741,76 @@ const UPDATE_PIN_SCENARIOS: Scenario[] = [
       setup: fetchUnreachableWithStore,
       args: [...UP, '--fetch', '--json'],
       env: UPDATE_PIN_UNREACHABLE_ENV,
+   },
+   // --- which act failed, and the route past the one that has one ---
+   {
+      name: 'mounts update-pin --json (--fetch, the source no longer serves the current pin)',
+      mode: 'real',
+      setup: fetchPinPrunedFromSource,
+      args: [...UP, '--fetch', '--json'],
+      env: UPDATE_PIN_FETCH_ENV,
+   },
+   {
+      // The same refusal for a person: one line, the route, and the act.
+      name: 'mounts update-pin (--fetch, the source no longer serves the current pin, human)',
+      mode: 'real',
+      setup: fetchPinPrunedFromSource,
+      args: [...UP, '--fetch'],
+      env: UPDATE_PIN_FETCH_ENV,
+   },
+   {
+      name: 'mounts update-pin --json (--fetch, the target cannot be retained by a ref)',
+      mode: 'real',
+      setup: fetchableHintOnly,
+      args: [...UP, '--fetch', '--json'],
+      env: UPDATE_PIN_FETCH_ENV,
+      envFor: (dir) => ({ LEJI_TEST_FAIL_PIN_REF: siblingTip(dir) }),
+   },
+   {
+      // One hook, aimed at the other act: the same rule id, a different act, and a
+      // route only this one has.
+      name: 'mounts update-pin --json (--fetch, the current pin cannot be retained by a ref)',
+      mode: 'real',
+      setup: fetchableHintOnly,
+      args: [...UP, '--fetch', '--json'],
+      env: UPDATE_PIN_FETCH_ENV,
+      envFor: (dir) => ({ LEJI_TEST_FAIL_PIN_REF: declaredPin(dir) }),
+   },
+   {
+      name: 'mounts update-pin --json (--fetch, the source does not advertise the tracking ref)',
+      mode: 'real',
+      setup: fetchWithoutTrackingRef,
+      args: [...UP, '--fetch', '--json'],
+      env: UPDATE_PIN_FETCH_ENV,
+   },
+   {
+      // The best-effort command over the same source: the finding names the act, the
+      // outcome row is the row it has always been.
+      name: 'mounts hydrate --json (--fetch, the source no longer serves the current pin)',
+      mode: 'real',
+      setup: fetchPinPrunedFromSource,
+      args: ['mounts', 'hydrate', '--fetch', '--json'],
+      env: UPDATE_PIN_FETCH_ENV,
+   },
+   // --- the route the current-pin refusal advertises, both halves ---
+   {
+      // Offline, through a hint that holds both operands: the move the refusal says
+      // is still available, with the manifest rewrite compared in the tree.
+      name: 'mounts update-pin --json (--to + --allow-non-fast-forward through a hint, no --fetch)',
+      mode: 'real',
+      setup: hintHoldsBothPrunedSource,
+      args: [...UP, '--json', '--allow-non-fast-forward', '--to'],
+      extraArgs: (dir) => [siblingTip(dir)],
+   },
+   {
+      // The same command, the same hint, with `--fetch`: the source is asked for the
+      // current pin first, and that is the act that fails.
+      name: 'mounts update-pin --json (--to + --allow-non-fast-forward with --fetch, refused at the current pin)',
+      mode: 'real',
+      setup: hintHoldsBothPrunedSource,
+      args: [...UP, '--fetch', '--json', '--allow-non-fast-forward', '--to'],
+      extraArgs: (dir) => [siblingTip(dir)],
+      env: UPDATE_PIN_FETCH_ENV,
    },
    // --- the command surface: every rejection, in all three ---
    { name: 'mounts update-pin (missing name)', mode: 'real', setup: managedBehind, args: ['mounts', 'update-pin'] },
@@ -2140,6 +2327,69 @@ const HANDOFF_SCENARIOS: Scenario[] = [
    // Go declares the tool and has no installed executable: the not-applicable branch.
    { name: '--version (handoff: go tool)', setup: handoffFixture('go-tool', null), args: ['--version'] },
 ];
+
+/** A fixture working copy with every seed its `expected.json` declares materialized,
+ * for the self-managed `.leji/.gitignore` family. The three per-SDK harnesses each
+ * answer the fixture's declared questions against their own constants; what only a
+ * cross-SDK run can settle is that the FROZEN NOTICE and the preserved bytes are the
+ * same bytes in all three, which is what this scenario compares. The created form of the
+ * file rides every existing `init` and `export` scenario's tree comparison already. */
+function lejiIgnoreFixture(name: string, plant?: (dir: string) => void): (dir: string) => void {
+   return (dir: string): void => {
+      const from = path.join(repoRoot, 'fixtures', name);
+      fs.cpSync(from, dir, { recursive: true });
+      const declared = JSON.parse(fs.readFileSync(path.join(from, 'expected.json'), 'utf8')) as {
+         seeds?: { from: string; to: string }[];
+      };
+      for (const seed of declared.seeds ?? []) {
+         fs.cpSync(path.join(dir, ...seed.from.split('/')), path.join(dir, ...seed.to.split('/')), {
+            recursive: true,
+         });
+      }
+      plant?.(dir);
+   };
+}
+
+/** The directory scenario (E) points its `.leji` symlink at: beside the captured
+ * repository, so it is genuinely outside it. */
+function lejiOutsideDir(dir: string): string {
+   return path.join(dir, '..', 'outside');
+}
+
+/** Scenario (E): `.leji` symlinked OUT of the repository. The target is made beside the
+ * run directory and the link is written RELATIVE, so the link text the snapshot records
+ * is the same in all three captures: an absolute target would carry a per-capture temp
+ * path and every SDK would "diverge" on the scaffolding.
+ *
+ * The sentinel is what makes the outside directory's state COMPARABLE. Without it the
+ * directory is empty, and an empty snapshot is indistinguishable from a snapshot of the
+ * wrong path: all three SDKs would agree on nothing at all and the check would pass
+ * vacuously. With it, every capture carries one known entry, so the comparison is
+ * demonstrably live, and an SDK that wrote through the refused link adds a second. */
+function plantLejiOutside(dir: string): void {
+   const outside = lejiOutsideDir(dir);
+   fs.mkdirSync(outside, { recursive: true });
+   fs.writeFileSync(path.join(outside, 'sentinel.txt'), 'outside the repository\n');
+   fs.symlinkSync('../outside', path.join(dir, '.leji'));
+}
+
+/** Scenario (E)'s evidence, which `snapshot(dir)` cannot reach: what the refused target
+ * holds after the run. A `.leji` resolving out of the repository must be refused, not
+ * followed, so an SDK that followed it would leave `.gitignore` here, emit the exit code
+ * and stderr the others emit, and pass a comparison that only walked the repository.
+ * Paths are relative to the outside directory, so nothing per-capture enters the text. */
+function snapshotLejiOutside(dir: string): string {
+   return `=== (outside the repository) ===\n${snapshot(lejiOutsideDir(dir))}`;
+}
+
+/** Scenario (F): `.leji/.gitignore` itself symlinked onto ordinary content INSIDE the
+ * repository, so "the target is left untouched" is compared across the SDKs (decoy.txt
+ * is part of the snapshot) rather than only asserted inside each one. */
+function plantIgnoreSymlink(dir: string): void {
+   fs.writeFileSync(path.join(dir, 'decoy.txt'), 'not the ignore file\n');
+   fs.mkdirSync(path.join(dir, '.leji'), { recursive: true });
+   fs.symlinkSync('../decoy.txt', path.join(dir, '.leji', '.gitignore'));
+}
 
 const SCENARIOS: Scenario[] = [
    // --- init / adopt (neutralized) ---
@@ -3409,6 +3659,41 @@ const SCENARIOS: Scenario[] = [
       setup: outMarkerSymlinked,
       args: ['export', '--out', 'site'],
    },
+   // --- the layer map is rendered, not written ---
+   // The committed overview.md is never written after its seed, and the map lives in
+   // the pages the tool RENDERS: the served one (unit-tested per SDK, since the
+   // harness compares CLI runs and not servers) and the exported one, which is a
+   // written tree and therefore compared here byte for byte.
+   {
+      name: 'viewer (a stale layer map in overview.md is left as authored)',
+      setup: overviewAuthored(OVERVIEW_STALE_MAP),
+      args: ['viewer'],
+   },
+   {
+      name: 'export --out site (the overview is exported with the map rendered in)',
+      setup: overviewAuthored(OVERVIEW_STALE_MAP),
+      args: ['export', '--out', 'site'],
+   },
+   {
+      name: 'viewer (overview.md without markers warns and is left as authored)',
+      setup: overviewAuthored(OVERVIEW_NO_MARKERS),
+      args: ['viewer'],
+   },
+   {
+      name: 'export --out site (an overview without markers exports as its source)',
+      setup: overviewAuthored(OVERVIEW_NO_MARKERS),
+      args: ['export', '--out', 'site'],
+   },
+   {
+      name: 'viewer (a seeded overview.md is not rewritten by a later run)',
+      setup: overviewSeeded,
+      args: ['viewer'],
+   },
+   {
+      name: 'index (a new document changes the index, never overview.md)',
+      setup: overviewAuthored(OVERVIEW_STALE_MAP),
+      args: ['index'],
+   },
    {
       name: 'viewer (overview.md is a dangling symlink)',
       setup: overviewStanding((abs) => fs.symlinkSync('never-created.md', abs)),
@@ -3660,6 +3945,29 @@ const SCENARIOS: Scenario[] = [
    ...(UPDATE_PIN_SCENARIOS_ENABLED ? UPDATE_PIN_SCENARIOS : []),
    ...(START_PREFLIGHT_SCENARIOS_ENABLED ? START_PREFLIGHT_SCENARIOS : []),
    ...HANDOFF_SCENARIOS,
+   // The self-managed `.leji/.gitignore`, scenario (D) of `fixtures/README.md`: somebody
+   // else's file is left byte-identical, the frozen line is said once on stderr, and the
+   // `--json` document on stdout never carries it. One invocation, two roles established.
+   {
+      name: 'leji-ignore: an existing .leji/.gitignore is preserved and noticed once',
+      setup: lejiIgnoreFixture('valid-leji-ignore-existing'),
+      args: ['export', '--json'],
+   },
+   // Scenario (E): the refusal is the one it has always been, and no file is written
+   // through the link. Exit code, stderr and the tree are all compared across the SDKs.
+   {
+      name: 'leji-ignore: a .leji symlinked out of the repository is refused',
+      setup: lejiIgnoreFixture('valid-leji-ignore-fresh', plantLejiOutside),
+      args: ['viewer', 'build'],
+      alsoSnapshot: snapshotLejiOutside,
+   },
+   // Scenario (F): the refusal rendering this change introduced, plus the preserved
+   // bytes of the file the link points at.
+   {
+      name: 'leji-ignore: a symlinked .leji/.gitignore is refused and its target untouched',
+      setup: lejiIgnoreFixture('valid-leji-ignore-fresh', plantIgnoreSymlink),
+      args: ['viewer', 'build'],
+   },
 ];
 
 function firstDiff(a: string, b: string): string {
@@ -3685,7 +3993,8 @@ function capture(runner: Runner, sc: Scenario, env: NodeJS.ProcessEnv): Captured
    fs.mkdirSync(dir);
    sc.setup(dir);
    const argv = sc.extraArgs ? [...sc.args, ...sc.extraArgs(dir)] : sc.args;
-   const r = runner(argv, dir, sc.env ? { ...env, ...sc.env } : env);
+   const extra = sc.envFor ? { ...sc.env, ...sc.envFor(dir) } : sc.env;
+   const r = runner(argv, dir, extra ? { ...env, ...extra } : env);
    // Absolute run-dir paths in output (e.g. `mounts locate`) are per-capture by
    // construction; normalize so byte comparison sees the same text. `observedAt`
    // is the second declared non-deterministic field (after the index's
@@ -3695,7 +4004,8 @@ function capture(runner: Runner, sc: Scenario, env: NodeJS.ProcessEnv): Captured
          .split(dir)
          .join('<ROOT>')
          .replace(/("observedAt": ")[^"]*"/g, '$1<OBSERVED_AT>"');
-   return { exit: r.exit, stdout: norm(r.stdout), stderr: norm(r.stderr), tree: snapshot(dir) };
+   const tree = sc.alsoSnapshot ? `${snapshot(dir)}\n${sc.alsoSnapshot(dir)}` : snapshot(dir);
+   return { exit: r.exit, stdout: norm(r.stdout), stderr: norm(r.stderr), tree };
 }
 
 function diffProblems(ref: Captured, other: Captured, sdk: string): string[] {
@@ -3718,6 +4028,13 @@ function selfTest(): void {
 }
 
 function main(): number {
+   // `--list` names the registered scenarios and runs none: the battery builds three
+   // CLIs, and checking that a case is registered should not cost that.
+   if (process.argv.includes('--list')) {
+      for (const sc of SCENARIOS) console.log(sc.name);
+      console.log(`\n${SCENARIOS.length} scenarios registered.`);
+      return 0;
+   }
    build();
    selfTest();
    let failures = 0;

@@ -21,6 +21,11 @@ class Finding:
     #: three SDKs compare on for ``render-unsupported``, message text being
     #: outside the contract. None when the rule names none, and then omitted.
     construct: Optional[str] = None
+    #: Which act a rule with more than one failed at, and the resolver's own
+    #: reason for it: ``"<act>: <reason>"``. Serialized immediately after
+    #: ``message``, so the three SDKs emit the same bytes; None for every rule
+    #: that names no act, and then omitted.
+    detail: Optional[str] = None
 
     def to_dict(self) -> dict:
         out: dict = {"rule": self.rule, "severity": self.severity}
@@ -31,6 +36,8 @@ class Finding:
         if self.construct is not None:
             out["construct"] = self.construct
         out["message"] = self.message
+        if self.detail is not None:
+            out["detail"] = self.detail
         return out
 
 

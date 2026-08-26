@@ -37,6 +37,11 @@ from pathlib import Path
 from typing import Callable, Literal, cast
 
 from .fsx import guard_root, mkdirp_guarded, resolved_within_root
+from .leji_ignore import (
+    LejiIgnoreContext,
+    ensure_leji_ignore_file,
+    new_leji_ignore_context,
+)
 from .layout import MOUNTS_REL
 from .manifest import Manifest, all_strings_scalar
 from .schemas import schema_errors
@@ -117,6 +122,19 @@ class FetchResult:
     # The run reporting on itself, never a remembered observation.
     witness_refresh_failed: bool = False
     error: str | None = None
+    # The witness reason travels beside the flag, never in ``error``: that one is
+    # the store's own failure, and a mount whose store WAS established must not
+    # start reporting the witness reason as the reason nothing holds its pin.
+    witness_error: str | None = None
+
+
+@dataclass
+class WitnessRefresh:
+    """What one witness refresh did, and (when it did not publish) which half
+    did not happen, in stable Leji-authored text."""
+
+    ok: bool
+    error: str | None = None
 
 
 @dataclass
@@ -137,6 +155,11 @@ class ProjectionResult:
 class HydrateResult:
     outcomes: list[dict[str, object]]
     fatal: str | None = None
+    #: The resolver's own reason for the one ``--fetch`` act that failed per
+    #: mount, keyed by mount name, for the caller's findings; it is a transport,
+    #: never a document member, and the writers of ``mounts hydrate --json`` pick
+    #: their fields explicitly so it is never serialized.
+    reasons: dict[str, str] = field(default_factory=dict)
 
 
 def read_text_within(root: str, abs_path: Path) -> str | None:
@@ -207,7 +230,9 @@ def mounts_dir(root: str) -> str:
     return _join(root, *MOUNTS_REL.split("/"))
 
 
-def _establish_mounts_dir(root: str, dir_abs: str) -> str | None:
+def _establish_mounts_dir(
+    root: str, dir_abs: str, ignore_context: LejiIgnoreContext | None = None
+) -> str | None:
     """Establish one mounts DESTINATION — a managed store, a cache entry, a staging
     directory — through the write chokepoint, and hand back the RESOLVED directory it
     was created at. None when the rule refuses it: a planted ``.leji/mounts`` symlink
@@ -219,7 +244,14 @@ def _establish_mounts_dir(root: str, dir_abs: str) -> str | None:
     chokepoint, and it holds only because every one of its acts happens under a root
     this function checked and returned — never under a path re-joined from ``root``."""
     established = mkdirp_guarded(guard_root(root), dir_abs, MOUNTS_REL)
-    return established.real if established.ok else None
+    if not established.ok:
+        return None
+    # A role under ``.leji/`` now exists, so the tool's own ignore file is ensured here
+    # as it is at every other establisher. A refusal is this destination refusing: the
+    # caller reports it as it reports any destination it could not establish.
+    if ensure_leji_ignore_file(root, ignore_context) == "refused":
+        return None
+    return established.real
 
 
 def read_hints(root: str) -> dict[str, str]:
@@ -420,7 +452,13 @@ def _retention_injected_failure(oid: str) -> bool:
     return os.environ.get("LEJI_TEST_FAIL_PIN_REF") == oid
 
 
-def retain_pin_in_store(root: str, mount: MountDecl, source_identity: str, oid: str) -> FetchResult:
+def retain_pin_in_store(
+    root: str,
+    mount: MountDecl,
+    source_identity: str,
+    oid: str,
+    ignore_context: LejiIgnoreContext | None = None,
+) -> FetchResult:
     """Establish the managed store and retain ONE commit in it: fetch the object by
     id from the declared source when the store does not already hold it, then keep it
     reachable under ``refs/leji-pin/v1/``. Nothing here refreshes a witness, so a
@@ -438,7 +476,7 @@ def retain_pin_in_store(root: str, mount: MountDecl, source_identity: str, oid: 
     # The locator becomes argv here: anything option-shaped is refused, never passed.
     if mount.source.startswith("-"):
         return failed('the source locator may not begin with "-"')
-    store = _establish_mounts_dir(root, _store_dir(root, source_identity))
+    store = _establish_mounts_dir(root, _store_dir(root, source_identity), ignore_context)
     if store is None:
         return failed("the managed store could not be initialized")
     if not _is_git_repo(store):
@@ -478,11 +516,16 @@ def retain_pin_in_store(root: str, mount: MountDecl, source_identity: str, oid: 
     return FetchResult(repo=store)
 
 
-def fetch_into_store(root: str, mount: MountDecl, source_identity: str) -> FetchResult:
+def fetch_into_store(
+    root: str,
+    mount: MountDecl,
+    source_identity: str,
+    ignore_context: LejiIgnoreContext | None = None,
+) -> FetchResult:
     """Fetch the pin and refresh the managed witness ref in the store. This is the
     only writer of the witness namespace: ``status`` never fetches, so a mount
     whose pin a hint already resolves still needs its store populated here."""
-    retained = retain_pin_in_store(root, mount, source_identity, mount.pin)
+    retained = retain_pin_in_store(root, mount, source_identity, mount.pin, ignore_context)
     if retained.repo is None:
         return retained
     store = retained.repo
@@ -491,18 +534,24 @@ def fetch_into_store(root: str, mount: MountDecl, source_identity: str) -> Fetch
     # only when it was actually attempted: a run that never got this far has already
     # reported the fetch failure that stopped it.
     if mount.tracking_ref is not None and valid_tracking_ref(mount.tracking_ref):
-        if not refresh_witness(store, mount, source_identity):
-            return FetchResult(repo=store, witness_refresh_failed=True)
+        refreshed = refresh_witness(store, mount, source_identity)
+        if not refreshed.ok:
+            return FetchResult(
+                repo=store, witness_refresh_failed=True, witness_error=refreshed.error
+            )
     return FetchResult(repo=store)
 
 
-def refresh_witness(store: str, mount: MountDecl, source_identity: str) -> bool:
+def refresh_witness(store: str, mount: MountDecl, source_identity: str) -> WitnessRefresh:
     """Refresh the managed witness ref: fetch the tracking ref to a unique
     temporary ref, publish it onto the canonical witness with git's own
     compare-and-swap, then drop the temporary. Forced (``+``), so the witness
     follows a non-fast-forward upstream move. No lock: git's ref update is
     atomic, a lost swap means another writer published first (a valid outcome),
-    and a failure leaves the previous witness in place."""
+    and a failure leaves the previous witness in place.
+
+    A refusal names which half did not happen, in stable Leji-authored text: the
+    caller reports the witness act, and the act alone says nothing about why."""
     tracking_ref = cast("str", mount.tracking_ref)
     witness_ref = witness_ref_for(source_identity, tracking_ref)
     temp_ref = f"{WITNESS_REF_NAMESPACE}/tmp/{os.getpid()}-{secrets.token_hex(8)}"
@@ -542,7 +591,18 @@ def refresh_witness(store: str, mount: MountDecl, source_identity: str) -> bool:
     # Cleanup is not part of the outcome: the canonical ref has already moved, and
     # a surviving temporary is inert (nothing reads the tmp namespace as a witness).
     run_git(["-C", store, "update-ref", "-d", temp_ref])
-    return published
+    if published:
+        return WitnessRefresh(ok=True)
+    # Two failure classes, and no third: the tracking ref never arrived, or it
+    # arrived and the canonical ref would not take it.
+    return WitnessRefresh(
+        ok=False,
+        error=(
+            "the tracking ref could not be fetched from the source"
+            if tip is None
+            else "the witness ref could not be published"
+        ),
+    )
 
 
 @dataclass
@@ -1225,7 +1285,11 @@ def hydrate_mounts(
     manifest: Manifest,
     fetch: bool = False,
     names: list[str] | None = None,
+    ignore_context: LejiIgnoreContext | None = None,
 ) -> HydrateResult:
+    # One context for the whole run: hydration establishes a store and a staging
+    # directory per declared mount, and they are all one invocation.
+    ignore_context = ignore_context or new_leji_ignore_context()
     tracked = tracked_cache_files(root)
     if tracked:
         return HydrateResult(
@@ -1235,6 +1299,7 @@ def hydrate_mounts(
         )
     mounts = [m for m in _declared_mounts(manifest) if names is None or m.name in names]
     outcomes: list[dict[str, object]] = []
+    reasons: dict[str, str] = {}
     for mount in mounts:
         identity = normalize_source(mount.source)
         # Details never echo a declaration back: a source may be a local path, and
@@ -1260,7 +1325,13 @@ def hydrate_mounts(
         # --fetch populates the store for every declared mount, cached or already
         # resolvable: the store is the only witness namespace the resolver owns,
         # and `status` never fetches.
-        fetched = fetch_into_store(root, mount, identity) if fetch else None
+        fetched = fetch_into_store(root, mount, identity, ignore_context) if fetch else None
+        # At most one act can fail: a store that was not established is never asked
+        # to refresh a witness, so one reason per mount is the whole vocabulary here.
+        if fetched is not None:
+            failed_act = fetched.error if fetched.repo is None else fetched.witness_error
+            if failed_act is not None:
+                reasons[mount.name] = failed_act
 
         # A requested fetch that did not establish the store is reported on its
         # own terms, whatever the projection then manages from a hint or the cache.
@@ -1309,7 +1380,9 @@ def hydrate_mounts(
         # filesystem, and under a per-process name, so no two producers collide. The
         # staging directory is established through the chokepoint and every act below
         # works from the RESOLVED path it returned, the cache entry included.
-        staging = _establish_mounts_dir(root, _join(cache_dir, f".staging-{_staging_token()}"))
+        staging = _establish_mounts_dir(
+            root, _join(cache_dir, f".staging-{_staging_token()}"), ignore_context
+        )
         if staging is None:
             outcomes.append(
                 outcome(
@@ -1372,7 +1445,7 @@ def hydrate_mounts(
     # whether it is hydrated is the marker on disk. A state file would only be a
     # second copy of both, and one that two concurrent partial runs can each drop
     # entries from.
-    return HydrateResult(outcomes=outcomes)
+    return HydrateResult(outcomes=outcomes, reasons=reasons)
 
 
 def verify_projection(root: str, mount: MountDecl) -> bool | None:
@@ -1770,7 +1843,9 @@ class ReachabilityResult:
     detail: str | None = None
 
 
-def check_pin_reachability(root: str, mount: MountDecl) -> ReachabilityResult:
+def check_pin_reachability(
+    root: str, mount: MountDecl, ignore_context: LejiIgnoreContext | None = None
+) -> ReachabilityResult:
     """The networked conformance probe: is the pin reachable from an advertised
     ref of ``source``? Advertisement comes from ``git ls-remote`` against the
     declared source (never a hint: hint-only resolution is availability, not
@@ -1813,7 +1888,9 @@ def check_pin_reachability(root: str, mount: MountDecl) -> ReachabilityResult:
     tip = line.split("\t")[0]
     # Establish ancestry in the resolver store: fetch the witness ref (full history,
     # no promisor state), then ask whether the pin is an ancestor of its tip.
-    store = _establish_mounts_dir(root, _join(mounts_dir(root), "store", sha256_hex(identity)))
+    store = _establish_mounts_dir(
+        root, _join(mounts_dir(root), "store", sha256_hex(identity)), ignore_context
+    )
     if store is None:
         return ReachabilityResult(
             state="unknown",

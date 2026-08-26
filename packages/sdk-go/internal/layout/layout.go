@@ -35,6 +35,14 @@ const WorkRel = LejiDir + "/work"
 // cache, staging.
 const MountsRel = LejiDir + "/mounts"
 
+// LejiIgnoreRel is the one metadata file the tool keeps directly under root
+// `.leji/`, outside every role: the ignore file that keeps the tool's own tree out
+// of the repository even when the root `.gitignore` never received the `.leji/`
+// line. It belongs to no role, so the role rule below refuses it; the single named
+// exception that allows it lives in internal/fsx, where the REQUESTED entry is
+// still visible.
+const LejiIgnoreRel = LejiDir + "/.gitignore"
+
 // Abs joins a repository-root-relative role path (POSIX, as the constants above
 // spell it) onto an absolute root, in the host's own separator.
 func Abs(rootAbs, rel string) string {
@@ -81,12 +89,17 @@ func LejiRole(rootAbs, abs string) string {
 // repository, the private role it crossed into, that the path could not be resolved
 // at all (permission/I/O, not mere absence), or that an exclusive create found the
 // file already there.
+//
+// MetadataFile marks the one allowed target that belongs to no role, LejiIgnoreRel.
+// It is never produced here: only the named exception in internal/fsx constructs it,
+// on the requested entry, and a source-audit test pins that single constructor site.
 type TargetVerdict struct {
 	OK           bool
 	Role         string
 	Unresolvable bool
 	OutsideRoot  bool
 	Exists       bool
+	MetadataFile bool
 }
 
 // WritableTarget is the check-before-act rule for a WRITE or CLEAR target,

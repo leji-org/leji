@@ -8,7 +8,6 @@ Mirrors packages/sdk/test/badge.test.ts.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import shutil
@@ -20,6 +19,7 @@ from typing import Optional
 
 import pytest
 
+from helpers.snapshot import snapshot_tree
 from leji import badge_markdown, badge_run, render_badge
 from leji.cli import main
 
@@ -56,32 +56,6 @@ def _committed_fixture(name: str) -> Path:
         check=True,
     )
     return directory
-
-
-def _snapshot(directory: Path) -> list[tuple[str, str]]:
-    """Every path under `directory` as `rel -> content digest` (directories as `rel/` ->
-    ''), so a comparison covers appearance and disappearance as well as content. `.git/`
-    is the harness's own scaffolding and is excluded: a badge run cannot touch it."""
-    acc: list[tuple[str, str]] = []
-
-    def walk(rel: str) -> None:
-        base = directory if rel == "" else directory / rel
-        for entry in sorted(base.iterdir(), key=lambda p: p.name):
-            if rel == "" and entry.name == ".git":
-                continue
-            child = entry.name if rel == "" else f"{rel}/{entry.name}"
-            if entry.is_symlink():
-                acc.append((child, "non-regular"))
-            elif entry.is_dir():
-                acc.append((child + "/", ""))
-                walk(child)
-            elif entry.is_file():
-                acc.append((child, hashlib.sha256(entry.read_bytes()).hexdigest()))
-            else:
-                acc.append((child, "non-regular"))
-
-    walk("")
-    return sorted(acc)
 
 
 def _run_cli(capsys, args: list[str]) -> tuple[int, str]:
@@ -285,13 +259,13 @@ def test_a_run_that_writes_nothing_establishes_no_directory_on_the_way_to_not_wr
         (parent / "sibling.txt").write_text("untouched\n", encoding="utf-8")
         foreign = "not a badge\n"
         (parent / "badge.svg").write_text(foreign, encoding="utf-8")
-        before = _snapshot(directory)
+        before = snapshot_tree(directory)
         r = badge_run(str(directory), "pub/badge.svg")
         assert r.refusal == "pub/badge.svg exists and is not a leji badge; remove or rename it"
         assert (parent / "badge.svg").read_text(encoding="utf-8") == foreign, (
             "the target is byte-untouched"
         )
-        assert _snapshot(directory) == before, "the tree is untouched"
+        assert snapshot_tree(directory) == before, "the tree is untouched"
     finally:
         shutil.rmtree(directory, ignore_errors=True)
 
@@ -308,7 +282,7 @@ def test_an_out_whose_parent_resolves_outside_the_repository_is_refused_and_read
         planted = "somebody elses file\n"
         (outside / "x.svg").write_text(planted, encoding="utf-8")
         (directory / "pub").symlink_to(outside, target_is_directory=True)
-        before = _snapshot(directory)
+        before = snapshot_tree(directory)
 
         r = badge_run(str(directory), "pub/x.svg")
         assert r.usage_error is not None or r.refusal is not None, "the escape is refused"
@@ -320,7 +294,7 @@ def test_an_out_whose_parent_resolves_outside_the_repository_is_refused_and_read
         assert sorted(p.name for p in outside.iterdir()) == ["x.svg"], (
             "nothing was created outside the repository"
         )
-        assert _snapshot(directory) == before, "and nothing inside it"
+        assert snapshot_tree(directory) == before, "and nothing inside it"
     finally:
         shutil.rmtree(directory, ignore_errors=True)
         shutil.rmtree(outside, ignore_errors=True)
@@ -369,7 +343,7 @@ def test_an_out_that_is_a_dangling_symlink_inside_the_repository_is_refused() ->
         # follow the link and create the destination; a standing entry that could not be
         # verified as a badge is a refusal instead.
         (directory / "leji-badge.svg").symlink_to("missing-file.svg")
-        before = _snapshot(directory)
+        before = snapshot_tree(directory)
 
         r = badge_run(str(directory))
         assert r.refusal == (
@@ -385,7 +359,7 @@ def test_an_out_that_is_a_dangling_symlink_inside_the_repository_is_refused() ->
         assert not (directory / "missing-file.svg").exists(), (
             "the link destination was never created"
         )
-        assert _snapshot(directory) == before, "the tree is untouched"
+        assert snapshot_tree(directory) == before, "the tree is untouched"
     finally:
         shutil.rmtree(directory, ignore_errors=True)
 
@@ -399,7 +373,7 @@ def test_an_out_that_is_a_unix_socket_is_refused_as_a_document_not_as_a_crash(ca
         # directory, and opening it fails with something other than ENOENT. Binding one is
         # not portable, so a platform that cannot is skipped rather than failed.
         server = _bind_socket(target)
-        before = _snapshot(directory)
+        before = snapshot_tree(directory)
 
         r = badge_run(str(directory))
         assert r.refusal == (
@@ -411,7 +385,7 @@ def test_an_out_that_is_a_unix_socket_is_refused_as_a_document_not_as_a_crash(ca
         assert _finding_keys(r.findings) == [
             {"rule": "badge-target-refused", "severity": "error", "path": "leji-badge.svg"}
         ]
-        assert _snapshot(directory) == before, "the tree is untouched"
+        assert snapshot_tree(directory) == before, "the tree is untouched"
 
         # Through the CLI: the refusal is the ordinary badge document at exit 2, which is
         # exactly what an escaping error would deny this case.
@@ -446,7 +420,7 @@ def test_an_out_symlinked_to_a_unix_socket_is_refused_as_a_document_too(capsys) 
         server = _bind_socket(directory / "sock")
         target.symlink_to("sock")
         assert target.is_symlink(), "the target is a symlink"
-        before = _snapshot(directory)
+        before = snapshot_tree(directory)
 
         r = badge_run(str(directory))
         assert r.refusal == (
@@ -459,7 +433,7 @@ def test_an_out_symlinked_to_a_unix_socket_is_refused_as_a_document_too(capsys) 
             {"rule": "badge-target-refused", "severity": "error", "path": "leji-badge.svg"}
         ]
         assert target.is_symlink(), "the link itself is left alone"
-        assert _snapshot(directory) == before, "the tree is untouched"
+        assert snapshot_tree(directory) == before, "the tree is untouched"
 
         # Through the CLI: the ordinary badge document at exit 2, not a bare error.
         code, stdout = _run_cli(capsys, ["badge", "--root", str(directory), "--json"])
@@ -613,7 +587,7 @@ def test_fixture_badge_block(name: str, capsys) -> None:
 
         rerun = block.get("rerun")
         if rerun:
-            after_first = _snapshot(directory)
+            after_first = snapshot_tree(directory)
             code, stdout = _run_cli(capsys, [*args, "--root", str(directory), "--json"])
             assert code == 0, "the steady state exits 0"
             # The whole document again, not just `action`: the steady state is the same
@@ -622,7 +596,7 @@ def test_fixture_badge_block(name: str, capsys) -> None:
                 stdout, {**block, "action": rerun["action"]}, target_rel, f"{name} (rerun)"
             )
             if rerun["byteIdentical"]:
-                assert _snapshot(directory) == after_first, (
+                assert snapshot_tree(directory) == after_first, (
                     "a second run is a byte-level no-op across the whole working tree"
                 )
     finally:

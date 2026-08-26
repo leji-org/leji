@@ -1,5 +1,6 @@
 import { type Finding, finding, hasErrors, sortFindings, summarize } from './lib/findings.js';
 import { DIST_REL, VIEWER_REL } from './lib/layout.js';
+import { type LejiIgnoreContext, newLejiIgnoreContext } from './lib/leji-ignore.js';
 import { effectiveChangelogPath, effectiveIndexPath, loadManifest } from './lib/manifest.js';
 import { type CliCommand, type CliSpec, SDK_VERSION, SUPPORTED_LINES, loadCliSpec } from './lib/schemas.js';
 import { HELP_WIDTH, exitCodeColumn, helpRow, nameColumn, optionColumn, wrap } from './lib/text.js';
@@ -74,6 +75,7 @@ export {
    buildLayerMap,
    buildManifestPage,
    generateViewer,
+   renderOverview,
    resolveViewerPort,
    resolvedProfilePage,
 } from './commands/viewer.js';
@@ -104,6 +106,14 @@ export {
    type CiProvider,
 } from './commands/init.js';
 export { detectLayer, renderDetect } from './commands/detect.js';
+export {
+   LEJI_IGNORE_CONTENT,
+   LEJI_IGNORE_NOTICE,
+   ensureLejiIgnoreFile,
+   newLejiIgnoreContext,
+} from './lib/leji-ignore.js';
+export type { LejiIgnoreContext, LejiIgnoreOutcome } from './lib/leji-ignore.js';
+export { LEJI_IGNORE_REL } from './lib/layout.js';
 export { buildWritePlan, renderWritePlan } from './lib/writeplan.js';
 export { route, LIVE_STATUSES } from './lib/route.js';
 export type {
@@ -663,7 +673,9 @@ function printFindings(findings: Finding[]): void {
    for (const f of sortFindings(findings)) {
       // A rule that locates a line says so, so a reader can go to it.
       const where = f.path ? ` ${f.path}${f.line === undefined ? '' : `:${f.line}`}` : '';
-      console.log(`${f.severity === 'error' ? 'error  ' : 'warning'} ${f.rule}${where}: ${f.message}`);
+      // A rule that names the act it failed at says which one, on the same line.
+      const detail = f.detail === undefined ? '' : ` (detail: ${f.detail})`;
+      console.log(`${f.severity === 'error' ? 'error  ' : 'warning'} ${f.rule}${where}: ${f.message}${detail}`);
    }
 }
 
@@ -680,6 +692,9 @@ function mountFindings(
       witnessRefreshFailed?: boolean;
       projectionFailed?: boolean;
    }[],
+   /** The resolver's reason for the one `--fetch` act that failed, per mount: the
+    * finding names the act, the reason says what the act ran into. */
+   reasons: Map<string, string> = new Map(),
 ): Finding[] {
    const out: Finding[] = [];
    for (const o of rows) {
@@ -696,6 +711,7 @@ function mountFindings(
             ),
          );
       }
+      const reason = reasons.get(o.name);
       if (o.storeFetched === false) {
          out.push(
             finding(
@@ -703,6 +719,7 @@ function mountFindings(
                'warning',
                'the managed store could not be established by the requested fetch',
                o.name,
+               reason === undefined ? undefined : `current pin: ${reason}`,
             ),
          );
       }
@@ -713,6 +730,7 @@ function mountFindings(
                'warning',
                'the managed witness ref could not be refreshed by the requested fetch',
                o.name,
+               reason === undefined ? undefined : `witness: ${reason}`,
             ),
          );
       }
@@ -804,13 +822,13 @@ function printUnindexedNudge(count: number): void {
  * `--strict`, a lint finding — with the target left byte-untouched, `2` a usage
  * error or a refusal (thrown, and rendered by the caller's catch).
  */
-function runExport(flags: Flags): number {
+function runExport(flags: Flags, ignoreContext: LejiIgnoreContext): number {
    const { manifest, findings } = loadManifest(flags.root);
    // A failure before the pipeline can run (an unreadable manifest) reports in the
    // command's OWN document, never the generic one: a `--json` consumer parses one
    // shape under every outcome and either name.
    if (!manifest) return reportExport(flags, { out: flags.out ?? DIST_REL, findings, wrote: false });
-   return reportExport(flags, buildViewer(flags.root, manifest, flags.out, { strict: flags.strict }));
+   return reportExport(flags, buildViewer(flags.root, manifest, flags.out, { strict: flags.strict, ignoreContext }));
 }
 
 /** The one export report, for every outcome the pipeline can reach. */
@@ -963,9 +981,15 @@ function reportUpdatePin(flags: Flags, r: UpdatePinResult): number {
       case 'dry-run':
          console.log(`Would update leji.json: ${r.mount.name} pin ${from12} → ${to12} (dry run)${overridden}`);
          break;
-      case 'refused':
-         console.log(`Refused: ${MOUNT_UPDATE_PIN_REASONS[r.reason ?? ''] ?? r.reason}`);
+      case 'refused': {
+         // The refusal's own finding is what the document carries, so the human line
+         // is read off it rather than looked up a second time: one sentence, and the
+         // act it failed at when the rule names one.
+         const refusal = findings.find((f) => f.severity === 'error');
+         const message = refusal?.message ?? MOUNT_UPDATE_PIN_REASONS[r.reason ?? ''] ?? r.reason;
+         console.log(`Refused: ${message}${refusal?.detail === undefined ? '' : ` (detail: ${refusal.detail})`}`);
          break;
+      }
    }
    return ok ? 0 : 1;
 }
@@ -1048,6 +1072,13 @@ export async function run(argv: string[]): Promise<number> {
          return 2;
       }
    }
+
+   // One notice state for this invocation, created at the command entry point and
+   // handed to every path that can create a `.leji/` role: whatever a command
+   // establishes, it says at most once that it left an existing `.leji/.gitignore`
+   // alone. A second repository, or a long-lived host calling the SDK directly,
+   // never inherits it.
+   const ignoreContext = newLejiIgnoreContext();
 
    try {
       switch (command) {
@@ -1286,7 +1317,10 @@ export async function run(argv: string[]): Promise<number> {
                console.error(USAGE);
                return 2;
             }
-            const result = conformanceReport(flags.root, { federation: flags.federation === 'verify' });
+            const result = conformanceReport(flags.root, {
+               federation: flags.federation === 'verify',
+               ignoreContext,
+            });
             if (!flags.json) {
                for (const item of result.items) {
                   const mark =
@@ -1351,16 +1385,17 @@ export async function run(argv: string[]): Promise<number> {
                      allowNonFastForward: flags.allowNonFastForward,
                      fetch: flags.fetch,
                      dryRun: flags.dryRun,
+                     ignoreContext,
                   }),
                );
             }
             if (sub === 'hydrate') {
-               const r = hydrateMounts(flags.root, manifest, { fetch: flags.fetch });
+               const r = hydrateMounts(flags.root, manifest, { fetch: flags.fetch, ignoreContext });
                if (r.fatal) {
                   console.error(`leji: ${r.fatal}`);
                   return 1;
                }
-               const issues = mountFindings(r.outcomes);
+               const issues = mountFindings(r.outcomes, r.reasons);
                const hadError = r.outcomes.some((o) => o.status === 'error');
                if (flags.json) {
                   console.log(
@@ -1443,7 +1478,7 @@ export async function run(argv: string[]): Promise<number> {
             return reportBadge(flags, result);
          }
          case 'export':
-            return runExport(flags);
+            return runExport(flags, ignoreContext);
          case 'view':
          case 'viewer': {
             // `leji view` is an alias for `leji viewer serve` that also opens the
@@ -1459,12 +1494,12 @@ export async function run(argv: string[]): Promise<number> {
                console.error(USAGE);
                return 2;
             }
-            if (command === 'viewer' && sub === 'build') return runExport(flags);
+            if (command === 'viewer' && sub === 'build') return runExport(flags, ignoreContext);
             const wantServe = isAlias || sub === 'serve';
             const wantOpen = flags.open || isAlias;
             const { manifest, findings } = loadManifest(flags.root);
             if (!manifest) return emit('viewer', findings, flags.json);
-            const result = generateViewer(flags.root, manifest);
+            const result = generateViewer(flags.root, manifest, ignoreContext);
             // Terse by design: findings when something needs attention, one status
             // line otherwise. The full write list lives in --json.
             const allFindings = [...findings, ...result.findings];
@@ -1485,6 +1520,9 @@ export async function run(argv: string[]): Promise<number> {
             }
             const server = await serveViewer(flags.root, resolveViewerPort(manifest, flags.port), manifest.rootPath, {
                log: flags.json ? undefined : (line) => console.log(line),
+               // The generation above just projected the index: the first layer map is
+               // that snapshot rather than a second generation of the same tree.
+               entries: result.indexEntries,
             });
             const address = server.address();
             const port =
@@ -1738,6 +1776,7 @@ export async function run(argv: string[]): Promise<number> {
          case 'adopt': {
             const result = await adoptLayer({
                dir: flags.dir === '.' && flags.root !== '.' ? flags.root : flags.dir,
+               ignoreContext,
                yes: flags.yes,
                name: flags.name,
                dryRun: flags.dryRun,
@@ -1787,6 +1826,7 @@ export async function run(argv: string[]): Promise<number> {
                detected: result.detected,
                interactive,
                agent: flags.agent,
+               ignoreContext,
             });
             if (
                !(await handoffOffer(
@@ -1808,6 +1848,7 @@ export async function run(argv: string[]): Promise<number> {
          case 'init': {
             const result = await initLayer({
                dir: flags.dir === '.' && flags.root !== '.' ? flags.root : flags.dir,
+               ignoreContext,
                yes: flags.yes,
                name: flags.name,
                level: flags.level,
@@ -1845,6 +1886,7 @@ export async function run(argv: string[]): Promise<number> {
                detected: result.detected,
                interactive,
                agent: flags.agent,
+               ignoreContext,
             });
             if (
                !(await handoffOffer(

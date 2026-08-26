@@ -1,0 +1,10 @@
+name: Action pinned by tag
+# Rule 4: a movable tag is not a pin, however precise it looks.
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1

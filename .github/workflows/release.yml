@@ -40,7 +40,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.23"
+          go-version: "1.27.0"
           cache-dependency-path: packages/sdk-go/go.sum
       - run: npm ci
       - name: Build artifacts, cold-install each, assert CLI battery + cross-SDK parity
@@ -63,7 +63,7 @@ jobs:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
       # OIDC trusted publishing needs npm >= 11.5.1 (Node 24 may ship older).
-      - run: npm install -g npm@latest && npm --version
+      - run: npm install -g npm@12.0.2 && npm --version
       - run: npm ci
       - name: Verify tag matches package version
         run: |
@@ -98,9 +98,11 @@ jobs:
           PKG="$(node -p "require('./packages/sdk/jsr.json').version")"
           test "$TAG" = "$PKG" || { echo "tag packages/sdk/v$TAG != jsr.json version $PKG"; exit 1; }
       # JSR publishes the TS source (per jsr.json), not the npm dist tarball.
+      # The jsr CLI is pinned like every other tool on this path; the version
+      # mirrors JSR_VERSION in scripts/release-pins.env.
       - name: Publish to JSR
         working-directory: packages/sdk
-        run: npx jsr publish
+        run: npx jsr@0.14.3 publish
 
   # --- packages/create-leji/v* : npm `create-leji` (first-class, own tag) ---
 
@@ -118,7 +120,7 @@ jobs:
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
-      - run: npm install -g npm@latest && npm --version
+      - run: npm install -g npm@12.0.2 && npm --version
       - run: npm ci
       - name: Verify tag matches package version
         run: |
@@ -146,7 +148,7 @@ jobs:
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
-      - run: npm install -g npm@latest && npm --version
+      - run: npm install -g npm@12.0.2 && npm --version
       - run: npm ci
       - name: Verify tag matches package version
         run: |
@@ -185,10 +187,20 @@ jobs:
           test "$TAG" = "$PKG" || { echo "tag packages/sdk-py/v$TAG != pyproject version $PKG"; exit 1; }
       - name: Test
         working-directory: packages/sdk-py
-        run: python -m pip install --upgrade pip && pip install -e ".[dev]" && pytest -q
+        run: python -m pip install pip==26.2.1 && pip install -e ".[dev]" && pytest -q
       - name: Build sdist + wheel
         working-directory: packages/sdk-py
-        run: python -m pip install --upgrade build && python -m build
+        run: python -m pip install build==1.5.0 && python -m build
+      # The last gate before the irreversible act, on the exact bytes about to be
+      # uploaded: the publish action rejects a distribution twine cannot render,
+      # and it rejects it after the tag exists. Same function as the smoke and
+      # the pre-push hook, same twine the action below bundles.
+      - name: twine check --strict on the built distribution
+        run: |
+          . scripts/lib/twine-check.sh
+          twine_check python3 packages/sdk-py "$RUNNER_TEMP/twine-gate" packages/sdk-py/dist
+      # SHA, version comment, and the twine the gate above installs all come from
+      # scripts/release-pins.env; moving this pin means moving that file.
       - name: Publish
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
@@ -209,7 +221,7 @@ jobs:
           fetch-depth: 0 # full history so goreleaser sees tags
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.23"
+          go-version: "1.27.0"
           cache-dependency-path: packages/sdk-go/go.sum
       - name: Verify tag matches SDK version
         run: |
@@ -227,7 +239,9 @@ jobs:
       - name: Build cross-platform binaries (goreleaser, no publish)
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
-          version: "~> v2"
+          # The action is pinned by SHA; this input pins the goreleaser it
+          # installs, and mirrors GORELEASER_VERSION in scripts/release-pins.env.
+          version: "v2.18.0"
           workdir: packages/sdk-go
           args: release --clean --skip=publish
         env:

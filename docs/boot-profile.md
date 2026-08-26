@@ -5,7 +5,7 @@
 
 ## Identity
 
-This is the Leji repository: the home of the Leji specification, its reference SDKs and tooling, and the leji.org site. Leji is an open specification for the shared context layer of AI-native teams: a versioned, repo-owned record of how a team thinks, read by people and AI agents alike. It is public. Everything here is single-sourced: the normative spec (`spec/`) and its JSON Schemas (`schemas/`), the reference `leji` CLI in TypeScript, Python, and Go (`packages/sdk`, `packages/sdk-py`, `packages/sdk-go`), the MCP server and `create-leji` scaffolder (`packages/mcp`, `packages/create-leji`), and the website (`packages/site`). The spec and schemas are on the v1.0 line (GA, frozen at the v1.3.0 reference-tooling release); the packages release together, currently 1.4.0.
+This is the Leji repository: the home of the Leji specification, its reference SDKs and tooling, and the leji.org site. Leji is an open specification for the shared context layer of AI-native teams: a versioned, repo-owned record of how a team thinks, read by people and AI agents alike. It is public. Everything here is single-sourced: the normative spec (`spec/`) and its JSON Schemas (`schemas/`), the reference `leji` CLI in TypeScript, Python, and Go (`packages/sdk`, `packages/sdk-py`, `packages/sdk-go`), the MCP server and `create-leji` scaffolder (`packages/mcp`, `packages/create-leji`), and the website (`packages/site`). The spec and schemas are on the v1.0 line (GA, frozen at the v1.3.0 reference-tooling release); the packages release together, currently 1.4.1.
 
 ## Loading
 

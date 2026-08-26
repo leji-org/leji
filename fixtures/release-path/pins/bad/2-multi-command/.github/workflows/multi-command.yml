@@ -1,0 +1,12 @@
+name: Second command on the line
+# Rule 2: the unpinned install is not the first command on the line, so a
+# scanner that reads only the start of a line misses it.
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python -m venv .venv && pip install build

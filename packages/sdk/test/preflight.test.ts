@@ -787,6 +787,12 @@ const OVERFLOW_TIMEOUT_MS = 30_000;
  */
 const PROMPT_MS = 15_000;
 /**
+ * The most a capped run can hold beyond its cap. Node reads a child's stdout in chunks
+ * of `SyncProcessOutputBuffer::kBufferSize` (65536, `src/spawn_sync.h`) and stops at the
+ * read that crossed the cap, so one whole chunk is the worst case.
+ */
+const PIPE_READ_MAX = 64 * 1024;
+/**
  * How long a stub holds stdout open after it has said its piece: longer than every
  * deadline in this file, so a run that ended early ended because leji ended it and
  * not because the child happened to exit.
@@ -812,29 +818,27 @@ test('capture replaces the environment rather than extending it', () => {
    }
 });
 
-test('capture kills a child that streams past the cap, well inside the timeout', () => {
+test('capture kills a child that streams past the cap', () => {
    const dir = tmpdir('leji-capture-cap-');
+   const cap = 4096;
    // 1 MiB in 1 KiB writes, far past the cap, then a slow tail: a run that did not cut
-   // the child off at the cap would still be waiting when the deadline arrives.
+   // the child off at the cap would still be holding the pipe when the deadline arrives,
+   // and the deadline is the harness safety net rather than the thing under test.
    const stub = captureStub(
       dir,
       'flood',
       `i=0\nwhile [ $i -lt 1024 ]; do printf '%1024s' ''; i=$((i+1)); done\n${STUB_HOLD}`,
    );
-   const started = Date.now();
-   const res = capture(stub, dir, 4096, { PATH: '/usr/bin:/bin' }, OVERFLOW_TIMEOUT_MS);
-   const elapsed = Date.now() - started;
-   assert.ok(res.error, 'passing the cap is an error');
-   // The child printed a megabyte; what is held is a bounded fraction of it. The
-   // runtime stops after the READ that crossed the cap, where the other two SDKs
-   // refuse the write that would cross it, so the bound here is the cap plus at most
-   // one pipe read rather than the cap exactly. Either way the overflow bytes are
-   // never parsed: a capped run is a failed probe.
-   assert.ok((res.stdout ?? '').length < 64 * 1024, `held ${(res.stdout ?? '').length} bytes`);
-   assert.ok(
-      elapsed < PROMPT_MS,
-      `the cap did not cut the child off: ${elapsed}ms, against a ${OVERFLOW_TIMEOUT_MS}ms deadline`,
-   );
+   const res = capture(stub, dir, cap, { PATH: '/usr/bin:/bin' }, OVERFLOW_TIMEOUT_MS);
+   // What Node does at the cap: ENOBUFS, the child terminated by signal, and the bytes
+   // already read kept. The child printed a megabyte; what is held is bounded by the cap
+   // plus one pipe read, because the runtime stops after the READ that crossed the cap
+   // where the other two SDKs refuse the write that would cross it. Those overflow bytes
+   // are never parsed either way: a capped run is a failed probe.
+   assert.equal((res.error as NodeJS.ErrnoException | undefined)?.code, 'ENOBUFS');
+   assert.notEqual(res.signal, null, 'the child is terminated, not left running');
+   const held = Buffer.byteLength(res.stdout ?? '');
+   assert.ok(held <= cap + PIPE_READ_MAX, `held ${held} bytes against a ${cap}-byte cap`);
 });
 
 test('capture ends a sparse overflow promptly', () => {

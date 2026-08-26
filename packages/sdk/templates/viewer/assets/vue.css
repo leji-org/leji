@@ -131,8 +131,8 @@ span.emoji {
   vertical-align: middle;
 }
 .progress {
-  background-color: #42b983;
-  background-color: var(--theme-color, #42b983);
+  background-color: #009f71;
+  background-color: var(--theme-color, #009f71);
   height: 2px;
   left: 0px;
   position: fixed;
@@ -143,12 +143,12 @@ span.emoji {
   z-index: 999999;
 }
 .search a:hover {
-  color: #42b983;
-  color: var(--theme-color, #42b983);
+  color: #009f71;
+  color: var(--theme-color, #009f71);
 }
 .search .search-keyword {
-  color: #42b983;
-  color: var(--theme-color, #42b983);
+  color: #009f71;
+  color: var(--theme-color, #009f71);
   font-style: normal;
   font-weight: bold;
 }
@@ -159,7 +159,7 @@ body {
 body {
   -moz-osx-font-smoothing: grayscale;
   -webkit-font-smoothing: antialiased;
-  color: #34495e;
+  color: var(--leji-text-body);
   font-family: 'Source Sans Pro', 'Helvetica Neue', Arial, sans-serif;
   font-size: 15px;
   letter-spacing: 0;
@@ -218,14 +218,14 @@ li input[type='checkbox'] {
   transition: color 0.3s;
 }
 .app-nav a:hover {
-  color: #42b983;
-  color: var(--theme-color, #42b983);
+  color: #009f71;
+  color: var(--theme-color, #009f71);
 }
 .app-nav a.active {
-  border-bottom: 2px solid #42b983;
-  border-bottom: 2px solid var(--theme-color, #42b983);
-  color: #42b983;
-  color: var(--theme-color, #42b983);
+  border-bottom: 2px solid #009f71;
+  border-bottom: 2px solid var(--theme-color, #009f71);
+  color: #009f71;
+  color: var(--theme-color, #009f71);
 }
 .app-nav li {
   display: inline-block;
@@ -283,8 +283,8 @@ li input[type='checkbox'] {
 }
 .github-corner svg {
   color: #fff;
-  fill: #42b983;
-  fill: var(--theme-color, #42b983);
+  fill: #009f71;
+  fill: var(--theme-color, #009f71);
   height: 80px;
   width: 80px;
 }
@@ -304,7 +304,7 @@ main.hidden {
   transition: all 0.3s;
 }
 .anchor span {
-  color: #34495e;
+  color: var(--leji-text);
 }
 .anchor:hover {
   text-decoration: underline;
@@ -393,8 +393,8 @@ main.hidden {
   opacity: 0.4;
 }
 .sidebar-toggle span {
-  background-color: #42b983;
-  background-color: var(--theme-color, #42b983);
+  background-color: #009f71;
+  background-color: var(--theme-color, #009f71);
   display: block;
   margin-bottom: 4px;
   width: 16px;
@@ -489,7 +489,7 @@ body.sticky .sidebar-toggle {
   background-color: #efefef;
 }
 .markdown-section p.tip em {
-  color: #34495e;
+  color: var(--leji-text-body);
 }
 .markdown-section p.warn {
   background: rgba(66,185,131,0.1);
@@ -653,14 +653,14 @@ section.cover ul {
   padding: 0;
 }
 section.cover .cover-main > p:last-child a {
-  border-color: #42b983;
-  border-color: var(--theme-color, #42b983);
+  border-color: #009f71;
+  border-color: var(--theme-color, #009f71);
   border-radius: 2rem;
   border-style: solid;
   border-width: 1px;
   box-sizing: border-box;
-  color: #42b983;
-  color: var(--theme-color, #42b983);
+  color: #009f71;
+  color: var(--theme-color, #009f71);
   display: inline-block;
   font-size: 1.05rem;
   letter-spacing: 0.1rem;
@@ -670,8 +670,8 @@ section.cover .cover-main > p:last-child a {
   transition: all 0.15s ease;
 }
 section.cover .cover-main > p:last-child a:last-child {
-  background-color: #42b983;
-  background-color: var(--theme-color, #42b983);
+  background-color: #009f71;
+  background-color: var(--theme-color, #009f71);
   color: #fff;
 }
 section.cover .cover-main > p:last-child a:last-child:hover {
@@ -682,13 +682,13 @@ section.cover .cover-main > p:last-child a:hover {
   color: inherit;
 }
 section.cover blockquote > p > a {
-  border-bottom: 2px solid #42b983;
-  border-bottom: 2px solid var(--theme-color, #42b983);
+  border-bottom: 2px solid #009f71;
+  border-bottom: 2px solid var(--theme-color, #009f71);
   transition: color 0.3s;
 }
 section.cover blockquote > p > a:hover {
-  color: #42b983;
-  color: var(--theme-color, #42b983);
+  color: #009f71;
+  color: var(--theme-color, #009f71);
 }
 body {
   background-color: #fff;
@@ -696,13 +696,13 @@ body {
 /* sidebar */
 .sidebar {
   background-color: #fff;
-  color: #364149;
+  color: var(--leji-text-body);
 }
 .sidebar li {
   margin: 6px 0 6px 0;
 }
 .sidebar ul li a {
-  color: #505d6b;
+  color: var(--leji-text-body);
   font-size: 14px;
   font-weight: normal;
   overflow: hidden;
@@ -718,8 +718,8 @@ body {
 }
 .sidebar ul li.active > a {
   border-right: 2px solid;
-  color: #42b983;
-  color: var(--theme-color, #42b983);
+  color: #009f71;
+  color: var(--theme-color, #009f71);
   font-weight: 600;
 }
 .app-sub-sidebar li::before {
@@ -733,12 +733,12 @@ body {
 .markdown-section h3,
 .markdown-section h4,
 .markdown-section strong {
-  color: #2c3e50;
+  color: var(--leji-text);
   font-weight: 600;
 }
 .markdown-section a {
-  color: #42b983;
-  color: var(--theme-color, #42b983);
+  color: #009f71;
+  color: var(--theme-color, #009f71);
   font-weight: 600;
 }
 .markdown-section h1 {
@@ -760,7 +760,7 @@ body {
   font-size: 1rem;
 }
 .markdown-section h6 {
-  color: #777;
+  color: var(--leji-text);
   font-size: 1rem;
 }
 .markdown-section figure,
@@ -778,9 +778,9 @@ body {
   padding-left: 1.5rem;
 }
 .markdown-section blockquote {
-  border-left: 4px solid #42b983;
-  border-left: 4px solid var(--theme-color, #42b983);
-  color: #858585;
+  border-left: 4px solid #009f71;
+  border-left: 4px solid var(--theme-color, #009f71);
+  color: var(--leji-text-body);
   margin: 2em 0;
   padding-left: 20px;
 }
@@ -792,7 +792,7 @@ body {
   margin: 1em 0;
 }
 .markdown-section em {
-  color: #7f8c8d;
+  color: var(--leji-text-body);
 }
 .markdown-section code,
 .markdown-section pre,
@@ -901,8 +901,8 @@ body {
   color: #2973b7;
 }
 .token.string {
-  color: #42b983;
-  color: var(--theme-color, #42b983);
+  color: #009f71;
+  color: var(--theme-color, #009f71);
 }
 .token.selector {
   color: #6679cc;
@@ -920,8 +920,8 @@ body {
 .token.control,
 .token.directive,
 .token.unit {
-  color: #42b983;
-  color: var(--theme-color, #42b983);
+  color: #009f71;
+  color: var(--theme-color, #009f71);
 }
 .token.keyword,
 .token.function {
@@ -972,6 +972,26 @@ code .token {
    group/active treatment. CDN-free: the theme's webfonts are vendored locally
    (see the @font-face rules at the top of this file).
    ========================================================================== */
+/* Every text color in this file and in the viewer shell belongs to exactly one of
+   four classes, and a new one has to be placed in a class before it is written:
+
+   i.   typography: the three tones below and nothing else. Headings and emphasis
+        take --leji-text, all normal-size copy --leji-text-body, and --leji-text-muted
+        is declared for large-text use only (3.99:1 on white, below AA at normal
+        size), so it currently has no consumer.
+   ii.  links and active chrome: --leji-link (the fixed AA body-link tone),
+        --theme-color (the layer's accent, viewer.theme.primary), --leji-deep,
+        --leji-brand.
+   iii. inverse text on dark or accent grounds: the literal #fff on a colored
+        ground, which is not a typography tone.
+   iv.  code and syntax: the fenced-code text, the Prism .token.* colors, and the
+        inline-code ground.
+
+   Surfaces (--leji-paper, --leji-line, --leji-code-bg) and icons (--leji-caret, the
+   group triangles) are not text and belong to none of the four.
+
+   The legacy neutrals the stock docsify theme shipped are denied outright, in a
+   unit test over this directory (packages/sdk/test/viewer-tones.test.ts). */
 :root {
   --theme-color: #009f71; /* recolors every var(--theme-color) rule above */
   --leji-brand: #009f71; /* the Leji mark green: brand moments, never small text */
@@ -979,17 +999,18 @@ code .token {
   --leji-deep: #164e42;
   --leji-accent: #78d7b5;
   --leji-paper: #f7f8f5; /* the brand's light canvas: sidebar, chips, panels */
-  --leji-ink: #34495e;
-  --leji-ink-soft: #555555;
+  --leji-text: #183b32; /* headings and emphasis */
+  --leji-text-body: #4d5b56; /* every normal-size run of copy */
+  --leji-text-muted: #76827d; /* large text only: 3.99:1 on white */
   --leji-line: #cde5d9; /* the brand's border tone, not a neutral gray */
   --leji-code-bg: #e8f4ee;
-  --leji-caret: #aaaaaa; /* lighter than the ink for the group triangles */
+  --leji-caret: #aaaaaa; /* an icon tone, lighter than the text, not typography */
   color-scheme: light;
 }
 
 body {
   background: var(--leji-paper);
-  color: var(--leji-ink);
+  color: var(--leji-text-body);
 }
 
 /* --- sidebar shell --- */
@@ -1014,7 +1035,7 @@ body {
   border-top: 1px solid var(--leji-line);
 }
 .sidebar ul li a {
-  color: var(--leji-ink-soft);
+  color: var(--leji-text-body);
   transition: color 0.12s;
 }
 .sidebar ul li a:hover {
@@ -1060,7 +1081,7 @@ body {
 .sidebar-nav > ul > li.folder {
   /* 600 is Source Sans Pro's bold face; 500 would resolve down to regular. */
   font-weight: 600;
-  color: var(--leji-ink);
+  color: var(--leji-text);
 }
 .sidebar-nav > ul > li.folder .app-sub-sidebar {
   font-weight: 400;
@@ -1077,7 +1098,7 @@ body {
   content: none !important;
 }
 .sidebar-nav .app-sub-sidebar li a {
-  color: var(--leji-ink-soft);
+  color: var(--leji-text-body);
 }
 .sidebar-nav .app-sub-sidebar li.active > a,
 .sidebar-nav .app-sub-sidebar li a:hover {
@@ -1092,10 +1113,10 @@ body {
   background: #fff;
   border: 1px solid var(--leji-line);
   border-radius: 6px;
-  color: var(--leji-ink);
+  color: var(--leji-text-body);
 }
 .search input::placeholder {
-  color: var(--leji-ink-soft);
+  color: var(--leji-text-body);
 }
 .search input:focus {
   outline: none;
@@ -1133,7 +1154,7 @@ body {
   font-size: 0.66rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--leji-ink-soft);
+  color: var(--leji-text-body);
 }
 .sidebar-toggle {
   background-color: var(--leji-paper) !important;
@@ -1152,15 +1173,27 @@ body {
   font-weight: 600;
 }
 
+/* h3, h4, h6 and strong take the heading tone from the rules above; h1, h2 and h5
+   say it here rather than inheriting, so every heading level carries one tone by
+   declaration and a stock-theme change cannot quietly split them. */
+.markdown-section h1,
+.markdown-section h2,
+.markdown-section h5 {
+  color: var(--leji-text);
+}
+
+/* Body links take the fixed accessible tone, never the layer's accent: AA on the
+   content ground holds for every value of viewer.theme.primary. The chrome above
+   keeps --theme-color, so a custom accent still colors the viewer. */
 .markdown-section a {
-  color: var(--theme-color);
+  color: var(--leji-link);
 }
 /* brand-tinted inline code, replacing the stock orange. Scoped away from
    pre > code so fenced blocks keep the stock token colors. */
 .markdown-section code,
 .markdown-section p code,
 .markdown-section li code {
-  color: var(--theme-color);
+  color: var(--leji-link);
   background: var(--leji-code-bg);
 }
 /* The fenced-code panel takes the same ground, replacing the stock neutral gray. */
@@ -1173,5 +1206,5 @@ body {
 }
 .markdown-section blockquote {
   border-left: 3px solid var(--leji-accent);
-  color: var(--leji-ink-soft);
+  color: var(--leji-text-body);
 }

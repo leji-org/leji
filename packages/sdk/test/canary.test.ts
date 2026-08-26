@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { buildViewer, generateViewer, loadManifest, serveViewer } from '../dist/index.js';
+import { snapshotTree } from './helpers/snapshot.ts';
 
 // The trust-domain boundary, driven from the shared fixtures: nothing under `.leji/`
 // except `viewer/` is servable, and no export carries a byte of it. The fixtures own
@@ -115,30 +116,6 @@ function materialize(name: string, seeds: Seed[]): string {
       copySeed(path.join(dir, ...from.split('/')), toAbs);
    }
    return dir;
-}
-
-/** Every path under `dir` as `rel -> content digest` (directories as `rel/` -> ''),
- * so a comparison covers appearance and disappearance as well as content. */
-function snapshot(dir: string, rel = '', acc = new Map<string, string>()): Map<string, string> {
-   const abs = rel === '' ? dir : path.join(dir, rel);
-   for (const entry of fs.readdirSync(abs, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
-      const childRel = rel === '' ? entry.name : `${rel}/${entry.name}`;
-      if (entry.isDirectory()) {
-         acc.set(childRel + '/', '');
-         snapshot(dir, childRel, acc);
-      } else if (entry.isFile()) {
-         acc.set(
-            childRel,
-            crypto
-               .createHash('sha256')
-               .update(fs.readFileSync(path.join(dir, childRel)))
-               .digest('hex'),
-         );
-      } else {
-         acc.set(childRel, 'non-regular');
-      }
-   }
-   return acc;
 }
 
 /** Files only, as export-root-relative POSIX paths. */
@@ -353,14 +330,10 @@ for (const name of LAYOUT_FIXTURES) {
 
       // --- idempotency ---------------------------------------------------------
       if (expectedExport.rerun?.byteIdentical) {
-         const afterFirst = snapshot(dir);
+         const afterFirst = snapshotTree(dir, { repoRoot: dir });
          buildViewer(dir, manifest);
-         const afterSecond = snapshot(dir);
-         assert.deepEqual(
-            [...afterSecond.entries()].sort(),
-            [...afterFirst.entries()].sort(),
-            'a second run is a byte-level no-op across the whole working tree',
-         );
+         const afterSecond = snapshotTree(dir, { repoRoot: dir });
+         assert.deepEqual(afterSecond, afterFirst, 'a second run is a byte-level no-op across the whole working tree');
       }
 
       // The planted bytes are still exactly as planted: the tool never read them
@@ -547,7 +520,7 @@ test('check-before-act: generation refuses a .leji/viewer aliased into a private
    fs.symlinkSync(path.join('work', 'chrome'), path.join(dir, '.leji', 'viewer'));
    const { manifest } = loadManifest(dir);
    assert.ok(manifest);
-   const before = [...snapshot(aliased).entries()].sort();
+   const before = snapshotTree(aliased, { repoRoot: dir });
 
    const gen = generateViewer(dir, manifest);
    assert.ok(
@@ -555,7 +528,7 @@ test('check-before-act: generation refuses a .leji/viewer aliased into a private
       'generation refuses with a hard error (non-zero exit)',
    );
    assert.equal(gen.written.length, 0, 'and writes nothing');
-   assert.deepEqual([...snapshot(aliased).entries()].sort(), before, 'the aliased private role is byte-identical');
+   assert.deepEqual(snapshotTree(aliased, { repoRoot: dir }), before, 'the aliased private role is byte-identical');
 
    // buildViewer regenerates first, so it inherits the refusal and never reaches the
    // destructive clean/copy: no export is produced either.
@@ -564,7 +537,7 @@ test('check-before-act: generation refuses a .leji/viewer aliased into a private
       built.findings.some((f) => f.rule === 'viewer-target-refused'),
       'the export inherits the refusal',
    );
-   assert.deepEqual([...snapshot(aliased).entries()].sort(), before, 'still untouched after buildViewer');
+   assert.deepEqual(snapshotTree(aliased, { repoRoot: dir }), before, 'still untouched after buildViewer');
    assert.ok(!fs.existsSync(path.join(dir, '.leji', 'dist')), 'no export was written');
    fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -580,14 +553,14 @@ test('check-before-act: a DEFAULT-output build refuses when .leji/dist resolves 
    fs.symlinkSync(path.join('mounts', 'store', 'x'), path.join(dir, '.leji', 'dist'));
    const { manifest } = loadManifest(dir);
    assert.ok(manifest);
-   const before = [...snapshot(path.join(dir, '.leji', 'mounts')).entries()].sort();
+   const before = snapshotTree(path.join(dir, '.leji', 'mounts'), { repoRoot: dir });
    assert.throws(
       () => buildViewer(dir, manifest, undefined),
       /reserved for the tool's own roles/,
       'the default output is refused, not written',
    );
    assert.deepEqual(
-      [...snapshot(path.join(dir, '.leji', 'mounts')).entries()].sort(),
+      snapshotTree(path.join(dir, '.leji', 'mounts'), { repoRoot: dir }),
       before,
       'nothing was cleared or written in the private role',
    );
@@ -889,7 +862,7 @@ test('check-before-act: generation refuses an overview.md SEED aliased into a pr
       fs.symlinkSync(path.join('.leji', role, 'new.md'), path.join(dir, 'overview.md'));
       const { manifest } = loadManifest(dir);
       assert.ok(manifest);
-      const before = [...snapshot(roleDir).entries()].sort();
+      const before = snapshotTree(roleDir, { repoRoot: dir });
 
       const gen = generateViewer(dir, manifest);
       assert.ok(
@@ -904,7 +877,7 @@ test('check-before-act: generation refuses an overview.md SEED aliased into a pr
       );
       assert.ok(!gen.written.includes('overview.md'), 'overview.md is not reported written');
       assert.ok(!fs.existsSync(path.join(roleDir, 'new.md')), 'nothing was written through the alias');
-      assert.deepEqual([...snapshot(roleDir).entries()].sort(), before, `the aliased .leji/${role} is byte-identical`);
+      assert.deepEqual(snapshotTree(roleDir, { repoRoot: dir }), before, `the aliased .leji/${role} is byte-identical`);
       fs.rmSync(dir, { recursive: true, force: true });
    }
 
@@ -973,7 +946,7 @@ test('the export refuses a NESTED dangling --out whose intermediate component re
    assert.ok(manifest);
    // redirect -> .leji/mounts/ghost, and ghost does NOT exist: a dangling intermediate.
    fs.symlinkSync(path.join('.leji', 'mounts', 'ghost'), path.join(dir, 'redirect'));
-   const mountsBefore = [...snapshot(path.join(dir, '.leji', 'mounts')).entries()].sort();
+   const mountsBefore = snapshotTree(path.join(dir, '.leji', 'mounts'), { repoRoot: dir });
    assert.throws(
       () => buildViewer(dir, manifest, 'redirect/export'),
       /reserved for the tool's own roles/,
@@ -984,7 +957,7 @@ test('the export refuses a NESTED dangling --out whose intermediate component re
       'the dangling target was not created by the build',
    );
    assert.deepEqual(
-      [...snapshot(path.join(dir, '.leji', 'mounts')).entries()].sort(),
+      snapshotTree(path.join(dir, '.leji', 'mounts'), { repoRoot: dir }),
       mountsBefore,
       'nothing was cleared or written in the private role',
    );
@@ -1011,14 +984,14 @@ test('the export refuses a CHAINED dangling --out that ends in a private role', 
    assert.ok(manifest);
    fs.symlinkSync('hop', path.join(dir, 'redirect'));
    fs.symlinkSync(path.join('.leji', 'work', 'ghost'), path.join(dir, 'hop'));
-   const workBefore = [...snapshot(path.join(dir, '.leji', 'work')).entries()].sort();
+   const workBefore = snapshotTree(path.join(dir, '.leji', 'work'), { repoRoot: dir });
    assert.throws(
       () => buildViewer(dir, manifest, 'redirect/export'),
       /reserved for the tool's own roles/,
       'a chained dangling --out into a private role is refused',
    );
    assert.deepEqual(
-      [...snapshot(path.join(dir, '.leji', 'work')).entries()].sort(),
+      snapshotTree(path.join(dir, '.leji', 'work'), { repoRoot: dir }),
       workBefore,
       'nothing was cleared or written in the private role',
    );
@@ -1068,7 +1041,7 @@ test('the export refuses a DANGLING output entry, default or --out, and creates 
 
    fs.symlinkSync(path.join('..', 'site'), path.join(dir, '.leji', 'dist'));
    fs.symlinkSync('elsewhere', path.join(dir, 'published'));
-   const before = [...snapshot(dir).entries()].sort();
+   const before = snapshotTree(dir, { repoRoot: dir });
 
    assert.throws(
       () => buildViewer(dir, manifest, undefined),
@@ -1085,6 +1058,6 @@ test('the export refuses a DANGLING output entry, default or --out, and creates 
    assert.ok(fs.lstatSync(path.join(dir, 'published')).isSymbolicLink(), 'the --out link is left in place');
    assert.ok(!fs.existsSync(path.join(dir, 'site')), 'the default link destination was never created');
    assert.ok(!fs.existsSync(path.join(dir, 'elsewhere')), 'the --out link destination was never created');
-   assert.deepEqual([...snapshot(dir).entries()].sort(), before, 'and the tree is byte-identical');
+   assert.deepEqual(snapshotTree(dir, { repoRoot: dir }), before, 'and the tree is byte-identical');
    fs.rmSync(dir, { recursive: true, force: true });
 });

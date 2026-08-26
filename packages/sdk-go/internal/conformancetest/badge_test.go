@@ -300,7 +300,7 @@ func TestBadgeRunThatWritesNothingEstablishesNoDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(parent, "badge.svg"), []byte(foreign), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	before := snapshot(t, dir)
+	before := snapshotTree(t, dir, dir)
 	if got := mustRun(t, dir, "pub/badge.svg").Refusal; got != "pub/badge.svg exists and is not a leji badge; remove or rename it" {
 		t.Fatalf("refusal %q", got)
 	}
@@ -311,7 +311,7 @@ func TestBadgeRunThatWritesNothingEstablishesNoDirectory(t *testing.T) {
 	if string(body) != foreign {
 		t.Fatal("the target is byte-untouched")
 	}
-	if !equalStrings(snapshot(t, dir), before) {
+	if !equalStrings(snapshotTree(t, dir, dir), before) {
 		t.Fatal("the tree is untouched")
 	}
 }
@@ -339,7 +339,7 @@ func TestBadgeRefusesAParentResolvingOutsideTheRepository(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(dir, "pub")); err != nil {
 		t.Fatal(err)
 	}
-	before := snapshot(t, dir)
+	before := snapshotTree(t, dir, dir)
 
 	r := mustRun(t, dir, "pub/x.svg")
 	if r.UsageError == "" && r.Refusal == "" {
@@ -362,7 +362,7 @@ func TestBadgeRefusesAParentResolvingOutsideTheRepository(t *testing.T) {
 	if len(entries) != 1 || entries[0].Name() != "x.svg" {
 		t.Fatal("nothing was created outside the repository")
 	}
-	if !equalStrings(snapshot(t, dir), before) {
+	if !equalStrings(snapshotTree(t, dir, dir), before) {
 		t.Fatal("and nothing inside it")
 	}
 }
@@ -433,7 +433,7 @@ func TestBadgeRefusesADanglingTargetInsideTheRepository(t *testing.T) {
 	if err := os.Symlink("missing-file.svg", filepath.Join(dir, badge.DefaultOut)); err != nil {
 		t.Fatal(err)
 	}
-	before := snapshot(t, dir)
+	before := snapshotTree(t, dir, dir)
 
 	r := mustRun(t, dir, badge.DefaultOut)
 	assertTargetRefusal(t, r, badge.DefaultOut)
@@ -444,7 +444,7 @@ func TestBadgeRefusesADanglingTargetInsideTheRepository(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(dir, "missing-file.svg")); err == nil {
 		t.Fatal("the link destination was never created")
 	}
-	if !equalStrings(snapshot(t, dir), before) {
+	if !equalStrings(snapshotTree(t, dir, dir), before) {
 		t.Fatal("the tree is untouched")
 	}
 }
@@ -472,14 +472,14 @@ func TestBadgeRefusesAUnixSocketTargetAsADocumentNotACrash(t *testing.T) {
 	if err != nil || info.Mode()&os.ModeSocket == 0 {
 		t.Fatal("the target is a socket")
 	}
-	before := snapshot(t, dir)
+	before := snapshotTree(t, dir, dir)
 
 	assertTargetRefusal(t, mustRun(t, dir, badge.DefaultOut), badge.DefaultOut)
 	info, err = os.Lstat(target)
 	if err != nil || info.Mode()&os.ModeSocket == 0 {
 		t.Fatal("the socket itself is left alone")
 	}
-	if !equalStrings(snapshot(t, dir), before) {
+	if !equalStrings(snapshotTree(t, dir, dir), before) {
 		t.Fatal("the tree is untouched")
 	}
 
@@ -503,7 +503,7 @@ func TestBadgeRefusesASymlinkToAUnixSocketAsADocumentToo(t *testing.T) {
 	if err := os.Symlink("sock", target); err != nil {
 		t.Fatal(err)
 	}
-	before := snapshot(t, dir)
+	before := snapshotTree(t, dir, dir)
 
 	assertTargetRefusal(t, mustRun(t, dir, badge.DefaultOut), badge.DefaultOut)
 	info, err := os.Lstat(target)
@@ -514,7 +514,7 @@ func TestBadgeRefusesASymlinkToAUnixSocketAsADocumentToo(t *testing.T) {
 	if err != nil || info.Mode()&os.ModeSocket == 0 {
 		t.Fatal("and so is the socket it points at")
 	}
-	if !equalStrings(snapshot(t, dir), before) {
+	if !equalStrings(snapshotTree(t, dir, dir), before) {
 		t.Fatal("the tree is untouched")
 	}
 
@@ -836,7 +836,7 @@ func TestFixtureBadgeBlocks(t *testing.T) {
 			}
 
 			if block.Rerun != nil {
-				afterFirst := snapshot(t, dir)
+				afterFirst := snapshotTree(t, dir, dir)
 				code, stdout := runCLI(t, append(append([]string{}, args...), "--root", dir, "--json"))
 				if code != 0 {
 					t.Fatalf("the steady state exits 0, got %d\n%s", code, stdout)
@@ -847,7 +847,7 @@ func TestFixtureBadgeBlocks(t *testing.T) {
 				steady.Action = &block.Rerun.Action
 				steady.Preseed = nil
 				assertBadgeDocument(t, stdout, &steady, targetRel, name+" (rerun)")
-				if block.Rerun.ByteIdentical && !equalStrings(snapshot(t, dir), afterFirst) {
+				if block.Rerun.ByteIdentical && !equalStrings(snapshotTree(t, dir, dir), afterFirst) {
 					t.Fatal("a second run is a byte-level no-op across the whole working tree")
 				}
 			}

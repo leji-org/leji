@@ -14,6 +14,7 @@ import {
 import { checkIndex } from './indexgen.js';
 import { checkChangelogAppendOnly, mountSurfacingFindings, validateLayer } from './validate.js';
 import { freshnessReport } from './freshness.js';
+import { type LejiIgnoreContext } from '../lib/leji-ignore.js';
 import { checkPinReachability, normalizeSource } from '../lib/mounts.js';
 
 export type ItemStatus = 'pass' | 'fail' | 'manual' | 'unknown' | 'not-applicable';
@@ -73,8 +74,17 @@ function countProcessAttested(items: ChecklistItem[]): number {
  * Score the layer against the conformance checklists. Machine-checkable items
  * pass/fail; process items are `manual` and never block a level. A claim above
  * the verified level is an error.
+ *
+ * `ignoreContext` is the invocation's notice state for the self-managed
+ * `.leji/.gitignore`. Only the `--federation` probe reaches a mounts operation that
+ * can establish a role, and it reaches one PER DECLARED MOUNT, so the context is
+ * threaded rather than left to each call: one invocation notices at most once,
+ * however many mounts it probes.
  */
-export function conformanceReport(root: string, opts: { federation?: boolean } = {}): ConformanceResult {
+export function conformanceReport(
+   root: string,
+   opts: { federation?: boolean; ignoreContext?: LejiIgnoreContext } = {},
+): ConformanceResult {
    const items: ChecklistItem[] = [];
    const findings: Finding[] = [];
    const { manifest } = loadManifest(root);
@@ -295,12 +305,16 @@ export function conformanceReport(root: string, opts: { federation?: boolean } =
       if (opts.federation) {
          let bad: { name: string; state: string; detail?: string } | undefined;
          for (const m of mounts) {
-            const r = checkPinReachability(root, {
-               name: m.name,
-               source: m.source,
-               pin: m.pin,
-               trackingRef: m.trackingRef,
-            });
+            const r = checkPinReachability(
+               root,
+               {
+                  name: m.name,
+                  source: m.source,
+                  pin: m.pin,
+                  trackingRef: m.trackingRef,
+               },
+               opts.ignoreContext,
+            );
             if (r.state !== 'reachable') {
                bad = { name: m.name, state: r.state, detail: r.detail };
                break;
