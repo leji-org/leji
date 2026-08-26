@@ -1,6 +1,6 @@
 module github.com/leji-org/leji/packages/sdk-go
 
-go 1.27.0
+go 1.26.6
 
 require (
 	github.com/dlclark/regexp2 v1.11.0

@@ -153,6 +153,8 @@ const NOT_OURS: RegExp[] = [
    // SHA-pinned third-party actions: the trailing comment names the action's
    // own version, which moves on its schedule and not ours.
    /@[0-9a-f]{40}\s*#\s*v?\d+\.\d+\.\d+/g,
+   // The Go toolchain floor the SDK declares: Go's version line, not ours.
+   /\bGo \d+\.\d+\.\d+\+?/g,
 ];
 
 /** Report prose files naming a version other than the released one. */

@@ -222,8 +222,18 @@ jobs:
           fetch-depth: 0 # full history so goreleaser sees tags
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.26.6"
           cache-dependency-path: packages/sdk-go/go.sum
+      # The binaries this job publishes are compiled here, so the toolchain that
+      # compiles them is asserted before anything irreversible happens.
+      - name: The Go toolchain is the pinned one (scripts/release-pins.env)
+        run: |
+          set -euo pipefail
+          . scripts/lib/release-pins.sh
+          load_release_pins scripts/release-pins.env
+          INSTALLED="$(go env GOVERSION)"
+          test "$INSTALLED" = "go${GO_VERSION}" || { echo "::error::Go $INSTALLED is not the pinned go${GO_VERSION}"; exit 1; }
+          echo "Go $INSTALLED"
       # goreleaser can't parse the path-prefixed tag as a version, so create a
       # LOCAL bare tag for the run (never pushed; no repo-wide vX.Y.Z ref).
       - name: Prepare goreleaser version tag (local only)

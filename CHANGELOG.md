@@ -23,13 +23,14 @@ the frozen v1.0 line and all reference packages move to 1.4.1 together.
   Go SDK. The scanners are pinned like everything else on the release path.
 - **A pin check for the release path**, `scripts/check-release-pins.sh`: it refuses `@latest`,
   `--upgrade`, a `pip install` or `npm install -g` without an exact version, a `go-version`
-  without a patch component, and a `uses:` without a 40-hex SHA. Contributors get it as a stage
-  of the pre-push hook; CI runs it as its own job, with a self-test that proves each rule still
-  fires, and the pre-publish smoke runs it in layer 0. Alongside it, the PyPI upload's own
-  `twine check --strict` now runs on the gates that come before a tag: in the pre-publish
-  smoke, in CI on every pull request, and in the pre-push hook when a `release/*` or `rc/*`
-  ref is pushed. The tag-triggered release workflow runs the same check once more on the
-  distribution it built, so the upload action is never the first thing to see a rejection.
+  that lacks a patch component or disagrees with the module's own `go` directive, and a
+  `uses:` without a 40-hex SHA. Contributors get it as a stage of the pre-push hook; CI runs
+  it as its own job, with a self-test that proves each rule still fires, and the pre-publish
+  smoke runs it in layer 0. Alongside it, the PyPI upload's own `twine check --strict` now
+  runs on the gates that come before a tag: in the pre-publish smoke, in CI on every pull
+  request, and in the pre-push hook when a `release/*` or `rc/*` ref is pushed. The
+  tag-triggered release workflow runs the same check once more on the distribution it built,
+  so the upload action is never the first thing to see a rejection.
 - **A browser smoke suite** at `packages/e2e` (Playwright on Chromium) over the served viewer,
   an exported tree, and the site, so the live and static renderings are checked against one
   set of assertions: `npm run e2e` locally, a `ui-smoke` job in CI that keeps traces and
@@ -82,13 +83,15 @@ the frozen v1.0 line and all reference packages move to 1.4.1 together.
   MCP server on Node 22 and 24, the floor its `engines.node` declares. The pre-publish smoke
   installs the SDK, `create-leji`, and the MCP server tarballs into a Node 22 container and
   drives all three there, and its result line says so when Docker is absent and the leg is
-  skipped. The Go SDK is built and tested at Go 1.27.0, which is now also the floor its
+  skipped. The Go SDK is built and tested at Go 1.26.6, which is now also the floor its
   `go.mod` declares, so every floor named here is a floor CI exercises.
-- **The Go floor moves to 1.27.0.** `packages/sdk-go/go.mod` declares `go 1.27.0` (up from
+- **The Go floor moves to 1.26.6.** `packages/sdk-go/go.mod` declares `go 1.26.6` (up from
   `go 1.23`), and `golang.org/x/text` moves to v0.41.0 with it. Building the Go SDK, or
-  `go install`ing the `leji` binary from source, now needs Go 1.27.0 or newer; the published
-  release binaries are unaffected, since they carry no toolchain requirement. `CONTRIBUTING.md`
-  and the Go setup script state the new floor.
+  `go install`ing the `leji` binary from source, now needs Go 1.26.6 or newer: it is a strict
+  minimum, so an older 1.26 patch downloads the matching toolchain automatically under Go's
+  default `GOTOOLCHAIN=auto` and fails under `GOTOOLCHAIN=local`. The published release
+  binaries are unaffected, since they carry no toolchain requirement. `CONTRIBUTING.md` and the
+  Go setup script state the new floor.
 - **The test suites pin what they used to sample**: the badge and canary suites in all three
   SDKs share one directory-snapshot helper held to a golden fixture, the capture-cap test
   asserts bytes and termination rather than elapsed time, and the homepage's hero transcript is

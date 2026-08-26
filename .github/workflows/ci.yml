@@ -279,8 +279,18 @@ jobs:
           submodules: recursive
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.26.6"
           cache-dependency-path: packages/sdk-go/go.sum
+      # The toolchain the module declares is the toolchain this job runs. A
+      # setup-go that resolved to anything else is a failure, not a footnote.
+      - name: The Go toolchain is the pinned one (scripts/release-pins.env)
+        run: |
+          set -euo pipefail
+          . scripts/lib/release-pins.sh
+          load_release_pins scripts/release-pins.env
+          INSTALLED="$(go env GOVERSION)"
+          test "$INSTALLED" = "go${GO_VERSION}" || { echo "::error::Go $INSTALLED is not the pinned go${GO_VERSION}"; exit 1; }
+          echo "Go $INSTALLED"
       - name: gofmt
         working-directory: packages/sdk-go
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
@@ -311,11 +321,20 @@ jobs:
           node-version: 24
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.26.6"
           cache-dependency-path: packages/sdk-go/go.sum
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      # Parity compares three CLIs; the Go one must be built by the pinned toolchain.
+      - name: The Go toolchain is the pinned one (scripts/release-pins.env)
+        run: |
+          set -euo pipefail
+          . scripts/lib/release-pins.sh
+          load_release_pins scripts/release-pins.env
+          INSTALLED="$(go env GOVERSION)"
+          test "$INSTALLED" = "go${GO_VERSION}" || { echo "::error::Go $INSTALLED is not the pinned go${GO_VERSION}"; exit 1; }
+          echo "Go $INSTALLED"
       - run: npm ci
       # Node, Go, Python CLIs on identical inputs; asserts byte-identical output.
       - run: npm run parity
@@ -332,11 +351,21 @@ jobs:
           node-version: 24
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.26.6"
           cache-dependency-path: packages/sdk-go/go.sum
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      # The binary compiled below is the one the offline leg runs, so the
+      # toolchain that compiles it is checked while the network still exists.
+      - name: The Go toolchain is the pinned one (scripts/release-pins.env)
+        run: |
+          set -euo pipefail
+          . scripts/lib/release-pins.sh
+          load_release_pins scripts/release-pins.env
+          INSTALLED="$(go env GOVERSION)"
+          test "$INSTALLED" = "go${GO_VERSION}" || { echo "::error::Go $INSTALLED is not the pinned go${GO_VERSION}"; exit 1; }
+          echo "Go $INSTALLED"
       - run: npm ci
       - run: npm run build -w packages/sdk
       - name: Install the Python SDK

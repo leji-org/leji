@@ -11,11 +11,11 @@
 #   sh scripts/check-release-pins.sh [root]      # scan a tree (default: this repo)
 #   sh scripts/check-release-pins.sh --self-test # prove the rules on the fixtures
 #
-# Scanned: .github/workflows/*.yml, packages/sdk-py/pyproject.toml, scripts/*.sh
-# and scripts/lib/*.sh (the guard scans the scripts it adds). Executable
-# occurrences only: comment lines and trailing comments are skipped, YAML is read
-# inside `run:` blocks (continuation lines joined) and in the keys that select a
-# tool, TOML inside string values.
+# Scanned: .github/workflows/*.yml, packages/sdk-py/pyproject.toml,
+# packages/sdk-go/go.mod, scripts/*.sh and scripts/lib/*.sh (the guard scans the
+# scripts it adds). Executable occurrences only: comment lines and trailing
+# comments are skipped, YAML is read inside `run:` blocks (continuation lines
+# joined) and in the keys that select a tool, TOML inside string values.
 #
 # Rules, reported as `path:line: rule N: ...`:
 #   1  no floating install: @latest, or pip's --upgrade
@@ -32,6 +32,9 @@
 #      equal scripts/release-pins.env
 #   8  every `npx <pkg>` / `npm exec <pkg>` names an exact <pkg>@X.Y.Z
 #   9  every `version:` input to a `*-action` names an exact version, never a range
+#  10  every workflow go-version, and the `go` directive of packages/sdk-go/go.mod,
+#      equal GO_VERSION in scripts/release-pins.env: the toolchain the module
+#      declares is the toolchain every job runs
 #
 # The one exception, because a smoke test must install the artifacts it just
 # built: an install target on a line ending with the marker
@@ -107,7 +110,7 @@ scan_one() {
    fi
    if awk -v relpath="$2" -v type="$3" -v npm_v="$NPM_VERSION" \
       -v pip_v="$PIP_VERSION" -v build_v="$BUILD_VERSION" -v twine_v="$TWINE_VERSION" \
-      -v jsr_v="$JSR_VERSION" -v goreleaser_v="$GORELEASER_VERSION" \
+      -v jsr_v="$JSR_VERSION" -v goreleaser_v="$GORELEASER_VERSION" -v go_v="$GO_VERSION" \
       -v action_v="$PYPI_PUBLISH_ACTION_VERSION" -v action_sha="$PYPI_PUBLISH_ACTION_SHA" '
    BEGIN {
       DQ = sprintf("%c", 34)
@@ -487,12 +490,16 @@ scan_one() {
          fail(ln, 7, "pypi-publish version comment (" comment ") does not equal PYPI_PUBLISH_ACTION_VERSION (" action_v ")")
    }
 
-   # --- rule 5 ---
+   # --- rule 5, and the go-version half of rule 10 ---
    function check_go(ln, val) {
       sub(/[ \t]+#.*$/, "", val)
       val = unquote(trim(val))
-      if (val !~ /^[0-9]+\.[0-9]+\.[0-9]+$/)
+      if (val !~ /^[0-9]+\.[0-9]+\.[0-9]+$/) {
          fail(ln, 5, "go-version without a patch component: " val)
+         return
+      }
+      if (val != go_v)
+         fail(ln, 10, "go-version " val " does not equal the GO_VERSION " go_v " in scripts/release-pins.env")
    }
 
    # --- rule 9: a version: input selects a tool, so it is a pin like any other ---
@@ -612,6 +619,20 @@ scan_one() {
       next
    }
 
+   # --- the go.mod half of rule 10 ---
+   # Only the top-level `go` directive: a require block indents its lines, and
+   # `toolchain` is a different word.
+   type == "gomod" {
+      line = $0
+      sub(/[ \t]*\/\/.*$/, "", line)
+      if (match(line, /^go[ \t]+/)) {
+         val = trim(substr(line, RSTART + RLENGTH))
+         if (val != go_v)
+            fail(FNR, 10, "the go directive is " val ", which does not equal the GO_VERSION " go_v " in scripts/release-pins.env")
+      }
+      next
+   }
+
    END {
       flush()
       # The local gate must take its twine from the tuple, not from a literal
@@ -639,6 +660,8 @@ scan_tree() {
    done
    _f="$_root/packages/sdk-py/pyproject.toml"
    if [ -f "$_f" ]; then scan_one "$_f" "${_f#"$_root"/}" toml; fi
+   _f="$_root/packages/sdk-go/go.mod"
+   if [ -f "$_f" ]; then scan_one "$_f" "${_f#"$_root"/}" gomod; fi
    for _f in "$_root"/scripts/*.sh "$_root"/scripts/lib/*.sh; do
       if [ -f "$_f" ]; then scan_one "$_f" "${_f#"$_root"/}" sh; fi
    done
@@ -678,7 +701,7 @@ rules_reported() {
 
 # Every rule must own at least one bad fixture. Deleting a rule's fixtures is
 # otherwise a silent way to stop testing that rule.
-ALL_RULES="1 2 3 4 5 6 7 8 9"
+ALL_RULES="1 2 3 4 5 6 7 8 9 10"
 
 run_self_test() {
    _fixtures="$repo_root/fixtures/release-path/pins"
@@ -689,8 +712,12 @@ run_self_test() {
    _missing=""
    for _rule in $ALL_RULES; do
       _found=0
-      for _dir in "$_fixtures"/bad/"$_rule"-*/; do
-         [ -d "$_dir" ] && _found=1
+      # The prefix is compared, never globbed: `1-*` would otherwise match
+      # `10-...` and let one rule stand in for another's fixture.
+      for _dir in "$_fixtures"/bad/*/; do
+         [ -d "$_dir" ] || continue
+         _name="$(basename "$_dir")"
+         [ "${_name%%-*}" = "$_rule" ] && _found=1
       done
       [ "$_found" -eq 1 ] || _missing="$_missing $_rule"
    done
