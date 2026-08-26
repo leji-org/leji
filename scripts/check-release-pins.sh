@@ -22,12 +22,13 @@
 #   2  every pip install requirement is name==X.Y.Z; no expansion but a tuple
 #      version, no glob, no requirements file (one marked exception, below)
 #   3  every `npm install -g` package names an exact @X.Y.Z, and no npm install
-#      target is a shell expansion (the same marked exception)
+#      target is a shell expansion (the same marked exception, plus npm itself as
+#      ${NPM_VERSION}: that expansion IS the tuple, so it cannot drift from it)
 #   4  every uses: is pinned to a 40-character commit SHA (the comment is not a pin)
 #   5  every go-version names a patch component
 #   6  the Python build requirements and dev extras are exact
 #   7  the pinned publish action, its version comment, the twine the local gate
-#      installs, and every pip/build/twine/jsr/goreleaser version in the tree
+#      installs, and every npm/pip/build/twine/jsr/goreleaser version in the tree
 #      equal scripts/release-pins.env
 #   8  every `npx <pkg>` / `npm exec <pkg>` names an exact <pkg>@X.Y.Z
 #   9  every `version:` input to a `*-action` names an exact version, never a range
@@ -104,7 +105,7 @@ scan_one() {
       scan_errors=$((scan_errors + 1))
       return
    fi
-   if awk -v relpath="$2" -v type="$3" \
+   if awk -v relpath="$2" -v type="$3" -v npm_v="$NPM_VERSION" \
       -v pip_v="$PIP_VERSION" -v build_v="$BUILD_VERSION" -v twine_v="$TWINE_VERSION" \
       -v jsr_v="$JSR_VERSION" -v goreleaser_v="$GORELEASER_VERSION" \
       -v action_v="$PYPI_PUBLISH_ACTION_VERSION" -v action_sha="$PYPI_PUBLISH_ACTION_SHA" '
@@ -331,6 +332,10 @@ scan_one() {
                   used_marker = 1
                   continue
                }
+               # The one version an install may name by expansion: the npm the
+               # tuple names, read from scripts/release-pins.env by the caller.
+               # It cannot drift from the tuple, because it is the tuple.
+               if (tok ~ /^npm@\$\{?NPM_VERSION\}?$/) continue
                fail(ln, 3, "npm install target comes from a shell expansion: " tok)
                continue
             }
@@ -345,10 +350,17 @@ scan_one() {
             nspecs++
             SPECS[nspecs] = tok
          }
-         if (global)
-            for (k = 1; k <= nspecs; k++)
-               if (!spec_pinned(SPECS[k]))
+         if (global) {
+            for (k = 1; k <= nspecs; k++) {
+               if (!spec_pinned(SPECS[k])) {
                   fail(ln, 3, "global npm install without an exact @X.Y.Z: " SPECS[k])
+                  continue
+               }
+               # A pinned literal is still wrong when it is not the pinned one.
+               if (spec_name(SPECS[k]) == "npm" && spec_version(SPECS[k]) != npm_v)
+                  fail(ln, 7, "npm " spec_version(SPECS[k]) " does not equal the NPM_VERSION " npm_v " in scripts/release-pins.env")
+            }
+         }
          return
       }
    }

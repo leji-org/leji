@@ -25,33 +25,38 @@ permissions:
   contents: read
 
 jobs:
-  # Pre-publish gate on EVERY release tag: builds the publishable artifacts,
-  # cold-installs each, and asserts the CLI battery + cross-SDK parity.
-  smoke:
-    name: Pre-publish smoke (all SDKs)
+  # The version the tag names, for the checks below to hold every package to.
+  # Each release tag carries the same shape, so one expression serves all five.
+  version:
+    name: Release version (from the tag)
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: "1.27.0"
-          cache-dependency-path: packages/sdk-go/go.sum
-      - run: npm ci
-      - name: Build artifacts, cold-install each, assert CLI battery + cross-SDK parity
-        run: npm run smoke:prepublish
+      - id: read
+        run: echo "version=${GITHUB_REF_NAME##*/v}" >> "$GITHUB_OUTPUT"
+
+  # Pre-publish gate on EVERY release tag: the pre-publish smoke, the version
+  # comparison across all five packages, the Python distribution gate, and the
+  # cross-platform Go build. CI runs this same reusable workflow on every pull
+  # request and, in full, on every `rc/*` candidate, so what happens here is a
+  # recheck on the exact tagged bytes rather than the first time these checks
+  # meet a runner. Every job below it does nothing but write.
+  checks:
+    name: Release checks
+    needs: version
+    uses: ./.github/workflows/release-checks.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      docker_required: true
+      full: true
 
   # --- packages/sdk/v* : npm `@leji-org/leji` + JSR `@leji-org/leji` (same tag, two jobs) ---
 
   npm:
     name: Publish leji to npm
     if: startsWith(github.ref, 'refs/tags/packages/sdk/v')
-    needs: smoke
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -63,13 +68,15 @@ jobs:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
       # OIDC trusted publishing needs npm >= 11.5.1 (Node 24 may ship older).
-      - run: npm install -g npm@12.0.2 && npm --version
-      - run: npm ci
-      - name: Verify tag matches package version
+      # The version is the tuple's, so bumping it is one edit in one file.
+      - name: Install the publish npm (scripts/release-pins.env)
         run: |
-          TAG="${GITHUB_REF_NAME#packages/sdk/v}"
-          PKG="$(node -p "require('./packages/sdk/package.json').version")"
-          test "$TAG" = "$PKG" || { echo "tag packages/sdk/v$TAG != packages/sdk version $PKG"; exit 1; }
+          set -euo pipefail
+          . scripts/lib/release-pins.sh
+          load_release_pins scripts/release-pins.env
+          npm install -g "npm@${NPM_VERSION}"
+          npm --version
+      - run: npm ci
       - run: npm run assets:check
       - run: npm run build -w packages/sdk
       - run: npm test -w packages/sdk
@@ -81,7 +88,7 @@ jobs:
   jsr:
     name: Publish @leji-org/leji to JSR (OIDC)
     if: startsWith(github.ref, 'refs/tags/packages/sdk/v')
-    needs: smoke
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -92,11 +99,6 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - name: Verify tag matches jsr.json version
-        run: |
-          TAG="${GITHUB_REF_NAME#packages/sdk/v}"
-          PKG="$(node -p "require('./packages/sdk/jsr.json').version")"
-          test "$TAG" = "$PKG" || { echo "tag packages/sdk/v$TAG != jsr.json version $PKG"; exit 1; }
       # JSR publishes the TS source (per jsr.json), not the npm dist tarball.
       # The jsr CLI is pinned like every other tool on this path; the version
       # mirrors JSR_VERSION in scripts/release-pins.env.
@@ -109,7 +111,7 @@ jobs:
   create-leji:
     name: Publish create-leji to npm
     if: startsWith(github.ref, 'refs/tags/packages/create-leji/v')
-    needs: smoke
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -120,13 +122,15 @@ jobs:
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
-      - run: npm install -g npm@12.0.2 && npm --version
-      - run: npm ci
-      - name: Verify tag matches package version
+      # The publish npm, from the tuple (see the sdk job above).
+      - name: Install the publish npm (scripts/release-pins.env)
         run: |
-          TAG="${GITHUB_REF_NAME#packages/create-leji/v}"
-          PKG="$(node -p "require('./packages/create-leji/package.json').version")"
-          test "$TAG" = "$PKG" || { echo "tag packages/create-leji/v$TAG != create-leji version $PKG"; exit 1; }
+          set -euo pipefail
+          . scripts/lib/release-pins.sh
+          load_release_pins scripts/release-pins.env
+          npm install -g "npm@${NPM_VERSION}"
+          npm --version
+      - run: npm ci
       # Tag AFTER packages/sdk/v* is live so the @leji-org/leji dep resolves.
       - name: Publish (OIDC trusted publishing)
         working-directory: packages/create-leji
@@ -137,7 +141,7 @@ jobs:
   npm-mcp:
     name: Publish @leji-org/mcp to npm
     if: startsWith(github.ref, 'refs/tags/packages/mcp/v')
-    needs: smoke
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -148,13 +152,15 @@ jobs:
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
-      - run: npm install -g npm@12.0.2 && npm --version
-      - run: npm ci
-      - name: Verify tag matches package version
+      # The publish npm, from the tuple (see the sdk job above).
+      - name: Install the publish npm (scripts/release-pins.env)
         run: |
-          TAG="${GITHUB_REF_NAME#packages/mcp/v}"
-          PKG="$(node -p "require('./packages/mcp/package.json').version")"
-          test "$TAG" = "$PKG" || { echo "tag packages/mcp/v$TAG != packages/mcp version $PKG"; exit 1; }
+          set -euo pipefail
+          . scripts/lib/release-pins.sh
+          load_release_pins scripts/release-pins.env
+          npm install -g "npm@${NPM_VERSION}"
+          npm --version
+      - run: npm ci
       - run: npm run assets:check
       - run: npm run build -w packages/sdk
       - run: npm run build -w packages/mcp
@@ -169,7 +175,7 @@ jobs:
   pypi:
     name: Publish leji to PyPI (trusted publishing)
     if: startsWith(github.ref, 'refs/tags/packages/sdk-py/v')
-    needs: smoke
+    needs: checks
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -180,11 +186,6 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - name: Verify tag matches package version
-        run: |
-          TAG="${GITHUB_REF_NAME#packages/sdk-py/v}"
-          PKG="$(grep -m1 '^version' packages/sdk-py/pyproject.toml | sed -E 's/.*"([^"]+)".*/\1/')"
-          test "$TAG" = "$PKG" || { echo "tag packages/sdk-py/v$TAG != pyproject version $PKG"; exit 1; }
       - name: Test
         working-directory: packages/sdk-py
         run: python -m pip install pip==26.2.1 && pip install -e ".[dev]" && pytest -q
@@ -211,7 +212,7 @@ jobs:
   go:
     name: Release Go binaries (goreleaser, draft)
     if: startsWith(github.ref, 'refs/tags/packages/sdk-go/v')
-    needs: smoke
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: write # create/update the DRAFT GitHub Release
@@ -223,11 +224,6 @@ jobs:
         with:
           go-version: "1.27.0"
           cache-dependency-path: packages/sdk-go/go.sum
-      - name: Verify tag matches SDK version
-        run: |
-          TAG="${GITHUB_REF_NAME#packages/sdk-go/v}"
-          PKG="$(sed -nE 's/^var SDKVersion = "([^"]+)".*/\1/p' packages/sdk-go/internal/schemas/schemas.go)"
-          test "$TAG" = "$PKG" || { echo "tag packages/sdk-go/v$TAG != SDKVersion $PKG"; exit 1; }
       # goreleaser can't parse the path-prefixed tag as a version, so create a
       # LOCAL bare tag for the run (never pushed; no repo-wide vX.Y.Z ref).
       - name: Prepare goreleaser version tag (local only)

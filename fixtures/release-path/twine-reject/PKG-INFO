@@ -1,0 +1,18 @@
+Metadata-Version: 2.1
+Name: leji-invalid
+Version: 0.0.0
+Summary: A distribution whose long description cannot be rendered.
+Author: Leji
+License: Apache-2.0
+Description-Content-Type: text/x-rst
+
+Deliberately invalid reStructuredText
+=====================================
+
+`this inline literal is never closed, so docutils refuses the document
+
+.. an-unknown-directive::
+
+   and the reference below has no target
+
+`missing target`_

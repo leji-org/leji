@@ -1,0 +1,190 @@
+name: Release checks
+
+# Everything the release path does EXCEPT the writes, in one place both callers
+# reach: the pre-publish smoke, the version comparison across all five packages,
+# the Python distribution gate, and the cross-platform Go build. Nothing here
+# publishes, tags, or creates a release, so it runs on a candidate branch and on
+# a pull request exactly as it runs on the tag.
+#
+# That is the whole point. A check that executes for the first time on the
+# irreversible path is a check that reports after the tag exists, where it cannot
+# be corrected in place; so the version it validates is an input, not a tag, and
+# the callers pass whichever they have.
+#
+# Actions pinned to full commit SHAs for supply-chain hardening.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "The version every package must agree on (no leading v)"
+        required: true
+        type: string
+      docker_required:
+        description: "Require the smoke's Node 22 container leg; without it the leg is not run at all"
+        required: false
+        default: false
+        type: boolean
+      full:
+        description: "Also build the cross-platform Go binaries (the candidate branch and the tag; not every pull request)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Pre-publish smoke (all SDKs)
+    runs-on: ubuntu-latest
+    env:
+      # Read by scripts/smoke-prepublish.sh. The release path proves the
+      # published-package floor inside a Node 22 container and fails when it
+      # cannot; a pull request runs the cheaper artifact battery without it,
+      # rather than leaving the leg to whether a runner happens to have Docker.
+      REQUIRE_DOCKER: ${{ inputs.docker_required && '1' || '' }}
+      SKIP_DOCKER: ${{ inputs.docker_required && '' || '1' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
+          cache-dependency-path: packages/sdk-go/go.sum
+      # The npm the publish jobs run through, installed here for the same reason
+      # the Python and Go versions are pinned here: a rehearsal on a different
+      # toolchain rehearses a release that will not happen.
+      - name: Install the publish npm (scripts/release-pins.env)
+        run: |
+          set -euo pipefail
+          . scripts/lib/release-pins.sh
+          load_release_pins scripts/release-pins.env
+          npm install -g "npm@${NPM_VERSION}"
+          INSTALLED="$(npm --version)"
+          test "$INSTALLED" = "$NPM_VERSION" || { echo "::error::npm $INSTALLED is not the pinned $NPM_VERSION"; exit 1; }
+          echo "npm $INSTALLED"
+      - run: npm ci
+      - name: Build artifacts, cold-install each, assert CLI battery + cross-SDK parity
+        run: npm run smoke:prepublish
+
+  versions:
+    name: Version comparison (five packages)
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      # The comparison each publish job used to make about its own tag, made
+      # about all five packages at once and before any of them is written. Six
+      # manifests, because the JS SDK declares its version twice (npm and JSR)
+      # and one publish tag drives both.
+      - name: Every manifest names the release version
+        run: |
+          set -euo pipefail
+          status=0
+          compare() {
+            if [ "$2" = "$VERSION" ]; then
+              echo "$1 = $VERSION"
+            else
+              echo "::error::$1 is '$2', not $VERSION"
+              status=1
+            fi
+          }
+          compare "packages/sdk/package.json" "$(node -p "require('./packages/sdk/package.json').version")"
+          compare "packages/sdk/jsr.json" "$(node -p "require('./packages/sdk/jsr.json').version")"
+          compare "packages/create-leji/package.json" "$(node -p "require('./packages/create-leji/package.json').version")"
+          compare "packages/mcp/package.json" "$(node -p "require('./packages/mcp/package.json').version")"
+          compare "packages/sdk-py/pyproject.toml" "$(grep -m1 '^version' packages/sdk-py/pyproject.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          compare "packages/sdk-go SDKVersion" "$(sed -nE 's/^var SDKVersion = "([^"]+)".*/\1/p' packages/sdk-go/internal/schemas/schemas.go)"
+          exit "$status"
+
+  python-dist:
+    name: Python distribution (test, build, twine)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Test
+        working-directory: packages/sdk-py
+        run: python -m pip install pip==26.2.1 && pip install -e ".[dev]" && pytest -q
+      - name: Build sdist + wheel
+        working-directory: packages/sdk-py
+        run: python -m pip install build==1.5.0 && python -m build
+      # The gate the PyPI upload performs, on a distribution built the way the
+      # upload builds one. Same function as the smoke and the pre-push hook, same
+      # twine the publish action bundles.
+      - name: twine check --strict on the built distribution
+        run: |
+          . scripts/lib/twine-check.sh
+          twine_check python3 packages/sdk-py "$RUNNER_TEMP/twine-gate" packages/sdk-py/dist
+
+  go-binaries:
+    name: Go binaries (goreleaser, no publish)
+    # Cross-compiling six targets is the expensive leg, and the thing it catches
+    # is a broken build or archive set, which a pull request has already had
+    # `goreleaser check` and `go test` say something about. So it runs where a
+    # release is actually being rehearsed.
+    if: inputs.full
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history so goreleaser sees tags
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
+          cache-dependency-path: packages/sdk-go/go.sum
+      # goreleaser cannot parse a path-prefixed tag as a version, so the run gets
+      # a LOCAL bare tag (never pushed; no repo-wide vX.Y.Z ref exists).
+      - name: Prepare the goreleaser version tag (local only)
+        run: |
+          git tag -f "v$VERSION"
+          echo "GORELEASER_CURRENT_TAG=v$VERSION" >> "$GITHUB_ENV"
+      - name: Build cross-platform binaries (goreleaser, no publish)
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          # The same goreleaser the release job installs (scripts/release-pins.env).
+          version: "v2.18.0"
+          workdir: packages/sdk-go
+          args: release --clean --skip=publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # A green goreleaser run says the build worked, not that the release will
+      # carry what a user is told to download. The set is named here, one entry
+      # per published platform, and every checksum is verified against its file.
+      - name: Every expected archive is present, and its checksum verifies
+        working-directory: packages/sdk-go/dist
+        run: |
+          set -euo pipefail
+          status=0
+          archives="leji_${VERSION}_darwin_amd64.tar.gz leji_${VERSION}_darwin_arm64.tar.gz"
+          archives="$archives leji_${VERSION}_linux_amd64.tar.gz leji_${VERSION}_linux_arm64.tar.gz"
+          archives="$archives leji_${VERSION}_windows_amd64.zip leji_${VERSION}_windows_arm64.zip"
+          for f in $archives; do
+            if [ -s "$f" ]; then
+              echo "present: $f"
+            else
+              echo "::error::missing or empty: $f"
+              status=1
+            fi
+            if ! grep -q "  ${f}\$" checksums.txt; then
+              echo "::error::$f has no line in checksums.txt"
+              status=1
+            fi
+          done
+          # And the checksums are checked, not merely counted.
+          sha256sum -c checksums.txt
+          exit "$status"

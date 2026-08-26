@@ -37,10 +37,19 @@ recorded exception, and direct pushes stay blocked either way.
    Four of its lines are preconditions of the **first** tag, not just of a green
    run, because the PyPI upload repeats them after the tag exists, where nothing
    can be corrected in place: `release-path pins exact`, `wheel built`,
-   `twine check --strict (wheel + sdist)`, and `invalid sdist fixture rejected by
-   twine check --strict` (the gate proving it can still fail). Read them: a tag
-   cut past any of the four is a publish that can still fail once it is too late
-   to change anything.
+   `twine check --strict (wheel + sdist)`, and `invalid sdist rejected by twine
+   check --strict (unrenderable long_description)` (the gate proving it can still
+   fail). Read them: a tag cut past any of the four is a publish that can still
+   fail once it is too late to change anything. That last line asserts twine's
+   own refusal, status and diagnostic both, so an infrastructure failure is
+   reported as one instead of counting as a gate that fired; the distribution it
+   refuses is built during the run from tracked, reviewable text (a metadata file
+   and the unrenderable long description it declares), so nothing on this path is
+   a stored binary. The smoke also clears stale build output, stopping the run if
+   it cannot, and refuses on CI to run against a tree carrying untracked or
+   ignored files on the paths it reads.
+   This local run is the earliest of several, never the only one: see the
+   rehearsal below.
 6. For changes touching CLI behavior, adoption, templates, schemas, assets, or
    viewer packaging: complete one representative adoption run on a real
    repository using a PACKED artifact (`npm run cli:packed:refresh`; see
@@ -53,6 +62,36 @@ recorded exception, and direct pushes stay blocked either way.
    matching `CHANGELOG.json` entry's `date`. Set both to the day you tag.
    `CHANGELOG.json` declares the context-changelog schema, so its date must stay
    `YYYY-MM-DD`; do not park a word there.
+
+## The rehearsal: the release path runs before there is a tag
+
+A check that executes for the first time on the irreversible path reports after
+the tag exists, where it cannot be corrected in place. So every release check
+that writes nothing lives in one reusable workflow,
+`.github/workflows/release-checks.yml`, and three callers run it:
+
+| Caller | When | What runs |
+|---|---|---|
+| `ci.yml` → `Release rehearsal` | every pull request | smoke (no Node 22 container leg), version comparison, Python test + build + twine |
+| `ci.yml` → `Release rehearsal` | every push to `rc/*` | all of the above with the Node 22 leg required, plus the cross-platform Go build |
+| `release.yml` → `Release checks` | every release tag | the full set again, on the tagged bytes |
+
+It carries the pre-publish smoke, the version comparison that holds all five
+packages to one version, the Python test + build + `twine check --strict`, and
+`goreleaser release --clean --skip=publish` with every expected archive and its
+checksum asserted. `release.yml` calls it before anything else and its remaining
+jobs do nothing but write: the npm, JSR, and PyPI publishes and the draft GitHub
+release.
+
+Two consequences for the procedure:
+
+- **The binding proof is the `rc/*` run, not the local one.** A local run reads
+  the machine it runs on; the runner reads a clean checkout, which is what the
+  tag will publish from. After the last amend to the release commit, push the
+  candidate again and let the full rehearsal go green on those exact bytes.
+- **Verify tree identity before tagging.** The tag must name a commit whose tree
+  equals the rc-proven one (`git rev-parse <tag>^{tree}` against
+  `git rev-parse <rc-commit>^{tree}`). A rehearsal binds to the bytes it saw.
 
 ## Tagging model: per-package, path-prefixed
 

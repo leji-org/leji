@@ -1,0 +1,12 @@
+name: Publish npm drifted
+# Rule 7: exactly pinned, so rule 3 is satisfied, and still wrong: the version is
+# a literal that no longer matches the tuple in scripts/release-pins.env. This is
+# how a publish job keeps installing last release's npm after the tuple moves.
+
+on: [push]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm install -g npm@11.0.0 && npm --version
