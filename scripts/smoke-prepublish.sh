@@ -7,9 +7,20 @@
 #
 #   scripts/smoke-prepublish.sh
 #
-# Requires: node + npm, python3, go. (jsr step uses npx.) Docker is a release
-# machine prerequisite too: without it the Node 22 leg is skipped, and the final
-# line says so.
+# Requires: node + npm, git, python3 (>= 3.10; the release series is 3.12), go,
+# tar, gzip, unzip, and Docker. (The jsr step uses npx.) Every one of them is
+# probed before anything is built, because a tool discovered late reads as an
+# artifact failure. Docker is a release machine prerequisite: without it the Node
+# 22 leg is skipped, and the final line says so.
+#
+# Environment:
+#   CI=true          untracked or ignored files on the paths this run reads are
+#                    a failure rather than a warning (a runner checkout has none)
+#   REQUIRE_DOCKER=1 the Node 22 leg is mandatory: no Docker is a failure, never
+#                    a skip. Set by the workflows on the release path.
+#   SKIP_DOCKER=1    the Node 22 leg is deliberately not run (the lighter
+#                    pull-request rehearsal). Overrides REQUIRE_DOCKER.
+#   PYTHON=<path>    the interpreter to run the PyPI battery with.
 #
 # Host temp dirs and fresh venvs give clean isolation. For a true "clean
 # machine", re-run the install+battery inside a container, e.g.:
@@ -51,6 +62,96 @@ chk(){ local exp="$1" lbl="$2"; shift 3; "$@" >/dev/null 2>&1; local got=$?; [ "
 _md5(){ if command -v md5sum >/dev/null 2>&1; then md5sum | awk '{print $1}'; else md5 -q; fi; }
 # The `command` field of a scaffold --json document, read from stdin.
 _jsoncmd(){ node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).command' 2>/dev/null; }
+
+echo "== Prerequisites: the tools this run must not discover late =="
+# A missing unzip, a stopped Docker daemon, or a Python below the wheel's floor
+# surfaces as a battery failure that says nothing about the artifacts, several
+# minutes after the run began. Each is named here instead, before anything is
+# built, and a missing one ends the run rather than colouring a later line red.
+MISSING=""
+for _tool in bash node npm git tar gzip unzip go; do
+   command -v "$_tool" >/dev/null 2>&1 || MISSING="$MISSING $_tool"
+done
+# Not merely a Python: the wheel declares requires-python >= 3.10 and the release
+# workflows install 3.12, so a runner on another series would rehearse a
+# toolchain the tag does not publish through. Locally any supported series runs,
+# and the version is printed either way.
+PY_RELEASE_SERIES="3.12"   # mirrors python-version in the release workflows
+PYVER="$("$PYBIN" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])' 2>/dev/null)"
+if [ -z "$PYVER" ]; then
+   MISSING="$MISSING python3(>=3.10)"
+elif [ "${CI:-}" = "true" ] && [ "${PYVER%.*}" != "$PY_RELEASE_SERIES" ]; then
+   MISSING="$MISSING python$PY_RELEASE_SERIES(found $PYVER)"
+fi
+# An absent docker binary and a daemon that will not answer read the same here:
+# the floor leg needs a working docker either way. What differs is the
+# consequence, and the caller says which it wants.
+N22_SKIPPED=0
+N22_SKIP_WHY=""
+if [ "${SKIP_DOCKER:-}" = "1" ]; then
+   N22_SKIPPED=1
+   N22_SKIP_WHY="SKIP_DOCKER=1"
+elif ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+   if [ "${REQUIRE_DOCKER:-}" = "1" ]; then
+      MISSING="$MISSING docker(daemon)"
+   else
+      N22_SKIPPED=1
+      N22_SKIP_WHY="docker not found"
+   fi
+fi
+if [ -n "$MISSING" ]; then
+   echo "  missing:$MISSING"
+   echo
+   echo "== RESULT: prerequisites missing =="
+   echo "Pre-publish smoke RED. Do NOT tag until resolved."
+   exit 1
+fi
+DOCKER_STATE="daemon reachable"
+[ "$N22_SKIPPED" = 1 ] && DOCKER_STATE="node 22 leg skipped ($N22_SKIP_WHY)"
+ok "prerequisites (node $(node -v), python $PYVER, $(go env GOVERSION), tar, gzip, unzip; docker: $DOCKER_STATE)"
+
+echo "== Clean inputs: stale output cleared, nothing untracked on the paths read =="
+# Outputs first. A stale dist directory or a tarball left by an earlier run is an
+# input to the packing steps below, and nothing downstream would notice it is
+# old: the build writes over what it produces now and leaves the rest in place.
+# The incremental build state goes with the output it describes - tsc reads it,
+# decides the deleted files are current, and reports success having written
+# nothing - which is also why a clean checkout, carrying neither, is the case
+# this run has to behave like.
+# Both commands are checked, and so is what survives them: a read-only tree, a
+# directory whose parent denies writes, a file another process holds - each ends
+# with the run building against exactly the stale output this step exists to
+# remove, and none of them announces itself. So an incomplete clean stops the run
+# here rather than colouring a packing result red several minutes later.
+CLEAN_FAILED=""
+rm -rf "$ROOT"/packages/*/dist "$ROOT"/.cache/tsc 2>/dev/null || CLEAN_FAILED="dist + tsc build state"
+rm -f "$ROOT"/packages/sdk/leji-*.tgz "$ROOT"/packages/create-leji/create-leji-*.tgz 2>/dev/null \
+   || CLEAN_FAILED="$CLEAN_FAILED packed tarballs"
+LEFTOVER="$(ls -d "$ROOT"/packages/*/dist "$ROOT"/.cache/tsc "$ROOT"/packages/sdk/leji-*.tgz \
+   "$ROOT"/packages/create-leji/create-leji-*.tgz 2>/dev/null)"
+if [ -z "$CLEAN_FAILED" ] && [ -z "$LEFTOVER" ]; then
+   ok "stale build output cleared (packages/*/dist, tsc build state, packed tarballs)"
+else
+   no "stale build output not cleared${CLEAN_FAILED:+ (failed: $CLEAN_FAILED)}"
+   [ -n "$LEFTOVER" ] && printf '%s\n' "$LEFTOVER" | sed "s|^$ROOT/|       still present: |"
+   echo
+   echo "== RESULT: $PASS passed, $FAIL failed =="
+   echo "Pre-publish smoke RED. Do NOT tag until resolved."
+   exit 1
+fi
+# Then the sources. `--others` with no exclusion list is deliberate: a file that
+# git ignores is exactly as absent from a fresh clone as one that was never
+# added, and either one changes what this run builds from what the tag will.
+DIRTY="$(git -C "$ROOT" ls-files --others -- spec schemas templates fixtures 'packages/*/src' packages/sdk-go 2>/dev/null)"
+if [ -z "$DIRTY" ]; then
+   ok "input paths carry no untracked or ignored file"
+elif [ "${CI:-}" = "true" ]; then
+   no "untracked or ignored files under the paths this run reads"
+   printf '%s\n' "$DIRTY" | sed 's/^/       /'
+else
+   printf "  \033[33mWARN\033[0m %s\n" "untracked or ignored files under the paths this run reads (CI refuses them)"
+   printf '%s\n' "$DIRTY" | sed 's/^/       /'
+fi
 
 echo "== Layer 0: version coherence + assets sync + release pins + build =="
 # All 9 version locations must agree before we build artifacts that bake the
@@ -115,15 +216,13 @@ echo "== Node 22 (published-package floor) =="
 # dependencies (ajv, yaml, the MCP SDK) come from the registry. The three Leji
 # packages never do, and the resolved SDK version is asserted below to prove it.
 N22_OUT=""
-N22_SKIPPED=0
 # One marker line per check, so a container that half-ran cannot read as a pass.
 n22_has() { printf '%s\n' "$N22_OUT" | grep -qF -- "$1"; }
-if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-   # A daemon that does not answer reads the same as an absent binary here: the
-   # leg needs a working docker either way, and what a release machine looks for
-   # is one line it cannot miss.
-   N22_SKIPPED=1
-   echo "SKIP node 22 leg (docker not found)"
+if [ "$N22_SKIPPED" = 1 ]; then
+   # Decided in the prerequisite probe above, where a missing daemon is either a
+   # failure or a skip depending on what the caller asked for. What a release
+   # machine looks for is one line it cannot miss.
+   echo "SKIP node 22 leg ($N22_SKIP_WHY)"
 else
    # The MCP tarball is built and packed here rather than in layer 0: it is the
    # only artifact this leg adds, and nothing above it needs one.
@@ -178,19 +277,66 @@ else
    no "twine check --strict (wheel + sdist)"
    sed -n '1,20p' "$TMP/twine.log"
 fi
-# And the gate is proven able to fail: the checked-in unrenderable sdist goes
-# through the same function, which must reject it. A missing fixture is a red
-# line, not a silent pass: an empty dist would "fail" for the wrong reason.
-REJ="$(ls -t "$ROOT"/fixtures/release-path/twine-reject/*.tar.gz 2>/dev/null | head -1)"
-if [ -z "$REJ" ]; then
-   no "invalid sdist fixture missing (fixtures/release-path/twine-reject)"
+# And the gate is proven able to fail: an unrenderable distribution goes through
+# the same function, which must reject it. Its content is tracked, reviewable
+# text under fixtures/release-path/twine-reject - a PKG-INFO declaring
+# text/x-rst beside a long description docutils refuses - and only the archive
+# around it is generated, so nothing on this path is a binary nobody can read in
+# a diff. It is archived by Python rather than by tar because every field tar
+# fills in from the machine is a field that makes the archive differ between two
+# runs: the format, the ownership, the names, the modes, the member order, and
+# both timestamps are written explicitly here, so the same sources yield the same
+# bytes on any platform and in any timezone. Same interpreter as the battery.
+REJ_SRC="$ROOT/fixtures/release-path/twine-reject"
+REJ_TGZ="$TMP/reject-dist/leji-invalid-0.0.0.tar.gz"
+mkdir -p "$TMP/reject-dist"
+"$PYBIN" - "$REJ_SRC" "$REJ_TGZ" leji-invalid-0.0.0 <<'PY'
+import gzip, io, os, sys, tarfile
+
+src, out, prefix = sys.argv[1], sys.argv[2], sys.argv[3]
+members = ("PKG-INFO", "README.rst")   # fixed order, not a directory listing
+with gzip.GzipFile(out, "wb", mtime=0) as gz:
+    with tarfile.open(fileobj=gz, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+        for name in members:
+            with open(os.path.join(src, name), "rb") as fh:
+                data = fh.read()
+            info = tarfile.TarInfo(prefix + "/" + name)
+            info.type = tarfile.REGTYPE
+            info.size = len(data)
+            info.mtime = 0
+            info.mode = 0o644
+            info.uid = info.gid = 0
+            info.uname = info.gname = ""
+            tar.addfile(info, io.BytesIO(data))
+PY
+# What was built is verified before it is judged. An archive that never got
+# written, or got written without its metadata, would still be refused - for a
+# reason that says nothing about the gate this line exists to prove.
+REJ_MEMBERS="$(tar tzf "$REJ_TGZ" 2>/dev/null | tr '\n' ' ')"
+if [ "$REJ_MEMBERS" = "leji-invalid-0.0.0/PKG-INFO leji-invalid-0.0.0/README.rst " ]; then
+   ok "invalid sdist built from the tracked sources (PKG-INFO + README.rst)"
 else
-   mkdir -p "$TMP/reject-dist"
-   cp "$REJ" "$TMP/reject-dist/"
-   if twine_check "$PYBIN" "$ROOT/packages/sdk-py" "$TMP/pybuild" "$TMP/reject-dist" >/dev/null 2>&1; then
-      no "invalid sdist fixture passed twine check --strict"
+   no "invalid sdist not built as expected (members: ${REJ_MEMBERS:-none})"
+fi
+# And the rejection is asserted, never inferred from a non-zero exit. A generator
+# that failed leaves an empty directory, and twine_check refuses an empty
+# directory too; so does a venv that would not build or an install that could not
+# reach the index. Each of those is an infrastructure failure of this smoke and
+# is reported as one: the gate counts as fired only on twine's own refusal, which
+# is status 1 carrying the diagnostic. The log is squeezed to one line first,
+# because twine wraps that sentence at the console width.
+if [ ! -s "$REJ_TGZ" ]; then
+   no "invalid sdist could not be generated; the rejection cannot be asserted"
+else
+   twine_check "$PYBIN" "$ROOT/packages/sdk-py" "$TMP/pybuild" "$TMP/reject-dist" > "$TMP/reject.log" 2>&1
+   REJ_STATUS=$?
+   if [ "$REJ_STATUS" = 0 ]; then
+      no "invalid sdist passed twine check --strict"
+   elif [ "$REJ_STATUS" = 1 ] && tr -s '[:space:]' ' ' < "$TMP/reject.log" | grep -q 'long_description` has syntax errors in markup'; then
+      ok "invalid sdist rejected by twine check --strict (unrenderable long_description)"
    else
-      ok "invalid sdist fixture rejected by twine check --strict"
+      no "invalid sdist: infrastructure failure of the smoke, not a rejection (exit $REJ_STATUS)"
+      sed -n '1,20p' "$TMP/reject.log"
    fi
 fi
 WHL="$(ls -t "$TMP/pybuild/dist"/*.whl 2>/dev/null | head -1)"
@@ -238,7 +384,7 @@ if [ "$FAIL" = 0 ]; then
    # A skipped floor leg is carried into the verdict line: a release machine that
    # reads a plain GREEN must be one where the floor actually ran.
    if [ "$N22_SKIPPED" = 1 ]; then
-      echo "Pre-publish smoke GREEN (node 22 leg skipped)."
+      echo "Pre-publish smoke GREEN (node 22 leg skipped: $N22_SKIP_WHY)."
    else
       echo "Pre-publish smoke GREEN."
    fi

@@ -18,6 +18,13 @@ jobs:
         with:
           go-version: "1.27.0"
       - run: npm install -g npm@12.0.2 && npm --version
+      # The same install written the other accepted way: the version comes from
+      # the tuple itself, so there is no literal here that could drift from it.
+      - name: Install the publish npm from the tuple
+        run: |
+          . scripts/lib/release-pins.sh
+          load_release_pins scripts/release-pins.env
+          npm install -g "npm@${NPM_VERSION}"
       - run: npx --yes jsr@0.14.3 publish --dry-run
       - name: Install
         working-directory: packages/sdk-py

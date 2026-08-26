@@ -108,6 +108,36 @@ jobs:
       # exits 0, so the fixtures prove each rule still fires.
       - run: sh scripts/check-release-pins.sh --self-test
 
+  release-version:
+    name: Release version (packages/sdk/package.json)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      # The rehearsal below validates a version the way the release workflow
+      # validates a tag. Off the release path there is no tag, so the version
+      # comes from the manifest the whole repository is versioned against.
+      - id: read
+        run: echo "version=$(node -p "require('./packages/sdk/package.json').version")" >> "$GITHUB_OUTPUT"
+
+  release-rehearsal:
+    name: Release rehearsal
+    needs: release-version
+    # Everything a release does short of the writes, run here rather than
+    # meeting a runner for the first time at the tag. An `rc/*` candidate
+    # rehearses all of it, Node 22 container and cross-platform Go build
+    # included; every other run takes the cheaper half, so the artifact path is
+    # still proven on every pull request.
+    uses: ./.github/workflows/release-checks.yml
+    with:
+      version: ${{ needs.release-version.outputs.version }}
+      docker_required: ${{ startsWith(github.ref, 'refs/heads/rc/') }}
+      full: ${{ startsWith(github.ref, 'refs/heads/rc/') }}
+
   node-sdk:
     name: Node SDK (build + test, Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
