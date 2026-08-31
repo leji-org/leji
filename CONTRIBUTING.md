@@ -13,6 +13,8 @@ npm test         # runs the Node, Python, and Go suites
 
 Prerequisites: Node 24+, a Python >=3.10 (the Python SDK pins 3.12 via `packages/sdk-py/.python-version`), and Go 1.26.6+. The `setup:*` scripts detect each toolchain and print install hints if it is missing. Both are idempotent and machine-local (the Python `.venv` is git-ignored), so re-run them after cloning or switching machines.
 
+> **Nix shortcut:** with [Nix](https://nixos.org/download/) installed, `nix develop` (from the repo root, see [`flake.nix`](flake.nix)) drops you into a shell with Node 24, Python 3.12, Go 1.26.6, `goreleaser`, `git`, and `jq` pre-installed — no manual toolchain setup needed. Note that `nix develop` always starts `bash`; to keep your own shell, run `nix develop -c fish` (or `zsh`, etc. — any shell already installed on your system). Direnv users can `echo "use flake" > .envrc && direnv allow` instead; direnv keeps your current shell.
+
 **Running your work-in-progress CLI**, two channels, one machine-wide at a time:
 
 - `npm run cli:live` links the source tree; rebuilds flow through instantly. For iterating.
