@@ -987,8 +987,9 @@ code .token {
    iv.  code and syntax: the fenced-code text, the Prism .token.* colors, and the
         inline-code ground.
 
-   Surfaces (--leji-paper, --leji-line, --leji-code-bg) and icons (--leji-caret, the
-   group triangles) are not text and belong to none of the four.
+   Surfaces (--leji-paper, --leji-content, --leji-line, --leji-code-bg) and icons
+   (--leji-caret, the group triangles) are not text and belong to none of the
+   four.
 
    The legacy neutrals the stock docsify theme shipped are denied outright, in a
    unit test over this directory (packages/sdk/test/viewer-tones.test.ts). */
@@ -999,13 +1000,14 @@ code .token {
   --leji-deep: #164e42;
   --leji-accent: #78d7b5;
   --leji-paper: #f7f8f5; /* the brand's light canvas: sidebar, chips, panels */
+  --leji-content: #ffffff; /* the reading surface: the content column, search fields */
   --leji-text: #183b32; /* headings and emphasis */
   --leji-text-body: #4d5b56; /* every normal-size run of copy */
   --leji-text-muted: #76827d; /* large text only: 3.99:1 on white */
   --leji-line: #cde5d9; /* the brand's border tone, not a neutral gray */
   --leji-code-bg: #e8f4ee;
   --leji-caret: #aaaaaa; /* an icon tone, lighter than the text, not typography */
-  color-scheme: light;
+  color-scheme: light dark;
 }
 
 body {
@@ -1106,12 +1108,16 @@ body {
 }
 
 /* --- search box --- */
+/* The search plugin injects its own rules into <head> at runtime, after every
+   static stylesheet, so its light #eee borders and transparent input border
+   would otherwise beat these. !important keeps the brand line tone in both
+   themes (it flips with the token). */
 .search {
-  border-bottom: 1px solid var(--leji-line);
+  border-bottom: 1px solid var(--leji-line) !important;
 }
 .search input {
-  background: #fff;
-  border: 1px solid var(--leji-line);
+  background: var(--leji-content);
+  border: 1px solid var(--leji-line) !important;
   border-radius: 6px;
   color: var(--leji-text-body);
 }
@@ -1127,7 +1133,7 @@ body {
   background: var(--leji-paper);
 }
 .search .matching-post {
-  border-bottom: 1px solid var(--leji-line);
+  border-bottom: 1px solid var(--leji-line) !important;
 }
 .search .matching-post a,
 .search p.search-keyword {
@@ -1207,4 +1213,162 @@ body {
 .markdown-section blockquote {
   border-left: 3px solid var(--leji-accent);
   color: var(--leji-text-body);
+}
+
+/* ============================================================================
+   Dark mode
+   The same tone contract, re-valued for dark grounds. The viewer is Docsify
+   chrome over a layer's markdown; the accent (--theme-color) is the layer's own
+   and stays exactly as authored in both modes. Only the neutral environment
+   flips: the canvas, the reading surface, the typography tones, the hairlines,
+   and the code surfaces.
+
+   The effective theme is chosen by the reader, not only by the OS: the theme
+   bootstrap in the page <head> (assets/theme-init.js) resolves system|light|dark
+   and writes the result to <html data-theme> BEFORE first paint, and the boot
+   script keeps it current as the reader toggles. These rules key off that
+   attribute. Because the attribute is set before the page paints, there is no
+   media-query fallback to duplicate the palette into: the light values in the
+   :root block above are the single light source, and the [data-theme='dark']
+   block is the single dark source. Re-valuing the tokens (rather than writing
+   dark rules over the light ones) means a rule that names a token reads
+   correctly in both modes without a second copy.
+   ========================================================================== */
+
+/* Manual light: the reader picked light, so the light values already live in
+   the :root block above and nothing needs re-stating here — only the native
+   chrome (scrollbars, controls) follows the pick instead of the OS. */
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+/* Manual or system-resolved dark: the full dark palette, plus every override of
+   a stock-theme literal that tokens cannot reach. */
+:root[data-theme='dark'] {
+  --leji-brand: #2fbd8f; /* the mark green brightened for dark grounds */
+  --leji-link: #6fd4b9; /* the accessible green, brightened for dark grounds */
+  --leji-deep: #164e42; /* unchanged: a deep-green anchor, never small text */
+  --leji-accent: #78d7b5; /* unchanged: the mint reads on either ground */
+  --leji-paper: #0d1615; /* the dark canvas: sidebar, chips, panels */
+  --leji-content: #162220; /* the dark reading surface */
+  --leji-text: #e7efe9;
+  --leji-text-body: #a8bcb3;
+  --leji-text-muted: #7e938a;
+  --leji-line: #27433b;
+  --leji-code-bg: #1a2b27;
+  --leji-caret: #7e938a;
+  color-scheme: dark;
+}
+
+/* The fenced-code base text takes the light tone; the stock theme's dark
+   #525252 would vanish on the dark code ground. The Prism .token.* rules
+   below still carry the syntax colors, at a half-step brighter than their
+   light values so each hue keeps its role. */
+:root[data-theme='dark'] .markdown-section pre > code {
+  color: var(--leji-text);
+}
+:root[data-theme='dark'] .markdown-section pre::after,
+:root[data-theme='dark'] .markdown-section output::after {
+  color: var(--leji-text-muted);
+}
+:root[data-theme='dark'] .token.comment,
+:root[data-theme='dark'] .token.prolog,
+:root[data-theme='dark'] .token.doctype,
+:root[data-theme='dark'] .token.cdata {
+  color: #8aa29a;
+}
+:root[data-theme='dark'] .token.boolean,
+:root[data-theme='dark'] .token.number {
+  color: #e8a86a;
+}
+:root[data-theme='dark'] .token.punctuation {
+  color: #9fb8b0;
+}
+:root[data-theme='dark'] .token.property {
+  color: #e0b45e;
+}
+:root[data-theme='dark'] .token.tag,
+:root[data-theme='dark'] .token.attr-name {
+  color: #7ab8f0;
+}
+:root[data-theme='dark'] .token.selector {
+  color: #93a7f0;
+}
+:root[data-theme='dark'] .token.entity,
+:root[data-theme='dark'] .token.url,
+:root[data-theme='dark'] .language-css .token.string,
+:root[data-theme='dark'] .style .token.string,
+:root[data-theme='dark'] .token.statement,
+:root[data-theme='dark'] .token.regex,
+:root[data-theme='dark'] .token.atrule {
+  color: #5cc2e8;
+}
+:root[data-theme='dark'] .token.attr-value,
+:root[data-theme='dark'] .token.control,
+:root[data-theme='dark'] .token.directive,
+:root[data-theme='dark'] .token.unit {
+  /* Not the layer's accent: on the dark code ground an arbitrary accent can sit
+     below AA (the default #009F71 measures 4.37:1 there), while the fixed link
+     tone is the readable green the theme already reserves for code. */
+  color: var(--leji-link);
+}
+:root[data-theme='dark'] .token.keyword,
+:root[data-theme='dark'] .token.function {
+  color: #f29156;
+}
+:root[data-theme='dark'] .token.placeholder,
+:root[data-theme='dark'] .token.variable {
+  color: #82b8ea;
+}
+:root[data-theme='dark'] .token.important {
+  color: #ef7a5b;
+}
+
+/* The stock theme's neutral hairlines and stripes, re-tinted to the line
+   tone; the zebra stripe takes a content-tinted shade instead of the light
+   #f8f8f8. */
+:root[data-theme='dark'] .markdown-section table th,
+:root[data-theme='dark'] .markdown-section table td {
+  border-color: var(--leji-line);
+}
+:root[data-theme='dark'] .markdown-section table tr {
+  border-top-color: var(--leji-line);
+}
+:root[data-theme='dark'] .markdown-section table tr:nth-child(2n) {
+  background-color: #1a2925;
+}
+:root[data-theme='dark'] .markdown-section hr {
+  border-bottom-color: var(--leji-line);
+}
+:root[data-theme='dark'] .markdown-section iframe {
+  border-color: var(--leji-line);
+}
+:root[data-theme='dark'] .markdown-section output {
+  border-color: var(--leji-line);
+}
+:root[data-theme='dark'] kbd {
+  border-color: var(--leji-line);
+}
+/* The tip box keeps its red warning but trades the stock light ground for a
+   warm dark one. */
+:root[data-theme='dark'] .markdown-section p.tip {
+  background-color: #241b18;
+}
+:root[data-theme='dark'] .markdown-section p.tip code {
+  background-color: #2f2420;
+}
+/* Navbar dropdown: unused by generated layers, tokenized for completeness. */
+:root[data-theme='dark'] .app-nav li ul {
+  background-color: var(--leji-content);
+  border-color: var(--leji-line);
+  border-bottom-color: var(--leji-line);
+}
+:root[data-theme='dark'] .sidebar {
+  border-right-color: var(--leji-line);
+}
+/* The zoom-image plugin paints its overlay a hard-coded white (set inline);
+   on a dark page that is a full-screen flash. !important beats the inline
+   style; the overlay sits over the reading surface, so it takes that tone. */
+:root[data-theme='dark'] .medium-zoom-overlay {
+  background: var(--leji-content) !important;
 }

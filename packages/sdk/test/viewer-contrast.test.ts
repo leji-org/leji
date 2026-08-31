@@ -78,3 +78,50 @@ test('the typography tones carry their sizes on the content ground', () => {
       `--leji-text-muted (${TEXT_MUTED}) is ${muted.toFixed(2)}:1 on white, below AA for large text`,
    );
 });
+
+// The dark palette, by the role each value plays in the `:root[data-theme='dark']`
+// block of `templates/viewer/assets/vue.css`. The dark mode is reader-chosen
+// (not only OS-driven), so these tones get the same arithmetic guard as the
+// light ones: a token move that drops a pair below AA fails here, instead of
+// reaching a dark-using reader as unreadable text.
+const DARK_LINK = '#6FD4B9';
+const DARK_TEXT = '#E7EFE9';
+const DARK_TEXT_BODY = '#A8BCB3';
+const DARK_CONTENT = '#162220'; // --leji-content in dark
+const DARK_CODE_BG = '#1A2B27'; // --leji-code-bg in dark
+const DARK_COMMENT = '#8AA29A'; // the dark Prism .token.comment tone
+
+test('the dark link tone is AA on the dark grounds it lands on', () => {
+   // Body links and inline code share --leji-link in dark; both grounds must
+   // clear AA for normal-size text.
+   assert.ok(
+      contrast(DARK_LINK, DARK_CONTENT) >= 4.5,
+      `${DARK_LINK} on content ${DARK_CONTENT} is ${contrast(DARK_LINK, DARK_CONTENT).toFixed(2)}:1, below AA`,
+   );
+   assert.ok(
+      contrast(DARK_LINK, DARK_CODE_BG) >= 4.5,
+      `${DARK_LINK} on code ${DARK_CODE_BG} is ${contrast(DARK_LINK, DARK_CODE_BG).toFixed(2)}:1, below AA`,
+   );
+});
+
+test('the dark typography tones carry their sizes on the dark grounds', () => {
+   // Headings, emphasis, and every normal-size run of copy: AA at normal size
+   // on the reading surface.
+   for (const [name, tone] of [
+      ['--leji-text', DARK_TEXT],
+      ['--leji-text-body', DARK_TEXT_BODY],
+   ] as const) {
+      const ratio = contrast(tone, DARK_CONTENT);
+      assert.ok(
+         ratio >= 4.5,
+         `${name} (${tone}) is ${ratio.toFixed(2)}:1 on dark content, below AA for normal-size text`,
+      );
+   }
+
+   // The fenced-code base text and the syntax-comment tone read on the dark
+   // code ground; these are the values the dark block pins by hand.
+   const codeText = contrast(DARK_TEXT, DARK_CODE_BG);
+   assert.ok(codeText >= 4.5, `code text (${DARK_TEXT}) is ${codeText.toFixed(2)}:1 on dark code, below AA`);
+   const comment = contrast(DARK_COMMENT, DARK_CODE_BG);
+   assert.ok(comment >= 4.5, `comment (${DARK_COMMENT}) is ${comment.toFixed(2)}:1 on dark code, below AA`);
+});

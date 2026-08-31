@@ -40,11 +40,12 @@
     "templates/viewer/assets/source-sans-pro-600-latin-ext.woff2": "sha256:9d8b9b83f39fe3768c876486e92bb995c1a92c9e85b69481da84e5444ecc980f",
     "templates/viewer/assets/source-sans-pro-600-latin.woff2": "sha256:156650610835fe32914722ecfc8dab0ebbb84795e201b842158afa0ea873cfa4",
     "templates/viewer/assets/source-sans-pro-600-vietnamese.woff2": "sha256:615c0d875de2ec25e22bba41b5cd0e1184517a90916cfac8a4be8467539a5c8f",
+    "templates/viewer/assets/theme-init.js": "sha256:edb9ae148a89f3a052ebe49051520bb842befbdd8a5fd546251423f80fef0a93",
     "templates/viewer/assets/third-party-licenses.txt": "sha256:010843d18dd532c01a574a44e86699966ca633fd5bbafe79125bb4c9e247f5b6",
-    "templates/viewer/assets/viewer-boot.js": "sha256:39b1335cc5e4783865d0d83dd187248338bb7ae369e48e30d153780df810bf54",
-    "templates/viewer/assets/vue.css": "sha256:61d5ec46e3b2235b55a5ed038ff4451ffef42b9a5fed5dfb926918082159dda3",
+    "templates/viewer/assets/viewer-boot.js": "sha256:c5324bcff4b39074ea4189d393d8d50da0dcae5da794150245b187a32829e36c",
+    "templates/viewer/assets/vue.css": "sha256:86dda62ad32cdff3e50930ee1c32f8f61547ca75494f8808c668979a1bd13751",
     "templates/viewer/assets/zoom-image.min.js": "sha256:c142e32432c4fd0d47ea1a6d5640a66d4ffa9a331496a5bdb45c0449f6d381f9",
-    "templates/viewer/index.html": "sha256:fd6e43cde0d72678dd26c9ad38753f046ed3c5e3e550fbd211c0f4307edd8806",
+    "templates/viewer/index.html": "sha256:0c608f85b79a9842e6311621991b19c8b6caa4c8ac8b5dec81f9104c302e0695",
     "templates/writing-style.md": "sha256:ee17bb1b97cbe87c4d8ef59b80b2e1d03d997d8839a98d3eb2080c540efa7b2c"
   }
 }

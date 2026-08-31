@@ -97,25 +97,29 @@
       "sha256": "615c0d875de2ec25e22bba41b5cd0e1184517a90916cfac8a4be8467539a5c8f",
       "size": 5852
     },
+    "assets/theme-init.js": {
+      "sha256": "edb9ae148a89f3a052ebe49051520bb842befbdd8a5fd546251423f80fef0a93",
+      "size": 1224
+    },
     "assets/third-party-licenses.txt": {
       "sha256": "010843d18dd532c01a574a44e86699966ca633fd5bbafe79125bb4c9e247f5b6",
       "size": 20065
     },
     "assets/viewer-boot.js": {
-      "sha256": "39b1335cc5e4783865d0d83dd187248338bb7ae369e48e30d153780df810bf54",
-      "size": 14016
+      "sha256": "c5324bcff4b39074ea4189d393d8d50da0dcae5da794150245b187a32829e36c",
+      "size": 19980
     },
     "assets/vue.css": {
-      "sha256": "61d5ec46e3b2235b55a5ed038ff4451ffef42b9a5fed5dfb926918082159dda3",
-      "size": 28873
+      "sha256": "86dda62ad32cdff3e50930ee1c32f8f61547ca75494f8808c668979a1bd13751",
+      "size": 35495
     },
     "assets/zoom-image.min.js": {
       "sha256": "c142e32432c4fd0d47ea1a6d5640a66d4ffa9a331496a5bdb45c0449f6d381f9",
       "size": 17077
     },
     "index.html": {
-      "sha256": "c5b7f84230d0c6a2c59ae45e2dae69a327b5ec792b4134e07257aec84273428a",
-      "size": 11350
+      "sha256": "2da991889572fb84e9f598e8b8256168dfece9022f6b803664c7a5376120201f",
+      "size": 13973
     }
   }
 }
