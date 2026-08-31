@@ -582,6 +582,7 @@ def test_viewer_generates_viewer_and_sidebar(tmp_path: Path) -> None:
         ".leji/viewer/assets/source-sans-pro-600-latin-ext.woff2",
         ".leji/viewer/assets/source-sans-pro-600-latin.woff2",
         ".leji/viewer/assets/source-sans-pro-600-vietnamese.woff2",
+        ".leji/viewer/assets/theme-init.js",
         ".leji/viewer/assets/third-party-licenses.txt",
         ".leji/viewer/assets/viewer-boot.js",
         ".leji/viewer/assets/vue.css",
@@ -1308,7 +1309,7 @@ def test_viewer_hostile_manifest_cannot_break_out_of_its_substitution_site(
     html = (layer / ".leji" / "viewer" / "index.html").read_text()
     assert "<title>{{MERMAID_SCRIPTS}}</title>" in html
     assert 'href="/content/{{DOCSIFY_CONFIG}}"' in html
-    assert html.count("<script") == 14, "nothing injected into the page"
+    assert html.count("<script") == 15, "nothing injected into the page"
 
 
 def _theme_warning(value: str) -> str:

@@ -96,6 +96,88 @@ var lejiConfig = JSON.parse(document.getElementById('leji-docsify-config').textC
 // correct fallback.
 var lejiContentBase = typeof lejiConfig.basePath === 'string' ? lejiConfig.basePath : '/content/';
 
+// --- theme ------------------------------------------------------------------
+// The viewer follows the OS scheme until the reader chooses otherwise. The
+// EFFECTIVE mode (light|dark) is written to <html data-theme>, which the theme
+// CSS keys its overrides off; the reader's choice (system|light|dark) persists
+// in localStorage so a manual pick survives reloads. "system" is the default
+// and tracks the OS live. The theme bootstrap in the page <head>
+// (assets/theme-init.js) already set the attribute before first paint; this
+// module is the runtime authority — it re-applies on load (idempotent), reacts
+// to OS changes while in "system", and drives the toggle button. Keep the
+// storage key and the resolve rule in lockstep with that bootstrap file.
+var LEJI_THEME_KEY = 'leji-viewer-theme';
+var lejiThemeStore = (function () {
+   try {
+      window.localStorage.setItem('__leji_probe', '1');
+      window.localStorage.removeItem('__leji_probe');
+      return window.localStorage;
+   } catch (e) {
+      return null; // storage blocked (private mode, restrictive policy): no persistence
+   }
+})();
+// The in-memory mode is the runtime authority. When storage works it starts from
+// the persisted choice and writes back on every change; when storage is blocked
+// it still cycles (system -> light -> dark -> system), it just cannot persist.
+var lejiThemeMode = (function () {
+   var v = lejiThemeStore && lejiThemeStore.getItem(LEJI_THEME_KEY);
+   return v === 'light' || v === 'dark' || v === 'system' ? v : 'system';
+})();
+function lejiSystemDark() {
+   return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+function lejiReadTheme() {
+   return lejiThemeMode;
+}
+function lejiApplyTheme(mode) {
+   var effective = mode === 'system' ? (lejiSystemDark() ? 'dark' : 'light') : mode;
+   document.documentElement.setAttribute('data-theme', effective);
+   return effective;
+}
+var lejiTheme = lejiApplyTheme(lejiReadTheme());
+// While in "system", a change to the OS scheme re-resolves immediately. The
+// change event is also re-rendered (mermaid diagrams, the button label) so an
+// already-open page follows the OS live.
+if (typeof window.matchMedia === 'function') {
+   var lejiSchemeMql = window.matchMedia('(prefers-color-scheme: dark)');
+   var lejiOnSchemeChange = function () {
+      if (lejiReadTheme() === 'system') {
+         lejiTheme = lejiApplyTheme('system');
+         lejiReapplyTheme();
+      }
+   };
+   if (lejiSchemeMql.addEventListener) lejiSchemeMql.addEventListener('change', lejiOnSchemeChange);
+   else if (lejiSchemeMql.addListener) lejiSchemeMql.addListener(lejiOnSchemeChange);
+}
+var LEJI_THEME_MARKS = { system: '◐', light: '☀', dark: '🌙' };
+var LEJI_THEME_LABELS = { system: 'System', light: 'Light', dark: 'Dark' };
+function lejiThemeButtonLabel(button) {
+   var mode = lejiReadTheme();
+   button.textContent = LEJI_THEME_MARKS[mode] + ' ' + LEJI_THEME_LABELS[mode];
+   button.setAttribute(
+      'aria-label',
+      'Theme: ' + LEJI_THEME_LABELS[mode] + (mode === 'system' ? ' (follows the operating system)' : ''),
+   );
+   button.title =
+      'Theme: ' + LEJI_THEME_LABELS[mode] + (mode === 'system' ? ' — follows the operating system' : '');
+}
+// Everything that renders the theme, brought current after a change: the
+// attribute (via lejiApplyTheme), any already-rendered mermaid diagrams, and
+// the toggle button's label.
+function lejiReapplyTheme() {
+   if (window.lejiApplyMermaid) window.lejiApplyMermaid();
+   var b = document.querySelector('.leji-theme');
+   if (b) lejiThemeButtonLabel(b);
+}
+function lejiCycleTheme() {
+   var order = ['system', 'light', 'dark'];
+   var next = order[(order.indexOf(lejiReadTheme()) + 1) % order.length];
+   lejiThemeMode = next;
+   lejiTheme = lejiApplyTheme(next);
+   if (lejiThemeStore) lejiThemeStore.setItem(LEJI_THEME_KEY, next);
+   lejiReapplyTheme();
+}
+
 window.$docsify = Object.assign(lejiConfig, {
    // The viewer chrome lives at the web root; the layer's markdown is mounted under
    // the content base above. basePath points Docsify at the content mount; the alias
@@ -249,25 +331,63 @@ window.$docsify = Object.assign(lejiConfig, {
             document.body.appendChild(f);
          });
       },
+      function themeToggle(hook) {
+         // A small fixed pill in the lower-right corner that cycles the theme
+         // (system -> light -> dark -> system) and persists the choice. The
+         // effective mode already lives on <html data-theme> from the module
+         // load above; this hook only places the control and wires the click.
+         hook.mounted(function () {
+            if (document.querySelector('.leji-theme')) return;
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'leji-theme';
+            b.title = 'Switch theme — System follows the operating system';
+            lejiThemeButtonLabel(b);
+            b.addEventListener('click', lejiCycleTheme);
+            document.body.appendChild(b);
+         });
+      },
       function brandMermaid(hook) {
          // Theme mermaid diagrams from the layer's accent color; runs at init so
          // it lands after mermaid.min.js (loaded last) is present. The node-text
          // color is the SDK's, computed at generation time over every color form
          // the manifest accepts; the local fallback covers only a viewer tree
-         // generated before that field shipped.
-         hook.init(function () {
-            if (!window.mermaid || !window.$docsify.themeColor) return;
-            window.mermaid.initialize({
+         // generated before that field shipped. The diagram surface follows the
+         // EFFECTIVE theme (the <html data-theme> the theme module sets): the
+         // same edges the light theme fills with the canvas take the dark reading
+         // surface, and the line tone brightens, so a diagram drawn on a dark page
+         // does not ship a light box with it. The config is rebuilt on every call
+         // (lejiTheme is read live), and already-rendered diagrams are re-run, so
+         // a theme toggle recolors the current page without a reload.
+         function lejiMermaidConfig() {
+            var dark = lejiTheme === 'dark';
+            return {
                startOnLoad: false,
                theme: 'base',
                themeVariables: {
                   primaryColor: window.$docsify.themeColor,
                   primaryTextColor:
                      window.$docsify.lejiMermaidTextColor || lejiMermaidTextColor(window.$docsify.themeColor),
-                  lineColor: '#666',
-                  tertiaryColor: '#f7f8f5',
+                  background: 'transparent',
+                  lineColor: dark ? '#93a8a0' : '#666',
+                  tertiaryColor: dark ? '#162220' : '#f7f8f5',
                },
-            });
+            };
+         }
+         function lejiApplyMermaid() {
+            if (!window.mermaid || !window.$docsify.themeColor) return;
+            window.mermaid.initialize(lejiMermaidConfig());
+            // Re-render the diagrams already on the page so a theme change
+            // recolors them; navigation re-renders through the plugin anyway.
+            if (document.querySelector('.mermaid')) {
+               try {
+                  window.mermaid.run({ querySelector: '.mermaid' }).catch(function () {});
+               } catch (e) {}
+            }
+         }
+         hook.init(function () {
+            window.lejiApplyMermaid = lejiApplyMermaid;
+            lejiApplyMermaid();
          });
       },
    ],

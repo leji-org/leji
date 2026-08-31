@@ -269,6 +269,7 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 		".leji/viewer/assets/source-sans-pro-600-latin-ext.woff2",
 		".leji/viewer/assets/source-sans-pro-600-latin.woff2",
 		".leji/viewer/assets/source-sans-pro-600-vietnamese.woff2",
+		".leji/viewer/assets/theme-init.js",
 		".leji/viewer/assets/third-party-licenses.txt",
 		".leji/viewer/assets/viewer-boot.js",
 		".leji/viewer/assets/vue.css",

@@ -31,17 +31,27 @@
       />
       <title>{{LEJI_NAME_HTML}}</title>
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <meta name="color-scheme" content="light dark" />
       <link rel="icon" href="{{FAVICON_URL}}" />
+      <!-- The theme bootstrap runs before any body paint (and before the theme
+           stylesheet loads), so the effective theme is on <html data-theme> by
+           the time the page renders: no flash of the wrong theme for a dark
+           reader or for a reader with a saved choice. Same-origin, so it clears
+           the strict CSP's script-src 'self'. -->
+      <script src="assets/theme-init.js"></script>
       <link rel="stylesheet" href="assets/vue.css" />
       <link rel="stylesheet" href="assets/docsify-sidebar-collapse.min.css" />
       <style>
-         /* Viewer default styling: white content, the brand canvas on the sidebar
-            and its chrome, tight nesting — the shape teams hand-build for internal
-            dashboards. Accents ride --theme-color (set by Docsify from
-            viewer.theme.primary); the text tones are the --leji-text* custom
-            properties assets/vue.css declares, which loads before this block. */
+         /* Viewer default styling: the reading surface for content, the brand
+            canvas on the sidebar and its chrome, tight nesting — the shape teams
+            hand-build for internal dashboards. Accents ride --theme-color (set by
+            Docsify from viewer.theme.primary); the text tones are the --leji-text*
+            custom properties assets/vue.css declares, which loads before this
+            block, and dark mode re-values those same tokens in vue.css's
+            prefers-color-scheme block, so every rule here that names a token
+            reads correctly in both modes. */
          body {
-            background-color: #ffffff;
+            background-color: var(--leji-content);
          }
 
          /* Classification chip: top-right corner, the page's category (+ record
@@ -54,8 +64,8 @@
             font-size: 0.7rem;
             letter-spacing: 0.02em;
             color: var(--leji-text-body);
-            background: #f7f8f5;
-            border: 1px solid #cde5d9;
+            background: var(--leji-paper);
+            border: 1px solid var(--leji-line);
             border-radius: 999px;
             padding: 3px 10px;
             user-select: none;
@@ -63,8 +73,8 @@
 
          /* Light sidebar */
          .sidebar {
-            background-color: #f7f8f5;
-            border-right: 1px solid #cde5d9;
+            background-color: var(--leji-paper);
+            border-right: 1px solid var(--leji-line);
          }
          /* Loading state while the served sidebar is being generated: the CSS
             :empty rule paints instantly (before any script runs); the boot
@@ -156,7 +166,7 @@
             transform: none !important;
             font-size: 8px;
             line-height: 1;
-            color: #aaa;
+            color: var(--leji-caret);
             top: 0.9em;
             margin-top: 0;
             left: -4px;
@@ -195,18 +205,18 @@
          .sidebar-nav hr {
             margin: 16px 0;
             border: none;
-            border-top: 1px solid #cde5d9;
+            border-top: 1px solid var(--leji-line);
          }
 
          /* Search */
          .search input {
-            background-color: #ffffff;
-            border: 1px solid #cde5d9;
+            background-color: var(--leji-content);
+            border: 1px solid var(--leji-line);
             color: var(--leji-text-body);
          }
          .search .results-panel {
-            background-color: #ffffff;
-            border: 1px solid #cde5d9;
+            background-color: var(--leji-content);
+            border: 1px solid var(--leji-line);
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
          }
          .search .results-panel .matching-post > a {
@@ -216,7 +226,7 @@
             color: var(--theme-color, #009f71);
          }
          .matching-post {
-            border-bottom: 1px solid #cde5d9;
+            border-bottom: 1px solid var(--leji-line);
          }
 
          /* App name / logo block */
@@ -254,7 +264,49 @@
             text-decoration: none;
          }
          .leji-powered a:hover {
-            color: #164e42;
+            color: var(--leji-deep);
+         }
+
+         /* The powered-by hover deepens on light, but on the dark canvas the deep
+            green reads as black-on-dark; the theme's own dark re-value cannot reach
+            this rule (--leji-deep is deliberately unchanged), so it is re-stated
+            for dark here, keyed off the effective theme the boot script writes to
+            <html data-theme>. !important matches the theme's own rule so the dark
+            state actually wins. */
+         :root[data-theme='dark'] .leji-powered a:hover {
+            color: var(--leji-text) !important;
+         }
+
+         /* Theme toggle: a fixed pill in the lower-right corner, above the
+            powered-by mark. The boot script injects the element, cycles the
+            system|light|dark choice, and persists it; this block only styles it,
+            through the same tokens every surface uses, so it follows the theme. */
+         .leji-theme {
+            position: fixed;
+            right: 14px;
+            bottom: 42px;
+            z-index: 40;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 4px 11px;
+            font-family: 'Source Sans Pro', 'Helvetica Neue', Arial, sans-serif;
+            font-size: 12px;
+            letter-spacing: 0.02em;
+            color: var(--leji-text-body);
+            background: var(--leji-paper);
+            border: 1px solid var(--leji-line);
+            border-radius: 999px;
+            cursor: pointer;
+            user-select: none;
+         }
+         .leji-theme:hover {
+            color: var(--theme-color, #009f71);
+            border-color: var(--theme-color, #009f71);
+         }
+         .leji-theme:focus-visible {
+            outline: 2px solid var(--theme-color, #009f71);
+            outline-offset: 2px;
          }
       </style>
    </head>
