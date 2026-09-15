@@ -68,6 +68,10 @@ type Conformance struct {
 
 type Theme struct {
 	Primary string `json:"primary,omitempty"`
+	// Link is a pointer so an absent key stays distinguishable from `link: ""`: the
+	// schema accepts the empty string, and the viewer's guard must warn about it
+	// rather than read it as an unset field (a plain string collapses both to "").
+	Link *string `json:"link,omitempty"`
 }
 
 // ViewerPin is one viewer.pins entry: canonically a repo-relative path string,
@@ -99,9 +103,14 @@ func (p *ViewerPin) UnmarshalJSON(b []byte) error {
 }
 
 type Viewer struct {
-	Port           *int              `json:"port,omitempty"`
-	Logo           string            `json:"logo,omitempty"`
-	Title          string            `json:"title,omitempty"`
+	Port *int   `json:"port,omitempty"`
+	Logo string `json:"logo,omitempty"`
+	// Title is a POINTER so a declared-but-empty title stays distinguishable from
+	// an absent one: the reference resolves it with `?? name`, which falls back only
+	// on null/undefined, so `"title": ""` renders an empty display title rather than
+	// the layer name. The JSON wire form is unchanged (omitempty drops nil, and an
+	// empty string still marshals as `""`).
+	Title          *string           `json:"title,omitempty"`
 	AgentsLabel    string            `json:"agentsLabel,omitempty"`
 	Favicon        string            `json:"favicon,omitempty"`
 	Homepage       string            `json:"homepage,omitempty"`
@@ -374,6 +383,17 @@ func EffectiveAgentProfilesPath(m *Manifest) string {
 		return v
 	}
 	return fsx.JoinUnderRoot(m.RootPath, "agents/")
+}
+
+// EffectiveViewerTitle is the display title every generated surface uses:
+// viewer.title when the manifest declares one, else the layer name. Present-or-name,
+// never truthy-or-name — a declared empty title is a declared title, and the three
+// SDKs must agree on the bytes it produces.
+func EffectiveViewerTitle(m *Manifest) string {
+	if m.Viewer != nil && m.Viewer.Title != nil {
+		return *m.Viewer.Title
+	}
+	return m.Name
 }
 
 // EffectiveDecisionRecordsPath is machine.decisionRecordsPath or rootPath/decisions/.

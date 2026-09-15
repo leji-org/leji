@@ -1,0 +1,258 @@
+---
+// Brazilian Portuguese translation of src/pages/mcp.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation
+// follows. The layout is `Doc.astro`'s, written out here because that layout takes
+// no `lang` and a translated page has to declare its own.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import CopyableCode from '../../components/CopyableCode.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '0dbbe32b2b9f192f8f0bfa1241ad0ba3b6341a52';
+const strings = translationStrings('pt-br');
+
+const config = `{
+  "mcpServers": {
+    "leji": { "command": "npx", "args": ["-y", "@leji-org/mcp"] }
+  }
+}`;
+
+const claudeAddProject = 'claude mcp add leji --scope project -- npx -y @leji-org/mcp';
+const claudeAddUser = 'claude mcp add leji --scope user -- npx -y @leji-org/mcp';
+const codexAdd = 'codex mcp add leji -- npx -y @leji-org/mcp';
+
+const resources = [
+   ['leji://spec/full', 'A especificação completa, em um documento.'],
+   ['leji://spec/{id}', 'Um documento da especificação, por exemplo leji://spec/conformance.'],
+   ['leji://schema/{name}', 'Um JSON Schema, por exemplo leji://schema/context-manifest.'],
+   ['leji://cli/help', 'A referência de comandos e opções da CLI leji.'],
+];
+
+const tools = [
+   ['search_spec', 'Seções da especificação que correspondem a uma consulta.'],
+   ['fetch_spec_doc', 'Um documento da especificação (ou a especificação inteira).'],
+   ['fetch_schema', 'Um JSON Schema.'],
+   ['validate_manifest', 'Valida um leji.json fornecido em linha.'],
+   ['validate_layer', 'Valida a camada de contexto em um caminho.'],
+   ['score_conformance', 'Comparação entre o nível de conformidade declarado e o verificado.'],
+   ['explain_conformance', 'O que foi verificado e o que o próximo nível exige.'],
+];
+---
+
+<Base
+   lang="pt-br"
+   title="Servidor MCP · Leji"
+   description="Use as ferramentas Leji por meio do seu agente de IA: um servidor MCP local e somente leitura que fornece a especificação e os schemas e verifica uma camada de contexto em disco."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/mcp/" />
+         <main id="content" class="prose">
+            <PageHeader kind="reference" />
+            <h1>Servidor MCP</h1>
+            <TranslationNote strings={strings.note} href="/mcp/" />
+            <p class="sp-lede">
+               As ferramentas do Leji estão disponíveis de duas formas. A <a href="/pt-br/cli/">CLI</a> atende você e o seu
+               CI; o servidor do Model Context Protocol (MCP) é para o seu agente.
+            </p>
+            <p>
+               <code>@leji-org/mcp</code> é um servidor <a
+                  href="https://modelcontextprotocol.io"
+                  target="_blank"
+                  rel="noopener">MCP</a
+               > local que encapsula o SDK de referência. Com ele, seu agente lê a especificação e os schemas, valida uma
+               camada de contexto em disco e pontua a conformidade dela, sem consultar o site nem chamar a CLI pelo shell.
+            </p>
+            <p>
+               Ele roda localmente sobre stdio e não faz chamadas de rede em tempo de execução, embora a primeira
+               instalação por <code>npx</code> baixe o pacote, e expõe apenas ferramentas somente leitura.
+            </p>
+
+            <h2>Adicione ao seu cliente</h2>
+            <p>
+               Basta configurar uma vez para que as ferramentas <code>leji</code> apareçam em todas as sessões abrangidas
+               pelo escopo, sem nenhuma outra preparação: um registro no nível do usuário alcança todos os projetos; um registro
+               no nível do projeto alcança apenas aquele repositório. O cliente inicia{' '}
+               <code>leji-mcp</code> sob demanda.
+            </p>
+            <p>
+               Se você está adotando com a CLI e o Claude Code ou o Codex está no seu <code>PATH</code>, <code
+                  >leji init</code
+               >{' '}
+               e <code>leji adopt</code> oferecem a opção de registrar este servidor para aquele host antes de repassar o
+               trabalho ao seu agente.
+            </p>
+            <p>
+               Como a oferta é interativa, uma execução com <code>--yes</code> a ignora. As instruções a seguir são para quem
+               pulou o prompt, usa outro cliente ou deseja um escopo diferente.
+            </p>
+
+            <h3>Claude Code</h3>
+            <CopyableCode code={claudeAddProject} lang="bash" label="Copiar comando" />
+            <p>
+               <code>--scope project</code> grava o <code>.mcp.json</code> compartilhado na raiz do repositório; faça o commit
+               desse arquivo para que todos que clonarem o repositório recebam a oferta do servidor. Para configurar o seu
+               usuário em todos os projetos, em vez disso:
+            </p>
+            <CopyableCode code={claudeAddUser} lang="bash" label="Copiar comando" />
+            <p>
+               Omitir <code>--scope</code> registra o servidor de forma privada, só para este projeto. Referência completa:{
+                  ' '
+               }
+               <a href="https://docs.claude.com/en/docs/claude-code/mcp" target="_blank" rel="noopener"
+                  >documentação de MCP do Claude Code</a
+               >.
+            </p>
+
+            <h3>Codex</h3>
+            <CopyableCode code={codexAdd} lang="bash" label="Copiar comando" />
+            <p>
+               Ou adicione uma tabela <code>[mcp_servers.leji]</code> diretamente ao <code>~/.codex/config.toml</code>.
+               Referência completa:{' '}
+               <a href="https://developers.openai.com/codex/mcp" target="_blank" rel="noopener"
+                  >documentação de MCP do Codex</a
+               >.
+            </p>
+
+            <h3>Outros clientes</h3>
+            <p>Claude Desktop, Cursor, Windsurf e qualquer outro cliente MCP aceitam a configuração padrão:</p>
+            <CopyableCode code={config} lang="json" label="Copiar configuração MCP" />
+
+            <p>
+               Requer <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 22 ou mais novo (<code
+                  >npx</code
+               > vem com o Node). A primeira execução baixa o pacote; as demais usam o cache. Aponte cada ferramenta para
+               a raiz do repositório que contém o seu <code>leji.json</code>.
+            </p>
+
+            <h2>Ferramentas</h2>
+            <p>
+               Todas são somente leitura. Nenhum recurso exposto pelo servidor pode escrever na sua camada de contexto
+               ou alterá-la.
+            </p>
+            <table class="mcp-table">
+               <caption class="vh">Ferramentas MCP que o servidor expõe</caption>
+               <thead>
+                  <tr><th scope="col">Ferramenta</th><th scope="col">O que ela devolve</th></tr>
+               </thead>
+               <tbody>
+                  {
+                     tools.map(([name, summary]) => (
+                        <tr>
+                           <th scope="row">
+                              <code>{name}</code>
+                           </th>
+                           <td>{summary}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+
+            <h2>Recursos</h2>
+            <table class="mcp-table">
+               <caption class="vh">Recursos MCP que o servidor expõe</caption>
+               <thead>
+                  <tr><th scope="col">URI</th><th scope="col">O que ele serve</th></tr>
+               </thead>
+               <tbody>
+                  {
+                     resources.map(([uri, summary]) => (
+                        <tr>
+                           <th scope="row">
+                              <code>{uri}</code>
+                           </th>
+                           <td>{summary}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+
+            <h2>Por que um servidor, e não só a CLI?</h2>
+            <p>
+               A CLI já valida e pontua uma camada de contexto, e o servidor oferece as duas funções. Além disso, ele
+               faz o que a CLI não faz: busca e fornece a especificação e os schemas. Também oferece uma interface
+               diferente, que um agente procura por conta própria:
+            </p>
+            <ul>
+               <li>
+                  <strong>Ele se anuncia sozinho.</strong> Configurado uma vez, aparece na lista de ferramentas do seu agente
+                  em todas as sessões, com descrições exatas do que faz. Ninguém precisa avisar ao agente que Leji existe
+                  nem onde encontrar a CLI.
+               </li>
+               <li>
+                  <strong>Ele funciona onde um shell não funciona.</strong> Muitos ambientes de agente não podem ou não devem
+                  executar comandos arbitrários. Um servidor somente leitura, sem chamadas de rede em tempo de execução, pode
+                  ser acessado mesmo onde <code>leji validate</code> não pode ser executado.
+               </li>
+               <li>
+                  <strong>Ele serve a especificação e os schemas diretamente.</strong> Seu agente os lê como recursos, sem
+                  busca na web, e os cita enquanto trabalha.
+               </li>
+            </ul>
+            <p>
+               Consumir uma camada de contexto não precisa do servidor: o <a href="/pt-br/spec/boot-profile/"
+                  >perfil de boot</a
+               > de um repositório conforme já integra o seu agente. O servidor atende à outra necessidade: aprender Leji
+               e verificar se uma camada de contexto está de acordo com ele.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .mcp-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.8rem 0 0;
+   }
+   .mcp-table caption.vh {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+   }
+   .mcp-table th {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: top;
+      text-align: left;
+      font-weight: 400;
+      color: var(--leji-text-body);
+      white-space: nowrap;
+   }
+   .mcp-table thead th {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+   }
+   .mcp-table th code {
+      color: var(--leji-text);
+      font-size: 0.85em;
+   }
+   .mcp-table td {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: top;
+      color: var(--leji-text-body);
+   }
+   .mcp-table td:first-child {
+      white-space: nowrap;
+   }
+   .mcp-table td code {
+      color: var(--leji-text);
+      font-size: 0.85em;
+   }
+</style>

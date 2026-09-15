@@ -1,0 +1,25 @@
+---
+// A page shell with nothing in it but the head tags under test: the language, and the
+// alternates the registry derives from the translated content.
+import { fixtureAlternates } from '../registry';
+
+interface Props {
+   title: string;
+   lang: string;
+}
+
+const { title, lang } = Astro.props;
+const alternates = fixtureAlternates(Astro.url.pathname);
+---
+
+<!doctype html>
+<html lang={lang}>
+   <head>
+      <meta charset="utf-8" />
+      <title>{title}</title>
+      {alternates.map((a) => <link rel="alternate" hreflang={a.hreflang} href={new URL(a.href, Astro.site)} />)}
+   </head>
+   <body>
+      <slot />
+   </body>
+</html>

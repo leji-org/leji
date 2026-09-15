@@ -53,11 +53,13 @@ from .manifest import Manifest
 from .renderlint import RENDER_UNSUPPORTED_RULE, render_lint_findings
 from .viewer_cmd import (
     ACTIVE_EXTENSIONS,
+    DECISIONS_REL,
     EXPORT_BASE,
     OVERVIEW_REL,
     _build_index_html,
     _resolved_profile_pages,
     generate_viewer,
+    has_decisions_page,
     render_overview,
 )
 
@@ -560,6 +562,10 @@ def build_viewer(
     # The generated sidebar and Manifest page are served as if at the content root.
     copy_chrome(viewer_abs / "_sidebar.md", out_content / "_sidebar.md")
     copy_chrome(viewer_abs / "_manifest.md", out_content / "_manifest.md")
+    # The Decisions page exists only where the layer declares a decisions category,
+    # so the copy is conditional on the same predicate the generation used.
+    if has_decisions_page(manifest):
+        copy_chrome(viewer_abs / DECISIONS_REL, out_content / DECISIONS_REL)
     # The viewer assets at the web root.
     copy_chrome_tree(viewer_abs / "assets", out_abs / "assets")
     # index.html at the web root, with the protect-your-context warning prepended. The

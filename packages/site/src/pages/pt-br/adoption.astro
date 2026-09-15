@@ -1,0 +1,215 @@
+---
+// Brazilian Portuguese translation of src/pages/adoption.astro. The English page is
+// the page of record; `source` is its git blob sha at the revision this translation
+// follows.
+//
+// Two things differ from the English page, both forced by what a locale may own.
+// The layout is `Doc.astro`'s, written out here because that layout takes no `lang`
+// and a translated page has to declare its own. And the prose is held here rather
+// than read from a collection: the `adoption` collection is the repository's single
+// English source (`adoption/README.md`), and a translation of it is site content that
+// belongs to this locale. It goes through the same markdown pipeline, and it keeps
+// the English section ids the rest of the site links to.
+import { createSatteriMarkdownProcessor } from '@astrojs/markdown-satteri';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import { markdownRenderOptions } from '../../markdown-options';
+
+const source = 'b0a7cbb4e90903e9ce8944f64eee3ad4ffd51081';
+const strings = translationStrings('pt-br');
+
+// The h1 is rendered by the page rather than by the markdown, so the canonical note
+// can sit directly under the title. Commands, flags and captured output stay in the
+// source language: they are typed, not read.
+const body = `Ao adotar Leji, você transforma a estrutura inicial de um repositório em uma camada de contexto útil. O processo envolve mapear textos existentes, conectar pontos de entrada, adicionar verificações e escolher onde essa camada ficará. Assim, todos passam a ter um ponto de partida confiável.
+
+<span id="scaffold"></span>
+
+## <span class="step-num">01</span>Estrutura inicial
+
+\`leji adopt\` reaproveita \`docs/\`, \`doc/\` ou \`documentation/\` sem mover o que você já fez. O comando cria:
+
+- Um \`leji.json\` com \`name\` vindo do diretório, \`rootPath\` definido e \`owners\` a partir de uma identidade git disponível.
+- Um perfil de boot, índices de categoria, um roteiro de integração e uma primeira decisão completa com \`status: accepted\`.
+- Um ponteiro \`AGENTS.md\` quando não existe nenhum.
+
+\`\`\`bash
+leji adopt --dry-run       # mostra cada gravação prevista; nada é gravado
+leji adopt                 # repositório existente: gera a estrutura em torno do que já existe
+leji init                  # repositório novo: gera leji.json, perfil de boot, categorias iniciais e primeira decisão
+leji adopt --wire-adapters # conclui a adoção sobre um ponto de entrada de fornecedor (CLAUDE.md, AGENTS.md)
+\`\`\`
+
+Também dá para fazer tudo em uma única etapa, sem instalar nada: \`npm create leji\` lê o diretório e roda \`leji adopt\`
+ali mesmo, ou \`leji init\` em um repositório que ainda não tem nada a adotar. Esse comando substitui esta etapa, em vez de
+vir antes dela. Depois de usá-lo, continue no próximo título.
+
+Mapeie os caminhos que já existem, sem renomeá-los. \`docs/engineering/START-HERE.md\` está em conformidade como perfil de boot; em camadas novas, use os padrões em minúsculas com hífen.
+
+<span id="make-it-yours"></span>
+
+## <span class="step-num">02</span>Torne-a sua
+
+Primeiro, classifique o que você já escreveu. Cada arquivo de índice gerado seleciona o diretório inteiro da sua categoria. Portanto, tudo o que já estiver em um deles passa a ser governado assim que a estrutura inicial é criada; o que você escreveu em qualquer outro lugar fica fora da camada de contexto até que alguém o inclua na lista. Entregue o roteiro de integração ao seu agente e aprove o mapeamento proposto, ou edite você mesmo os arquivos de índice.
+
+Nada precisa mudar de lugar. Cada categoria aponta para arquivos de índice curados, e cada entrada pode selecionar um único arquivo ou um diretório inteiro. Assim, uma árvore \`docs/\` existente pode continuar exatamente onde está ([categorias de conteúdo](/pt-br/spec/content-categories/)).
+
+Traga também o seu histórico de decisões. Um diretório de ADR existente se integra assim que os registros receberem o frontmatter exigido pelo [schema de registro de decisão](/pt-br/schemas/decision-record/); a estrutura inicial já criou \`<rootPath>/decisions/0001-adopt-leji.md\` como o primeiro deles.
+
+Em seguida, conecte a descoberta. Por decisão de projeto, adotar sobre um \`CLAUDE.md\`, \`GEMINI.md\`, \`.cursor/rules\` ou \`AGENTS.md\` existente não altera esse arquivo. Isso significa que a adoção ainda é um rascunho: o ponto de entrada antigo ainda não redireciona, \`leji validate\` reporta \`vendor-adapter-redirect\`, e \`leji conformance\` verifica \`none\` diante do \`core\` declarado.
+
+\`leji adopt --wire-adapters\` migra esse conteúdo para a camada de contexto e substitui o ponto de entrada por: \`Read ./<bootProfilePath> first. It is the canonical context entrypoint for this repository.\` A validação pode então passar em \`core\`.
+
+\`AGENTS.md\` é o adaptador portátil, lido nativamente por muitos hosts. Quando ele não existe, \`init\` e \`adopt\` criam um arquivo que contém apenas o ponteiro; \`--no-agents\` ignora essa criação. Pontos de entrada de um único fornecedor nunca são criados.
+
+Para uma adoção manual, copie [\`templates/leji.json\`](https://github.com/leji-org/leji/blob/main/templates/leji.json) e [\`templates/boot-profile.md\`](https://github.com/leji-org/leji/blob/main/templates/boot-profile.md), crie os índices e use [\`templates/decision-record.md\`](https://github.com/leji-org/leji/blob/main/templates/decision-record.md). Remova todo texto de espaço reservado que o \`leji validate\` nomear antes de declarar \`core\`; descarte entradas de \`agents\` ou categorias de que você não precisa.
+
+<span id="put-it-to-work"></span>
+
+## <span class="step-num">03</span>Ponha-a para trabalhar
+
+A camada mostra seu valor quando um agente a lê antes da tarefa, não depois. \`leji start\` abre o seu agente de código a partir da raiz do repositório, para que ele comece pelo perfil de boot, não por aquilo que inferiu.
+
+\`\`\`bash
+leji start                                  # detecta um host e o abre na camada de contexto
+leji start --agent codex                    # fixa o host em vez de detectá-lo
+leji start --agent claude-code -- --chrome  # repassa flags para esse host
+\`\`\`
+
+\`leji detect\` lista os hosts; \`leji start --help\` explica o repasse de flags. Os scripts usam \`bootProfilePath\`. Uma associação em \`agents\`, até mesmo \`default\`, registra perfis, mas nunca os carrega; somente as instruções do perfil de boot fazem isso.
+
+<span id="keep-it-honest"></span>
+
+## <span class="step-num">04</span>Mantenha-a honesta
+
+Uma camada de contexto honesta descreve o repositório como ele está agora. Estas verificações falham quando encontram referências quebradas ou um índice que já não corresponde às fontes. Markdown não indexado e textos de espaço reservado esquecidos são reportados, mas não rejeitados, para que você perceba o desvio antes que os agentes sigam orientações desatualizadas.
+
+\`leji validate --content\` encontra textos de espaço reservado e conteúdo raso. \`leji status\` encontra material não indexado, pendurado ou desatualizado. \`leji conformance\` reporta o progresso.
+
+Em \`indexed\`, \`leji index\` gera o \`context-index.json\`; \`leji index --check\` falha quando ele está desatualizado. \`leji changelog check\` verifica o changelog de máquina.
+
+Se ainda não houver convenções de CI, \`leji ci\` gera um workflow; \`leji ci --hooks\` instala as verificações como hook de pre-commit. \`leji ci --help\` explica como a CLI é localizada.
+
+Em um pipeline já estabelecido, rode \`leji validate\` e \`leji index --check\` em jobs e hooks obrigatórios. Declare a CLI como dependência de desenvolvimento para que ela seja instalada mesmo em uma instalação limpa: \`leji init\`/\`leji adopt\` detectam o gerenciador de pacotes usado pelo repositório e, após a sua confirmação explícita, executam o comando correspondente para adicionar a dependência (para pip e versões do Go anteriores à 1.24, apenas exibem a linha do comando).
+
+Em \`governed\`, acrescente mudanças revisadas, perfis de agente válidos, verificações de atualidade e CI obrigatório.
+
+### Mostre a sua conformidade
+
+\`leji badge\` escreve \`leji-badge.svg\` na raiz do repositório e imprime a linha para colar no seu README:
+
+\`\`\`bash
+leji badge                        # grava leji-badge.svg e imprime o trecho
+leji badge --out docs/badge.svg   # grava em outro lugar; o trecho acompanha o caminho
+\`\`\`
+
+\`\`\`markdown
+[![Leji 1.0 · governed · self-attested](leji-badge.svg)](https://leji.org/agent-ready/)
+\`\`\`
+
+O selo é autodeclarado e retrata com fidelidade esta execução: ele informa o nível verificado pelo \`leji conformance\`, que nunca fica acima do declarado em \`leji.json\` e pode ficar abaixo. Quando a execução offline não consegue confirmar uma declaração, ela a informa na stdout em vez de incluí-la no selo.
+
+Rode-o em uma árvore commitada. Um changelog sem uma base commitada não pode ser verificado quanto à disciplina de somente acréscimo. Por isso, a execução para em \`core\`, independentemente do que o \`leji.json\` declarar; acréscimos feitos sobre um changelog commitado são comparados com \`HEAD\` e passam sem precisar de um commit próprio. Uma execução que não verifica nenhum nível não grava selo algum.
+
+No trecho, o caminho da imagem é relativo à raiz do repositório. Se o README estiver em um subdiretório, ajuste o caminho para chegar ao arquivo a partir dali.
+
+<span id="where-it-lives"></span>
+
+## <span class="step-num">05</span>Onde ela vive
+
+Cada repositório mantém uma camada de contexto junto do próprio trabalho.
+
+Quando vários repositórios consomem a mesma camada, use um submódulo somente documentação. Crie um repositório para ela, monte-o em \`context/\` em cada consumidor e fixe o pin em cada repositório. Proponha atualizações de pin revisáveis e automatizadas por script. Builds e runtime não podem depender dele.
+
+Aponte os agentes para \`context/docs/boot-profile.md\`; os arquivos de fornecedor mantidos redirecionam para lá. Veja o [exemplo multirrepo](https://github.com/leji-org/leji/tree/main/examples/multi-repo) e a [especificação de distribuição](/pt-br/spec/distribution/).
+
+A federação é para equipes que são donas de uma camada cada. O [guia](/pt-br/federation/) dela cobre declarações, hidratação, status, roteamento e as verificações de \`federated\`.
+
+<span id="optional-cases"></span>
+
+## <span class="step-num">06</span>Casos opcionais
+
+<details class="fold">
+<summary>Vários atores podem preencher um papel</summary>
+
+Normalmente, cada papel é associado a um perfil; \`host\` e \`invocation\` descrevem o engajamento. Quando houver vários participantes ou invocações específicas para cada papel, o \`actors\` opcional lista os papéis elegíveis e os modelos de comando. Veja o [schema de manifesto de contexto](/pt-br/schemas/context-manifest/).
+
+Atores não concedem autoridade de aprovação. Quem escolhe é o orquestrador; Leji 1.0 não define regra de seleção.
+
+</details>
+
+<details class="fold">
+<summary>Intenção e registros dividem um diretório</summary>
+
+Governe status e panoramas como registros. Um seletor de arquivo mantém a intenção no mesmo diretório:
+
+\`\`\`\`markdown
+\`\`\`leji-index record
+- path: docs/operations/
+\`\`\`
+
+\`\`\`leji-index intent
+- path: docs/operations/escalation-policy.md
+\`\`\`
+\`\`\`\`
+
+O seletor de arquivo prevalece. Os agentes carregam a política como intenção obrigatória; os registros aparecem separadamente, como candidatos datados, e só são carregados quando a tarefa seleciona um deles ou alguém solicita. Veja [categorias de conteúdo](/pt-br/spec/content-categories/).
+
+</details>
+
+<details class="fold">
+<summary>Apresente a camada de contexto em um visualizador</summary>
+
+\`context-index.json\` funciona com ferramentas de documentação. Comandos da CLI:
+
+\`\`\`bash
+leji viewer serve      # prévia local em http://127.0.0.1:5354/
+leji viewer build      # exporta uma pasta estática autocontida para hospedagem interna
+\`\`\`
+
+\`serve\` não é hospedagem. Publique apenas para o público da camada de contexto. O build grava os arquivos dentro do repositório (\`.leji/dist/\` por padrão, ou em um caminho de \`--out\` dentro dele), e a pasta de saída fica sob sua responsabilidade: copie-a para o local lido pelo host. Os H1 governados fornecem a navegação; os campos \`viewer\` do manifesto fornecem a identidade visual e os pins. O MkDocs pode usar o índice. Veja a [especificação da superfície legível por máquina](/pt-br/spec/machine-readable-surface/).
+
+Os renderizadores interpretam markdown de maneiras diferentes. Por isso, o [perfil de renderização](https://github.com/leji-org/leji/blob/main/adoption/rendering.md) define quais construções uma camada de contexto pode usar. \`leji export\` verifica com lint cada documento carregado de acordo com esse perfil, para que uma camada exportada sem erros fique dentro do subconjunto documentado e livre das diferenças que o perfil nomeia. Isso é mais restrito do que garantir que todo host e toda prévia de editor a renderizem de forma idêntica.
+
+</details>
+
+<details class="fold">
+<summary>Ler a partir de superfícies sincronizadas ou em sandbox</summary>
+
+Leji lê uma árvore git disponibilizada por um clone, por um mount de sandbox ou por uma pasta do Google Drive ou do Dropbox que preserve o git.
+
+Uploads, textos colados e documentos sem \`.git\` não têm metadados de versão. Não há como saber se estão atualizados; o checkout git continua sendo a fonte canônica. Veja [governança](/pt-br/spec/governance/).
+
+</details>
+
+<p class="next-step">Próximo: a <a href="/pt-br/manifest/">referência do manifesto</a> para cada campo, ou a <a href="/pt-br/spec/">especificação</a> para as regras por trás deles.</p>
+`;
+
+const processor = await createSatteriMarkdownProcessor(markdownRenderOptions);
+const html = (await processor.render(body)).code;
+---
+
+<Base
+   lang="pt-br"
+   title="Guia de adoção · Leji"
+   description="Como adotar Leji em um monorepo, em uma organização multirrepo ou ao lado de um repositório de contexto existente, sem mover os documentos que você já tem."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/adoption/" />
+         <main id="content" class="prose">
+            <PageHeader kind="guide" />
+            <h1>Guia de adoção</h1>
+            <TranslationNote strings={strings.note} href="/adoption/" />
+            <Fragment set:html={html} />
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "link-unresolved",
+        "severity": "error",
+        "path": "docs/domain/overview.md"
+      }
+    ]
+  }
+}

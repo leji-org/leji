@@ -116,6 +116,12 @@ jobs:
           compare "packages/sdk-py/pyproject.toml" "$(grep -m1 '^version' packages/sdk-py/pyproject.toml | sed -E 's/.*"([^"]+)".*/\1/')"
           compare "packages/sdk-go SDKVersion" "$(sed -nE 's/^var SDKVersion = "([^"]+)".*/\1/p' packages/sdk-go/internal/schemas/schemas.go)"
           exit "$status"
+      # And the release those manifests name carries its date: the CHANGELOG.md
+      # heading for that version reads `## <version> · YYYY-MM-DD`, and the
+      # CHANGELOG.json release entry, when the release carries one, names the same
+      # day. A tag cut past an undated heading publishes one.
+      - name: The release date is stamped
+        run: node scripts/version.ts --check --release
 
   python-dist:
     name: Python distribution (test, build, twine)
@@ -130,7 +136,7 @@ jobs:
         run: python -m pip install pip==26.2.1 && pip install -e ".[dev]" && pytest -q
       - name: Build sdist + wheel
         working-directory: packages/sdk-py
-        run: python -m pip install build==1.5.0 && python -m build
+        run: python -m pip install build==1.6.1 && python -m build
       # The gate the PyPI upload performs, on a distribution built the way the
       # upload builds one. Same function as the smoke and the pre-push hook, same
       # twine the publish action bundles.
@@ -177,7 +183,7 @@ jobs:
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           # The same goreleaser the release job installs (scripts/release-pins.env).
-          version: "v2.18.0"
+          version: "v2.18.1"
           workdir: packages/sdk-go
           args: release --clean --skip=publish
         env:

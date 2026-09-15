@@ -14,7 +14,7 @@
    --leji-deep: #183d3b;
    --leji-deepest: #102a29;
    --leji-accent: #70d8c2;
-   --leji-accent-soft: #e2f5f0;
+   --leji-accent-soft: #f6f1e0;
    --leji-canvas: #f7f8f5;
    --leji-surface: #ffffff;
    --leji-text: #183b32;
@@ -25,7 +25,9 @@
       links, small labels and interactive marks use on light grounds. */
    --leji-link: #007d59;
    --leji-border: #cde5d9;
-   --leji-code-bg: #e8f4ee;
+   /* The edge of a box that sits on the wash, in the wash's own family. */
+   --leji-wash-border: #e6dec6;
+   --leji-code-bg: #f1ede2;
    /* Decorative hairline for a light band's edges: the accent at low alpha, so
       the rule tints rather than draws. */
    --leji-accent-rule: rgba(112, 216, 194, 0.25);
@@ -37,11 +39,11 @@
 
    /* The column: ~70 characters at the body serif, in rem rather than ch.
       Both units are in use here and the split is deliberate, not drift:
-        rem (this token) — a SHARED column that different elements must all land
+        rem (this token): a SHARED column that different elements must all land
           in. `ch` cannot do this job: it is font-relative, so 70ch on a 12.5px
           mono <pre> is ~524px while 70ch on 17px serif prose is ~630px, and the
           same token would silently produce two different columns.
-        ch (headings, the hero lede, the footer tagline) — a PER-ELEMENT character
+        ch (headings, the hero lede, the footer tagline): a PER-ELEMENT character
           count that has to track that element's own size. rem cannot do this job:
           a fixed rem cap on a clamp()-sized h1 crushes it as the viewport grows.
       Rule of thumb: several elements sharing one edge, use the token; one element
@@ -72,8 +74,8 @@
 
    /* The band's full border-box height: SiteHeader's 30px logo row, its 1.05rem
       padding, and the 3px bottom border the flush variant reserves transparently.
-      The band is sticky, so this is also the strip of viewport that is spoken for
-      — anything pulling up under it or pinning or scrolling into place below it
+      The band is sticky, so this is also the strip of viewport that is spoken for:
+      anything pulling up under it or pinning or scrolling into place below it
       clears the whole painted band, border included, by this much. */
    --header-h: calc(30px + 2 * 1.05rem + 3px);
 }
@@ -258,6 +260,10 @@ kbd {
 .doc-nav ol.plain a::before {
    content: '·  ';
    color: var(--leji-brand);
+}
+/* the one-page view follows the numbered reading order without joining it */
+.doc-nav ol + ol.plain {
+   margin-top: 0.3rem;
 }
 
 /* collapsible groups */
@@ -661,6 +667,34 @@ details.fold > summary + *::before {
    details.fold > summary::before {
       transition: none;
    }
+}
+
+/* The contents box, shared by the one-page view's section list and the in-page
+   contents on a long specification document. */
+.doc-toc {
+   margin: 1.6rem 0 0.5rem;
+   padding: 1rem 1.3rem;
+   border: 1px solid var(--leji-wash-border);
+   border-radius: 10px;
+   background: var(--leji-accent-soft);
+}
+.doc-toc .toc-title {
+   font-family: var(--mono);
+   font-size: 0.72rem;
+   letter-spacing: 0.08em;
+   text-transform: uppercase;
+   color: var(--leji-text-body);
+   margin: 0 0 0.5rem;
+}
+.doc-toc ol {
+   margin: 0;
+   padding-left: 1.2rem;
+}
+.doc-toc ol ol {
+   padding-left: 1.1rem;
+}
+.doc-toc li {
+   margin: 0.2rem 0;
 }
 
 /* Sequential navigation for the specification, which reads in order. Two cells so

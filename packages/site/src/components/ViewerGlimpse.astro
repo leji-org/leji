@@ -1,135 +1,219 @@
 ---
-// Low-fidelity mock of the leji viewer (decorative, aria-hidden), not a faithful
-// reproduction. The sidebar mirrors what a real layer renders, in order: the
-// pinned entrypoints (boot profile, the generated Manifest page), then the agent
-// profiles, then the categories. The repository's own tree is not shown; in the
-// real viewer it lives behind the Reference drawer, not as a second sidebar zone.
-// Re-check this against `leji viewer` when the sidebar changes.
+// The viewer window in the hero: what `leji view` shows for the layer the terminal
+// beside it has just created. Decorative and aria-hidden (the terminal stays the
+// accessible content), but not invented: the sidebar and the page in it are the two
+// files `leji export` writes for that layer, copied into src/data/hero-glimpse/ and
+// read here, so no document, group or count is typed into this markup. The SDK's
+// site-hero test fails when the generator's output moves away from those copies, and
+// test/hero-glimpse.test.ts fails when the reading of them moves.
+//
+// Two things here are ours rather than the generator's, and both are why this is a
+// glimpse and not a screenshot. The window is a miniature: one --g-scale below sizes
+// every rule in it, so the whole sidebar and the whole map fit a terminal-sized pane.
+// And the map's geometry (box sizes, rows, connectors) is drawn by hand from the
+// mermaid text in the pinned file, because mermaid lays out at render time and this
+// is static. The labels and counts on it are the file's.
+//
+// Folders render the way the viewer paints them on arrival: closed, with their
+// documents in the markup and hidden, which is exactly what the viewer's collapse
+// plugin does on a page that sits in no folder.
+//
+// The viewer's own typeface, at the two weights its chrome uses, is imported here and
+// nowhere else: nothing outside this window renders in it.
+import '@fontsource/source-sans-pro/400.css';
+import '@fontsource/source-sans-pro/600.css';
 import icon from '../assets/leji-icon.svg?raw';
+import sidebarMd from '../data/hero-glimpse/_sidebar.md?raw';
+import overviewMd from '../data/hero-glimpse/overview.md?raw';
+import { parseOverview, parseSidebar, type MapNode } from '../lib/hero-glimpse.ts';
+
+const sidebar = parseSidebar(sidebarMd);
+const overview = parseOverview(overviewMd);
+/** The map as the pinned file declares it: one root, and the categories that hang off
+ * it by one edge each. The parser proves that shape or refuses the file, so the
+ * drawing below can follow it instead of taking it on trust. */
+const { root, categories } = overview.map;
+
+/** `code` and **emphasis** in the seeded prose, the way the viewer renders them. */
+type Token = { kind: 'text' | 'code' | 'strong'; text: string };
+const inline = (prose: string): Token[] =>
+   prose
+      .split(/(`[^`]+`|\*\*[^*]+\*\*)/g)
+      .filter((part) => part !== '')
+      .map((part): Token => {
+         if (part.startsWith('`')) return { kind: 'code', text: part.slice(1, -1) };
+         if (part.startsWith('**')) return { kind: 'strong', text: part.slice(2, -2) };
+         return { kind: 'text', text: part };
+      });
+
+// Map geometry, in the SVG's own units. A box is sized to its caption because the
+// generated labels differ in length, the way mermaid sizes them. One connector is
+// drawn per parsed edge, which is one per category: the parser rejects a map where
+// that is not true, rather than letting this drawing quietly stand in for another.
+const NODE_H = 26;
+const ROW_GAP = 12;
+const COL_X = 132;
+const PAD_X = 9;
+const CHAR_W = 4.9;
+const caption = (node: MapNode): string => (node.count === '' ? node.label : `${node.label} · ${node.count}`);
+const boxWidth = (node: MapNode): number => Math.round(PAD_X * 2 + [...caption(node)].length * CHAR_W);
+const rowY = (index: number): number => index * (NODE_H + ROW_GAP);
+const mapH = categories.length * NODE_H + (categories.length - 1) * ROW_GAP;
+const mapW = COL_X + Math.max(...categories.map(boxWidth));
+const rootW = boxWidth(root);
+const rootY = (mapH - NODE_H) / 2;
 ---
 
 <div class="glimpse" aria-hidden="true">
    <aside class="g-side">
       <div class="g-search">Search the context layer…</div>
-      <div class="g-brand"><span class="g-mark" set:html={icon} /><span class="g-name">AI-native Team</span></div>
-      <div class="g-boot"><span class="g-emo">🤖</span> Boot profile</div>
-      <div class="g-boot"><span class="g-emo">📄</span> Manifest</div>
+      <div class="g-brand"><span class="g-mark" set:html={icon} /><span class="g-name">{overview.title}</span></div>
+      <ul class="g-pins">
+         {sidebar.pins.map((pin) => <li>{pin}</li>)}
+      </ul>
       <hr class="g-hr" />
       <ul class="g-nav">
-         <li><span class="g-tri">▶</span><span class="g-emo">🤖</span> Agents</li>
-         <li><span class="g-tri">▶</span><span class="g-emo">📖</span> Domain</li>
-         <li><span class="g-tri">▶</span><span class="g-emo">⚙️</span> System</li>
-         <li><span class="g-tri">▶</span><span class="g-emo">🛠️</span> Practice</li>
-         <li><span class="g-tri">▶</span><span class="g-emo">🛡️</span> Governance</li>
-         <li><span class="g-tri">▶</span><span class="g-emo">🧭</span> Decisions</li>
+         {
+            sidebar.groups.map((group) => (
+               <li class="g-folder">
+                  <span class="g-tri">▶</span>
+                  <span class="g-label">{group.label}</span>
+                  <ul class="g-sub">
+                     {group.entries.map((entry) => (
+                        <li>{entry}</li>
+                     ))}
+                  </ul>
+               </li>
+            ))
+         }
       </ul>
+      {
+         sidebar.drawer && (
+            <>
+               <hr class="g-hr" />
+               <ul class="g-nav">
+                  <li class="g-folder">
+                     <span class="g-tri">▶</span>
+                     <span class="g-label">{sidebar.drawer.label}</span>
+                     <ul class="g-sub">
+                        {sidebar.drawer.entries.map((entry) => (
+                           <li>{entry}</li>
+                        ))}
+                     </ul>
+                  </li>
+               </ul>
+            </>
+         )
+      }
    </aside>
 
    <section class="g-main">
-      <p class="g-eyebrow">Overview</p>
-      <h3 class="g-h1">AI-native Team</h3>
-      <p class="g-lede">The context people and agents read before working here.</p>
+      {sidebar.drawer && <div class="g-cat">{sidebar.drawer.label}</div>}
+      <h3 class="g-h1">{overview.title}</h3>
+      {
+         overview.paragraphs.map((prose) => (
+            <p class="g-p">
+               {inline(prose).map((token) =>
+                  token.kind === 'code' ? (
+                     <code>{token.text}</code>
+                  ) : token.kind === 'strong' ? (
+                     <strong>{token.text}</strong>
+                  ) : (
+                     token.text
+                  ),
+               )}
+            </p>
+         ))
+      }
 
-      <svg class="g-map" viewBox="0 0 320 250" role="presentation" preserveAspectRatio="xMidYMid meet">
+      <svg class="g-map" viewBox={`0 0 ${mapW + 2} ${mapH}`} role="presentation" preserveAspectRatio="xMinYMid meet">
          <defs>
-            <marker id="lj-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto">
-               <path d="M0 1 L6 4 L0 7 z"></path>
+            <marker
+               id="lj-glimpse-arrow"
+               viewBox="0 0 8 8"
+               refX="7"
+               refY="4"
+               markerWidth="5"
+               markerHeight="5"
+               orient="auto"
+            >
+               <path d="M0 1 L7 4 L0 7 z"></path>
             </marker>
          </defs>
-
          <g class="g-edge" fill="none">
-            <path d="M160 50 L160 58" marker-end="url(#lj-arrow)"></path>
-            <path d="M160 104 L160 114" marker-end="url(#lj-arrow)"></path>
-            <path d="M160 146 L160 156" marker-end="url(#lj-arrow)"></path>
-            <path d="M160 200 L160 212" marker-end="url(#lj-arrow)"></path>
+            {
+               categories.map((_, index) => (
+                  <path
+                     d={`M${rootW} ${rootY + NODE_H / 2} L${COL_X - 6} ${rowY(index) + NODE_H / 2}`}
+                     marker-end="url(#lj-glimpse-arrow)"
+                  />
+               ))
+            }
          </g>
-         <g class="g-edge g-edge-back" fill="none">
-            <path d="M206 98 C272 98 282 26 188 26" marker-end="url(#lj-arrow)"></path>
-            <path d="M114 198 C40 198 32 26 132 26" marker-end="url(#lj-arrow)"></path>
-         </g>
-
-         <g class="g-entry">
-            <circle cx="160" cy="26" r="24"></circle>
-            <text class="g-t" x="160" y="29">Propose</text>
-         </g>
-
-         <g class="g-gate">
-            <path d="M160 60 L220 104 L100 104 Z"></path>
-            <text class="g-t" x="160" y="88">Review</text>
-            <text class="g-s" x="160" y="98">a person approves</text>
-         </g>
-
-         <g class="g-artifact">
-            <rect x="76" y="116" width="168" height="30"></rect>
-            <text class="g-t" x="160" y="130">In the context layer</text>
-            <text class="g-s" x="160" y="140">indexed, owned, routed</text>
-         </g>
-
-         <g class="g-gate">
-            <path d="M160 156 L220 200 L100 200 Z"></path>
-            <text class="g-t" x="160" y="184">Review horizon</text>
-            <text class="g-s" x="160" y="194">past its date?</text>
-         </g>
-
-         <g class="g-node">
-            <rect x="76" y="214" width="168" height="30"></rect>
-            <text class="g-t" x="160" y="228">Loaded on the next task</text>
-            <text class="g-s" x="160" y="238">by people and agents</text>
-         </g>
-
-         <g class="g-lbl">
-            <rect x="140" y="105" width="40" height="10"></rect>
-            <text x="160" y="112">approved</text>
-         </g>
-         <g class="g-lbl">
-            <rect x="131" y="201" width="58" height="10"></rect>
-            <text x="160" y="208">within horizon</text>
-         </g>
-         <g class="g-lbl">
-            <rect x="254" y="46" width="48" height="19"></rect>
-            <text x="278" y="54">changes</text>
-            <text x="278" y="63">requested</text>
-         </g>
-         <g class="g-lbl">
-            <rect x="10" y="102" width="46" height="19"></rect>
-            <text x="33" y="110">past due,</text>
-            <text x="33" y="119">flagged</text>
+         <g class="g-box">
+            <rect x="0" y={rootY} width={rootW} height={NODE_H} rx="1"></rect>
+            <text x={PAD_X} y={rootY + NODE_H / 2 + 3.4}>{caption(root)}</text>
+            {
+               categories.map((node, index) => (
+                  <>
+                     <rect x={COL_X} y={rowY(index)} width={boxWidth(node)} height={NODE_H} rx="1" />
+                     <text x={COL_X + PAD_X} y={rowY(index) + NODE_H / 2 + 3.4}>
+                        {caption(node)}
+                     </text>
+                  </>
+               ))
+            }
          </g>
       </svg>
+
+      <p class="g-powered">Powered by <span class="g-spark">✦</span> <strong>Leji</strong></p>
    </section>
 </div>
 
 <style>
+   /* The viewer's own tones, as literal values rather than the site's tokens: this
+      window is a render of another product's chrome sitting inside the hero, and it
+      must not move when the site's palette does. Base 15px is the viewer's body size,
+      so every rule below can be written in the viewer's own ems and the whole window
+      scales on one number. */
    .glimpse {
+      --g-scale: 0.57;
+      --v-page: #ffffff;
+      --v-canvas: #f7f8f5;
+      --v-border: #cde5d9;
+      --v-ink: #183b32;
+      --v-body: #4d5b56;
+      --v-chip: #e8f4ee;
+      --v-accent: #009f71;
+      --v-link: #007d59;
+      --v-line: #666666;
+      --v-sans: 'Source Sans Pro', 'Helvetica Neue', Arial, sans-serif;
+      --v-mono: 'Roboto Mono', Monaco, courier, monospace;
+
       position: absolute;
       inset: 0;
       display: grid;
-      grid-template-columns: minmax(7.5rem, 38%) 1fr;
-      /* The viewer's own window, sitting on the deep-green hero band: it renders
-         on white, and the sidebar takes a hair of the canvas so the split reads. */
-      background: var(--leji-surface);
-      color: var(--leji-text);
-      font-family: var(--serif-text);
+      grid-template-columns: 20em 1fr;
+      background: var(--v-page);
+      color: var(--v-body);
+      font-family: var(--v-sans);
+      font-size: calc(15px * var(--g-scale));
+      line-height: 1.7;
       overflow: hidden;
       text-align: left;
    }
 
-   /* Sidebar chrome after the viewer's own green pass: the canvas tint against a
-      white page, divided by the brand border. */
    .g-side {
-      position: relative;
-      background: var(--leji-canvas);
-      border-right: 1px solid var(--leji-border);
-      padding: 0.55rem 0.6rem 1.4rem;
+      background: var(--v-canvas);
+      border-right: 1px solid var(--v-border);
+      padding: 0.8em 1.2em 1em;
       min-width: 0;
    }
    .g-search {
-      font-size: 0.56rem;
-      color: var(--leji-text-body);
-      background: var(--leji-surface);
-      border: 1px solid var(--leji-border);
-      border-radius: 5px;
-      padding: 0.32rem 0.45rem;
+      background: var(--v-page);
+      border-radius: 0.4em;
+      padding: 0.5em 0.7em;
+      color: var(--v-body);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -137,176 +221,136 @@ import icon from '../assets/leji-icon.svg?raw';
    .g-brand {
       display: flex;
       align-items: center;
-      gap: 0.3rem;
-      margin: 0.6rem 0 0.5rem;
+      gap: 0.45em;
+      margin: 1.1em 0 0.9em;
    }
    .g-mark :global(svg) {
       display: block;
-      width: 1.05rem;
+      width: 1.7em;
       height: auto;
    }
    .g-name {
-      font-family: var(--serif-display);
       font-weight: 600;
-      font-size: 0.92rem;
-      color: var(--leji-link);
-      letter-spacing: 0.01em;
+      font-size: 1.6em;
+      line-height: 1.2;
+      color: var(--v-accent);
    }
-   .g-boot {
-      font-size: 0.62rem;
-      color: var(--leji-text-body);
-      padding: 0.12rem 0;
-   }
-   .g-hr {
-      border: 0;
-      border-top: 1px solid var(--leji-border);
-      margin: 0.45rem 0;
-   }
-   .g-nav {
+   .g-pins,
+   .g-nav,
+   .g-sub {
       list-style: none;
       margin: 0;
       padding: 0;
    }
-   .g-nav li {
+   .g-pins li {
+      font-weight: 500;
+      padding: 0.14em 0;
+      white-space: nowrap;
+   }
+   .g-hr {
+      border: 0;
+      border-top: 1px solid var(--v-border);
+      margin: 1.05em 0;
+   }
+   .g-folder {
       display: flex;
-      align-items: center;
-      gap: 0.28rem;
-      font-size: 0.62rem;
-      font-weight: 700;
-      color: var(--leji-text);
-      padding: 0.18rem 0;
+      align-items: baseline;
+      gap: 0.5em;
+      padding: 0.14em 0;
       white-space: nowrap;
    }
    .g-tri {
-      font-size: 0.42rem;
-      color: var(--leji-text-muted);
-      font-weight: 400;
+      font-size: 0.55em;
+      color: #aaaaaa;
    }
-   .g-emo {
-      font-size: 0.66rem;
+   .g-label {
+      font-weight: 600;
+      color: var(--v-ink);
    }
+   /* The documents are in the markup and hidden, which is where the viewer leaves
+      them until the folder is opened. */
+   .g-sub {
+      display: none;
+   }
+
    .g-main {
-      padding: 0.7rem 0.9rem;
+      position: relative;
+      padding: 1.4em 1.8em 1em;
       min-width: 0;
    }
-   .g-eyebrow {
-      margin: 0 0 0.3rem;
-      font-family: var(--mono);
-      font-size: 0.5rem;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--leji-link);
+   .g-cat {
+      position: absolute;
+      top: 0.8em;
+      right: 0.9em;
+      background: var(--v-canvas);
+      border: 1px solid var(--v-border);
+      border-radius: 999px;
+      padding: 0.2em 0.66em;
+      font-size: 0.75em;
+      line-height: 1.5;
+      color: var(--v-body);
    }
    .g-h1 {
-      font-family: var(--serif-display);
-      font-weight: 560;
-      font-size: 1.25rem;
-      line-height: 1;
-      color: var(--leji-text);
-      margin: 0 0 0.35rem;
+      font-size: 2.13em;
+      font-weight: 600;
+      line-height: 1.2;
+      color: var(--v-ink);
+      margin: 0.4em 0 0.6em;
    }
-   .g-lede {
-      font-size: 0.6rem;
-      line-height: 1.35;
-      color: var(--leji-text-body);
-      margin: 0 0 0.6rem;
-      max-width: 22rem;
+   .g-p {
+      margin: 0 0 1em;
+      color: var(--v-body);
+      max-width: 46em;
    }
+   .g-p strong {
+      font-weight: 600;
+      color: var(--v-ink);
+   }
+   .g-p code {
+      font-family: var(--v-mono);
+      font-size: 0.85em;
+      background: var(--v-chip);
+      color: var(--v-link);
+      border-radius: 2px;
+      padding: 0.2em 0.33em;
+   }
+
    .g-map {
-      width: 100%;
-      max-width: 15.75rem;
-      height: auto;
       display: block;
+      width: 100%;
+      max-width: 25em;
+      height: auto;
+      margin-top: 0.4em;
    }
-   /* The review gate, drawn the way a team would keep it under governance:
-      people and agents both propose, a person approves, rejected work returns.
-      The mint accent is spent once, on the gate, because that approval is the
-      mechanism the whole spec exists to enforce; everything else stays quiet
-      deep green. Left to right, matching the flowchart LR the generated viewer
-      emits. The accent is a fill and never text: it measures 1.7:1 on white. */
    .g-edge path {
-      stroke: var(--leji-brand);
-      stroke-width: 1.3;
-      opacity: 0.6;
-   }
-   .g-edge-back path {
-      stroke-dasharray: 3 3;
-      opacity: 0.55;
+      stroke: var(--v-line);
+      stroke-width: 1;
    }
    .g-map marker path {
-      fill: var(--leji-brand);
-      opacity: 0.6;
+      fill: var(--v-line);
    }
-   .g-node rect {
-      fill: var(--leji-deep);
-      stroke: var(--leji-deepest);
-      stroke-width: 1;
+   .g-box rect {
+      fill: var(--v-accent);
+      stroke: #165644;
+      stroke-width: 0.5;
    }
-   .g-gate path {
-      fill: var(--leji-accent);
-      stroke: var(--leji-brand-dark);
-      stroke-width: 1;
+   .g-box text {
+      fill: #1a1a1a;
+      font-family: var(--v-sans);
+      font-size: 9px;
    }
-   .g-node text,
-   .g-gate text,
-   .g-entry text,
-   .g-artifact text {
-      font-family: var(--serif-text);
-      text-anchor: middle;
+
+   .g-powered {
+      position: absolute;
+      right: 1.1em;
+      bottom: 0.7em;
+      margin: 0;
+      font-size: 0.75em;
+      color: var(--v-body);
    }
-   .g-t {
-      font-size: 9.5px;
+   .g-powered strong,
+   .g-spark {
+      color: var(--v-link);
       font-weight: 600;
-   }
-   .g-s {
-      font-size: 7px;
-   }
-   .g-node .g-t {
-      fill: var(--leji-canvas);
-   }
-   .g-node .g-s {
-      fill: rgba(247, 248, 245, 0.72);
-   }
-   .g-gate .g-t,
-   .g-gate .g-s {
-      fill: var(--leji-text);
-   }
-   .g-gate .g-s {
-      opacity: 0.72;
-   }
-   /* Flat shapes only, matching what mermaid actually renders: sharp rectangles,
-      triangles for the gates, a circle for the entry point, arrows for flow. The
-      split is semantic, not decorative: deep green for a step, mint for a
-      decision, pale mint for the artifact the steps act on. */
-   .g-entry circle {
-      fill: var(--leji-deep);
-      stroke: var(--leji-deepest);
-      stroke-width: 1;
-   }
-   .g-artifact rect {
-      fill: var(--leji-accent-soft);
-      stroke: var(--leji-brand);
-      stroke-width: 1;
-   }
-   .g-entry .g-t {
-      fill: var(--leji-canvas);
-   }
-   .g-artifact .g-t {
-      fill: var(--leji-text);
-   }
-   .g-artifact .g-s {
-      fill: var(--leji-text);
-      opacity: 0.7;
-   }
-   /* Edge labels sit on the line with a white knockout, the way mermaid draws
-      them, rather than floating in the margin. */
-   .g-lbl rect {
-      fill: var(--leji-surface);
-   }
-   .g-lbl text {
-      fill: var(--leji-text-body);
-      font-family: var(--serif-text);
-      font-size: 7.5px;
-      text-anchor: middle;
    }
 </style>

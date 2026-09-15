@@ -34,7 +34,7 @@
     },
     "rootPath": {
       "type": "string",
-      "description": "Context root, POSIX path relative to the repository root. Declares where the context layer lives; it does not re-base other paths: all paths in all Leji artifacts resolve from the repository root.",
+      "description": "Context root, POSIX path relative to the repository root. Declares where the context layer lives; it does not re-base the paths it governs: index entries, pinned pages, profile paths, and every other path in Leji artifacts resolve from the repository root. The viewer's `homepage`, `logo`, and `favicon` are the exception: they are written relative to the context root, and a repository-root-relative path under it is accepted too.",
       "pattern": "^(?!/)(?!\\./)(?!.*(^|/)\\.\\.(/|$))(?!.*\\\\).*$"
     },
     "bootProfilePath": {
@@ -312,7 +312,11 @@
           "properties": {
             "primary": {
               "type": "string",
-              "description": "Primary/accent color as a hex CSS color (e.g. \"#009F71\"). Drives the viewer chrome, active states, and diagram accents; body links and inline code use the fixed accessible tone."
+              "description": "Primary/accent color as a hex CSS color (e.g. \"#009F71\"). Drives the viewer chrome, active states, and diagram accents; body links and inline code use the fixed accessible tone unless viewer.theme.link supplies one that clears the contrast guard."
+            },
+            "link": {
+              "type": "string",
+              "description": "Link color as a hex CSS color (e.g. \"#5A50F9\"). Applied to body links and inline code only when it reaches 4.5:1 against the inline-code ground, the narrower of the two backgrounds they land on; otherwise the fixed accessible tone stays and `leji view` / `leji export` warn."
             }
           }
         },

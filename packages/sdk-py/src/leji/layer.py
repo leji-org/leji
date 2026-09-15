@@ -69,12 +69,16 @@ def _read_text_within(root: str, abs_path: Path) -> Optional[str]:
     """Read a file only when it resolves (following symlinks) within the layer
     root; mirrors Node's readTextWithin (returns None on escape or missing).
 
-    Read-side, behind an existence check, so it takes the lenient containment form:
-    see :func:`~leji.fsx.is_contained` for why this port cannot use the fail-closed
-    one here without refusing layers the reference SDK reads."""
-    if not abs_path.is_file():
-        return None
+    Containment is judged first and existence second, the order the link resolver
+    already uses, so the trust-boundary idiom reads the same way everywhere. Both
+    must pass, so the returned value is unchanged either way.
+
+    Read-side, so it takes the lenient containment form: see
+    :func:`~leji.fsx.is_contained` for why this port cannot use the fail-closed one
+    here without refusing layers the reference SDK reads."""
     if not is_contained(root, abs_path):
+        return None
+    if not abs_path.is_file():
         return None
     try:
         return abs_path.read_text(encoding="utf-8")
@@ -95,6 +99,10 @@ class _Selector:
     index_rel: str
     is_file_selector: bool
     depth: int
+    # 0-based position of the entry within its index file's authored order (the
+    # leji-index blocks concatenated in document order). Curation the viewer
+    # renders; resolution never reads it.
+    pos: int
     # Markdown paths this selector resolves to.
     covered: list[str]
 
@@ -205,7 +213,11 @@ def _collect_selectors(
             parsed = parse_index_file(text)
             for err in parsed.errors:
                 findings.append(Finding("index-file-parse", "error", err, index_rel))
-            for entry in parsed.entries:
+            # The entry's own index carries its authored position, so an entry that
+            # fails to expand still spends its place and the others keep theirs.
+            # Positions enumerate PARSED entries: a malformed, invalid or duplicate
+            # line produced no entry above and so spends no place.
+            for pos, entry in enumerate(parsed.entries):
                 expanded = _expand_entry(root, index_rel, entry.path, findings)
                 if expanded is None:
                     continue
@@ -218,6 +230,7 @@ def _collect_selectors(
                         index_rel=index_rel,
                         is_file_selector=is_file_selector,
                         depth=len(entry.path.rstrip("/").split("/")),
+                        pos=pos,
                         covered=covered,
                     )
                 )
@@ -243,12 +256,17 @@ def resolve_category_paths(
 @dataclass
 class Assignment:
     """A document's resolved assignment: its single category, the winning
-    selector's kind (before any frontmatter override), and the index file that
-    declared the winning selector (the viewer groups by it)."""
+    selector's kind (before any frontmatter override), the index file that
+    declared the winning selector (the viewer groups by it), and that selector's
+    declared position (the viewer orders by it)."""
 
     category: str
     kind: str
     index_rel: str
+    # The winning selector's pos: where the entry that won this document sits in
+    # its index file's authored order. Every document a directory entry expands
+    # to shares that entry's single position.
+    order: int
 
 
 def resolve_category_assignments_with_skips(
@@ -300,7 +318,10 @@ def resolve_category_assignments_with_skips(
         for s in best:
             winners.add(s)
         assignments[rel_path] = Assignment(
-            category=first.category, kind=first.kind, index_rel=first.index_rel
+            category=first.category,
+            kind=first.kind,
+            index_rel=first.index_rel,
+            order=first.pos,
         )
 
     # A selector that covered documents but won none is fully shadowed by

@@ -1,0 +1,208 @@
+{
+  "agent-profile": {
+    "source": "6f35071154c7a40523370848f4c2d0e88102aaaa",
+    "strings": {
+      "/title": "Leji エージェントプロファイルのフロントマター",
+      "/description": "エージェントプロファイル文書の YAML フロントマターを検証します。markdown の本文は自由な形式のままです。",
+      "/properties/id/description": "このプロファイルの安定した識別子です。たとえば \"core\" や \"reviewer\"。",
+      "/properties/name/description": "人が読めるロールの名前です。",
+      "/properties/role/description": "このプロファイルが担うロール識別子です。マニフェストの agents マップで結び付けられます。",
+      "/properties/purpose/description": "このロールが何のためにあるのかを、一行で述べます。",
+      "/properties/version/description": "このプロファイルのバージョンです。任意です。",
+      "/properties/inherits/description": "このプロファイルが姿勢の配列と本文を受け継ぐ、ただひとつの core プロファイルの id です。解決は仕様に従います。解決は 1 段階だけで、対象は存在し、一意であり、role として core を宣言していなければなりません。inherits を宣言したプロファイルは、基となるプロファイルが与えている箇所については requiredRead と mustAskWhen を省略できます。",
+      "/properties/requiredRead/description": "このロールが、あらゆる作業の前に読み込むパスです。",
+      "/properties/defaultContext/description": "このロールが既定で読み込むカテゴリです。",
+      "/properties/mustAskWhen/description": "ロールが手を止めて人に尋ねなければならない条件です。",
+      "/properties/mustRefuseWhen/description": "ロールが尋ねるのではなく、はっきり断らなければならない条件です。",
+      "/properties/escalation/description": "誰に、あるいはどこにエスカレーションするかです。",
+      "/properties/owners/description": "このプロファイルの所有者です。任意です。",
+      "/properties/freshness/description": "このプロファイルのレビューの期限です。",
+      "/properties/freshness/properties/reviewAfter/description": "この日付を過ぎたら、プロファイルが古くなっていないか見直すべき、という ISO 8601 の日付です。",
+      "/properties/host/description": "このエージェントを動かすエージェントホストです。たとえば \"claude-code\"、\"codex\"、\"cursor\"。ホストに依存しないプロファイルでは省略します。",
+      "/properties/invocation/description": "このエージェントに、外部の CLI としてどう関与するかです。ホスト自身の常駐エージェントでは省略します。",
+      "/properties/invocation/properties/command/description": "シェルからこのエージェントに関与するためのコマンドテンプレートです。<prompt> プレースホルダーを必ず含み、それは引用符で囲まない独立したシェルの語として置かれなければなりません。pattern が確かめるのは置換の箇所が存在することだけで、どこに置くかは仕様の規則です。",
+      "/properties/invocation/properties/constraints/description": "機械が知っておく価値のある、運用上の制約です。たとえばプロンプトの長さの制限やタイムアウト。"
+    },
+    "example": {
+      "source": "350f79bd5da7f1f45dd056e68cc8e4e71e6015d2",
+      "strings": {
+        "/purpose": "文章、設計上の判断、そして判断を要する問いについての、独立したセカンドオピニオン。",
+        "/invocation/constraints/0": "プロンプトは簡潔に保つ。非常に長いプロンプトは CLI を止めてしまう",
+        "/invocation/constraints/1": "対話的ではない。プロンプトをひとつ渡すと返答がひとつ返るだけで、セッションの状態は持たない",
+        "/mustAskWhen/0": "その判断が、記録済みの決定を変えてしまうとき",
+        "/mustAskWhen/1": "その問いが、コンテキストレイヤーにまだない機微な資料に関わるとき"
+      },
+      "body": "# Thought Partner (Codex)\n\n`leji.json` の `thought-partner` ロールを通じて関与し、手順の中で名前を直接\n指すことはありません。指示は、それ自体で完結するプロンプトで渡します。対象と\nなる文章や決定、それを縛る制約、そして正確な問いです。このリポジトリにも、その\n履歴にもアクセスできません。判断してほしいことは、すべてプロンプトに入れます。\n\nその判断は、ひとつの見方として扱ってください。このパートナーと常駐エージェント\nの見解が分かれたときは、双方の見立てを添えて人に委ねます。"
+    }
+  },
+  "context-changelog": {
+    "source": "c37993e1f94a670b97ced6604478192b05678f43",
+    "strings": {
+      "/title": "Leji コンテキスト変更履歴",
+      "/description": "コンテキストレイヤーの変更を、追記のみで残す機械可読な記録です。",
+      "/properties/schemaVersion/description": "この成果物が書かれた対象の Leji 仕様系列です。たとえば \"1.0\"。",
+      "/properties/entries/description": "コンテキストレイヤーの変更です。正典の順序は (date, id) の昇順に並べることで導かれ、配列上の位置には意味がありません。新しいエントリはどこに現れても構いません。最も古いものは、compaction エントリを添えて圧縮できます。エントリは少なくともひとつ必要です。生まれたときから空の変更履歴は妥当ではなく、圧縮は必ず自らの compaction エントリを残していくからです。",
+      "/properties/entries/items/properties/id/description": "この変更エントリの安定した識別子です。変更履歴の中で一意です。",
+      "/properties/entries/items/properties/date/description": "UTC の ISO 8601 です。暦日 YYYY-MM-DD（その日の始まりとして順序づけられます）か、Z で終わる完全なタイムスタンプ（たとえば 2026-06-13T15:04:05Z）のどちらかです。オフセットとゾーンのない時刻は許されないので、辞書順がそのまま時系列順になります。",
+      "/properties/entries/items/properties/type/description": "変更の種別です。",
+      "/properties/entries/items/properties/summary/description": "何が変わったのかを、一行で述べます。",
+      "/properties/entries/items/properties/paths/description": "その変更が影響したパスです。リポジトリルートからの相対で、少なくともひとつ必要です。compaction エントリは、畳み込んだパスの和集合を記録します。その和集合が空のときは、変更履歴自身のパスを記録します。",
+      "/properties/entries/items/properties/categories/description": "その変更が触れたコンテンツカテゴリです。",
+      "/properties/entries/items/properties/decisionRefs/description": "この変更に関係する決定記録の id です。",
+      "/properties/entries/items/properties/proposedBy/description": "その変更を提案した人またはエージェントです。",
+      "/properties/entries/items/properties/approvedBy/description": "その変更を承認した人です。",
+      "/properties/entries/items/properties/breaking/description": "その変更が、コンテキストレイヤーの利用側を壊すかどうかです。",
+      "/properties/entries/items/properties/compacted/description": "compaction エントリでは必須です。その圧縮が最も古い側から何を取り除いたのかを示します。",
+      "/properties/entries/items/properties/compacted/properties/entries/description": "この圧縮が最も古い側から取り除いたエントリの件数です。",
+      "/properties/entries/items/properties/compacted/properties/firstId/description": "この圧縮が取り除いたうち、最も古いエントリの id です。",
+      "/properties/entries/items/properties/compacted/properties/lastId/description": "この圧縮が取り除いたうち、最も新しいエントリの id です。"
+    },
+    "example": {
+      "source": "9f6e37373aa0afc00b85a6125f4aa703e67a1f76",
+      "strings": {
+        "/entries/0/summary": "コンテキストレイヤーを立ち上げた。ブートプロファイル、用語集、システムの不変条件、最初の決定記録。",
+        "/entries/1/summary": "thought-partner のエージェントプロファイルを追加し、マニフェストの agents マップでロールに結び付けた。",
+        "/entries/2/summary": "コンテキストレイヤーの所有権を Jo Lee から Acme Platform Team に引き継いだ。"
+      }
+    }
+  },
+  "context-index": {
+    "source": "a2f819e56b9f0ea827117dcb4e0ef69a80e294a9",
+    "strings": {
+      "/title": "Leji コンテキストインデックス",
+      "/description": "コンテキストレイヤーの、生成される地図です。手で維持するものではなく、変更のたびに生成し直します。",
+      "/properties/schemaVersion/description": "この成果物が書かれた対象の Leji 仕様系列です。たとえば \"1.0\"。",
+      "/properties/generatedAt/description": "インデックスが生成された時刻の ISO 8601 タイムスタンプです。",
+      "/properties/generator/description": "このインデックスを生成したツールです。",
+      "/properties/generator/properties/name/description": "生成したツールの名前です。たとえば \"leji\"。",
+      "/properties/generator/properties/version/description": "生成したツールのバージョンです。",
+      "/properties/rootPath/description": "このインデックスが生成された対象の、コンテキストレイヤーのルートです。マニフェストの rootPath と一致します。エントリのパスはリポジトリルートからの相対であり、このルートを基準に取り直されることはありません。",
+      "/properties/entries/description": "コンテキストレイヤーの中でインデックス化された文書 1 件につき、1 エントリです。`id` も `path` も、エントリ全体を通じて一意です。リファレンスの検証ツールがそれを強制します（制約が対象とするのはオブジェクト全体ではなく下位のフィールドなので、JSON Schema では表現できません）。",
+      "/properties/entries/items/properties/id/description": "安定した識別子です。改名や移動が更新するのは path であって、id ではありません。",
+      "/properties/entries/items/properties/path/description": "その文書への、リポジトリルートからの相対パスです。",
+      "/properties/entries/items/properties/title/description": "人が読めるタイトルです。その文書の最初の見出しか、フロントマターから取ります。",
+      "/properties/entries/items/properties/category/description": "この文書が、どのコンテンツカテゴリに属するかです。",
+      "/properties/entries/items/properties/kind/description": "その文書が、維持される現在の真実（intent）なのか、日付のある証跡（record）なのかです。値がない場合は intent を意味します。",
+      "/properties/entries/items/properties/date/description": "record の日付です。妥当なフロントマターの date からのみ取ります。",
+      "/properties/entries/items/properties/summary/description": "その文書の一行の要約です。経路の決定とナビゲーションに使います。",
+      "/properties/entries/items/properties/tags/description": "自由な形式のタグです。任意です。",
+      "/properties/entries/items/properties/owners/description": "この文書の所有者です。任意です。",
+      "/properties/entries/items/properties/lastModified/description": "その文書が最後に変わった日付（ISO 8601）です。可能な場合はバージョン管理から取ります。",
+      "/properties/entries/items/properties/contentHash/description": "その文書の内容のハッシュです。ずれと、内容を保ったままの移動を見分けるために使います。",
+      "/properties/entries/items/properties/freshness/description": "この文書のレビューの期限です。",
+      "/properties/entries/items/properties/freshness/properties/reviewAfter/description": "この日付を過ぎたら、文書が古くなっていないか見直すべき、という ISO 8601 の日付です。",
+      "/properties/entries/items/properties/links/description": "この文書からの外向きの参照です。任意です。",
+      "/properties/mounts/description": "フェデレーションされた兄弟コンテキストレイヤーの、経路の記録です。マニフェストの federation.mounts から導かれます（仕様: distribution.md、machine-readable-surface.md）。経路のメタデータに限られます。ツールは、兄弟のインデックスエントリや散文をここへコピーしてはなりません（MUST NOT）。マウントの記録は、ホストの読み手が見てはならないものを決して明かしません。",
+      "/properties/mounts/items/properties/name/description": "兄弟レイヤーの名前です。兄弟自身のマニフェストにある name と一致します。",
+      "/properties/mounts/items/properties/source/description": "兄弟レイヤーの、正規化されたリポジトリの所在です。",
+      "/properties/mounts/items/properties/pin/description": "ホストが読む兄弟のリビジョンの、不変なコミット id（SHA-1 または SHA-256）を完全な形で示したものです。",
+      "/properties/mounts/items/properties/trackingRef/description": "到達可能性と古さを照らして判断する相手となる、完全修飾の参照（証跡となる参照）です。宣言されている場合に使われます。",
+      "/properties/mounts/items/properties/owner/description": "兄弟レイヤーの所有者です。",
+      "/properties/mounts/items/properties/role/description": "その兄弟が何を担っているかの、散文による説明です。",
+      "/properties/mounts/items/properties/categories/description": "この兄弟が答えを返せる、コンテンツカテゴリの範囲です。",
+      "/properties/mounts/items/properties/topics/description": "関連度による経路の決定に使う、短いトピックのラベルです。",
+      "/properties/mounts/items/properties/requiredWhen/description": "読み手がこのマウントを解決しなければならない、さもなければフェイルクローズする、という作業の条件です。"
+    },
+    "example": {
+      "source": "1fccbf70bba6d629e338183ef7f1ddae193eb5f8",
+      "strings": {
+        "/entries/0/title": "Leji コンテキストレイヤーの導入",
+        "/entries/1/title": "用語集",
+        "/entries/1/summary": "Acme における invoice、credit note、settlement の意味。",
+        "/entries/2/title": "システムの不変条件",
+        "/entries/2/summary": "金銭の扱い、元帳の追記のみの規則、サービスの境界。"
+      }
+    }
+  },
+  "context-manifest": {
+    "source": "c9af35cb227900101494492f8824a1685ac4124c",
+    "strings": {
+      "/title": "Leji コンテキストマニフェスト（leji.json）",
+      "/description": "Leji コンテキストレイヤーの、機械向けエントリポイントです。リポジトリルートに leji.json として置かれます。",
+      "/properties/leji/description": "このコンテキストレイヤーが対象とする Leji の仕様系列です。たとえば \"1.0\"。自らを名乗るこのキーは OpenAPI の慣習に倣ったもので、このファイルが Leji のマニフェストであることを示します。",
+      "/properties/name/description": "このコンテキストレイヤーの、短く安定した識別子です。たとえば \"acme-billing-context\"。",
+      "/properties/description/description": "このコンテキストレイヤーが何を扱うのかの、一行の要約です。",
+      "/properties/rootPath/description": "コンテキストルートです。リポジトリルートからの相対の POSIX パスで指定します。コンテキストレイヤーがどこにあるかを宣言するもので、自らが管轄するパスの基準を取り直すことはありません。インデックスのエントリ、ピン留めしたページ、プロファイルのパスをはじめ、Leji の成果物のその他すべてのパスは、リポジトリルートから解決されます。ビューアーの `homepage`、`logo`、`favicon` は例外です。これらはコンテキストルートからの相対で書かれ、その下に収まるリポジトリルートからの相対パスも受け付けられます。",
+      "/properties/bootProfilePath/description": "ブートプロファイルへのパスです。ブートプロファイルは、あらゆるホストとあらゆる人が起点とする、エージェントに依存しないエントリポイントです。",
+      "/properties/categories/description": "論理的なカテゴリから、インデックスファイルへの対応づけです。キーは 5 つのカテゴリ識別子で、それぞれが、そのカテゴリの内容を列挙する、人が記述した 1 つ以上のインデックスファイルに対応します。",
+      "/properties/categories/properties/domain/description": "domain の内容が置かれる場所です。ビジネスの言葉と、製品の意味づけ。",
+      "/properties/categories/properties/system/description": "system の内容が置かれる場所です。アーキテクチャと、すべての変更が尊重する不変条件。",
+      "/properties/categories/properties/practice/description": "practice の内容が置かれる場所です。規約と、効果が確かめられたパターン。",
+      "/properties/categories/properties/governance/description": "governance の内容が置かれる場所です。エージェントのガードレールと、運用の規則。",
+      "/properties/categories/properties/decisions/description": "決定記録が置かれる場所です。物事がいまの形である理由の、日付のある記録。",
+      "/$defs/categoryMapping/properties/indexes/description": "このカテゴリのための、リポジトリルートからの相対のインデックスファイルです。1 つ以上を指定します。各インデックスファイルは人が記述した markdown で、フェンス付きの `leji-index` ブロックを持ちます。そのブロックの `- path: <ディレクトリまたはファイル>` の行が、このカテゴリに属する内容を選びます。内容はいまある場所に置かれたままで、インデックスファイルはそれを含めることを宣言するだけです。",
+      "/properties/machine/description": "機械可読な成果物の場所です。インデックス、変更履歴、プロファイル、決定記録。",
+      "/properties/machine/properties/indexPath/description": "生成されるコンテキストインデックスへのパスです。",
+      "/properties/machine/properties/changelogPath/description": "機械可読なコンテキスト変更履歴へのパスです。",
+      "/properties/machine/properties/agentProfilesPath/description": "エージェントプロファイル文書を置くディレクトリです。",
+      "/properties/machine/properties/decisionRecordsPath/description": "決定記録を置くディレクトリです。",
+      "/properties/agents/description": "ロールとエージェントプロファイルの結び付けです。キーはロール識別子（たとえば \"thought-partner\"、\"reviewer\"）、値はエージェントプロファイル文書へのパスです。プロトコルがロールを関与させ、そのロールを誰が担うかはこのマップが決めます。",
+      "/properties/actors/description": "ロールを担えるアクターの登録簿です。任意です。キーは安定したアクター識別子です。各アクターは、自分が担えるロールと、ロールごとのコマンドテンプレートを宣言します。ひとつのロールに担えるアクターが複数いるとき、あるいはひとつのアクターが、担うロールによって異なる呼び出し方を必要とするときに使います。どちらか一方だけでも十分な理由になります。アクターがひとりしかおらず、必要なコマンドもひとつだけのロールは、エージェントプロファイル自身の host と invocation で足ります。",
+      "/properties/owners/description": "コンテキストレイヤーの健全さについて、説明責任を負うのは誰かです。所有者は、コンテキストレイヤーが現状に即した状態に保たれ、適切に刈り込まれることに責任を負います。ひとりで書いたり整えたりするわけではありません（governance.md）。",
+      "/properties/owners/properties/primary/description": "コンテキストレイヤーを現状に即した状態に保つことに、説明責任を負う人です。所有者のいないコンテキストレイヤーは朽ちていきます。",
+      "/properties/owners/properties/continuity/description": "任意です。主たる所有者が不在のとき、あるいは離れたときに、同じ説明責任を引き受ける別の人です。支援を受けた導入では、外部の助けが去る前にこの人を名指しすべきです。主たる所有者を再び挙げても継続性にはならず、エージェントがこれを担うこともできません。所有者は説明責任を負う人だからです。",
+      "/$defs/owner/properties/name/description": "その人の名前です。",
+      "/$defs/owner/properties/contact/description": "連絡の取り方です。たとえばメールアドレス。",
+      "/properties/conformance/description": "このコンテキストレイヤーが宣言する適合レベルです。ツールで確認できます。",
+      "/properties/conformance/properties/claimedLevel/description": "宣言する適合レベルです。core、indexed、governed、federated のいずれか。",
+      "/properties/conformance/properties/claimedAt/description": "その宣言を最後に主張した日付（ISO 8601）です。",
+      "/properties/federation/description": "このリポジトリにマウントされた兄弟レイヤーです（仕様: distribution.md のパターン 3）。輪は所有を組み合わせるものであり、中央に集めるものではありません。",
+      "/properties/federation/properties/mounts/description": "各マウントは、リゾルバがハイドレートしたレイヤーの投影を通じて、ピン留めされたバージョンで読まれる兄弟コンテキストレイヤーです。自分のリポジトリ、所有、レビューのゲートはそのまま保ちます。実体化された内容は gitignore されたリゾルバのキャッシュに置かれ、ここにコミットされることはありません。",
+      "/properties/federation/properties/mounts/items/properties/name/description": "兄弟レイヤーの名前です。兄弟自身のマニフェストにある `name` と一致しなければなりません。",
+      "/properties/federation/properties/mounts/items/properties/source/description": "兄弟レイヤーの、正規化されたリポジトリの所在です。https://、ssh://、または SCP 形式のリモート URL を指定します。これが解決の起点であり、ピンの名前空間になります。ローカルファイルシステムのパスが妥当なのは、そのマシンに閉じたヒントの中だけで、ここでは使えません。",
+      "/properties/federation/properties/mounts/items/properties/pin/description": "このホストが読む兄弟のリビジョンの、不変なコミット id（SHA-1 または SHA-256）を完全な形で示したものです。マニフェストが保持する望ましい状態であり、ピンの更新は意図的で、レビューを経た手入れです。",
+      "/properties/federation/properties/mounts/items/properties/trackingRef/description": "ソース上の、証跡となる完全修飾の参照（refs/heads/* または refs/tags/*）です。任意で、古くなったピンの報告と、フェデレーションでの到達可能性がこれを照合の相手にします。指定がない場合は、ソースが提示する既定ブランチが使われ、コマンドの出力に記録されます。",
+      "/properties/federation/properties/mounts/items/properties/owner/description": "兄弟レイヤーの所有者です。所有は兄弟のチームに残り、ホストがその内容を取り込むことはありません。",
+      "/properties/federation/properties/mounts/items/properties/role/description": "この兄弟レイヤーが何を担っているかを、散文で述べます。たとえば \"製品側のコンテキスト\"。人のためのもので、経路の決定には下の構造化されたフィールドを使います。",
+      "/properties/federation/properties/mounts/items/properties/categories/description": "この兄弟が答えを返せる、コンテンツカテゴリの範囲です。経路のメタデータに限られ、兄弟の内容は兄弟に置かれたままです。federated の適合性では必須です。",
+      "/properties/federation/properties/mounts/items/properties/topics/description": "ホストから見える短いトピックのラベルで、作業をこの兄弟へ振り分けるために使います。たとえば \"billing\"、\"checkout\"。経路のメタデータに限られます。",
+      "/properties/federation/properties/mounts/items/properties/requiredWhen/description": "読み手がこのマウントを解決しなければならない作業の条件です。解決できないときは、手を止めてコンテキストが不完全であることを報告します（フェイルクローズ）。ホストから見えるので、ホストの読み手が見てはならないものを何も明かしてはなりません。",
+      "/properties/vendorAdapters/description": "このリポジトリに置かれた、ベンダーのエントリポイントファイルです。それぞれがブートプロファイルへ誘導しなければなりません。",
+      "/properties/viewer/description": "`leji viewer` が読む、表示の設定です。規範ではない、利便のための設定であり、表示のしかたそのものは規範の対象外です。",
+      "/properties/viewer/properties/port/description": "`leji viewer serve` でローカルのプレビューに使いたいポートです。--port フラグが優先されます。既定は 5354（電話のキーパッドで LEJI）です。",
+      "/properties/viewer/properties/logo/description": "ビューアーのロゴ画像です。コンテキストルート以下のパスで指定します（たとえば \"assets/logo.svg\"）。既定は Leji のマークです。",
+      "/properties/viewer/properties/title/description": "ビューアーの表示タイトルです（サイドバーの見出しとページタイトル）。既定はコンテキストレイヤーの名前です。",
+      "/properties/viewer/properties/agentsLabel/description": "エージェントプロファイルのグループに付ける、サイドバーのラベルです（絵文字も歓迎です）。既定は \"🤖 Agents\"。このグループはレイヤーのエージェントプロファイルを列挙し、他のグループと同じく viewer.groupOrder で並び順が決まります。",
+      "/properties/viewer/properties/favicon/description": "ビューアーのファビコンです。コンテキストルート以下のパスで指定します（たとえば \"assets/icon.svg\"）。既定は Leji のマークです。",
+      "/properties/viewer/properties/homepage/description": "ビューアーの入口となるページです。コンテキストルートからの相対パスで指定します（たとえば \"README.md\"）。既定は、最初に用意される overview.md です。",
+      "/properties/viewer/properties/pins/description": "サイドバーの先頭にピン留めするページです。リポジトリルートからの相対の markdown パスか、ラベルを自分で決めたい場合は {path, label} を指定します。ブートプロファイルをピン留めすると、その既定の行が置き換わります。",
+      "/properties/viewer/properties/groupOrder/description": "サイドバーのグループの並び順を、自分で決めるための設定です。グループのラベル（インデックスファイルの H1）と正確に一致させて指定します。挙げたグループがこの順で先に並び、挙げなかったグループは導出された順で続きます。",
+      "/properties/viewer/properties/theme/description": "ビューアーのテーマの上書きです。",
+      "/properties/viewer/properties/theme/properties/primary/description": "基調色・アクセント色を、16 進の CSS カラーで指定します（たとえば \"#009F71\"）。ビューアーの外枠、選択中の状態、図のアクセントに効きます。本文のリンクとインラインコードは、viewer.theme.link がコントラストの基準を満たす色を与えないかぎり、アクセシビリティに配慮した固定の色調を使います。",
+      "/properties/viewer/properties/theme/properties/link/description": "リンクの色を、16 進の CSS カラーで指定します（たとえば \"#5A50F9\"）。本文のリンクとインラインコードに適用されるのは、それらが載る 2 つの背景のうち条件の厳しいインラインコードの背景に対して、4.5:1 に達したときだけです。届かない場合は、アクセシビリティに配慮した固定の色調がそのまま使われ、`leji view` と `leji export` が警告します。",
+      "/properties/viewer/properties/mermaid/description": "フェンス付きの ```mermaid コードブロックを、ビューアーで図として描画します。既定は true です。",
+      "/properties/viewer/properties/poweredBy/description": "ビューアーの隅に、小さな \"Powered by Leji\" の表示を出します。既定は true で、false にすると消えます。",
+      "/properties/viewer/properties/categoryEmojis/description": "生成されるレイヤーマップで、各カテゴリの横に表示される既定の絵文字を上書きします。（サイドバーのグループのラベルは、各インデックスファイル自身の H1 です。）"
+    },
+    "example": {
+      "source": "32556a875f9eca2f9d5d29f18a2efbed666da4ee",
+      "strings": {
+        "/description": "Acme の課金プラットフォームのモノレポのための、共有コンテキストレイヤー。"
+      }
+    }
+  },
+  "decision-record": {
+    "source": "9b31f508bd89be01f86088922ef0a30ebccf9408",
+    "strings": {
+      "/title": "Leji 決定記録のフロントマター",
+      "/description": "決定記録の YAML フロントマターを検証します。markdown の本文が、文脈と決定と帰結を散文で担います。",
+      "/properties/id/description": "この決定の安定した識別子です。たとえば \"adopt-leji\"。",
+      "/properties/title/description": "決定の短いタイトルです。",
+      "/properties/status/description": "決定のライフサイクル上の状態です。",
+      "/properties/date/description": "決定が下された日付（ISO 8601）です。いったん公開されたら不変であり、後から状態が変わってもこの日付は動きません。",
+      "/properties/deciders/description": "その決定を下した人たちです。",
+      "/properties/supersedes/description": "この決定が置き換える記録の id です。",
+      "/properties/supersededBy/description": "この記録を置き換えた記録の id です。status が \"superseded\" のときは必須（REQUIRED）です。置き換えられた記録は後継を指していなければならず、そうすることで置き換えのつながりを双方向にたどれます。",
+      "/properties/affectedPaths/description": "その決定が影響するパスです。リポジトリルートからの相対で指定します。",
+      "/properties/affectedCategories/description": "その決定が影響するコンテンツカテゴリです。",
+      "/properties/links/description": "外向きの参照です。たとえば関連する決定や issue へのもの。任意です。"
+    },
+    "example": {
+      "source": "55a82c1b15d8fbf3275232827a3d11cf05925fe0",
+      "strings": {
+        "/title": "Leji コンテキストレイヤーの導入"
+      },
+      "body": "# Leji コンテキストレイヤーの導入\n\n## Context\n\n技術的な知識は、人の頭の中と、チャットのスレッドと、少しずつ食い違う 3 つのツール設定ファイルに散らばっていた。不変条件がツールの読める場所のどこにも書かれていなかったため、エージェントは私たちの不変条件に合わないコードを生み出していた。\n\n## Decision\n\nLeji を `indexed` レベルで導入する。マニフェスト、ブートプロファイル、domain と system の内容、決定記録、生成されるインデックス、機械向けの変更履歴。\n\n## Consequences\n\nベンダーの設定ファイルは、一行の誘導になる。コンテキストの修正は、それを浮かび上がらせた作業と同じ PR に乗せる。コンテキストレイヤーの所有者は Jo。"
+    }
+  }
+}

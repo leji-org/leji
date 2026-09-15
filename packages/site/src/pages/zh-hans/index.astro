@@ -1,0 +1,1134 @@
+---
+// Simplified Chinese translation of src/pages/index.astro. The English page is the page
+// of record; `source` is its git blob sha at the revision this translation follows.
+//
+// The sitewide structured data on the English page is not repeated here: the site's
+// JSON-LD keeps English as its canonical language.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import HeroMark from '../../components/HeroMark.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import AnimatedTerminal from '../../components/AnimatedTerminal.astro';
+import ViewerGlimpse from '../../components/ViewerGlimpse.astro';
+import InstallTabs from '../../components/InstallTabs.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import githubIcon from '../../assets/github.svg?raw';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+
+const source = '7acbb9a072d2b6210d2cdb83e952c5b49666ba1f';
+const strings = translationStrings('zh-hans');
+
+// Captured verbatim from a real run, so the transcript stays exactly as captured:
+// a repo with an existing docs/ tree and an AGENTS.md, `leji adopt --yes
+// --wire-adapters`, then validate and conformance (the file list is elided to its
+// first entries, real sorted order).
+// The fixture is `fixture()` in packages/sdk/test/site-hero.test.ts: that test runs
+// the same three commands against the built CLI and compares what it prints to the
+// lines below, so the transcript is re-captured where the CLI's output moves.
+const heroSession = [
+   { cmd: 'leji adopt --yes --wire-adapters' },
+   { out: 'Wrote 16 files (context root: docs/):' },
+   { out: '   .leji/work/onboarding-brief.md   AGENTS.md   docs/agents/core.md   …', mark: 'dim' },
+   { gap: true },
+   { cmd: 'leji validate' },
+   { out: 'ok (0 errors, 0 warnings)', mark: 'ok' },
+   { gap: true },
+   { cmd: 'leji conformance' },
+   { out: 'ok (0 errors, 0 warnings; claimedLevel: core, verifiedLevel: core, processAttested: 4)', mark: 'ok' },
+];
+
+// What the hero's `adopt` wrote: the manifest of the very layer the transcript
+// above creates. The panel leaves out the `$schema` pointer and the `claimedAt`
+// date, and the same test compares everything else to the fixture's leji.json.
+const peekJson = `{
+  "leji": "1.0",
+  "name": "acme-billing-context",
+  "description": "Shared context layer for this repository.",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {
+    "domain": { "indexes": ["docs/context/domain.md"] },
+    "system": { "indexes": ["docs/context/system.md"] },
+    "governance": { "indexes": ["docs/context/governance.md"] },
+    "decisions": { "indexes": ["docs/context/decisions.md"] }
+  },
+  "owners": { "primary": { "name": "Acme Platform Team", "contact": "platform@acme.example" } },
+  "conformance": { "claimedLevel": "core" },
+  "vendorAdapters": ["AGENTS.md"]
+}`;
+---
+
+<Base
+   lang="zh-hans"
+   title="Leji：面向 AI 原生团队的共享上下文层"
+   description="Leji 是一份开放规范，定义一个共享的、纳入版本管理、归属于代码仓库的上下文层，供人和 AI 智能体共同读取，每一次变更都经过评审治理。"
+>
+   <!-- The banner sits outside <main>, but the monument band still has to start above
+        it so the gradient, glow and fluting run unbroken behind the header. .monument
+        pulls itself up by the header's height and pads the same amount back, and the
+        header paints transparent on top. See --header-h below. -->
+   <SiteHeader flush />
+   <main id="content">
+      <div class="monument">
+         <div class="wrap">
+            <section class="hero">
+               <div class="hero-text">
+                  <p class="kicker reveal r1">
+                     <span>/LEH-jee/</span><i class="sep" aria-hidden="true">◆</i><span>开放规范与工具</span>
+                  </p>
+                  <!-- "legible" is the name: Leji, from legible, per the /LEH-jee/ kicker above. -->
+                  <h1 class="reveal r2">让你的上下文<br />变得<span class="gild">可读。</span></h1>
+                  <div class="carved-rule reveal r2" aria-hidden="true"></div>
+                  <p class="lede reveal r3">
+                     Leji 为散落在团队聊天和各类工具指令中的意图，提供一个归处：由团队拥有并负责评审的共享上下文层。Leji
+                     标准化的是形态与治理，而不是内容。人和智能体由此读取同一个来源，校验工具让漂移变得可见。
+                  </p>
+                  <div class="cta reveal r4">
+                     <a class="btn solid" href="/zh-hans/quickstart/">快速上手</a>
+                     <a class="btn ghost" href="/zh-hans/spec/">阅读规范</a>
+                  </div>
+                  <div class="hero-note reveal r4">
+                     <TranslationNote strings={strings.note} href="/" />
+                  </div>
+               </div>
+
+               <div class="hero-proof reveal r5">
+                  <AnimatedTerminal
+                     lines={heroSession}
+                     title="acme-billing"
+                     glimpseTitle="leji view  ·  acme-billing-context"
+                     label="一次真实的 Leji 会话：接入一个既有仓库、校验它、为它打分"
+                  >
+                     <HeroMark slot="brand" size={64} loop />
+                     <ViewerGlimpse slot="glimpse" />
+                     <InstallTabs slot="footer" />
+                  </AnimatedTerminal>
+                  <p class="hero-license">
+                     <a class="oss-link" href="https://github.com/leji-org/leji" target="_blank" rel="noopener">
+                        <span class="gh-icon" set:html={githubIcon} /><span class="free">自由且开源</span>
+                     </a>&ensp;·&ensp;Apache-2.0&ensp;·&ensp;CC-BY-4.0
+                  </p>
+               </div>
+            </section>
+         </div>
+      </div>
+
+      <div class="levels-band">
+         <div class="wrap">
+            <section class="levels">
+               <p class="eyebrow is-kicker">是接入，不是迁移</p>
+               <h2 class="section-title levels-title">从你手上这个仓库开始。</h2>
+               <p class="levels-lede">
+                  CLI 会在你已有的代码树之上生成一个上下文层的脚手架。什么都不会搬动，而入口文件只有在你用 <code
+                     >--wire-adapters</code
+                  > 明确要求时才会改动。
+               </p>
+               <ol class="adopt-flow">
+                  <li class="adopt-step">
+                     <span class="step-when">首先</span>
+                     <h3>在现有代码树上生成脚手架</h3>
+                     <p>
+                        <code>adopt</code>
+                        会复用现有文档根目录、创建各类别索引文件，并将智能体入口文件中的现有内容复制到上下文层。已有文件一律不会移动，而且在你用
+                        <code>--wire-adapters</code> 提出要求之前，没有任何入口文件会被改写。
+                     </p>
+                  </li>
+                  <li class="adopt-step">
+                     <span class="step-when">然后</span>
+                     <h3>你的智能体提出映射方案</h3>
+                     <p>
+                        入门简报会引导智能体读取仓库，并提出文档分类与映射方案。你可以像评审其他变更一样评审这份提议。
+                     </p>
+                  </li>
+                  <li class="adopt-step">
+                     <span class="step-when">此后持续</span>
+                     <h3>从这里开始受治理</h3>
+                     <p>变更会经过仓库自己的评审关卡。CI 校验负责发现漂移，复核期限则标记已经过时的上下文。</p>
+                  </li>
+               </ol>
+            </section>
+         </div>
+      </div>
+
+      <div class="wrap">
+         <section class="surfaces">
+            <p class="eyebrow is-kicker">人来阅读，智能体来取用</p>
+            <h2 class="section-title surfaces-title">一个来源，两类受众。</h2>
+            <p class="surfaces-lede">
+               一份归属于代码仓库的记录，承载团队的思考方式：领域语言、约束、决策、约定和智能体护栏。所有内容来自同一个来源，任何改动都经过同一道评审关卡。
+            </p>
+            <div class="chart">
+               <div class="chart-source">
+                  <span class="chart-source-name">共享上下文层</span>
+                  <span class="chart-source-tag">经评审才改动</span>
+               </div>
+               <svg class="chart-fork" viewBox="0 0 40 100" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="M0 50 H20 M20 23 V77 M20 23 H40 M20 77 H40"></path>
+               </svg>
+               <div class="chart-surfaces">
+                  <article class="surface">
+                     <p class="surface-label">给人</p>
+                     <p class="surface-body">
+                        团队中的每个人，都可以读取智能体使用的同一个上下文层。<code>leji view</code>{' '}
+                        会在浏览器中打开这个<strong>共享上下文层</strong>，以方便人阅读的形式呈现。
+                     </p>
+                  </article>
+                  <article class="surface">
+                     <p class="surface-label">给智能体</p>
+                     <p class="surface-body">
+                        智能体从<a href="/zh-hans/spec/boot-profile/">引导配置</a
+                        >进入，那是唯一说明“动手之前该加载什么”的文件；入口文件（<code>AGENTS.md</code>、<code
+                           >CLAUDE.md</code
+                        >）只重定向到那里，而不是各自留一份副本。<strong>MCP 服务器</strong>把规范与各份 schema
+                        交到它们手上，并让它们原生地<a href="/zh-hans/mcp/">校验它、为一致性打分</a>。
+                     </p>
+                  </article>
+               </div>
+            </div>
+         </section>
+      </div>
+
+      <div class="levels-band">
+         <div class="wrap">
+            <section class="levels">
+               <p class="eyebrow is-kicker">一致性</p>
+               <h2 class="section-title levels-title">声明一个级别，再检查它。</h2>
+               <p class="levels-lede">
+                  四个逐级累加的级别，衡量已经具备哪些能力，而不是由团队自评成熟度。多数团队达到{' '}
+                  <code>governed</code> 就停下。CLI 检查机器能检查的部分；其余由你的团队自己背书。
+               </p>
+               <ol class="ladder">
+                  <li>
+                     <span class="rung-tag">core</span>
+                     <strong class="rung-cap">团队共享的上下文</strong>
+                     <span>清单、引导配置、真实内容、第一份决策，以及一位具名负责人。</span>
+                  </li>
+                  <li>
+                     <span class="rung-tag">indexed</span>
+                     <strong class="rung-cap">对工具可读</strong>
+                     <span>一份生成的索引，以及一份机器可读的变更日志。</span>
+                  </li>
+                  <li>
+                     <span class="rung-tag">governed</span>
+                     <strong class="rung-cap">经过评审，并检查漂移</strong>
+                     <span>拉取请求评审、智能体配置、CI，以及被检查的复核期限。</span>
+                  </li>
+                  <li>
+                     <span class="rung-tag">federated</span>
+                     <strong class="rung-cap">组织级的实践</strong>
+                     <span
+                        >在其他仓库中作为固定版本挂载存在，并有过期固定版本的报告。
+                        <a href="/zh-hans/federation/">联邦是怎么运作的。</a></span
+                     >
+                  </li>
+               </ol>
+               <aside class="standard-note">
+                  <span class="standard-note-label">没有商业关卡</span>
+                  <p>
+                     仅凭开放的规范与参考工具，就能达到每一个级别。一致性从不要求任何商业产品或服务，包括受托方自己的产品与服务。
+                  </p>
+               </aside>
+            </section>
+         </div>
+      </div>
+
+      <div class="why-band">
+         <div class="wrap">
+            <p class="eyebrow is-kicker on-dark">它为什么这样设计</p>
+            <h2 class="section-title levels-title">持久的意图，在圆环中共享，由机制来检查。</h2>
+            <section class="theses">
+               <article class="thesis">
+                  <span class="thesis-num">I.</span>
+                  <div class="thesis-body">
+                     <h3>意图重于指令</h3>
+                     <p>
+                        持久的意图属于一个经过评审的上下文层，人和智能体都从中推导行动。厂商入口文件重定向到那里，因此一个<a
+                           href="/zh-hans/ai-native/">AI 原生团队</a
+                        >的上下文不会因工具更迭而失效。<a href="/zh-hans/rationale/#intent-over-instructions"
+                           >意图为什么更持久。</a
+                        >
+                     </p>
+                  </div>
+               </article>
+               <article class="thesis">
+                  <span class="thesis-num">II.</span>
+                  <div class="thesis-body">
+                     <h3>是圆环，不是层级</h3>
+                     <p>
+                        人对人、人对 AI、人对 AI
+                        再对人，这三种工作流都围绕同一个共享上下文层，地位同等。所有人都可以读取，任何参与者都可以提议，再由人通过拉取请求批准。{
+                           ' '
+                        }
+                        <a href="/zh-hans/rationale/#a-circle-not-a-tier">圆环为什么奏效。</a>
+                     </p>
+                  </div>
+               </article>
+               <article class="thesis">
+                  <span class="thesis-num">III.</span>
+                  <div class="thesis-body">
+                     <h3>机制重于善意</h3>
+                     <p>
+                        现实不断变化，共享上下文也会逐渐失效。代码评审、自动化漂移检查和复核期限，将维护落实为机制；过期的上下文绝不会被悄悄当作当前有效。{
+                           ' '
+                        }
+                        <a href="/zh-hans/rationale/#why-this-is-not-a-wiki">机制为什么重要。</a>
+                     </p>
+                  </div>
+               </article>
+            </section>
+         </div>
+      </div>
+
+      <div class="wrap">
+         <section class="manifest-peek">
+            <div class="peek-text">
+               <p class="eyebrow is-kicker">机器入口</p>
+               <h2 class="section-title">一个清单文件</h2>
+               <p>
+                  你既有的 <code>docs/</code> 树通过<em>映射</em>就能符合规范，不必重命名。仓库根目录下的一份{' '}
+                  <code>leji.json</code> 声明上下文根目录、引导配置、类别映射，以及一致性声明。
+               </p>
+               <p>
+                  最干净的上下文层根本不需要任何厂商文件：调用直接把智能体宿主指向引导配置，或者用 <code
+                     >leji start</code
+                  > 在那里打开一个检测到的宿主。
+               </p>
+               <p>
+                  入口文件只是指针，不是存放权威内容的地方。<code>AGENTS.md</code> 是许多智能体宿主都会读取的通用适配器；其余情况见<a
+                     href="/zh-hans/adoption/">接入指南</a
+                  >。
+               </p>
+               <p class="peek-more"><a href="/zh-hans/manifest/">清单参考 →</a></p>
+            </div>
+            <div class="peek-code">
+               <Code code={peekJson} lang="json" theme={lejiSyntaxTheme} wrap />
+            </div>
+         </section>
+      </div>
+   </main>
+   <SiteFooter />
+</Base>
+
+<style>
+   .monument {
+      --grain: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='160'%20height='160'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.8'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20type='saturate'%20values='0'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url(%23n)'/%3E%3C/svg%3E");
+      position: relative;
+      overflow: hidden;
+      color: var(--leji-surface);
+      /* Depth, three layers deep: the linear runs deepest at both ends and opens
+         to --leji-deep across the middle, so the band frames itself; a mint wash
+         lights the top where the headline sits; and the brand green, centred
+         below the band's own edge, lifts the ground under the terminal the way
+         the retired composition lifted it from below. */
+      background:
+         radial-gradient(120% 80% at 50% -20%, rgba(112, 216, 194, 0.16), transparent 55%),
+         radial-gradient(90% 60% at 50% 118%, rgba(0, 159, 113, 0.55), transparent 60%),
+         linear-gradient(180deg, var(--leji-deepest) 0%, var(--leji-deep) 32%, var(--leji-deepest) 100%);
+      padding-bottom: clamp(3.5rem, 8vh, 6rem);
+      /* The banner is a sibling above this band, not a child, so <main> can be the
+         page's landmark. Pull the band up behind it and pad the same amount back, so
+         the gradient, glow and fluting are continuous under the header.
+         --header-h is the header row's height, defined in global.css. */
+      margin-top: calc(-1 * var(--header-h));
+      padding-top: var(--header-h);
+   }
+   /* stone grain */
+   .monument::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: var(--grain);
+      background-size: 160px 160px;
+      opacity: 0.07;
+      mix-blend-mode: overlay;
+      pointer-events: none;
+      z-index: 0;
+   }
+   /* engraved fluting */
+   .monument::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(112, 216, 194, 0.05) 78px 79px);
+      pointer-events: none;
+      z-index: 0;
+   }
+   .monument > * {
+      position: relative;
+      z-index: 1;
+   }
+   .hero {
+      padding: clamp(2.6rem, 8vh, 5.5rem) 0 clamp(1.5rem, 4vh, 3rem);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.06fr);
+      gap: clamp(2.2rem, 5vw, 4.5rem);
+      align-items: start;
+   }
+   @media (max-width: 900px) {
+      .hero {
+         grid-template-columns: 1fr;
+         gap: 2.6rem;
+         max-width: 680px;
+      }
+   }
+   .hero-text {
+      min-width: 0;
+   }
+
+   .kicker {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--leji-accent);
+      margin: 0 0 1.3rem;
+   }
+   .kicker .sep {
+      font-style: normal;
+      font-size: 0.5rem;
+      color: var(--leji-accent);
+      opacity: 0.7;
+      transform: translateY(-1px);
+   }
+
+   h1 {
+      font-family: var(--serif-display);
+      font-variation-settings: 'opsz' 144;
+      font-weight: 460;
+      font-size: clamp(2.4rem, 5.2vw, 4.05rem);
+      line-height: 1.06;
+      letter-spacing: -0.02em;
+      color: var(--leji-surface);
+      margin: 0;
+      max-width: 30ch;
+   }
+
+   /* The one word the headline turns on: mint against white, with the glow that
+      makes it read as lit rather than merely coloured. */
+   .gild {
+      position: relative;
+      white-space: nowrap;
+      color: var(--leji-accent);
+      font-style: italic;
+      font-variation-settings: 'opsz' 144;
+      text-shadow: 0 0 34px rgba(112, 216, 194, 0.4);
+   }
+
+   .carved-rule {
+      width: 92px;
+      height: 2px;
+      margin: 1.7rem 0 0;
+      background: linear-gradient(90deg, var(--leji-accent), rgba(112, 216, 194, 0.05));
+      border-radius: 2px;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+   }
+
+   .hero-note {
+      max-width: 50ch;
+      margin: 1.6rem 0 0;
+   }
+   .hero-note :global(.translation-note) {
+      margin: 0;
+      padding: 0.8rem 1.1rem;
+      border-left-color: var(--leji-accent);
+      background: rgba(255, 255, 255, 0.06);
+      font-size: 0.86rem;
+      color: var(--white-soft);
+   }
+   .hero-note :global(.translation-note a) {
+      color: var(--leji-accent);
+      text-decoration-color: var(--leji-accent-rule);
+   }
+   .hero-note :global(.translation-note a:hover) {
+      text-decoration-color: var(--leji-accent);
+   }
+
+   .lede {
+      font-family: var(--serif-text);
+      font-size: clamp(1.04rem, 1.5vw, 1.17rem);
+      line-height: 1.72;
+      color: var(--white-soft);
+      max-width: 50ch;
+      margin: 1.7rem 0 2.1rem;
+   }
+   .lede strong {
+      color: var(--leji-surface);
+      font-weight: 600;
+   }
+   .lede code {
+      font-size: 0.84em;
+      color: var(--white-strong);
+      background: rgba(255, 255, 255, 0.09);
+      border: 1px solid rgba(112, 216, 194, 0.22);
+      padding: 0.06em 0.36em;
+      border-radius: 4px;
+   }
+   .lede a {
+      color: inherit;
+      text-decoration: underline;
+      text-decoration-color: rgba(112, 216, 194, 0.35);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+      transition:
+         color 0.15s ease,
+         text-decoration-color 0.15s ease;
+   }
+   .lede a:hover {
+      color: var(--leji-accent);
+      text-decoration-color: var(--leji-accent);
+   }
+
+   .cta {
+      display: flex;
+      gap: 0.9rem;
+      flex-wrap: wrap;
+   }
+   .hero-license {
+      margin: 1.1rem 0 0;
+      padding-left: 1.4rem;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      color: var(--white-faint);
+   }
+   .hero-license .oss-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45em;
+      color: var(--leji-accent);
+      text-decoration: none;
+   }
+   .hero-license .gh-icon {
+      display: inline-flex;
+      color: var(--leji-surface);
+   }
+   .hero-license .gh-icon :global(svg) {
+      display: block;
+      height: 1.05em;
+      width: auto;
+   }
+   .hero-license .free {
+      color: var(--leji-accent);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+   }
+   .hero-license .oss-link:hover .free {
+      text-decoration: underline;
+      text-decoration-color: var(--leji-accent);
+      text-underline-offset: 3px;
+   }
+   .btn {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      text-decoration: none;
+      padding: 0.9rem 1.6rem;
+      border-radius: 7px;
+      transition:
+         transform 0.16s ease,
+         box-shadow 0.16s ease,
+         background 0.16s ease,
+         border-color 0.16s ease;
+   }
+   /* Primary CTA per the brand's own website mapping: brand green ground, white
+      label. Flat, not a ramp: the green is saturated enough to hold the button on
+      its own, and the shadow already gives it the lift. */
+   .btn.solid {
+      /* the accessible green ground carries white at 5.15:1 at any size; the
+         vivid brand green is the hover moment */
+      background: var(--leji-brand-dark);
+      color: var(--leji-surface);
+      font-weight: 600;
+      box-shadow:
+         inset 0 1px 0 rgba(255, 255, 255, 0.45),
+         0 10px 28px rgba(0, 159, 113, 0.32);
+   }
+   .btn.solid:hover {
+      background: var(--leji-brand);
+      transform: translateY(-2px);
+      box-shadow:
+         inset 0 1px 0 rgba(255, 255, 255, 0.55),
+         0 16px 40px rgba(0, 159, 113, 0.45);
+   }
+   .btn.ghost {
+      border: 1px solid rgba(112, 216, 194, 0.5);
+      color: var(--leji-accent);
+   }
+   .btn.ghost:hover {
+      background: rgba(112, 216, 194, 0.12);
+      border-color: var(--leji-accent);
+      transform: translateY(-2px);
+   }
+   .hero-proof {
+      position: relative;
+      min-width: 0;
+   }
+   .hero-proof::before {
+      content: '';
+      position: absolute;
+      inset: -12% -8% -16%;
+      background: radial-gradient(58% 60% at 62% 34%, rgba(112, 216, 194, 0.2), transparent 72%);
+      filter: blur(18px);
+      pointer-events: none;
+      z-index: 0;
+   }
+   .hero-proof > * {
+      position: relative;
+      z-index: 1;
+   }
+   .hero-proof :global(.term) {
+      box-shadow:
+         0 1px 0 rgba(255, 255, 255, 0.06) inset,
+         0 34px 80px rgba(16, 42, 41, 0.55),
+         0 0 0 1px rgba(112, 216, 194, 0.22);
+   }
+   .reveal {
+      opacity: 0;
+      transform: translateY(16px);
+      animation: rise 0.72s cubic-bezier(0.2, 0.6, 0.2, 1) forwards;
+   }
+   .r1 {
+      animation-delay: 0.12s;
+   }
+   .r2 {
+      animation-delay: 0.24s;
+   }
+   .r3 {
+      animation-delay: 0.4s;
+   }
+   .r4 {
+      animation-delay: 0.54s;
+   }
+   .r5 {
+      animation-delay: 0.46s;
+   }
+   @keyframes rise {
+      to {
+         opacity: 1;
+         transform: none;
+      }
+   }
+   @media (prefers-reduced-motion: reduce) {
+      .reveal {
+         animation: none;
+         opacity: 1;
+         transform: none;
+      }
+   }
+   .section-title {
+      font-family: var(--serif-display);
+      font-variation-settings: 'opsz' 80;
+      font-weight: 540;
+      font-size: clamp(1.7rem, 3vw, 2.3rem);
+      line-height: 1.12;
+      letter-spacing: -0.012em;
+      color: var(--leji-text);
+      margin: 0 0 0.6rem;
+      max-width: 22ch;
+   }
+   .levels {
+      padding: 0;
+   }
+   .levels-title {
+      max-width: 34ch;
+      margin-bottom: 0.9rem;
+   }
+   .levels-lede {
+      color: var(--leji-text-body);
+      margin: 0;
+      max-width: var(--measure);
+      font-size: var(--text-lede);
+      line-height: 1.7;
+   }
+   .levels-lede code {
+      font-size: 0.85em;
+      background: var(--leji-surface);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      color: var(--leji-text);
+   }
+   .adopt-flow {
+      list-style: none;
+      margin: 2.2rem 0 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: clamp(1.2rem, 3.5vw, 2.6rem);
+   }
+   .adopt-step {
+      position: relative;
+      padding-top: 1rem;
+   }
+   .adopt-step::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: var(--leji-brand);
+   }
+   .step-when {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+      margin-bottom: 0.5rem;
+   }
+   .adopt-step h3 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 1.1rem;
+      color: var(--leji-text);
+      margin: 0 0 0.4rem;
+   }
+   .adopt-step p {
+      color: var(--leji-text-body);
+      margin: 0;
+      line-height: 1.6;
+   }
+   @media (max-width: 720px) {
+      .adopt-flow {
+         grid-template-columns: 1fr;
+         gap: 1.5rem;
+      }
+      .adopt-step::before {
+         width: 50%;
+      }
+   }
+   .standard-note {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin: clamp(1.6rem, 3.5vh, 2.6rem) 0 0;
+      max-width: var(--measure);
+      padding: 0.15rem 0 0.15rem 1.1rem;
+      border-left: 2px solid var(--leji-brand);
+   }
+   .standard-note-label {
+      font-family: var(--mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+   }
+   .standard-note p {
+      margin: 0;
+      color: var(--leji-text-body);
+      line-height: 1.6;
+   }
+   .ladder {
+      list-style: none;
+      margin: clamp(1.7rem, 3.2vh, 2.3rem) 0 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      counter-reset: ladder;
+   }
+   @media (max-width: 900px) {
+      .ladder {
+         grid-template-columns: repeat(2, 1fr);
+         row-gap: 1.6rem;
+      }
+   }
+   @media (max-width: 560px) {
+      .ladder {
+         grid-template-columns: 1fr;
+         row-gap: 1.6rem;
+      }
+   }
+   .ladder li {
+      counter-increment: ladder;
+      border: 1px solid var(--leji-border);
+      border-radius: 12px;
+      padding: 1.4rem 1.4rem 1.3rem;
+      /* Flat white per the brand's card rule: on the mint band and on the canvas
+         alike, pure white plus the border is what lifts the card. */
+      background: var(--leji-surface);
+      position: relative;
+      transition:
+         transform 0.16s ease,
+         box-shadow 0.16s ease,
+         border-color 0.16s ease;
+   }
+   .ladder li:hover {
+      transform: translateY(-3px);
+      border-color: var(--leji-brand);
+      box-shadow: 0 14px 34px rgba(24, 61, 59, 0.12);
+   }
+   /* A light chip carrying dark text: mint ground, heading tone on it, 7.1:1.
+      Brand green here would force white text at 3.4:1 on a 15px numeral. */
+   .ladder li::before {
+      content: counter(ladder);
+      position: absolute;
+      top: -0.85rem;
+      left: 1.1rem;
+      font-family: var(--serif-display);
+      font-weight: 620;
+      color: var(--leji-text);
+      background: var(--leji-accent);
+      padding: 0.06rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.92rem;
+      box-shadow: 0 3px 10px rgba(24, 61, 59, 0.18);
+   }
+   .ladder .rung-tag {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+      margin-bottom: 0.55rem;
+   }
+   .ladder .rung-cap {
+      display: block;
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: var(--text-lede);
+      line-height: 1.2;
+      color: var(--leji-text);
+      margin-bottom: 0.5rem;
+   }
+   .ladder span {
+      font-size: 0.9rem;
+      color: var(--leji-text-body);
+      line-height: 1.55;
+   }
+
+   .levels-band {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(3rem, 7vh, 5rem) 0;
+      /* One recessed tint: the soft mint already sits a measured step under the
+         canvas, and a second gradient stop would have had to borrow a token whose
+         role is elsewhere. */
+      background:
+         radial-gradient(75% 60% at 88% -15%, rgba(0, 159, 113, 0.04), transparent 60%), var(--leji-accent-soft);
+      border-top: 1px solid var(--leji-accent-rule);
+      border-bottom: 1px solid var(--leji-accent-rule);
+   }
+   .levels-band::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: var(--grain);
+      background-size: 160px 160px;
+      opacity: 0.04;
+      mix-blend-mode: multiply;
+      pointer-events: none;
+   }
+   .levels-band::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(0, 159, 113, 0.022) 78px 79px);
+      pointer-events: none;
+   }
+   .levels-band > * {
+      position: relative;
+      z-index: 1;
+   }
+   .surfaces {
+      padding: clamp(3rem, 7vh, 5rem) 0;
+   }
+   .surfaces-title {
+      max-width: none;
+   }
+   .surfaces-lede {
+      color: var(--leji-text-body);
+      margin: 0.6rem 0 0;
+      max-width: var(--measure);
+      font-size: var(--text-lede);
+      line-height: 1.7;
+   }
+   .chart {
+      display: grid;
+      grid-template-columns: minmax(240px, 320px) clamp(2rem, 5vw, 3.5rem) 1fr;
+      align-items: center;
+      margin-top: 2.4rem;
+   }
+   .chart-source {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      padding: 1.5rem 1.7rem;
+      border: 1px solid var(--leji-brand);
+      border-radius: 14px;
+      background: var(--leji-surface);
+      box-shadow: 0 14px 32px rgba(24, 61, 59, 0.12);
+   }
+   .chart-source-name {
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.18rem;
+      line-height: 1.15;
+      color: var(--leji-text);
+   }
+   .chart-source-tag {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+   }
+   .chart-fork {
+      align-self: stretch;
+      width: 100%;
+      height: 100%;
+   }
+   .chart-fork path {
+      fill: none;
+      stroke: var(--leji-brand);
+      stroke-width: 1.25;
+      vector-effect: non-scaling-stroke;
+      opacity: 0.75;
+   }
+   .chart-surfaces {
+      display: flex;
+      flex-direction: column;
+      gap: clamp(0.9rem, 2.2vw, 1.5rem);
+   }
+   .surface {
+      position: relative;
+      padding: 1.4rem 1.6rem;
+      border: 1px solid var(--leji-border);
+      border-radius: 12px;
+      background: var(--leji-surface);
+   }
+   .surface::before {
+      content: '';
+      position: absolute;
+      left: -4.5px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--leji-brand);
+      box-shadow: 0 0 0 3px var(--leji-canvas);
+   }
+   .surface-label {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+      margin: 0 0 0.6rem;
+   }
+   .surface-body {
+      color: var(--leji-text-body);
+      margin: 0;
+      line-height: 1.7;
+      max-width: var(--measure);
+   }
+   .surface strong {
+      color: var(--leji-text);
+      font-weight: 600;
+   }
+   .surface code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+   .surface a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   @media (max-width: 720px) {
+      .chart {
+         grid-template-columns: 1fr;
+         gap: 1.4rem;
+      }
+      .chart-fork {
+         display: none;
+      }
+      .surface::before {
+         display: none;
+      }
+   }
+   .why-band {
+      margin-top: 0;
+      padding: clamp(3.5rem, 7vh, 5.5rem) 0 clamp(4rem, 8vh, 6rem);
+      position: relative;
+      overflow: hidden;
+      color: var(--leji-surface);
+      /* Travels the same direction as before, lighter to darker, so the band
+         settles as the page ends: --leji-deep down to --leji-deepest, mint above
+         the theses and brand green lifting the lower-left corner. */
+      background:
+         radial-gradient(90% 70% at 85% -20%, rgba(112, 216, 194, 0.14), transparent 58%),
+         radial-gradient(80% 60% at 0% 120%, rgba(0, 159, 113, 0.5), transparent 60%),
+         linear-gradient(180deg, var(--leji-deep), var(--leji-deepest));
+   }
+   .why-band::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: var(--grain);
+      background-size: 160px 160px;
+      opacity: 0.06;
+      mix-blend-mode: overlay;
+      pointer-events: none;
+   }
+   .why-band::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(112, 216, 194, 0.047) 78px 79px);
+      pointer-events: none;
+   }
+   .why-band > * {
+      position: relative;
+      z-index: 1;
+   }
+   .why-band .section-title {
+      color: var(--leji-surface);
+      margin-bottom: 1rem;
+   }
+   .why-lede {
+      color: var(--white-soft);
+      max-width: var(--measure);
+      font-size: var(--text-lede);
+      line-height: 1.7;
+      margin: 0 0 0.8rem;
+   }
+   /* One link treatment for the whole dark band, lede and theses alike. The
+      thesis links had no rule of their own, so they fell through to the global
+      `a { color: inherit }` and rendered white with the browser's default
+      underline: full strength, no offset, drawn straight through the line. Mint
+      carries the link on this ground, and the underline is held to a hairline so
+      it reads as emphasis rather than as a rule struck through the sentence. */
+   .why-band a {
+      color: var(--leji-accent);
+      text-decoration: underline;
+      text-decoration-color: rgba(112, 216, 194, 0.45);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+      transition: text-decoration-color 140ms ease;
+   }
+   .why-band a:hover {
+      text-decoration-color: var(--leji-accent);
+   }
+   .why-band a:focus-visible {
+      outline: 2px solid var(--leji-accent);
+      outline-offset: 3px;
+      border-radius: 2px;
+   }
+   @media (prefers-reduced-motion: reduce) {
+      .why-band a {
+         transition: none;
+      }
+   }
+   .theses {
+      margin-top: 0;
+   }
+   .thesis {
+      display: grid;
+      grid-template-columns: clamp(3.6rem, 7vw, 5.5rem) minmax(0, 1fr);
+      gap: clamp(1.4rem, 3.5vw, 3rem);
+      align-items: baseline;
+      padding: clamp(1.8rem, 3.6vh, 2.6rem) 0;
+   }
+   .thesis-num {
+      font-family: var(--serif-display);
+      font-variation-settings: 'opsz' 144;
+      font-weight: 460;
+      font-size: clamp(2.1rem, 3.4vw, 2.9rem);
+      line-height: 1;
+      color: var(--leji-accent);
+      text-align: right;
+   }
+   .thesis h3 {
+      font-family: var(--serif-display);
+      font-variation-settings: 'opsz' 72;
+      font-weight: 560;
+      font-size: 1.55rem;
+      margin: 0 0 0.7rem;
+      color: var(--leji-surface);
+   }
+   .thesis p {
+      margin: 0;
+      color: var(--white-soft);
+      line-height: 1.72;
+      max-width: var(--measure);
+   }
+   @media (max-width: 640px) {
+      .thesis {
+         grid-template-columns: 2.4rem minmax(0, 1fr);
+         gap: 1rem;
+         padding: 1.5rem 0;
+      }
+      .thesis-num {
+         font-size: 1.5rem;
+      }
+   }
+   .manifest-peek {
+      display: grid;
+      /* code column gets the larger share: monospace needs the horizontal room */
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+      gap: clamp(2rem, 4vw, 3rem);
+      align-items: center;
+      padding: clamp(3.5rem, 8vh, 6rem) 0;
+   }
+   @media (max-width: 760px) {
+      .manifest-peek {
+         grid-template-columns: 1fr;
+      }
+   }
+   .peek-text p {
+      color: var(--leji-text-body);
+      max-width: var(--measure);
+   }
+   .peek-text em {
+      color: var(--leji-text);
+   }
+   .peek-more a {
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+      text-decoration: none;
+      border-bottom: 1px solid var(--leji-brand);
+      padding-bottom: 2px;
+   }
+   /* Hover deepens, it does not brighten: the link is already the accessible end
+      of the green, so the state that answers is the darker one. */
+   .peek-more a:hover {
+      color: var(--leji-text);
+      border-color: var(--leji-text);
+   }
+   .peek-text code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+   .peek-code :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 14px;
+      padding: 1.5rem 1.7rem;
+      font-size: var(--code-fz);
+      line-height: 1.65;
+      box-shadow: 0 24px 60px rgba(24, 61, 59, 0.22);
+      margin: 0;
+   }
+</style>

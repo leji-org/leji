@@ -1,0 +1,531 @@
+---
+// Vietnamese translation of src/pages/quickstart.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation
+// follows, and it is what the drift gate compares against the current blob.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import SupportedRuntimes from '../../components/SupportedRuntimes.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import InstallTabs from '../../components/InstallTabs.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+
+const source = '1d85a2ee9d95b8dcb58708c54e093711d2d5ff27';
+const strings = translationStrings('vi');
+
+// Commands and code tokens stay in the source language; explanatory comments are translated.
+const initCode = `leji adopt --dry-run    # kế hoạch ghi chính xác; chưa ghi gì
+leji adopt              # áp dụng cho kho mã nguồn hiện có (leji init nếu là kho mã nguồn mới)
+                        # sau đó đề nghị mở Claude Code hoặc Codex
+
+leji adopt --wire-adapters  # áp dụng trên CLAUDE.md / AGENTS.md hiện có
+
+npm create leji         # hoặc làm tất cả trong một bước mà không cần cài đặt:
+                        # lệnh đọc thư mục rồi chọn adopt hoặc init`;
+
+const validateCode = `leji validate           # schema + quy tắc lint
+leji validate --content # + cảnh báo về nội dung mẫu / sơ sài
+leji index              # sinh index`;
+
+const conformanceCode = `leji conformance        # chấm điểm tuyên bố`;
+
+const viewCode = `leji view               # mở viewer dành cho người đọc trong trình duyệt
+leji viewer build       # xuất thư mục tĩnh để host sau lớp xác thực nội bộ`;
+
+const ciCode = `leji ci                 # sinh workflow
+leji ci --hooks         # các cổng chặn giống pre-commit cục bộ
+
+# những lệnh job được sinh ra sẽ chạy:
+leji validate           # schema + quy tắc lint
+leji index --check      # index lỗi thời sẽ làm phép kiểm thất bại
+
+# thêm ở mức indexed trở lên:
+leji changelog check    # chỉ thêm mới`;
+
+const startCode = 'leji start              # hoặc --agent claude-code | codex để ghim một host';
+
+const apiCode = `import { validateLayer, writeIndex, conformanceReport } from '@leji-org/leji';
+
+const { findings } = validateLayer('.');`;
+
+const mcpCode = `# Claude Code (dự án này)
+claude mcp add leji --scope project -- npx -y @leji-org/mcp
+
+# Codex
+codex mcp add leji -- npx -y @leji-org/mcp`;
+---
+
+<Base
+   lang="vi"
+   title="Bắt đầu nhanh · Leji"
+   description="Bắt đầu nhanh: cài CLI của Leji, khởi tạo hoặc ánh xạ một lớp ngữ cảnh, kiểm tra nó, và chấm điểm theo đúng mức mà nó tuyên bố."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/quickstart/" />
+         <main id="content" class="adopt-main measured">
+            <section class="gs-hero">
+               <PageHeader kind="guide" />
+               <h1>Dựng một lớp ngữ cảnh, rồi kiểm tra mức tuân thủ.</h1>
+               <TranslationNote strings={strings.note} href="/quickstart/" />
+               <p class="lede">
+                  Năm câu lệnh, từ cài đặt đến khi có điểm tuân thủ. Mọi thứ leji làm đều nằm sẵn trong gói và chạy
+                  offline; những gì chạm tới mạng đều do bạn tự gọi. Bước khai báo phụ thuộc trong <code>leji init</code
+                  > và <code>leji adopt</code> chạy trình quản lý gói của chính bạn khi bạn đồng ý, còn các lệnh federation
+                  chỉ liên hệ đúng kho mã nguồn bạn đã khai báo:{' '}
+                  <code>leji mounts hydrate --fetch</code>, <code>leji mounts update-pin --fetch</code>, và{' '}
+                  <code>leji conformance --federation=verify</code>.
+               </p>
+            </section>
+
+            <SupportedRuntimes />
+
+            <section class="steps" aria-label="Các bước bắt đầu nhanh">
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">01</span>Cài công cụ</h2>
+                     <p>
+                        Cả ba bản đều vượt qua cùng một bộ fixture, nên cờ dòng lệnh, đầu ra JSON và mã thoát đều giống
+                        nhau, bất kể CI của bạn cài bản nào.
+                     </p>
+                     <p>
+                        Hãy khai báo công cụ dưới dạng dev dependency để CI, hook pre-commit và mọi người đóng góp cùng
+                        chạy một phiên bản đã ghim. Bạn không cần tự tìm câu lệnh:{' '}
+                        <code>leji init</code> và <code>leji adopt</code> nhận ra trình quản lý gói mà kho mã nguồn này thực
+                        sự đang dùng và đề nghị chạy lệnh thêm gói của chính nó, chỉ khi bạn đồng ý rõ ràng:{' '}
+                        <code>npm</code>, <code>pnpm</code>, <code>yarn</code> và <code>bun</code>;{' '}
+                        <code>uv</code>, <code>poetry</code>, <code>pdm</code> và <code>pipenv</code>; cùng{' '}
+                        <code>go get -tool</code>, vốn cần Go 1.24 trở lên, trong khi tự build CLI Go thì cần Go 1.26.6
+                        trở lên. Với pip, leji in ra dòng cần thêm thay vì chạy bất cứ thứ gì. Bản cài toàn cục không
+                        cản đường: bên trong một kho mã nguồn đã ghim bản riêng, CLI Node và Python chạy đúng bản đó ở
+                        mọi lần gọi (<a href="/vi/cli/#pinned-cli">CLI mà một kho mã nguồn ghim</a>).
+                     </p>
+                  </div>
+                  <div class="step-install"><InstallTabs /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2>
+                        <span class="step-num">02</span>Khởi tạo một lớp ngữ cảnh mới, hoặc áp dụng cho kho mã nguồn sẵn
+                        có
+                     </h2>
+                     <p>
+                        Bạn nhận được manifest <code>leji.json</code> ở gốc kho mã nguồn, một boot profile, các tài liệu danh
+                        mục đã gieo sẵn, một bản ghi quyết định đầu tiên, và một brief onboarding. Kèm theo là hai tệp nằm
+                        ngoài gốc ngữ cảnh: một <code>AGENTS.md</code> chỉ chứa con trỏ khi kho mã nguồn chưa có tệp nào như
+                        vậy (<code>--no-agents</code> bỏ qua nó), và một dòng <code>.gitignore</code> ở gốc cho <code
+                           >.leji/</code
+                        >, nơi làm việc chứa brief đó. Không phần nào trong số này đòi hỏi phải có agent.
+                     </p>
+                     <p>
+                        Khung ban đầu chỉ chứa nội dung mẫu. Nếu nhận lời đề nghị, agent sẽ đọc kho mã nguồn, đề xuất
+                        cách ánh xạ để bạn xem xét rồi xoá brief. Nếu từ chối, bạn sẽ nhận được câu lệnh để chạy sau; <code
+                           >--yes</code
+                        > bỏ qua bước này, nên CI vẫn chạy mà không cần người trực.
+                     </p>
+                     <p>
+                        Nếu làm việc một mình, <code>--mode solo</code> tạo sẵn phần identity và writing-style, đồng thời
+                        hướng brief vào một buổi phỏng vấn chủ sở hữu; câu trả lời có thể gõ, đính kèm, hoặc thả vào một thư
+                        mục. Chỉ bản tổng hợp mà bạn phê duyệt mới trở thành ngữ cảnh, còn nguyên liệu thô thì nằm lại trong
+                        vùng làm việc được git bỏ qua tại <code>.leji/</code> ở gốc kho mã nguồn:{' '}
+                        <code>init</code> và{' '}
+                        <code>adopt</code> ghi ra chính quy tắc bỏ qua đó, và cả hai đều từ chối chạy chừng nào còn bất cứ
+                        thứ gì dưới đó đang được git theo dõi. Agent xoá các tệp đó một khi lớp ngữ cảnh đã có nội dung.
+                     </p>
+                     <aside class="map-note">
+                        <strong>Đã có sẵn thư mục <code>docs/</code>?</strong>{' '}
+                        <code>adopt</code> dựng khung bên cạnh nó và không di chuyển gì cả. Điểm vào sẵn có của bạn được giữ
+                        nguyên, nên tới khi <code>--wire-adapters</code> chạy thì thứ bạn có là một bản nháp áp dụng chứ chưa
+                        phải một lớp ngữ cảnh tuân thủ.
+                     </aside>
+                  </div>
+                  <div class="step-code"><Code code={initCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">03</span>Kiểm tra</h2>
+                     <ul class="checks">
+                        <li>
+                           <strong>Kiểm theo schema:</strong> manifest, index, changelog, cùng phần frontmatter của agent
+                           profile và bản ghi quyết định.
+                        </li>
+                        <li>
+                           <strong>Cấu trúc và lint:</strong> boot profile, tệp index và tài liệu thường không có schema.
+                           Các tệp đã khai báo phải tồn tại, và changelog chỉ được thêm vào, đối chiếu với{' '}
+                           <code>HEAD</code>. Từ mức <code>indexed</code> trở lên, một index lỗi thời sẽ làm hỏng hẳn bước
+                           kiểm tra.
+                        </li>
+                     </ul>
+                     <p class="fine">
+                        Sau một lần <code>adopt</code> thông thường trên <code>CLAUDE.md</code> hoặc <code
+                           >AGENTS.md</code
+                        > sẵn có, bạn sẽ thấy một lỗi <code>vendor-adapter-redirect</code> cho mỗi tệp trong số đó, cho tới
+                        khi{' '}
+                        <code>--wire-adapters</code> chạy.
+                     </p>
+                  </div>
+                  <div class="step-code"><Code code={validateCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">04</span>Tuyên bố một mức, rồi kiểm lại</h2>
+                     <p>
+                        Việc áp dụng theo từng phần là chủ ý thiết kế: bắt đầu ở <code>core</code>, rồi mỗi mức bao hàm
+                        mức trước. Manifest khai báo mức tuyên bố;{' '}
+                        <code>leji conformance</code> chấm lớp ngữ cảnh theo đúng mức đó.
+                     </p>
+                     <p class="ladder-line">
+                        <code>core</code> → <code>indexed</code> → <code>governed</code> → <code>federated</code>
+                     </p>
+                     <p class="ladder-more">
+                        <a href="/vi/spec/conformance/">Mỗi mức đòi hỏi những gì</a>
+                     </p>
+                  </div>
+                  <div class="step-code"><Code code={conformanceCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">05</span>Nhìn thấy lớp ngữ cảnh của bạn</h2>
+                     <p>Chính lớp ngữ cảnh mà các agent của bạn đọc, được trình bày cho con người.</p>
+                  </div>
+                  <div class="step-code"><Code code={viewCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+            </section>
+
+            <section class="duo">
+               <div class="duo-cell">
+                  <h2>Giữ cho nó trung thực trong CI</h2>
+                  <p>
+                     Nhà cung cấp được suy ra từ remote <code>origin</code>; nếu remote không cho biết nhà cung cấp, hệ
+                     thống mặc định dùng GitHub.
+                  </p>
+                  <Code code={ciCode} lang="bash" theme={lejiSyntaxTheme} wrap />
+                  <p class="fine">
+                     Mã thoát hợp với CI: <code>0</code> sạch, vẫn cho phép cảnh báo; <code>1</code> một phép kiểm không qua,
+                     dù nó có báo ra phát hiện nào hay không; <code>2</code> lỗi cách dùng hoặc một lỗi nội bộ, ví dụ việc
+                     từ chối ghi đè.
+                  </p>
+               </div>
+               <div class="duo-cell">
+                  <h2>Bước vào lớp ngữ cảnh</h2>
+                  <p>
+                     Lớp ngữ cảnh trở thành ngữ cảnh đầu tiên của agent, không có tệp nhà cung cấp nào chen vào giữa.
+                  </p>
+                  <Code code={startCode} lang="bash" theme={lejiSyntaxTheme} wrap />
+                  <p class="fine">
+                     Nếu phát hiện nhiều host, công cụ sẽ hỏi. Nếu không thấy host nào, hoặc đang chạy qua script hay
+                     CI, công cụ in ra câu lệnh cần chạy thay vì đoán.{' '}
+                     <a href="/vi/adoption/#put-it-to-work">Hướng dẫn áp dụng</a> có các cờ chuyển tiếp cho host và bảng dự
+                     phòng tệp nhà cung cấp.
+                  </p>
+               </div>
+            </section>
+
+            <section class="mcp-block">
+               <h2>Trao cho agent cả công cụ, không chỉ ngữ cảnh</h2>
+               <p>
+                  Bước vào lớp ngữ cảnh là trao cho agent phần ngữ cảnh. <a href="/vi/mcp/">MCP server</a> trao cho nó phần
+                  công cụ: một server cục bộ, chỉ đọc, chạy kiểm tra và chấm tuân thủ trên lớp ngữ cảnh nằm trên đĩa, nên
+                  agent không bao giờ cần tới shell. Nó đọc và báo cáo; nó không bao giờ ghi.
+               </p>
+               <Code code={mcpCode} lang="bash" theme={lejiSyntaxTheme} wrap />
+               <p class="fine">
+                  <code>init</code> và <code>adopt</code> đề nghị đăng ký sẵn cho bạn: theo phạm vi dự án với Claude Code,
+                  theo phạm vi người dùng với Codex. Các câu lệnh ở trên dành cho ai đã bỏ qua lời đề nghị đó, và đổi <code
+                     >--scope project</code
+                  > thành <code>--scope user</code> sẽ đăng ký một lần cho riêng bạn thay vì cho kho mã nguồn này. Mọi MCP
+                  client đều dùng được; trang <a href="/vi/mcp/">MCP server</a> có danh sách công cụ đầy đủ.
+               </p>
+            </section>
+
+            <section class="shapes" aria-label="Các hình thái áp dụng theo tình huống">
+               <h2>Rồi áp dụng theo tình huống của bạn</h2>
+               <table class="shape-table">
+                  <tbody>
+                     <tr>
+                        <th scope="row"><a href="/vi/adoption/#where-it-lives">Monorepo</a></th>
+                        <td>Một kho mã nguồn, một lớp ngữ cảnh, khởi tạo một lần ở gốc kho mã nguồn.</td>
+                     </tr>
+                     <tr>
+                        <th scope="row"
+                           ><a href="/vi/adoption/#where-it-lives">Nhiều kho mã nguồn, một lớp ngữ cảnh</a></th
+                        >
+                        <td>
+                           Một kho ngữ cảnh riêng, mount ở chế độ chỉ tài liệu trong từng kho mã nguồn sử dụng, ghim
+                           theo từng kho mã nguồn.
+                        </td>
+                     </tr>
+                     <tr>
+                        <th scope="row"><a href="/vi/federation/">Nhiều lớp ngữ cảnh đã có chủ</a></th>
+                        <td
+                           >Các nhóm mà mỗi nhóm đã sở hữu một lớp ngữ cảnh. Mount từng lớp như một lớp ngang hàng;
+                           quyền sở hữu và cách làm việc giữ nguyên.</td
+                        >
+                     </tr>
+                  </tbody>
+               </table>
+            </section>
+
+            <section class="api-peek">
+               <div class="peek-text">
+                  <h2>Từ một script</h2>
+                  <p>
+                     Phần lớn câu lệnh cũng là một lời gọi thư viện, dùng cho hook, bot và các bước build. Mã nguồn tại <a
+                        href="https://github.com/leji-org/leji"
+                        target="_blank"
+                        rel="noopener">leji-org/leji</a
+                     >, Apache-2.0.
+                  </p>
+               </div>
+               <div class="peek-code"><Code code={apiCode} lang="js" theme={lejiSyntaxTheme} wrap /></div>
+            </section>
+
+            <p class="next-step">
+               Tiếp theo: <a href="/vi/adoption/">hướng dẫn áp dụng</a> cho một kho mã nguồn sẵn có, hoặc{' '}
+               <a href="/vi/federation/">federation</a> khi nhiều nhóm mà mỗi nhóm sở hữu một lớp ngữ cảnh.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .gs-hero {
+      /* No top padding: .doc-shell already sets the 2.5rem above the first line,
+         and every Doc page starts its h1 there. */
+      padding: 0 0 1rem;
+      max-width: 760px;
+   }
+   /* h1 comes from the shared .measured/.prose display scale in global.css. */
+   .lede {
+      font-size: var(--text-lede);
+      line-height: 1.7;
+      color: var(--leji-text-body);
+      max-width: var(--measure-fine);
+      margin: 0;
+   }
+
+   h2 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 1.6rem;
+      line-height: 1.25;
+      color: var(--leji-text);
+      margin: 0 0 0.6rem;
+   }
+
+   .steps {
+      margin-top: 2.5rem;
+      display: grid;
+      gap: 2.8rem;
+      padding: 1.6rem 0 0.4rem;
+   }
+   .step {
+      display: grid;
+      gap: 0.9rem;
+   }
+   .step-text p {
+      color: var(--leji-text-body);
+      margin: 0.4rem 0 0;
+   }
+   .step-text code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+   .map-note {
+      margin-top: 1.1rem;
+      padding: 0.9rem 1.2rem;
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
+      border-radius: 0 8px 8px 0;
+      font-size: 0.92rem;
+      color: var(--leji-text-body);
+   }
+   .map-note strong {
+      color: var(--leji-text);
+   }
+   .checks {
+      margin: 0.6rem 0 1rem;
+      padding-left: 1.1rem;
+      color: var(--leji-text-body);
+   }
+   .checks li {
+      margin: 0.4rem 0;
+   }
+   .checks strong {
+      color: var(--leji-text);
+      font-weight: 600;
+   }
+   .ladder-line {
+      font-size: 0.92rem;
+   }
+   .step-text .ladder-more {
+      margin-top: 1.15rem;
+   }
+   .ladder-more a {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+      text-decoration: none;
+      border-bottom: 1px solid var(--leji-brand);
+      padding-bottom: 2px;
+      white-space: nowrap;
+   }
+   .ladder-more a:hover {
+      color: var(--leji-text);
+      border-color: var(--leji-text);
+   }
+
+   /* CI + invocation */
+   .duo {
+      margin-top: 4rem;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2.8rem;
+   }
+   .duo-cell h2 {
+      font-size: 1.35rem;
+   }
+   .duo-cell p {
+      color: var(--leji-text-body);
+      margin: 0 0 1.1rem;
+   }
+   .duo-cell .fine {
+      margin: 1rem 0 0;
+   }
+   .duo-cell .fine a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   .duo-cell code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+
+   /* by situation */
+   .shapes {
+      margin-top: 4rem;
+   }
+   .shape-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.4rem 0 0;
+   }
+   .shape-table th,
+   .shape-table td {
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: baseline;
+      text-align: left;
+      padding: 0.85rem 0 0.85rem 0;
+   }
+   .shape-table th {
+      white-space: nowrap;
+      padding-right: 2.2rem;
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.08rem;
+   }
+   .shape-table th a {
+      color: var(--leji-text);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+      transition: color 0.15s;
+   }
+   .shape-table th a:hover {
+      color: var(--leji-link);
+   }
+   .shape-table td {
+      font-size: 0.95rem;
+      color: var(--leji-text-body);
+      line-height: 1.55;
+   }
+
+   /* library surface */
+   .api-peek {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.4rem;
+      padding: 4rem 0 4.5rem;
+   }
+   .peek-text p {
+      color: var(--leji-text-body);
+   }
+   .peek-text a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   .peek-text code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+
+   .step-code {
+      margin-top: 0;
+   }
+
+   .step-install {
+      background: var(--leji-deep);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      overflow: hidden;
+   }
+
+   .mcp-block {
+      margin-top: 4rem;
+   }
+   .mcp-block p {
+      color: var(--leji-text-body);
+      margin: 0 0 1.1rem;
+   }
+   .mcp-block code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+   .mcp-block .fine {
+      margin: 1rem 0 0;
+   }
+   .mcp-block .fine a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+
+   .step-code :global(.astro-code),
+   .duo-cell :global(.astro-code),
+   .peek-code :global(.astro-code),
+   .mcp-block :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 12px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.65;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      margin: 0;
+   }
+</style>

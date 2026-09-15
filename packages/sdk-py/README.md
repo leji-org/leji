@@ -27,7 +27,7 @@ leji agent --name <n>   # bind an additional named agent into the layer
 leji mounts hydrate     # materialize declared federation mounts into the resolver cache
 leji mounts status      # each mount's availability, integrity, and pin ancestry
 leji mounts locate      # resolver state for one mount: projection path, pin, verification
-leji mounts update-pin  # move one mount's declared pin, verified against the source
+leji mounts update-pin  # move one mount's pin, checked against the local witness (--fetch: the source)
 leji changelog compact  # fold the oldest changelog entries into one compaction entry
 ```
 
@@ -40,12 +40,13 @@ layer's minimum, `leji` runs that copy; set `LEJI_NO_LOCAL` to any value to run
 this one.
 
 Behaviorally identical to the `@leji-org/leji` npm package and the Go SDK: same
-commands, same flags, same findings, same exit codes (0 clean, 1 findings, 2
-usage error); the one runtime-specific behavior is the hand-off above, which the
-Node and Python CLIs perform and the Go CLI does not (there, run the pinned copy
-with `go tool leji`). All three implementations are tested against one shared fixture
-suite. Install whichever matches your toolchain; agents and CI see the same
-tool either way.
+commands, same flags, same findings, same exit codes (0 clean, warnings
+included; 1 a check that did not pass, with or without a finding; 2 a usage
+error or an internal failure); the one runtime-specific behavior is the
+hand-off above, which the Node and Python CLIs perform and the Go CLI does not
+(there, run the pinned copy with `go tool leji`). All three implementations are
+tested against one shared fixture suite. Install whichever matches your
+toolchain; agents and CI see the same tool either way.
 
 Supports spec line **1.0**. Schemas and templates for that line ship inside
 the package; no network access is needed.

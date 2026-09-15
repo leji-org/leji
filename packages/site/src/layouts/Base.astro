@@ -4,15 +4,27 @@ import '@fontsource-variable/source-serif-4';
 import '@fontsource/ibm-plex-mono/400.css';
 import '@fontsource/ibm-plex-mono/500.css';
 import '../styles/global.css';
+import { chromeStrings } from '../data/i18n';
+import { alternates, localeOf } from '../i18n';
 
 const {
    title = 'Leji: the shared context layer for AI-native teams',
    description = 'Leji is an open specification for a shared, versioned, repo-owned context layer read by people and AI agents, with every change governed through review.',
    alternate,
    noindex = false,
+   lang = 'en',
 } = Astro.props;
+// The skip link opens the body of every page in every language. `lang` is the page's
+// own declaration, while the strings are keyed by the registry's locale, so the label is
+// read from the URL the way the header and the footer read theirs.
+const chrome = chromeStrings(localeOf(Astro.url.pathname));
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const ogImage = new URL('/og.png', Astro.site);
+
+// Language alternates, emitted here for every page in every language rather than
+// per page: the registry knows which routes are translated, so the set is
+// reciprocal by construction and a route with no translation emits none.
+const localeAlternates = alternates(Astro.url.pathname);
 
 // Analytics are opt-in at build time and off by default: this source ships with none, so a
 // plain build produces a site that loads nothing third-party. A deployment that wants
@@ -63,7 +75,7 @@ const siteLd = {
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang={lang}>
    <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -73,6 +85,7 @@ const siteLd = {
       <meta name="description" content={description} />
       {noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
       {alternate && <link rel="alternate" type="text/markdown" href={alternate} />}
+      {localeAlternates.map((a) => <link rel="alternate" hreflang={a.hreflang} href={new URL(a.href, Astro.site)} />)}
       <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
       <link rel="sitemap" href="/sitemap-index.xml" />
       <meta property="og:title" content={title} />
@@ -91,7 +104,7 @@ const siteLd = {
       {analyticsEnabled && <script is:inline src={analyticsScript} data-site={analyticsSite} defer />}
    </head>
    <body>
-      <a class="skip-link" href="#content">Skip to content</a>
+      <a class="skip-link" href="#content">{chrome.skipToContent}</a>
       <slot />
    </body>
 </html>

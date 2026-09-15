@@ -1,6 +1,7 @@
 import { type Finding, finding, sortFindings } from '../lib/findings.js';
 import { scanAgentProfiles, scanCategories } from '../lib/layer.js';
 import { type Manifest } from '../lib/manifest.js';
+import { byteCompare } from '../lib/text.js';
 
 export interface FreshnessItem {
    path: string;
@@ -42,16 +43,11 @@ export function freshnessReport(root: string, manifest: Manifest, strict = false
       const reviewAfter = reviewAfterOf(profile.frontmatter);
       if (reviewAfter) items.push({ path: profile.relPath, reviewAfter });
    }
+   // Date first, then the path in byte order: the tiebreak the Python tuple key and
+   // the Go comparator already give. Dates are ASCII so `<` answers for them; a path
+   // is not, and UTF-16 code units disagree with bytes above the BMP.
    items.sort((a, b) =>
-      a.reviewAfter !== b.reviewAfter
-         ? a.reviewAfter < b.reviewAfter
-            ? -1
-            : 1
-         : a.path < b.path
-           ? -1
-           : a.path > b.path
-             ? 1
-             : 0,
+      a.reviewAfter !== b.reviewAfter ? (a.reviewAfter < b.reviewAfter ? -1 : 1) : byteCompare(a.path, b.path),
    );
 
    const expired = items.filter((i) => i.reviewAfter < today);

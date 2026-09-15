@@ -1,0 +1,147 @@
+{
+  "$comment": "Reference, not copy. This file documents what each string in a locale file means and what the English site says, so a translator has the source in front of them. It is never loaded by the site: the loader in index.ts excludes it by pattern, and its shape is not a locale file's, so nothing can render it as one. English pages carry no note and no banner, because English is the page of record. The revision a translation follows is recorded in the page's frontmatter for the drift gate and is never shown to a reader, so no string here places it.",
+  "note.template": {
+    "role": "The second sentence of the note under the title of every translated page, naming the text that governs where the two differ; {link} is the English page of record.",
+    "english": "The {link} governs where they differ."
+  },
+  "note.linkText": {
+    "role": "The text of the link inside note.template, which is the sentence's own subject and so carries no article of its own.",
+    "english": "English page"
+  },
+  "note.made": {
+    "role": "The first sentence of the note, saying plainly how the page was made and nothing more; no placeholder.",
+    "english": "Translation assisted by AI agents."
+  },
+  "note.corrections": {
+    "role": "The third sentence of the note, inviting a correction: {issue} opens the repository's new-issue form with the language and the route already in the title, {edit} opens this page's own source file on GitHub, and both are links.",
+    "english": "If you find any issues with the text, please open an {issue} or a {edit}."
+  },
+  "note.correctionsFull": {
+    "role": "The same invitation on the one-page view of the specification, which is composed from ten files and so has no single one to edit: {issue} is the only link, and the pull request comes from the edit link beside each document's title.",
+    "english": "If you find any issues with the text, please open an {issue} or a pull request from the edit link beside each document's title."
+  },
+  "note.issueLinkText": {
+    "role": "The text of the {issue} link, a short noun the sentence's own verb and article carry.",
+    "english": "issue"
+  },
+  "note.editLinkText": {
+    "role": "The text of the {edit} link, which is also the whole text of the edit link beside each document's title on the one-page view, so it has to read both inside the sentence and on its own.",
+    "english": "pull request"
+  },
+  "specBanner.template": {
+    "role": "The banner at the top of a translated specification document. It has to say the page is an informative translation, name and link the normative English document, and name the frozen specification line it renders. {link} is the English document.",
+    "english": "This is an informative translation of {link} on the frozen 1.0 line of the specification. The English document is the normative text and governs on any difference."
+  },
+  "specBanner.fullTemplate": {
+    "role": "The same banner on the locale's one-page view, which renders ten documents rather than one, so the sentence is plural. {link} is the English one-page view.",
+    "english": "This is an informative translation of {link} on the frozen 1.0 line of the specification. The English documents are the normative text and govern on any difference."
+  },
+  "specBanner.linkText": {
+    "role": "The text of the link inside specBanner.template and specBanner.fullTemplate.",
+    "english": "the normative English page"
+  },
+  "schema.required": {
+    "role": "The badge on a required field in the schema reference's field table, which is also that badge's title attribute. One word.",
+    "english": "required"
+  },
+  "schema.pattern": {
+    "role": "Introduces a field's regular expression, which follows as literal source. One word or short phrase, no punctuation.",
+    "english": "Pattern"
+  },
+  "schema.sharedShape": {
+    "role": "The heading over a shape several sibling keys share, rendered once instead of once per sibling.",
+    "english": "Each key below takes the same shape:"
+  },
+  "schema.linkTo": {
+    "role": "The accessible name of a field's deep-link anchor. {name} is the field's own key and is never translated.",
+    "english": "Link to {name}"
+  },
+  "schema.arrayOfObjects": {
+    "role": "The rendered type of an array whose items are objects.",
+    "english": "array of objects"
+  },
+  "schema.arrayOfItems": {
+    "role": "The rendered type of an array whose items the schema does not give one type for.",
+    "english": "array of items"
+  },
+  "schema.arrayOfStrings": {
+    "role": "The rendered type of an array of strings.",
+    "english": "array of strings"
+  },
+  "schema.arrayOfNumbers": {
+    "role": "The rendered type of an array of numbers.",
+    "english": "array of numbers"
+  },
+  "schema.arrayOfBooleans": {
+    "role": "The rendered type of an array of booleans.",
+    "english": "array of booleans"
+  },
+  "schema.arrayOfIntegers": {
+    "role": "The rendered type of an array of integers.",
+    "english": "array of integers"
+  },
+  "schema.arrayOfEnum": {
+    "role": "The rendered type of an array whose items are one of a fixed set. {values} is that set, quoted and joined by the page from the schema's own values, so it is never translated.",
+    "english": "array of {values}"
+  },
+  "schema.map": {
+    "role": "The rendered type of an object whose keys are matched by pattern rather than named.",
+    "english": "map"
+  },
+  "schema.value": {
+    "role": "The rendered type of a field the schema constrains no further.",
+    "english": "value"
+  },
+  "chrome.skipToContent": {
+    "role": "The first link on every page, which a keyboard reader takes to jump the header and land on the content. Short, and a verb phrase.",
+    "english": "Skip to content"
+  },
+  "chrome.source": {
+    "role": "The header's link to the repository, as a reader sees it. One word where the language has one.",
+    "english": "Source"
+  },
+  "chrome.sourceRepository": {
+    "role": "The accessible name of that same link, which says where it leads and names GitHub. GitHub is a product name and stays as it is.",
+    "english": "Source repository on GitHub"
+  },
+  "chrome.supportedRuntimes": {
+    "role": "The label over the runtimes the CLI is published for, on the Quickstart and the CLI reference. The runtime names beside it are product names and are never translated.",
+    "english": "Supported runtimes"
+  },
+  "chrome.install": {
+    "role": "The accessible name of the install tabs, one tab per runtime. Leji is the specification's name and stays as it is.",
+    "english": "Install Leji"
+  },
+  "chrome.copyCommand": {
+    "role": "The button beside the selected install command, which copies it.",
+    "english": "Copy install command"
+  },
+  "chrome.copyCode": {
+    "role": "The button on a code block the page names no command for, which copies the block.",
+    "english": "Copy to clipboard"
+  },
+  "chrome.copied": {
+    "role": "What either copy button is called for the moment after it has copied, so a reader using a screen reader hears that it worked. Past tense, and short.",
+    "english": "Copied"
+  },
+  "pageKinds.normative": {
+    "role": "The classification eyebrow above the title of a page the specification binds: the specification documents and the JSON Schemas. {spec} is the specification line, a version token the page places and no locale translates.",
+    "english": "{spec} \u00b7 normative"
+  },
+  "pageKinds.reference": {
+    "role": "The eyebrow on a page describing tooling that implements the spec, where the spec is the authority. {spec} as above.",
+    "english": "{spec} \u00b7 reference"
+  },
+  "pageKinds.guide": {
+    "role": "The eyebrow on task-shaped instructions for adopting Leji. Non-normative.",
+    "english": "guide"
+  },
+  "pageKinds.background": {
+    "role": "The eyebrow on a page explaining why Leji is built the way it is. Non-normative.",
+    "english": "background"
+  },
+  "pageKinds.governance": {
+    "role": "The eyebrow on a page about how the project is run, versioned, and handed on.",
+    "english": "governance"
+  }
+}

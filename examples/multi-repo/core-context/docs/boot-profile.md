@@ -49,5 +49,5 @@ matches, and cite it by name.
 Context layer changes ride review as ordinary change sets; people approve.
 
 - Append an entry to `docs/context-changelog.json` for every context layer change.
-- Decisions get a record in `docs/decisions/`; copy the shape of an existing one.
+- Decisions get a record in `docs/decisions/`; copy the shape of an existing one. When one change introduces two or more decision records, read the set together before it lands, for overlap, contradiction, and any record that narrates a state the landed tree will not show.
 - Regenerate `docs/context-index.json` when files are added, moved, or retitled.

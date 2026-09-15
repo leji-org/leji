@@ -1,73 +1,40 @@
 ---
 // Generated field reference for a JSON Schema (two levels deep, $defs resolved); single-sourced so reference and contract agree.
+//
+// The tree comes from the projection rather than from a walk of its own, so what this
+// draws and what a translation must carry are one answer: a page in another language
+// hands in the localized schema and reads its own words for the chrome around it.
+import { schemaLabels } from '../data/i18n';
+import { localeOf } from '../i18n';
+import { type FieldType, type ProjectedField, schemaProjection } from '../schema-i18n';
+
 const { schema } = Astro.props;
 
-function resolve(prop: any): any {
-   if (prop?.$ref) {
-      const def = prop.$ref.split('/').pop();
-      return schema.$defs?.[def] ?? prop;
+const labels = schemaLabels(localeOf(Astro.url.pathname));
+const fields: ProjectedField[] = schemaProjection(schema).fields;
+
+// A type is either the schema's own tokens, printed as published, or a phrase in the
+// page's language framing them.
+const typeText = (type: FieldType): string =>
+   'literal' in type ? type.literal : labels[type.key].replace('{values}', type.values ?? '');
+
+// A description is written for the schema file, where a name in backticks is source
+// rather than prose, so the pairs are drawn as code here instead of printing as
+// themselves. A backtick with no partner is text, which is what keeps a fence marker
+// (```mermaid) literal. Every segment stays an escaped text child, never set:html, so
+// nothing a description contains can be markup.
+const segments = (text: string) => {
+   const out: { part: string; code: boolean }[] = [];
+   const span = /`([^`]+)`/g;
+   let plain = 0;
+   for (let m = span.exec(text); m; m = span.exec(text)) {
+      if (m.index > plain) out.push({ part: text.slice(plain, m.index), code: false });
+      out.push({ part: m[1], code: true });
+      plain = m.index + m[0].length;
    }
-   return prop;
-}
-
-// Type column shows the resolved JSON Schema type ($refs resolved to their target's type).
-function typeOf(prop: any): string {
-   if (!prop) return 'value';
-   if (prop.$ref) return typeOf(resolve(prop));
-   if (prop.enum) return prop.enum.map((v: string) => `"${v}"`).join(' · ');
-   if (prop.type === 'array') {
-      const items = resolve(prop.items ?? {});
-      if (items.enum) return `array of ${items.enum.map((v: string) => `"${v}"`).join(' · ')}`;
-      if (items.properties || items.type === 'object') return 'array of objects';
-      // The fallback is already plural; pluralizing it again rendered "itemss".
-      return items.type ? `array of ${items.type}s` : 'array of items';
-   }
-   if (prop.patternProperties) return 'map';
-   return prop.type ?? 'value';
-}
-
-function childrenOf(prop: any, depth: number): any[] {
-   if (depth <= 0) return [];
-   const target = prop.type === 'array' ? resolve(prop.items ?? {}) : resolve(prop);
-   const req = new Set(target.required ?? []);
-   return Object.entries(target.properties ?? {}).map(([name, sub]: [string, any]) => ({
-      name,
-      type: typeOf(sub),
-      description: sub.description ?? '',
-      required: req.has(name),
-      // Which shared definition this entry points at, so siblings that all reuse
-      // one $def can render its shape once instead of once each.
-      ref: sub.$ref ?? null,
-      children: childrenOf(sub, depth - 1),
-   }));
-}
-
-/**
- * Siblings that all resolve to the same `$def` describe one shape, not several.
- * Rendering each in full repeats that shape verbatim per sibling: the five
- * category entries all point at `categoryMapping`, so its `indexes` description
- * was emitted five times. Hoist the shared shape and keep each sibling's own
- * description, which is the part that actually differs.
- */
-function hoistSharedShape(sub: any[]): { sub: any[]; shared: any[] | null } {
-   const refs = sub.map((s) => s.ref);
-   const allSame = sub.length > 1 && refs[0] && refs.every((r) => r === refs[0]);
-   const haveChildren = sub.every((s) => s.children.length > 0);
-   if (!allSame || !haveChildren) return { sub, shared: null };
-   return { sub: sub.map((s) => ({ ...s, children: [] })), shared: sub[0].children };
-}
-
-const required = new Set(schema.required ?? []);
-const fields = Object.entries(schema.properties ?? {})
-   .filter(([name]) => name !== '$schema')
-   .map(([name, prop]: [string, any]) => ({
-      name,
-      required: required.has(name),
-      type: typeOf(prop),
-      description: prop.description ?? '',
-      pattern: prop.pattern,
-      ...hoistSharedShape(childrenOf(prop, 2)),
-   }));
+   if (plain < text.length) out.push({ part: text.slice(plain), code: false });
+   return out;
+};
 ---
 
 <dl class="field-list">
@@ -75,59 +42,71 @@ const fields = Object.entries(schema.properties ?? {})
       fields.map((f) => (
          <>
             <dt id={f.name}>
-               <a class="anchor" href={`#${f.name}`} aria-label={`Link to ${f.name}`}>
+               <a class="anchor" href={`#${f.name}`} aria-label={labels.linkTo.replace('{name}', f.name)}>
                   #
                </a>
                <code class="fname">{f.name}</code>
-               <span class="ftype">{f.type}</span>
+               <span class="ftype">{typeText(f.type)}</span>
                {f.required && (
-                  <span class="req" title="required">
-                     required
+                  <span class="req" title={labels.required}>
+                     {labels.required}
                   </span>
                )}
             </dt>
             <dd>
-               {f.description && <p class="fdesc">{f.description}</p>}
+               {f.text && <p class="fdesc">{segments(f.text).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</p>}
                {f.pattern && (
                   <p class="pattern">
-                     Pattern <code>{f.pattern}</code>
+                     {labels.pattern} <code>{f.pattern}</code>
                   </p>
                )}
                {f.shared && (
                   <div class="object-body shared-shape">
-                     <p class="shared-note">Each key below takes the same shape:</p>
-                     {f.shared.map((c: any) => (
+                     <p class="shared-note">{labels.sharedShape}</p>
+                     {f.shared.map((c) => (
                         <div class="subfield">
                            <div class="subfield-head">
                               <code class="fname">{c.name}</code>
-                              <span class="ftype">{c.type}</span>
-                              {c.required && <span class="req">required</span>}
+                              <span class="ftype">{typeText(c.type)}</span>
+                              {c.required && <span class="req">{labels.required}</span>}
                            </div>
-                           {c.description && <p class="subdesc">{c.description}</p>}
+                           {c.text && (
+                              <p class="subdesc">
+                                 {segments(c.text).map((p) => (p.code ? <code>{p.part}</code> : p.part))}
+                              </p>
+                           )}
                         </div>
                      ))}
                   </div>
                )}
-               {f.sub.length > 0 && (
+               {f.children.length > 0 && (
                   <div class="object-body">
-                     {f.sub.map((s) => (
+                     {f.children.map((s) => (
                         <div class="subfield">
                            <div class="subfield-head">
                               <code class="fname">{s.name}</code>
-                              <span class="ftype">{s.type}</span>
-                              {s.required && <span class="req">required</span>}
+                              <span class="ftype">{typeText(s.type)}</span>
+                              {s.required && <span class="req">{labels.required}</span>}
                            </div>
-                           {s.description && <p class="subdesc">{s.description}</p>}
+                           {s.text && (
+                              <p class="subdesc">
+                                 {segments(s.text).map((p) => (p.code ? <code>{p.part}</code> : p.part))}
+                              </p>
+                           )}
                            {s.children.length > 0 && (
                               <div class="object-body nested">
-                                 {s.children.map((g: any) => (
+                                 {s.children.map((g) => (
                                     <div class="subfield">
                                        <div class="subfield-head">
                                           <code class="fname">{g.name}</code>
-                                          <span class="ftype">{g.type}</span>
-                                          {g.required && <span class="req">required</span>}
+                                          <span class="ftype">{typeText(g.type)}</span>
+                                          {g.required && <span class="req">{labels.required}</span>}
                                        </div>
-                                       {g.description && <p class="subdesc">{g.description}</p>}
+                                       {g.text && (
+                                          <p class="subdesc">
+                                             {segments(g.text).map((p) => (p.code ? <code>{p.part}</code> : p.part))}
+                                          </p>
+                                       )}
                                     </div>
                                  ))}
                               </div>

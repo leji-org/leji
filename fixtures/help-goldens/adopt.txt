@@ -16,14 +16,18 @@ Details:
      migrating their content.
    - When no `AGENTS.md` exists, writes a pointer-only one (the portable
      entrypoint many agent hosts read) redirecting to the boot profile;
-     `--no-agents` skips it, and an existing file is never touched.
+     `--no-agents` skips it, and an existing file is never touched unless
+     `--wire-adapters` is requested, which converts it with the other
+     entrypoints.
    - `--mode solo` (a team of one) also seeds identity and writing-style
      starters and points the onboarding brief at the owner interview; existing
      files are never overwritten.
    - Refuses when a `leji.json` exists, `--dry-run` included: a repository that
-     already has a context layer has nothing to adopt. Also refuses when the git
-     tree has uncommitted changes, which `--dry-run` is exempt from because it
-     writes nothing.
+     already has a context layer has nothing to adopt. `--wire-adapters` is the
+     exception, because an existing context layer is exactly what it finishes.
+     Also refuses when the git tree has uncommitted changes, which `--dry-run`
+     is exempt from because it writes nothing, and `--wire-adapters` because the
+     adopt run it finishes is what left the tree dirty.
    - Reports the repository's dependency ecosystem (its package manager, from
      the manifest and lockfiles present) and how to declare the Leji CLI as a
      dev dependency there, so a clean install brings `leji`; on a real terminal

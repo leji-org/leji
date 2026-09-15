@@ -5,12 +5,13 @@ import { Code } from 'astro:components';
 import Doc from '../layouts/Doc.astro';
 import SchemaFields from '../components/SchemaFields.astro';
 import lejiSyntaxTheme from '../styles/shiki-leji.json';
+import { REPO_ROOT, SITE_ROOT } from '../repo-root';
 
 // Field rows are generated from the schema, so this page can't drift from it.
-const schemaRaw = fs.readFileSync(path.resolve(process.cwd(), '../../schemas/context-manifest.schema.json'), 'utf-8');
+const schemaRaw = fs.readFileSync(path.join(REPO_ROOT, 'schemas', 'context-manifest.schema.json'), 'utf-8');
 const schema = JSON.parse(schemaRaw);
 // A manifest that exercises every field; verified against the schema above.
-const exampleRaw = fs.readFileSync(path.resolve(process.cwd(), 'src/data/manifest-complete.json'), 'utf-8');
+const exampleRaw = fs.readFileSync(path.join(SITE_ROOT, 'src', 'data', 'manifest-complete.json'), 'utf-8');
 ---
 
 <Doc
@@ -42,6 +43,11 @@ const exampleRaw = fs.readFileSync(path.resolve(process.cwd(), 'src/data/manifes
       Two things about the shape are easy to misread: each category points at authored <strong>index files</strong>, not
       at content directories, and <code>agents</code> binds role identifiers to profile documents, a directory of roles rather
       than a load order, so binding one never causes it to be read.
+   </p>
+   <p>
+      One field is conditional rather than declarative: <code>viewer.theme.link</code> colors body links and inline code only
+      when it reaches 4.5:1 against the viewer's inline-code background, and a value that misses the floor is reported as
+      a warning while the fixed accessible tone stays.
    </p>
    <div class="manifest-example">
       <Code code={exampleRaw.trimEnd()} lang="json" theme={lejiSyntaxTheme} wrap />

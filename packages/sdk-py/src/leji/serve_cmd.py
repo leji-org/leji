@@ -32,6 +32,7 @@ from .manifest import Manifest, effective_index_path, load_manifest
 # with the export exactly as the reference's serve.ts shares them with export.ts.
 from .viewer_cmd import (
     ACTIVE_EXTENSIONS,
+    DECISIONS_REL,
     OVERVIEW_REL,
     _assemble_sidebar,
     _declares_inherits,
@@ -479,11 +480,12 @@ class _SafeViewerHandler(BaseHTTPRequestHandler):
                         return
             except Exception:  # noqa: BLE001 - fall through to the stored artifact
                 pass
-        # The generated Manifest page lives in the viewer dir (gitignored chrome) but
-        # is linked from the sidebar and fetched under the content root, like
-        # _sidebar.md. Reserved underscore name; served from the last generation.
-        if rel == "content/_manifest.md":
-            self._serve_from(self.viewer_abs, "_manifest.md")
+        # The generated Manifest and Decisions pages live in the viewer dir
+        # (gitignored chrome) but are linked from the sidebar and fetched under the
+        # content root, like _sidebar.md. Reserved underscore names; served from the
+        # last generation, so a layer that generated no Decisions page 404s here.
+        if rel in ("content/_manifest.md", f"content/{DECISIONS_REL}"):
+            self._serve_from(self.viewer_abs, rel[len("content/") :])
             return
         # The overview homepage is served RENDERED: the source bytes with the layer map
         # substituted between the author's markers, so the counts a reader sees are the

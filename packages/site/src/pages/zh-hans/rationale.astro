@@ -1,0 +1,153 @@
+---
+// Simplified Chinese translation of src/pages/rationale.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation follows.
+//
+// The English page renders rationale/README.md, which is single-sourced for GitHub as
+// well. A translation cannot enter that file, so the prose is authored here in the same
+// structure, with the circle figure in the same place.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import CircleChart from '../../components/CircleChart.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '0ddffffc1603fd1aec577a54e9674ba6f9a226ac';
+const strings = translationStrings('zh-hans');
+---
+
+<Base
+   lang="zh-hans"
+   title="设计理由 · Leji"
+   description="Leji 为什么这样设计：持久的意图重于逐厂商的指令、是圆环而非层级、意图与记录，以及它为什么不是 wiki。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/rationale/" />
+         <main id="content" class="prose">
+            <PageHeader kind="background" />
+            <h1>设计理由</h1>
+            <TranslationNote strings={strings.note} href="/rationale/" />
+            <p>非规范性：本页说明这份规范为何采用如今的设计。</p>
+
+            <h2 id="intent-over-instructions">意图重于指令</h2>
+            <p>
+               命令式指令（“照这样做、使用这种格式、写进这个厂商的文件”）需要针对每个智能体宿主、每类任务和每位新同事重新编写。持久的意图则不同：事物意味着什么、必须满足哪些约束、为何如此，只需写一次，任何宿主都能据此结合任务推导行动。
+            </p>
+            <p>
+               因此，上下文层的类别是从持久含义中划出的主题维度（domain、system、governance、decisions），而不是从任务中划出的。未来的版本或许会从真实实践中提炼出任务信封；1.0
+               刻意只将范围更小的这一部分标准化。
+            </p>
+
+            <h2 id="a-circle-not-a-tier">是圆环，不是层级</h2>
+            <p>
+               今天的上下文工作大多是<em>为智能体</em
+               >而写：人编写指令，智能体宿主负责加载，信息沿着层级单向下传。这固然能提升个人效率，却没有解决一个更早就存在的问题：人与人之间的知识仍散落在脑海和聊天记录中，每个智能体宿主拿到的“真相”副本也在逐渐分叉。
+            </p>
+            <p>
+               在 Leji 中，三种围绕同一个上下文层的工作流地位同等：<strong>人对人</strong
+               >（新人上手、评审、平息争论）、<strong>人对 AI</strong>（委派给智能体的工作），以及<strong
+                  >人对 AI 再对人</strong
+               >（智能体产出、由人评审的工作）。
+            </p>
+            <p>
+               所有人都读取同一个上下文层；人和智能体都可以提议变更。平等的是访问权，而不是决定权：每一次写入都先作为提议提交，由人批准哪些内容可以成为事实。同时服务这三种流动，本身就是一种强制机制：只有智能体读取的页面可能在无人察觉时逐渐失效，而人也依赖的页面会由双方共同维护。
+            </p>
+            <figure class="rationale-figure">
+               <CircleChart />
+               <figcaption class="figure-note">
+                  <span class="flows">人对人 · 人对 AI · 人对 AI 再对人</span>
+                  所有人都读取。任何参与者都可以提议。由人来批准。过期的上下文绝不会被悄悄当作当前有效。
+               </figcaption>
+            </figure>
+
+            <h2 id="intent-and-records">意图与记录</h2>
+            <p>
+               真实仓库的文档中，交织着两类真值模型不同的内容。意图（术语表、不变量、约定、护栏）必须被<em>保持</em
+               >为真：现实一旦变化，文档就需要修正。记录（状态、评估、台账、读数、归档）则在特定边界内<em>从产生之初</em
+               >就是真实的；后续状态会取代它们，而日期界定了它们的时效。
+            </p>
+            <p>
+               把记录当作意图来对待，会造出没人兑现得了的复核承诺。把它们排除在外，则会让仓库的大半落在治理之外。Leji
+               的做法是把两者都纳入治理，但区别对待。
+            </p>
+            <p>
+               记录像意图一样被索引、被评审、有归属，但它们以带日期的候选身份被路由，而不是作为必需上下文。它们对读者的契约不同：那是带日期的证据，绝不是当下的真实。复核期限只适用于意图。五个类别仍然是主题维度，而类型与之正交：一份系统评估既是<em
+                  >关于</em
+               >系统的，也是<em>截至其日期为真</em>的。
+            </p>
+            <p>
+               规范绝不认定哪一份记录是“最新的”，因为 1.0
+               既没有声明记录系列，也没有声明它们的顺序。读者依据索引呈现的日期自行判断新近程度。规范自身的决策记录，带日期、仅可追加、从不过期，正是这一模式的范例。
+            </p>
+
+            <h2 id="why-this-is-not-a-wiki">它为什么不是 wiki</h2>
+            <p>Wiki 会腐烂，因为没有机制确保其保持最新。上下文层拥有三条 wiki 所没有的强制机制：</p>
+            <ul>
+               <li>智能体在每项任务中都读它，因此错误的上下文会产出错误的结果，当天就有人感觉到。</li>
+               <li>变更随代码一起评审，因此不必另设一套容易被遗忘的流程。</li>
+               <li>
+                  机械性漂移（过期的索引、损坏的配置）是一项会失败的检查，而在 <code>governed</code> 级别，它在每一次变更时都在
+                  CI 中运行。仅可追加这项检查，是把工作树中的变更日志与 <code>HEAD</code>
+                  上的那一份相比对，因此还留在工作树里的回退会被它判失败；而已经以提交的形式进来的回退，靠的是对这次变更集的评审，不是这项检查。
+               </li>
+            </ul>
+
+            <h2 id="why-vendor-files-redirect">厂商文件为什么只做重定向</h2>
+            <p>
+               把权威上下文放进某一家厂商的配置格式里，会让它碎片化，并被锁死在那个宿主上。由于智能体宿主各自去找自己的入口文件，Leji
+               便将它们视为适配器：只用一行指向引导配置。单一事实来源不会因宿主更迭而失效。
+            </p>
+
+            <h2 id="why-federation-composes-instead-of-centralizing">联邦为什么是组合而不是集中</h2>
+            <p>
+               集中存放各团队的知识，会打断让上下文保持最新的归属闭环。负责人在每项任务中使用自己的上下文层，也会随手修正它；中心仓库却会将内容与责任分离，还会让跨团队编辑排队等待把关人处理。
+            </p>
+            <p>
+               联邦让归属与可读性并存。每个团队的上下文层仍留在它自己的仓库里，由它的圆环阅读并批准。宿主层以某个固定版本挂载同级层，以便读取它并把智能体路由进去；没有任何内容被复制或提交进宿主层。
+            </p>
+            <p>
+               同级层的负责人仍然批准它的变更，因此挂载授予的是读取，而不是批准权。多数团队永远用不到 <code
+                  >federated</code
+               >；只有当已经有不止一个团队各自拥有一个值得完整保留的上下文层时，它才有意义。
+            </p>
+
+            <h2 id="a-team-of-one">一个人的团队</h2>
+            <p>
+               这个圆环没有任何一处要求多于一个人。同一个人可以提议、委派给智能体，再批准。即便如此，智能体负责评审与建议，而由人承担归属并做出批准；清单的
+               <code>agents</code> 映射并不转移责任。
+            </p>
+            <p>
+               一个人的团队是最小的圆环，不是另一种形状。这套模型可以从一个人扩展到一个团队、再到一个由多个团队组成的组织，而不需要增加任何部件。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .rationale-figure {
+      margin: 1.5rem 0 2.4rem;
+   }
+   /* The figure's reading, as page text rather than baked into the SVG, so it
+      reflows, stays selectable, and is quotable by an answer engine. */
+   /* Reads as body copy, not as a caption: it is the figure's argument, and the
+      surrounding prose is where the reader already is. Inherits size, colour and
+      leading from the page. */
+   .figure-note {
+      max-width: var(--measure);
+      margin: 1rem 0 0;
+   }
+   .figure-note .flows {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--leji-link);
+      margin-bottom: 0.3rem;
+   }
+</style>

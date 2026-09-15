@@ -1,0 +1,12 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "decision-number-duplicate",
+        "severity": "error",
+        "path": "docs/decisions/2-beta.md"
+      }
+    ]
+  }
+}

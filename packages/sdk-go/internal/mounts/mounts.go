@@ -12,8 +12,8 @@
 //   - The sidecar is evidence, never proof: verification reads the object store.
 //   - No network unless the caller passes fetch: true (git fetch into the
 //     resolver-managed store); everything else is offline.
-//   - The witness namespace is the resolver's own: `hydrate --fetch` writes
-//     refs/leji-witness/v1/ in the managed store and nothing else does, so pin
+//   - The witness namespace is the resolver's own: `hydrate --fetch` and `update-pin --fetch`
+//     write refs/leji-witness/v1/ in the managed store, so pin
 //     ancestry has a ref to compare against without `status` ever fetching.
 package mounts
 
@@ -283,8 +283,12 @@ func establishMountsDir(root, dirAbs string, ignoreContext *lejiignore.Context) 
 
 // readTextWithin mirrors Node's readTextWithin: nil (ok=false) unless abs is a
 // regular file that resolves inside root.
+//
+// Containment is judged first and existence second, the order the link resolver
+// already uses, so the trust-boundary idiom reads the same way everywhere. Both
+// must pass, so the returned value is unchanged either way.
 func readTextWithin(root, abs string) (string, bool) {
-	if !fsx.IsFile(abs) || !fsx.ResolvedWithinRoot(root, abs) {
+	if !fsx.ResolvedWithinRoot(root, abs) || !fsx.IsFile(abs) {
 		return "", false
 	}
 	text, err := fsx.ReadText(abs)
@@ -647,10 +651,9 @@ func RetainPinInStore(root string, mount MountDecl, sourceIdentity, oid string, 
 }
 
 // FetchIntoStore fetches the pin and refreshes the managed witness ref in the
-// store. This is the only writer of the witness namespace: `status` never
-// fetches, so a mount whose pin a hint already resolves still needs its store
-// populated here. repo "" means failure, with errMsg saying why (stable,
-// Leji-authored text: git stderr never reaches output).
+// store. `status` never fetches, so a mount whose pin a hint already resolves
+// still needs its store populated here. repo "" means failure, with errMsg
+// saying why (stable, Leji-authored text: git stderr never reaches output).
 // witnessErrMsg carries the witness reason beside the flag, never in errMsg: that
 // one is the store's own failure, and a mount whose store WAS established must not
 // start reporting the witness reason as the reason nothing holds its pin.

@@ -24,8 +24,8 @@ import { byteCompare } from './text.js';
  * - The sidecar is evidence, never proof: verification reads the object store.
  * - No network unless the caller passes fetch: true (git fetch into the
  *   resolver-managed store); everything else is offline.
- * - The witness namespace is the resolver's own: `hydrate --fetch` writes
- *   refs/leji-witness/v1/ in the managed store and nothing else does, so pin
+ * - The witness namespace is the resolver's own: `hydrate --fetch` and
+ *   `update-pin --fetch` write refs/leji-witness/v1/ in the managed store, so pin
  *   ancestry has a ref to compare against without `status` ever fetching.
  */
 
@@ -441,9 +441,9 @@ export function retainPinInStore(
 }
 
 /**
- * Fetch the pin and refresh the managed witness ref in the store. This is the
- * only writer of the witness namespace: `status` never fetches, so a mount whose
- * pin a hint already resolves still needs its store populated here.
+ * Fetch the pin and refresh the managed witness ref in the store. `status` never
+ * fetches, so a mount whose pin a hint already resolves still needs its store
+ * populated here.
  */
 export function fetchIntoStore(
    root: string,

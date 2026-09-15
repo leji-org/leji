@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { APIRoute } from 'astro';
 import { SPEC_DOCS, specDocTitle, specPath } from '../data/spec-docs';
+import { REPO_ROOT } from '../repo-root';
 
-const SPEC_DIR = path.resolve(process.cwd(), '../../spec');
+const SPEC_DIR = path.join(REPO_ROOT, 'spec');
 const SITE = 'https://leji.org';
 const fileFor = (id: string) => (id === 'readme' ? 'README.md' : `${id}.md`);
 

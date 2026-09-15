@@ -1,0 +1,41 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": []
+  },
+  "export": {
+    "exit": 0,
+    "findings": [
+      {
+        "rule": "viewer-theme-link-contrast",
+        "severity": "warning"
+      }
+    ],
+    "out": ".leji/dist",
+    "layout": {
+      "roles": {
+        "viewer": ".leji/viewer/",
+        "dist": ".leji/dist/"
+      },
+      "present": [
+        ".leji/viewer/index.html",
+        ".leji/dist/index.html",
+        ".leji/dist/content/_sidebar.md",
+        ".leji/dist/content/boot-profile.md"
+      ],
+      "absent": ["docs/.leji/"],
+      "preserved": []
+    },
+    "indexHtml": {
+      "absent": ["--leji-link:"]
+    },
+    "rerun": {
+      "byteIdentical": true
+    },
+    "goldenTree": {
+      "status": "baked",
+      "contentDir": "expected-export/content",
+      "manifest": "expected-export.manifest.json"
+    }
+  }
+}

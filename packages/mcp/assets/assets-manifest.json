@@ -3,19 +3,19 @@
   "files": {
     "spec/README.md": "sha256:abd78ae3fc8e486fddca6f9375799efc92242b4802137565f87ccd433711cf54",
     "spec/boot-profile.md": "sha256:c3ceda23a1100d32d1f0e14de86382c099f92d6beea9b9bdb701cc69d0ce8244",
-    "spec/conformance.md": "sha256:b86deef3713c6b6c0b3ce2565aeba1e6946ca104f28bc2d945d885e5f0c37efe",
+    "spec/conformance.md": "sha256:4b8eef982afc183d98c978379200b5efa65bc32f922436eb99e832ae9c120373",
     "spec/content-categories.md": "sha256:909c67eb3a65d951f67c29a63fb8f2f7aa8cb955b14fffa3e82590d138bf5578",
-    "spec/context-layer.md": "sha256:21014ba22d9d37110e4e82aa1aada0cdae322bfd2e7943e1a333bf08a0a1e03b",
+    "spec/context-layer.md": "sha256:d62ad681630c52c3f4831c28cc60d0e85afa157a86637eebd054493c7b38c834",
     "spec/decisions.md": "sha256:31e33f471a3a91ee3168858fd3b332c03e08874204e65d8e0b55f9fe2ee23b68",
     "spec/distribution.md": "sha256:d386b10c17d81d620bcd211fb460123fdc103a9c70eb1c96a88afe6a3edbdba9",
-    "spec/governance.md": "sha256:b42def4799b9df50745430f2be4f2e4a4e13d1ccf7d432219e134927f53596f8",
+    "spec/governance.md": "sha256:d2aa1f9d0e71814499b97fe034b32f6f89a9c2f2e2824dc977f7279851fc4449",
     "spec/machine-readable-surface.md": "sha256:c864a614752c91768ef98f37621d5ee3fd2aba3b10ef3c1303d9dce5c23ef331",
     "spec/versioning.md": "sha256:3054f60e07c65bde0ce1c21167e9dff91f40b7ae571140f7878a57ddfc93fcc9",
     "schemas/README.md": "sha256:8dc011dbb3c5b33d4aac4e35a4f38264da3b582f0da83e04a5c8cefb4c1408cf",
     "schemas/agent-profile.schema.json": "sha256:9597a0ff39db7587daf210177fdc7ede41f9efeaab54596289534209826ba657",
     "schemas/context-changelog.schema.json": "sha256:616fd7bddd1f07638e2cbdc2cfa665166f4739283c5194eca34fbf923218ced4",
     "schemas/context-index.schema.json": "sha256:c3618e356622793326076a424d53843bfccf00511520cdba010c6946262ab440",
-    "schemas/context-manifest.schema.json": "sha256:3d8ea744f37f06ceabc277da05d852c89895eb2f47d5aece5eecea76345a7cd4",
+    "schemas/context-manifest.schema.json": "sha256:95bb698001450ea21e55f58e315a79250cc9bd9d9ade0253a32bd22044384bef",
     "schemas/decision-record.schema.json": "sha256:f5db3e68be8b2233b9029949d79109b4784ce43ef1a1cd26e44a0427c8915b07"
   }
 }

@@ -1,5 +1,7 @@
 import { strict as assert } from 'node:assert';
 import * as fs from 'node:fs';
+import * as Module from 'node:module';
+import { createRequire } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
@@ -441,6 +443,161 @@ test('detectEcosystem: a symlinked, dangling or non-regular manifest is refused,
    const py = detectEcosystem(pyLinked);
    assert.equal(py.reason, 'refused-evidence');
    assert.equal(py.all[0].ecosystem, 'python');
+});
+
+/**
+ * Perform `swap` immediately after the FIRST `lstat` of `target`: the window
+ * between the judgment of one probed name and the verified open that proves it.
+ * Deterministic, not a race — the patched builtin performs the swap inline, so the
+ * window is exercised on every run (the idiom the export canaries use).
+ */
+function swapAfterJudgment(target: string, swap: () => void): { fired: () => boolean; restore: () => void } {
+   const require = createRequire(import.meta.url);
+   const nodeFs = require('node:fs') as Record<string, unknown>;
+   const lstatSync = nodeFs.lstatSync as (...args: unknown[]) => unknown;
+   let fired = false;
+   nodeFs.lstatSync = (...args: unknown[]): unknown => {
+      const entry = lstatSync(...args);
+      if (!fired && typeof args[0] === 'string' && path.resolve(args[0]) === target) {
+         fired = true;
+         swap();
+      }
+      return entry;
+   };
+   Module.syncBuiltinESMExports();
+   return {
+      fired: () => fired,
+      restore: () => {
+         nodeFs.lstatSync = lstatSync;
+         Module.syncBuiltinESMExports();
+      },
+   };
+}
+
+test('check-before-act: an entry swapped to a link between the judgment and the open is refused, never read', () => {
+   // The window inside the verification itself: package.json is a regular file of
+   // this repository when it is judged and a link by the time it is opened. Nothing
+   // has to be swapped back for a check that judges the entry once and then trusts
+   // the open to pass, because the open resolves the link and verifies its target
+   // perfectly well. What refuses it is the descriptor's own identity against a fresh
+   // lstat of the NAME afterwards. Mutation that reddens: judge with lstat and take
+   // the bytes back by path name (the pre-change shape) — the decoy's packageManager
+   // and its declaration decide the answer.
+   const dir = fs.realpathSync(
+      plant('swap-judged', {
+         'package.json': '{}',
+         'decoy.json': JSON.stringify({ packageManager: 'pnpm@9.12.0', devDependencies: { '@leji-org/leji': '^1' } }),
+      }),
+   );
+   const manifest = path.join(dir, 'package.json');
+   const hook = swapAfterJudgment(manifest, () => {
+      fs.unlinkSync(manifest);
+      fs.symlinkSync(path.join(dir, 'decoy.json'), manifest);
+   });
+   let report: EcosystemReport;
+   try {
+      report = detectEcosystem(dir);
+   } finally {
+      hook.restore();
+   }
+
+   assert.ok(hook.fired(), 'the seam fired: a regular file at the lstat, a link at the open');
+   assert.ok(fs.lstatSync(manifest).isSymbolicLink(), 'the entry really is a link now');
+   assert.equal(report.reason, 'refused-evidence');
+   assert.deepEqual(report.all[0].evidence, ['package.json']);
+   assert.equal(report.all[0].manager, null, 'the swapped-in packageManager selected nothing');
+   assert.equal(report.all[0].directDeclared, false, 'and the swapped-in target was never read');
+});
+
+test('check-before-act: a name renamed away and linked back to its own inode is refused', () => {
+   // The case every comparison against the FIRST lstat accepts: the entry the run
+   // judged is renamed and its old name becomes a link to that same inode, so each
+   // identity the open can see agrees — the resolve lands on that file, the
+   // descriptor's fstat is the judged inode, and the verified open's own recheck
+   // matches. Only a FRESH lstat of the NAME catches it, because a symlink's inode is
+   // never the inode of the file it points at, and a lockfile reached through a link
+   // is not this repository's evidence. Mutation that reddens: compare the descriptor
+   // with the initial stat instead of with a fresh one.
+   const dir = fs.realpathSync(plant('relinked', { 'package.json': '{}', 'package-lock.json': '' }));
+   const lock = path.join(dir, 'package-lock.json');
+   const moved = path.join(dir, 'real.lock');
+   const hook = swapAfterJudgment(lock, () => {
+      fs.renameSync(lock, moved);
+      fs.symlinkSync(moved, lock);
+   });
+   let report: EcosystemReport;
+   try {
+      report = detectEcosystem(dir);
+   } finally {
+      hook.restore();
+   }
+
+   assert.ok(hook.fired(), 'the seam fired: the name was relinked to its own inode');
+   assert.ok(fs.lstatSync(lock).isSymbolicLink(), 'the entry really is a link now');
+   assert.equal(fs.statSync(lock).ino, fs.statSync(moved).ino, 'and it points at the very inode that was judged');
+   assert.equal(report.reason, 'refused-evidence');
+   assert.deepEqual(report.all[0].evidence, ['package-lock.json']);
+   assert.equal(report.all[0].lockEvidenced, false, 'the relinked name evidenced no manager');
+});
+
+test('detectEcosystem: a descriptor that fails to close does not discard the answer', () => {
+   // The close comes after the verdict and after the bytes: it can no longer change
+   // either, so a failure there is swallowed rather than allowed to unwind the read.
+   // Mutation that reddens: close in a bare `finally`, and the throw reaches the
+   // operational catch, turning a manifest that was read cleanly into an unreadable
+   // one. The hook closes the descriptor for real before throwing, so nothing leaks.
+   const dir = fs.realpathSync(plant('closefail', { 'package.json': '{ "packageManager": "yarn@4.1.0" }' }));
+   const require = createRequire(import.meta.url);
+   const nodeFs = require('node:fs') as Record<string, unknown>;
+   const closeSync = nodeFs.closeSync as (fd: number) => void;
+   let threw = 0;
+   nodeFs.closeSync = (fd: number): void => {
+      closeSync(fd);
+      threw += 1;
+      throw new Error('injected close failure');
+   };
+   Module.syncBuiltinESMExports();
+   let report: EcosystemReport;
+   try {
+      report = detectEcosystem(dir);
+   } finally {
+      nodeFs.closeSync = closeSync;
+      Module.syncBuiltinESMExports();
+   }
+
+   assert.ok(threw > 0, 'the close really failed, on the classification and on the read');
+   assert.equal(report.reason, null, 'a failed close is not an unreadable manifest');
+   assert.equal(report.selected?.manager, 'yarn', 'the bytes taken from the descriptor still decide');
+});
+
+test('detectEcosystem: a manifest this run cannot open is unreadable, never refused', (t) => {
+   // The other half of the verified-read composition: what the run could not COMPLETE
+   // on an entry it never saw contradicted is not a refusal. A regular file of this
+   // repository whose open is denied keeps the outcome it has always had — the
+   // manifest is unreadable, so neither the lockfile nor the ecosystem default is
+   // consulted — while a swap stays `refused-evidence` above. Mutation that reddens:
+   // collapse every failure in `verify` to `refused`, and this reports
+   // refused-evidence instead.
+   const dir = fs.realpathSync(plant('denied', { 'package.json': '{}', 'package-lock.json': '' }));
+   const manifest = path.join(dir, 'package.json');
+   fs.chmodSync(manifest, 0o000);
+   try {
+      fs.closeSync(fs.openSync(manifest, 'r'));
+      t.skip('the mode is not enforced here (root, or a filesystem that ignores it)');
+      return;
+   } catch {
+      /* denied, which is the state under test */
+   }
+   let report: EcosystemReport;
+   try {
+      report = detectEcosystem(dir);
+   } finally {
+      fs.chmodSync(manifest, 0o644);
+   }
+
+   assert.equal(report.reason, 'unreadable-manifest');
+   assert.equal(report.all[0].manager, null);
+   assert.deepEqual(report.all[0].evidence, []);
 });
 
 test('detectEcosystem: an unreadable manifest consults neither locks nor defaults', () => {

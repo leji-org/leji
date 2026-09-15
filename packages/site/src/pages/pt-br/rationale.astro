@@ -1,0 +1,144 @@
+---
+// Brazilian Portuguese translation of src/pages/rationale.astro. The English page is
+// the page of record; `source` is its git blob sha at the revision this translation
+// follows.
+//
+// Two things differ from the English page, both forced by what a locale may own.
+// The layout is `Doc.astro`'s, written out here because that layout takes no `lang`
+// and a translated page has to declare its own. And the prose is held here rather
+// than read from a collection: the `rationale` collection is the repository's single
+// English source (`rationale/README.md`), and a translation of it is site content
+// that belongs to this locale. It goes through the same markdown pipeline, split at
+// the same heading so the circle figure sits where it does in English.
+import { createSatteriMarkdownProcessor } from '@astrojs/markdown-satteri';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import CircleChart from '../../components/CircleChart.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import { markdownRenderOptions } from '../../markdown-options';
+
+const source = '0ddffffc1603fd1aec577a54e9674ba6f9a226ac';
+const strings = translationStrings('pt-br');
+
+// The h1 is rendered by the page rather than by the markdown, so the canonical note
+// can sit directly under the title.
+const body = `Não normativo: o raciocínio por trás do formato da especificação.
+
+## Intenção acima de instruções
+
+Instruções imperativas ("faça isto, neste formato, para este arquivo de fornecedor") precisam ser recodificadas para cada host de agente, tarefa e pessoa que chega à equipe. Já a intenção duradoura (o que as coisas significam, o que precisa valer e por quê) é registrada uma vez, para que qualquer host ou tarefa possa partir dela.
+
+Por isso, as categorias da camada de contexto são eixos temáticos extraídos do significado duradouro (domínio, sistema, governança, decisões), não das tarefas. Uma versão futura pode acrescentar envelopes de tarefa extraídos da prática cotidiana; a 1.0 opta deliberadamente por padronizar uma superfície menor.
+
+## Um círculo, não um degrau
+
+Hoje, a maior parte do trabalho de contexto é escrita *para agentes*: as pessoas redigem instruções, os hosts de agente as carregam e o fluxo segue em uma única direção, de cima para baixo. Isso acelera o trabalho individual, mas não resolve um problema mais antigo: o conhecimento entre pessoas continua restrito à memória e às conversas, enquanto cada host de agente recebe sua própria cópia da verdade, que diverge aos poucos.
+
+Leji trata três fluxos como elementos de primeira classe em torno de uma única camada de contexto: **humano para humano** (integração, revisão, resolução de debates), **humano para IA** (trabalho delegado a um agente) e **humano para IA para humano** (trabalho produzido por um agente e revisado por pessoas).
+
+Todos leem a mesma camada de contexto; pessoas e agentes propõem mudanças. O acesso é igual, a autoridade não: toda alteração entra como proposta, e uma pessoa aprova o que passa a ser verdade. O conteúdo que atende aos três fluxos funciona, por si só, como mecanismo de imposição: uma página lida apenas por agentes pode se deteriorar sem que ninguém perceba, mas uma página da qual as pessoas também dependem é corrigida pelos dois lados.
+
+## Intenção e registros
+
+A documentação de um repositório real reúne dois tipos de conteúdo entrelaçados, com modelos de verdade diferentes. A intenção (glossários, invariantes, convenções, travas de proteção) precisa ser *mantida* verdadeira: quando a realidade muda, o documento é corrigido. Já os registros (status, avaliações, livros-razão, panoramas, arquivos) *nascem* verdadeiros dentro de determinado limite; estados posteriores os substituem, e a data define sua atualidade.
+
+Tratar registros como intenção cria promessas de revisão que ninguém consegue cumprir. Excluí-los deixa boa parte do repositório fora da governança. Em vez disso, Leji governa os dois tipos de forma distinta.
+
+Assim como a intenção, os registros são indexados, revisados e têm dono, mas são roteados como candidatos datados, não como contexto obrigatório. O contrato deles com o leitor é outro: são evidências datadas, nunca a verdade atual. Os horizontes de atualidade valem apenas para a intenção. As cinco categorias continuam sendo eixos temáticos, enquanto o tipo é ortogonal: uma avaliação de sistema é, ao mesmo tempo, *sobre* o sistema e *verdadeira na data dela*.
+
+A especificação nunca certifica qual registro é "o mais recente", pois a 1.0 não declara séries de registros nem como ordená-las. Cabe aos leitores avaliar a recência com base nas datas expostas pelo índice. Os próprios registros de decisão da especificação, datados, somente acréscimo e nunca desatualizados, exemplificam esse padrão.
+
+## Por que isto não é um wiki
+
+Wikis se deterioram porque nada os obriga a permanecer atualizados. A camada de contexto tem três mecanismos de imposição que um wiki não oferece:
+
+- Os agentes a leem em todas as tarefas, portanto um contexto incorreto gera uma saída incorreta cujo impacto alguém percebe no mesmo dia.
+- As mudanças passam pela revisão de código, portanto não existe um processo separado que possa ser esquecido.
+- O desvio mecânico (um índice desatualizado, um perfil quebrado) é uma verificação que falha e que, em \`governed\`, roda no CI a cada mudança. A verificação de somente acréscimo compara o changelog da cópia de trabalho com o que está em \`HEAD\`. Portanto, uma reversão a um estado anterior que ainda esteja na cópia de trabalho é reprovada por ela; uma reversão que chega já commitada é detectada pela revisão do conjunto de mudanças, não pela verificação.
+
+## Por que os arquivos de fornecedor redirecionam
+
+Quando o contexto canônico fica no formato de configuração de um fornecedor, ele se fragmenta e se prende àquele host. Como os hosts de agente procuram seus próprios pontos de entrada, Leji os usa como adaptadores: uma única linha que aponta para o perfil de boot. Assim, uma só fonte de verdade sobrevive a qualquer host.
+
+## Por que a federação compõe em vez de centralizar
+
+Centralizar o conhecimento de todas as equipes rompe o vínculo de propriedade que mantém o contexto atualizado. Os donos corrigem a própria camada enquanto a usam em todas as tarefas; um repositório central separa o conteúdo da responsabilidade e coloca as edições entre equipes em uma fila controlada por um ponto único de aprovação.
+
+A federação mantém propriedade e legibilidade juntas. A camada de contexto de cada equipe permanece no repositório correspondente, onde o seu círculo a lê e aprova. Uma hospedeira monta uma irmã em uma versão fixada para lê-la e direcionar agentes até ela; nenhum conteúdo é copiado nem commitado na hospedeira.
+
+O dono da irmã continua aprovando as mudanças, portanto o mount concede leitura, não autoridade. A maioria das equipes nunca precisa de \`federated\`; esse nível só importa quando mais de uma equipe já possui uma camada de contexto que vale a pena manter inteira.
+
+## Uma equipe de um
+
+Nada no círculo exige mais de uma pessoa. A mesma pessoa pode propor, delegar a um agente e aprovar. Mesmo assim, os agentes revisam e aconselham enquanto a pessoa é dona e aprova; o mapa \`agents\` do manifesto não transfere responsabilidade.
+
+Uma equipe de uma pessoa é o menor círculo possível, não um formato diferente. O modelo se adapta de uma pessoa a uma equipe e, depois, a uma organização de equipes, sem acrescentar novas peças.
+`;
+
+// Split at that heading so the circle figure sits above it, exactly as the English
+// page does with its own marker.
+const marker = '## Um círculo, não um degrau';
+const idx = body.indexOf(marker);
+const before = idx >= 0 ? body.slice(0, idx) : body;
+const after = idx >= 0 ? body.slice(idx) : '';
+
+const processor = await createSatteriMarkdownProcessor(markdownRenderOptions);
+const beforeHtml = (await processor.render(before)).code;
+const afterHtml = after ? (await processor.render(after)).code : '';
+---
+
+<Base
+   lang="pt-br"
+   title="Justificativa · Leji"
+   description="Por que Leji é construído assim: intenção duradoura acima de instruções por fornecedor, um círculo de pessoas e agentes em vez de um degrau, intenção e registros, e por que isto não é um wiki."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/rationale/" />
+         <main id="content" class="prose">
+            <PageHeader kind="background" />
+            <h1>Justificativa</h1>
+            <TranslationNote strings={strings.note} href="/rationale/" />
+            <Fragment set:html={beforeHtml} />
+            <figure class="rationale-figure">
+               <CircleChart />
+               <figcaption class="figure-note">
+                  <span class="flows">humano para humano · humano para IA · humano para IA para humano</span>
+                  Todo mundo lê. Qualquer um propõe. Pessoas aprovam. Contexto desatualizado nunca é tratado silenciosamente
+                  como atual.
+               </figcaption>
+            </figure>
+            <Fragment set:html={afterHtml} />
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .rationale-figure {
+      margin: 1.5rem 0 2.4rem;
+   }
+   /* The figure's reading, as page text rather than baked into the SVG, so it
+      reflows, stays selectable, and is quotable by an answer engine. */
+   /* Reads as body copy, not as a caption: it is the figure's argument, and the
+      surrounding prose is where the reader already is. Inherits size, colour and
+      leading from the page. */
+   .figure-note {
+      max-width: var(--measure);
+      margin: 1rem 0 0;
+   }
+   .figure-note .flows {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--leji-link);
+      margin-bottom: 0.3rem;
+   }
+</style>

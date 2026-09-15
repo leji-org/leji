@@ -1,0 +1,360 @@
+---
+// Vietnamese translation of src/pages/cli.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+//
+// The command tables are generated from the SDK's own CLI specification, which is a
+// shared machine surface that `leji --help` renders from as well. Its summaries stay in
+// the source language here, exactly as the tool prints them; only this page's own prose
+// is translated.
+import fs from 'node:fs';
+import path from 'node:path';
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import SupportedRuntimes from '../../components/SupportedRuntimes.astro';
+import InstallTabs from '../../components/InstallTabs.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+import { REPO_ROOT } from '../../repo-root';
+
+const source = '4a8cea18d2fca31998acdd903c36ec75408b4890';
+const strings = translationStrings('vi');
+
+const cli = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'packages', 'sdk', 'cli.json'), 'utf-8'));
+const slug = (name: string) => name.replace(/\s+/g, '-');
+
+// Split inline `code` spans on backticks (odd segments are code). Segments stay
+// escaped text children, never set:html.
+const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i % 2 === 1 }));
+---
+
+<Base
+   lang="vi"
+   title="Tra cứu CLI · Leji"
+   description="Toàn bộ tài liệu tra cứu câu lệnh leji, sinh ra từ chính bản đặc tả của CLI: mọi câu lệnh cùng các cờ, mã thoát và ví dụ của nó."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/cli/" />
+         <main id="content" class="prose">
+            <PageHeader kind="reference" />
+            <h1>Tra cứu CLI</h1>
+            <TranslationNote strings={strings.note} href="/cli/" />
+            <p class="sp-lede">{cli.summary}</p>
+            <p>
+               Hãy cài CLI trong đúng runtime mà chuỗi công cụ hoặc CI của bạn sử dụng; giao diện câu lệnh giống nhau ở
+               cả ba bản. Mọi câu lệnh đều nhận <code>--root &lt;dir&gt;</code> để trỏ tới một lớp ngữ cảnh có sẵn; riêng{
+                  ' '
+               }
+               <code>init</code> và <code>adopt</code> thì tạo ra một lớp mới, nên chúng nêu đích của mình bằng <code
+                  >--dir &lt;path&gt;</code
+               >. Các câu lệnh báo cáo còn hỗ trợ <code>--json</code> để máy đọc. Cùng một bản đặc tả tạo ra cả trang tra
+               cứu này lẫn <code>leji --help</code>. Nếu làm việc qua agent, bạn cũng có thể dùng chính các chức năng
+               kiểm tra và chấm mức tuân thủ dưới dạng <a href="/vi/mcp/">công cụ MCP</a>.
+            </p>
+
+            <div class="runtimes-block">
+               <SupportedRuntimes />
+            </div>
+
+            <div class="cli-install">
+               <p class="cli-install-label">Cài đặt</p>
+               <div class="cli-install-tabs"><InstallTabs /></div>
+               <p class="cli-install-next">
+                  Mới biết tới Leji? Trang <a href="/vi/quickstart/">Bắt đầu nhanh</a> dẫn bạn qua các bước cài đặt, rồi dựng
+                  khung hoặc áp dụng lớp ngữ cảnh đầu tiên của bạn.
+               </p>
+            </div>
+
+            <div class="cli-code"><Code code={cli.usage} lang="bash" theme={lejiSyntaxTheme} /></div>
+
+            <aside class="cli-onboarding">
+               <h2>Onboarding cho agent</h2>
+               <p>
+                  Đưa kho mã nguồn vào một lớp ngữ cảnh.{' '}
+                  <a href="#adopt"><code>leji adopt</code></a> dựng khung một lớp ngữ cảnh quanh một kho mã nguồn sẵn có và
+                  để nguyên các tệp của nó tại chỗ (với <code>--wire-adapters</code> thì nó chuyển các điểm vào <code
+                     >CLAUDE.md</code
+                  > /{' '}
+                  <code>AGENTS.md</code> sẵn có thành những con trỏ chuyển hướng một dòng); <a href="#init"
+                     ><code>leji init</code></a
+                  > dựng khung một lớp mới kèm một brief onboarding để agent của bạn điền vào; <a href="#detect"
+                     ><code>leji detect</code></a
+                  > tìm các host đã cài, còn <a href="#start"><code>leji start</code></a> mở một host ngay trong lớp ngữ cảnh.
+                  Hãy xem trước <code>init</code> hoặc <code>adopt</code> bằng <code>--dry-run</code>.
+               </p>
+            </aside>
+
+            {
+               cli.groups.map((g: any) => (
+                  <Fragment>
+                     <h2>{g.title}</h2>
+                     <table class="cli-table cmd-table">
+                        <tbody>
+                           {cli.commands
+                              .filter((c: any) => c.group === g.id)
+                              .map((c: any) => (
+                                 <tr>
+                                    <td>
+                                       <a href={`#${slug(c.name)}`}>
+                                          <code>{c.name}</code>
+                                       </a>
+                                    </td>
+                                    <td>
+                                       {c.aliasOf
+                                          ? [
+                                               'bí danh của ',
+                                               <a href={`#${slug(c.aliasOf)}`}>
+                                                  <code>{c.aliasOf}</code>
+                                               </a>,
+                                            ]
+                                          : segments(c.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}
+                                    </td>
+                                 </tr>
+                              ))}
+                        </tbody>
+                     </table>
+                  </Fragment>
+               ))
+            }
+
+            <h2>Mã thoát</h2>
+            <table class="cli-table">
+               <thead>
+                  <tr><th>Mã</th><th>Ý nghĩa</th></tr>
+               </thead>
+               <tbody>
+                  {
+                     cli.exitCodes.map((e: any) => (
+                        <tr>
+                           <td>
+                              <code>{e.code}</code>
+                           </td>
+                           <td>{segments(e.meaning).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+
+            <h2>Tuỳ chọn toàn cục</h2>
+            <table class="cli-table">
+               <tbody>
+                  {
+                     cli.globalOptions.map((o: any) => (
+                        <tr>
+                           <td>
+                              <code>{o.flags}</code>
+                           </td>
+                           <td>{segments(o.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+            <p>
+               Khi chạy từ bản checkout mã nguồn của kho mã nguồn Leji thay vì một gói đã cài, CLI thêm thông tin build
+               vào phiên bản mà nó in ra: một hậu tố <code>+dev.</code> mang theo mã commit rút gọn mà bản checkout đó đang
+               ở, hoặc một{' '}
+               <code>+dev</code> đơn thuần khi không đọc được phiên bản. Bản đã cài chỉ in phiên bản.
+            </p>
+
+            <h2 id="pinned-cli">CLI mà một kho mã nguồn ghim</h2>
+            <p>
+               Bên trong một kho mã nguồn có khai báo trực tiếp CLI Leji và đã cài nó, với một bản đáp ứng mức tối thiểu
+               của lớp ngữ cảnh, thì lệnh <code>leji</code> đã cài sẽ chạy đúng bản đó ở mọi lần gọi, kể cả <code
+                  >--version</code
+               > và <code>--help</code>. Node tìm nó dưới <code>node_modules</code>; Python tìm nó trong một môi trường
+               dự án nằm trong kho mã nguồn (<code>.venv</code>, hoặc <code>UV_PROJECT_ENVIRONMENT</code> của uv). Nhờ vậy,
+               một người gõ{' '}
+               <code>leji</code>, git hook, CI, và mọi đồng đội đều chạy cùng một phiên bản của công cụ, bất kể mỗi
+               người đã cài gì ở mức toàn cục. Mọi trường hợp khác thì vẫn chạy CLI toàn cục y như trước.
+            </p>
+            <p>
+               Đặt <code>LEJI_NO_LOCAL</code> thành giá trị bất kỳ nếu muốn chạy bản toàn cục. CLI Go không chuyển tiếp như
+               vậy, vì bản được khai báo của một kho mã nguồn Go là do chuỗi công cụ build theo yêu cầu chứ không cài thành
+               một tệp thực thi: hãy chạy bản đã ghim bằng <code>go tool leji</code>. Đang nâng cấp CLI Python? Một
+               console script đã cài sẽ hỗ trợ chuyển tiếp sau khi cài lại một lần, vì quá trình đó tạo lại điểm vào.
+            </p>
+
+            {
+               cli.commands.map((c: any) => (
+                  <section class="cmd">
+                     <h2 id={slug(c.name)}>
+                        <code>leji {c.name}</code>
+                     </h2>
+                     <p>{segments(c.description).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</p>
+                     {c.details?.length > 0 && (
+                        <ul class="cmd-details">
+                           {c.details.map((d: string) => (
+                              <li>{segments(d).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</li>
+                           ))}
+                        </ul>
+                     )}
+                     <div class="cli-code">
+                        <Code code={c.usage} lang="bash" theme={lejiSyntaxTheme} />
+                     </div>
+                     {c.options.length > 0 && (
+                        <table class="cli-table">
+                           <tbody>
+                              {c.options.map((o: any) => (
+                                 <tr>
+                                    <td>
+                                       <code>{o.flags}</code>
+                                    </td>
+                                    <td>{segments(o.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
+                                 </tr>
+                              ))}
+                           </tbody>
+                        </table>
+                     )}
+                     <p class="ex-label">Ví dụ</p>
+                     <div class="cli-code">
+                        <Code code={c.examples.join('\n')} lang="bash" theme={lejiSyntaxTheme} />
+                     </div>
+                  </section>
+               ))
+            }
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .cli-onboarding {
+      margin: 1.8rem 0 0.6rem;
+      padding: 1.1rem 1.3rem;
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
+      border-radius: 0 8px 8px 0;
+   }
+   .cli-onboarding h2 {
+      margin: 0 0 0.4rem;
+      font-size: 1.1rem;
+   }
+   .cli-onboarding p {
+      margin: 0;
+      color: var(--leji-text-body);
+   }
+
+   /* command names styled like the schema links */
+   .cmd-table td a code {
+      color: var(--leji-link);
+   }
+   .cmd-table td a:hover code {
+      background: rgba(0, 159, 113, 0.14);
+   }
+
+   .runtimes-block {
+      margin-bottom: 1.2rem;
+   }
+
+   /* dark wrapper because InstallTabs is styled for a dark background */
+   .cli-install {
+      margin: 0 0 1.8rem;
+   }
+   .cli-install-label {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-text-body);
+      margin: 0 0 0.6rem;
+   }
+   .cli-install-tabs {
+      background: var(--leji-deep);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      overflow: hidden;
+   }
+   .cli-install-next {
+      margin: 0.9rem 0 0;
+      color: var(--leji-text-body);
+   }
+
+   .cli-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.8rem 0 0;
+   }
+   .cli-table th {
+      text-align: left;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-text-body);
+      padding: 0.4rem 0.9rem 0.4rem 0;
+      border-bottom: 1px solid var(--leji-border);
+   }
+   .cli-table td {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: top;
+      color: var(--leji-text-body);
+   }
+   .cli-table td:first-child {
+      white-space: nowrap;
+   }
+   .cli-table td code {
+      color: var(--leji-text);
+      font-size: 0.85em;
+   }
+
+   .cmd {
+      margin-top: 2.6rem;
+      padding-top: 0.4rem;
+   }
+   .cmd h2 {
+      scroll-margin-top: calc(var(--header-h) + 1.5rem);
+   }
+   .cmd h2 code {
+      color: var(--leji-text);
+      background: none;
+      padding: 0;
+   }
+   .cmd-details {
+      margin: 0.9rem 0 0;
+      padding: 0;
+      list-style: none;
+   }
+   .cmd-details li {
+      position: relative;
+      padding-left: 1.1rem;
+      margin: 0.5rem 0;
+      color: var(--leji-text-body);
+      line-height: 1.6;
+   }
+   .cmd-details li::before {
+      content: '';
+      position: absolute;
+      left: 0.1rem;
+      top: 0.62em;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--leji-brand);
+   }
+   .ex-label {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-text-body);
+      margin: 1.1rem 0 0;
+   }
+   .cli-code :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+      margin-top: 0.6rem;
+   }
+</style>

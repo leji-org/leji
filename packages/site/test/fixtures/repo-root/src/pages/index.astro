@@ -1,0 +1,20 @@
+---
+// One page that reads the repository the way every real page does: through the shared
+// helper, with no path of its own. What it prints is evidence that the files were found.
+import fs from 'node:fs';
+import path from 'node:path';
+import { readSchemaSources } from '@site/schema-i18n';
+import { REPO_ROOT, SITE_ROOT } from '@site/repo-root';
+
+const schemas = readSchemaSources().map((source) => source.name);
+const spec = fs.readdirSync(path.join(REPO_ROOT, 'spec')).filter((file) => file.endsWith('.md'));
+const manifest = JSON.parse(fs.readFileSync(path.join(SITE_ROOT, 'src', 'data', 'manifest-complete.json'), 'utf-8'));
+---
+
+<html lang="en">
+   <body>
+      <p id="schemas">{schemas.join(' ')}</p>
+      <p id="spec">{spec.length}</p>
+      <p id="manifest">{Object.keys(manifest).length}</p>
+   </body>
+</html>

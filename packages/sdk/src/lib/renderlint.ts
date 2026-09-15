@@ -94,8 +94,9 @@ const FOOTNOTE = /\[\^[^\][\n]+\]/y;
 const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/;
 /** A fence closer: the same character, at least as long, alone on its line. */
 const FENCE_CLOSE = /^(`{3,}|~{3,})[ \t]*$/;
-/** Escapable per CommonMark: ASCII punctuation, and nothing else. */
-const ESCAPABLE = /[!-/:-@[-`{-~]/;
+/** Escapable per CommonMark: ASCII punctuation, and nothing else. Shared with the
+ * link scan, which honors the same escapes this one does. */
+export const ESCAPABLE = /[!-/:-@[-`{-~]/;
 
 /**
  * A span the scan treats as one unit: an excluded region (`construct: null`), or
@@ -145,6 +146,24 @@ function indentOf(line: string): number {
    return n;
 }
 
+/** A fence opener on a line already stripped of its indent, or null. */
+function fenceOpen(rest: string): RegExpExecArray | null {
+   const fence = FENCE_OPEN.exec(rest);
+   return fence !== null && (fence[1][0] === '~' || !fence[2].includes('`')) ? fence : null;
+}
+
+/** The last line of the fenced block opened at `li`: the one carrying its closer,
+ * or the document's last line when nothing closes it. */
+function fenceCloseLine(text: string, starts: number[], li: number, fence: RegExpExecArray): number {
+   let close = li + 1;
+   for (; close < starts.length; close++) {
+      const candidate = lineTextAt(text, starts, close);
+      const m = FENCE_CLOSE.exec(candidate.slice(indentOf(candidate)));
+      if (m !== null && m[1][0] === fence[1][0] && m[1].length >= fence[1].length) break;
+   }
+   return Math.min(close, starts.length - 1);
+}
+
 /**
  * The block pass: frontmatter, fenced code, HTML comments (all excluded), and
  * the HTML blocks that report as `raw-html` at their opening line. Line-based
@@ -175,15 +194,9 @@ function blockRegions(text: string, starts: number[]): Region[] {
       const rest = line.slice(indent);
       const at = starts[li] + indent;
 
-      const fence = FENCE_OPEN.exec(rest);
-      if (fence !== null && (fence[1][0] === '~' || !fence[2].includes('`'))) {
-         let close = li + 1;
-         for (; close < starts.length; close++) {
-            const candidate = lineTextAt(text, starts, close);
-            const m = FENCE_CLOSE.exec(candidate.slice(indentOf(candidate)));
-            if (m !== null && m[1][0] === fence[1][0] && m[1].length >= fence[1].length) break;
-         }
-         const last = Math.min(close, starts.length - 1);
+      const fence = fenceOpen(rest);
+      if (fence !== null) {
+         const last = fenceCloseLine(text, starts, li, fence);
          regions.push({ start: starts[li], end: lineEndOf(text, starts, last), construct: null });
          li = last + 1;
          continue;
@@ -292,6 +305,88 @@ function afterCodeSpan(text: string, regions: Region[], i: number): number {
       j++;
    }
    return i + open;
+}
+
+/**
+ * The regions no scan of prose may read: the leading frontmatter block and every
+ * fenced code block, by the same boundaries {@link blockRegions} applies (fences at
+ * up to three spaces of indent, CRLF terminators, an unclosed fence running to the
+ * end of the document). The HTML forms are deliberately absent: a comment or an HTML
+ * block is excluded from the RENDER lint because the profile excepts it, which says
+ * nothing about the links a consumer reads out of one.
+ */
+function excludedRegions(text: string, starts: number[]): Region[] {
+   const regions: Region[] = [];
+   let li = 0;
+
+   const fm = parseFrontmatter(text);
+   if (fm.body.length !== text.length) {
+      const end = text.length - fm.body.length;
+      regions.push({ start: 0, end, construct: null });
+      li = end >= text.length ? starts.length : lineOf(starts, end);
+   }
+
+   for (; li < starts.length; li++) {
+      const line = lineTextAt(text, starts, li);
+      const indent = indentOf(line);
+      if (indent >= 4) continue;
+      const fence = fenceOpen(line.slice(indent));
+      if (fence === null) continue;
+      const last = fenceCloseLine(text, starts, li, fence);
+      regions.push({ start: starts[li], end: lineEndOf(text, starts, last), construct: null });
+      li = last;
+   }
+   return regions;
+}
+
+/** One run of prose: a slice of the document with its position in it, so a scan
+ * over the run reports absolute coordinates. */
+export interface ProseRegion {
+   /** The prose itself, a verbatim slice of the document. */
+   text: string;
+   /** The 1-based line `text` opens on. */
+   line: number;
+   /** The 0-based column `text` opens at, which is how a consumer tells a region
+    * that opens a line from one resuming mid-line after a code span. */
+   column: number;
+}
+
+/**
+ * The document minus everything a scan of prose must not read: the excluded regions
+ * above, and every code span, walked by the same traversal the render lint's inline
+ * pass uses ({@link afterCodeSpan} — a backtick run closed by a run of exactly the
+ * same length, an unclosed run consumed as the literal text it is, neither crossing
+ * an excluded region). Regions are yielded in document order and never overlap; an
+ * empty one is never yielded.
+ */
+export function* proseRegions(text: string): Generator<ProseRegion> {
+   const starts = lineStartsOf(text);
+   const excluded = excludedRegions(text, starts);
+   let at = 0;
+   let i = 0;
+   const emit = function* (end: number): Generator<ProseRegion> {
+      if (end > at) {
+         const line = lineOf(starts, at);
+         yield { text: text.slice(at, end), line: line + 1, column: at - starts[line] };
+      }
+   };
+   while (i < text.length) {
+      const skip = skipRegion(excluded, i);
+      if (skip !== i) {
+         yield* emit(i);
+         i = skip;
+         at = i;
+         continue;
+      }
+      if (text[i] === '`') {
+         yield* emit(i);
+         i = afterCodeSpan(text, excluded, i);
+         at = i;
+         continue;
+      }
+      i++;
+   }
+   yield* emit(text.length);
 }
 
 /**

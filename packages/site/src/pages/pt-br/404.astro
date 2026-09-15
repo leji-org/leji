@@ -1,0 +1,65 @@
+---
+// Brazilian Portuguese translation of src/pages/404.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation
+// follows, and it is what the drift gate compares against the current blob.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '2962daecd782a203b8023fc8b4e9404066028a07';
+const strings = translationStrings('pt-br');
+---
+
+<Base
+   lang="pt-br"
+   title="Não encontrado · Leji"
+   description="Esta página não existe em leji.org. Comece pela página inicial ou vá direto para a especificação."
+   noindex
+>
+   <SiteHeader />
+   <main id="content" class="wrap">
+      <section class="lost">
+         <p class="lost-eyebrow">404 · NÃO ENCONTRADO</p>
+         <h1>Página não encontrada.</h1>
+         <TranslationNote strings={strings.note} href="/404" />
+         <p class="lost-text">
+            A página que você procurou não está aqui. Volte à <a href="/pt-br/">página inicial</a> ou vá direto para{
+               ' '
+            }
+            <a href="/pt-br/spec/">a especificação</a>.
+         </p>
+      </section>
+   </main>
+   <SiteFooter />
+</Base>
+
+<style>
+   .lost {
+      padding: clamp(4rem, 14vh, 9rem) 0 6rem;
+      max-width: 640px;
+   }
+   .lost-eyebrow {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.22em;
+      color: var(--leji-link);
+      margin: 0 0 1rem;
+   }
+   h1 {
+      font-family: var(--serif-display);
+      font-size: clamp(2.2rem, 6vw, 3.4rem);
+      font-weight: 520;
+      color: var(--leji-text);
+      margin: 0 0 1rem;
+   }
+   .lost-text {
+      color: var(--leji-text-body);
+   }
+   .lost-text a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+</style>

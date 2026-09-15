@@ -155,8 +155,16 @@ fi
 
 echo "== Layer 0: version coherence + assets sync + release pins + build =="
 # All 9 version locations must agree before we build artifacts that bake the
-# version in; a drifting Go SDKVersion would otherwise ship mismatched.
-npm run version:check >/dev/null 2>&1 && ok "version coherent ($VER)" || no "version drift (run: npm run version:set <x>)"
+# version in; a drifting Go SDKVersion would otherwise ship mismatched. Release
+# mode adds the changelog date for that version, because this run rehearses a tag.
+# Its output is shown rather than discarded: which of the two failed, and the
+# remedy, are in the diagnostic and nowhere else.
+if VERSION_OUT="$(node "$ROOT/scripts/version.ts" --check --release 2>&1)"; then
+   ok "version coherent + release date stamped ($VER)"
+else
+   no "version check (run: npm run version:set <x>, and stamp the release date)"
+   printf '%s\n' "$VERSION_OUT" | sed 's/^/       /'
+fi
 # Every install on the release path names an exact version: the tag must publish
 # through the toolchain this run rehearsed, not through whatever moved since.
 sh "$ROOT/scripts/check-release-pins.sh" >/dev/null 2>&1 && ok "release-path pins exact" || no "release-path pins (run: sh scripts/check-release-pins.sh)"
@@ -358,7 +366,10 @@ chk 2 "py bogus command"            -- "$PY" bogus
 
 echo "== Go binary =="
 GO="$TMP/leji-go"
-( cd packages/sdk-go && go build -o "$GO" ./cmd/leji ) >/dev/null 2>&1 && ok "go build" || no "go build"
+# A checkout build with no revision to report (-buildvcs=false), not a published
+# artifact like the npm and PyPI legs above: its exact-version assertion is the proof
+# of the bare fallback form, not of the released binary.
+( cd packages/sdk-go && go build -buildvcs=false -o "$GO" ./cmd/leji ) >/dev/null 2>&1 && ok "go build" || no "go build"
 [ "$("$GO" --version 2>/dev/null)" = "$VER" ] && ok "go --version = $VER" || no "go --version (want $VER)"
 chk 0 "go validate (valid layer)"   -- "$GO" validate --root "$EX"
 chk 1 "go validate (invalid layer)" -- "$GO" validate --root "$INV"

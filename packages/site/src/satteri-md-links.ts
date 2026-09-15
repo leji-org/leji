@@ -5,6 +5,7 @@
 // written in a .md file can get them. Sätteri hast plugin.
 
 import { defineHastPlugin } from 'satteri';
+import { type Locale, localizedHref, LOCALES } from './i18n';
 
 /** An absolute http(s) link to somewhere other than this site. */
 function isOffSite(href: string): boolean {
@@ -14,6 +15,17 @@ function isOffSite(href: string): boolean {
    } catch {
       return false;
    }
+}
+
+/** The language the document being rendered is written in, read from the file it came
+ *  from: a translated document lives under `content/i18n/<locale>/`, and everything else
+ *  is English, which is the tree without a prefix. A rewritten link therefore lands on
+ *  the reader's own copy of the page rather than on the English one, and falls back to
+ *  English where that language has no such page, which is `localizedHref`'s rule. */
+function localeOfSource(fileURL: URL | undefined): Locale {
+   const match = fileURL && /\/content\/i18n\/([^/]+)\//.exec(fileURL.pathname);
+   const locale = match?.[1];
+   return locale && (LOCALES as readonly string[]).includes(locale) ? (locale as Locale) : 'en';
 }
 
 export const satteriMdLinks = defineHastPlugin({
@@ -55,6 +67,7 @@ export const satteriMdLinks = defineHastPlugin({
             // Anything else (examples/, templates/) lives in the repository.
             next = `https://github.com/leji-org/leji/tree/main/${clean}`;
          }
+         if (next.startsWith('/')) next = localizedHref(next, localeOfSource(ctx.fileURL));
          ctx.setProperty(node, 'href', next);
          // A relative path can rewrite to an off-site URL (examples/, templates/
          // resolve into the repository), so the check runs on the result.

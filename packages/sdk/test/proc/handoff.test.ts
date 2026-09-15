@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { SDK_VERSION } from '../../dist/index.js';
+import { displayVersion } from '../../dist/lib/schemas.js';
 
 // The hand-off end to end, through the real bin: a seeded repository from
 // `fixtures/handoff/`, the installed CLI a marker that prints the argv it received,
@@ -130,14 +130,14 @@ test('the cwd decides the root when no --root is given, and a nested cwd does no
    fs.mkdirSync(nested, { recursive: true });
    // No upward walk: the root is where the invocation points, never where a layer
    // happens to be found above it.
-   assert.equal(leji(['--version'], { cwd: nested }).stdout, `${SDK_VERSION}\n`);
+   assert.equal(leji(['--version'], { cwd: nested }).stdout, `${displayVersion()}\n`);
 });
 
 test('LEJI_NO_LOCAL runs the global at any value, and only when it is set', () => {
    const dir = seed('node-eligible');
    for (const value of ['', '0', '1']) {
       const r = leji(['--version'], { cwd: dir, env: { LEJI_NO_LOCAL: value } });
-      assert.equal(r.stdout, `${SDK_VERSION}\n`, `LEJI_NO_LOCAL=${JSON.stringify(value)}`);
+      assert.equal(r.stdout, `${displayVersion()}\n`, `LEJI_NO_LOCAL=${JSON.stringify(value)}`);
       assert.equal(r.status, 0);
    }
    assert.equal(leji(['--version'], { cwd: dir }).stdout, marker(['--version']), 'unset hands off');
@@ -167,7 +167,7 @@ test('every repository that does not qualify runs the global, silently', () => {
          fs.writeFileSync(path.join(dir, 'node_modules', '@leji-org', 'leji', 'package.json'), installed);
       }
       const r = leji(['--version'], { cwd: dir });
-      assert.equal(r.stdout, `${SDK_VERSION}\n`, name);
+      assert.equal(r.stdout, `${displayVersion()}\n`, name);
       assert.equal(r.stderr, '', name);
       assert.equal(r.status, 0, name);
    }
@@ -262,7 +262,7 @@ test('a repository whose installed CLI is this very executable runs once and sto
    // would break: ONE process, one version line, a normal exit.
    const dir = seed('node-self', MARKER, true);
    const r = leji(['--version'], { cwd: dir });
-   assert.equal(r.stdout, `${SDK_VERSION}\n`);
+   assert.equal(r.stdout, `${displayVersion()}\n`);
    assert.equal(r.status, 0);
    assert.equal(r.signal, null);
 });
@@ -296,7 +296,7 @@ test('unreadable eligibility state runs the global, with no stack trace', (t) =>
    for (const dir of cases) {
       if (dir === null) continue;
       const r = leji(['--version'], { cwd: dir });
-      assert.equal(r.stdout, `${SDK_VERSION}\n`);
+      assert.equal(r.stdout, `${displayVersion()}\n`);
       assert.equal(r.stderr, '', 'nothing is printed, and nothing throws');
       assert.equal(r.status, 0);
    }

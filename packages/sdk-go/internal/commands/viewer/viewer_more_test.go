@@ -14,6 +14,7 @@ import (
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
 	"github.com/leji-org/leji/packages/sdk-go/internal/findings"
+	"github.com/leji-org/leji/packages/sdk-go/internal/layer"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 )
 
@@ -98,6 +99,7 @@ func TestGenerateViewerProjectsViewer(t *testing.T) {
 	}
 	want = append(want, rootDir+"/overview.md")
 	want = append(want, viewerRel+"/_manifest.md")
+	want = append(want, viewerRel+"/_decisions.md")
 	if len(res.Written) != len(want) {
 		t.Fatalf("written = %v, want %v", res.Written, want)
 	}
@@ -406,7 +408,8 @@ func TestGenerateViewerHostileManifestCannotBreakOut(t *testing.T) {
 	if m.Viewer == nil {
 		m.Viewer = &manifest.Viewer{}
 	}
-	m.Viewer.Title = "{{MERMAID_SCRIPTS}}"
+	hostileTitle := "{{MERMAID_SCRIPTS}}"
+	m.Viewer.Title = &hostileTitle
 	m.Viewer.Favicon = "{{DOCSIFY_CONFIG}}"
 	if _, err := GenerateViewer(dir, m); err != nil {
 		t.Fatalf("GenerateViewer: %v", err)
@@ -612,6 +615,176 @@ func TestMermaidTextColorOverEveryAcceptedForm(t *testing.T) {
 	}
 }
 
+// linkTheme is a viewer.theme carrying just the body-link value, as a pointer so an
+// authored empty string stays distinguishable from an absent key.
+func linkTheme(link string) *manifest.Theme {
+	return &manifest.Theme{Link: &link}
+}
+
+// linkWarnings collects the body-link guard's findings of one generation run.
+func linkWarnings(fnds []findings.Finding) []findings.Finding {
+	var out []findings.Finding
+	for _, f := range fnds {
+		if f.Rule == "viewer-theme-link-contrast" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// The guard checks the inline-code ground only, because that ground is the narrower
+// one. #767676 is the counterexample both halves of that claim need: AA on white,
+// below AA on inline code, so a white-only check would ship it.
+func TestLinkGuardMeasuresTheNarrowerGround(t *testing.T) {
+	const white, codeBG = "#FFFFFF", "#E8F4EE"
+	if r := wcagContrast("#767676", white); math.Abs(r-4.54) >= 0.01 || r < 4.5 {
+		t.Errorf("#767676 on white = %.2f, want 4.54 and at least 4.5", r)
+	}
+	if r := wcagContrast("#767676", codeBG); math.Abs(r-4.02) >= 0.01 || r >= 4.5 {
+		t.Errorf("#767676 on the code ground = %.2f, want 4.02 and below 4.5", r)
+	}
+	// The hex fixtures/valid-viewer-link-pass configures clears the narrower ground,
+	// so it clears both.
+	if r := wcagContrast("#5A50F9", codeBG); r < 4.5 {
+		t.Errorf("#5A50F9 on the code ground = %.2f, below the guard's floor", r)
+	}
+	if r := wcagContrast("#5A50F9", white); r < 4.5 {
+		t.Errorf("#5A50F9 on white = %.2f, below AA", r)
+	}
+}
+
+// A malformed value has no measurable ratio, so the guard's other message says what
+// is wrong with it and names what the viewer does instead.
+func TestGenerateViewerRefusesALinkThatNamesNoColor(t *testing.T) {
+	dir := exampleCopy(t)
+	m := manifest.LoadManifest(dir).Manifest
+	if m.Viewer == nil {
+		m.Viewer = &manifest.Viewer{}
+	}
+	m.Viewer.Theme = linkTheme("rebeccapurple")
+	res, err := GenerateViewer(dir, m)
+	if err != nil {
+		t.Fatalf("GenerateViewer: %v", err)
+	}
+	warnings := linkWarnings(res.Findings)
+	if len(warnings) != 1 {
+		t.Fatalf("expected the refusal to be surfaced once, got %d", len(warnings))
+	}
+	if warnings[0].Severity != findings.Warning {
+		t.Errorf("severity = %q, want warning", warnings[0].Severity)
+	}
+	const want = `viewer.theme.link "rebeccapurple" is not a hex color; body links keep the fixed accessible tone`
+	if warnings[0].Message != want {
+		t.Errorf("message = %q, want %q", warnings[0].Message, want)
+	}
+	page, err := os.ReadFile(filepath.Join(dir, ".leji", "viewer", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(page), "--leji-link:") {
+		t.Error("a refused value must declare nothing at all")
+	}
+}
+
+// The schema accepts `link: ""`, so it is a present value the guard must judge —
+// reading it as "unset" would let the one input most likely to arrive from a
+// half-filled manifest pass without the warning the design promises.
+func TestGenerateViewerTreatsABlankLinkAsABadValue(t *testing.T) {
+	dir := exampleCopy(t)
+	m := manifest.LoadManifest(dir).Manifest
+	if m.Viewer == nil {
+		m.Viewer = &manifest.Viewer{}
+	}
+	for _, blank := range []string{"", "   ", "\t", "\n"} {
+		m.Viewer.Theme = linkTheme(blank)
+		res, err := GenerateViewer(dir, m)
+		if err != nil {
+			t.Fatalf("GenerateViewer(%q): %v", blank, err)
+		}
+		warnings := linkWarnings(res.Findings)
+		if len(warnings) != 1 {
+			t.Fatalf("%q must warn exactly once, got %d", blank, len(warnings))
+		}
+		if warnings[0].Severity != findings.Warning {
+			t.Errorf("%q severity = %q, want warning", blank, warnings[0].Severity)
+		}
+		want := `viewer.theme.link "` + blank + `" is not a hex color; body links keep the fixed accessible tone`
+		if warnings[0].Message != want {
+			t.Errorf("%q message = %q, want %q", blank, warnings[0].Message, want)
+		}
+		page, err := os.ReadFile(filepath.Join(dir, ".leji", "viewer", "index.html"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(page), "--leji-link:") {
+			t.Errorf("%q must declare nothing", blank)
+		}
+	}
+
+	// The absent case is the only silent one: no key, no finding, no declaration.
+	m.Viewer.Theme = &manifest.Theme{}
+	res, err := GenerateViewer(dir, m)
+	if err != nil {
+		t.Fatalf("GenerateViewer: %v", err)
+	}
+	if got := linkWarnings(res.Findings); len(got) != 0 {
+		t.Fatalf("a missing key is absent, and absent is silent; got %d warnings", len(got))
+	}
+	page, err := os.ReadFile(filepath.Join(dir, ".leji", "viewer", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(page), "--leji-link:") {
+		t.Error("an absent key must declare nothing")
+	}
+}
+
+// A passing value is accepted silently and lands in the generated style block; a
+// failing one warns with its measured ratio and declares nothing.
+func TestGenerateViewerAcceptsALinkThatClearsTheFloor(t *testing.T) {
+	dir := exampleCopy(t)
+	m := manifest.LoadManifest(dir).Manifest
+	if m.Viewer == nil {
+		m.Viewer = &manifest.Viewer{}
+	}
+	m.Viewer.Theme = linkTheme("#5A50F9")
+	res, err := GenerateViewer(dir, m)
+	if err != nil {
+		t.Fatalf("GenerateViewer: %v", err)
+	}
+	if got := linkWarnings(res.Findings); len(got) != 0 {
+		t.Fatalf("a passing value is accepted silently, got %d warnings", len(got))
+	}
+	page, err := os.ReadFile(filepath.Join(dir, ".leji", "viewer", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), "--leji-link: #5A50F9;") {
+		t.Error("expected the declaration to carry the authored hex")
+	}
+
+	m.Viewer.Theme = linkTheme("#9ad0c0")
+	res, err = GenerateViewer(dir, m)
+	if err != nil {
+		t.Fatalf("GenerateViewer: %v", err)
+	}
+	warnings := linkWarnings(res.Findings)
+	if len(warnings) != 1 {
+		t.Fatalf("expected one contrast warning, got %d", len(warnings))
+	}
+	const want = `viewer.theme.link "#9ad0c0" reaches 1.53:1 against the inline-code ground; body links keep the fixed accessible tone`
+	if warnings[0].Message != want {
+		t.Errorf("message = %q, want %q", warnings[0].Message, want)
+	}
+	page, err = os.ReadFile(filepath.Join(dir, ".leji", "viewer", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(page), "--leji-link:") {
+		t.Error("a refused value must declare nothing at all")
+	}
+}
+
 // A manifest label carrying HTML reaches the generated sidebar verbatim, so the
 // angle brackets are escaped there.
 func TestGenerateViewerEscapesHTMLInSidebarLabels(t *testing.T) {
@@ -709,6 +882,21 @@ func TestMdLinkDest(t *testing.T) {
 		{"a(b).md", `/a\(b\).md`},
 		{"(x).md", `/\(x\).md`},
 		{`a\b.md`, `/a\\b.md`},
+		// A bare CommonMark destination may hold neither an ASCII control character
+		// nor a space: either ENDS it, so an unencoded one in a file name (both are
+		// legal POSIX bytes) puts everything after it into the page as markdown.
+		// Percent-encoded, uppercase hex, two digits, and they still route.
+		{"with space.md", "/with%20space.md"},
+		{"a\nb.md", "/a%0Ab.md"},
+		{"a\rb.md", "/a%0Db.md"},
+		{"a\tb.md", "/a%09b.md"},
+		{"a\x00b.md", "/a%00b.md"},
+		{"a\x7fb.md", "/a%7Fb.md"},
+		// The two neutralizations compose: the space encoded, the paren escaped.
+		{"a (b).md", `/a%20\(b\).md`},
+		// Injection vector in full: the newline cannot close the destination, so the
+		// forged row never becomes a row.
+		{"x.md)\n| forged | row |\n[y](z.md", `/x.md\)%0A|%20forged%20|%20row%20|%0A[y]\(z.md`},
 	} {
 		if got := mdLinkDest(tc.in); got != tc.want {
 			t.Fatalf("mdLinkDest(%q) = %q, want %q", tc.in, got, tc.want)
@@ -790,5 +978,291 @@ func TestRenderOverviewOnInvalidUTF8IsByteIdenticalToTheReference(t *testing.T) 
 	}
 	if !strings.Contains(got, "# T�tle") || !strings.Contains(got, "Ta��il") {
 		t.Fatalf("the replacements are not where the reference puts them:\n%s", got)
+	}
+}
+
+// The decisions page is built from records handed in as DATA, so these mirror the
+// TS reference's pure unit tests one for one (test/units.test.ts): same vectors,
+// same expected bytes. The fixture family pins the end-to-end bytes separately.
+func decisionsManifest(name string) *manifest.Manifest {
+	return &manifest.Manifest{
+		Leji:            "1.0",
+		Name:            name,
+		RootPath:        "docs/",
+		BootProfilePath: "docs/boot-profile.md",
+		Categories: map[string]manifest.CategoryMapping{
+			"decisions": {Indexes: []string{"docs/context/decisions.md"}},
+		},
+	}
+}
+
+func decisionRecord(relPath string, fm map[string]any) layer.ScannedProfile {
+	return layer.ScannedProfile{RelPath: relPath, Frontmatter: fm}
+}
+
+func TestBuildDecisionsPageOrderNumbersSupersessionAndEscaping(t *testing.T) {
+	records := []layer.ScannedProfile{
+		decisionRecord("docs/decisions/0017-later.md", map[string]any{
+			"id": "later", "title": "Later", "status": "accepted", "date": "2026-07-01",
+		}),
+		decisionRecord("outside/0003-elsewhere.md", map[string]any{
+			"id": "elsewhere", "title": "Elsewhere", "status": "accepted", "date": "2026-03-01",
+		}),
+		decisionRecord("docs/decisions/0006-gap.md", map[string]any{
+			"id": "gap", "title": "Gap `tick` | pipe [b] <i>", "status": "superseded",
+			"date": "2026-06-01", "supersededBy": "later",
+		}),
+		decisionRecord("docs/decisions/no-number.md", map[string]any{
+			"id": "no-number", "title": "No number", "status": "proposed", "date": "2026-04-01",
+		}),
+		decisionRecord("docs/decisions/0002-dangling.md", map[string]any{
+			"id": "dangling", "title": "Dangling", "status": "superseded",
+			"date": "2026-05-01", "supersededBy": "nobody",
+		}),
+		decisionRecord("docs/decisions/0009-mangled.md", nil),
+	}
+	page := buildDecisionsPage(decisionsManifest("demo | layer"), records)
+
+	if !strings.HasPrefix(page, "# demo \\| layer: Decisions\n") {
+		t.Fatalf("title line: %q", strings.SplitN(page, "\n", 2)[0])
+	}
+	if !strings.Contains(page, "Generated from the decision records' frontmatter") {
+		t.Fatal("the page does not say where it comes from")
+	}
+	if !strings.Contains(page, "| Number | Decision | Status | Date | Supersedes | Superseded by |") {
+		t.Fatal("declared columns missing")
+	}
+	at := func(needle string) int {
+		i := strings.Index(page, needle)
+		if i < 0 {
+			t.Fatalf("row missing: %s", needle)
+		}
+		return i
+	}
+	if !(at("| 0002 |") < at("| 0006 |") && at("| 0006 |") < at("| 0009 |") && at("| 0009 |") < at("| 0017 |")) {
+		t.Fatal("rows do not follow the file name in byte order")
+	}
+	if at("| 0017 |") > at("| 0003 |") {
+		t.Fatal("an out-of-root record must sort by its path, not its number")
+	}
+	// Presentation, not identity: the validation key would render these 2, 6, 9, 17.
+	for _, stripped := range []string{"| 2 |", "| 6 |", "| 9 |", "| 17 |"} {
+		if strings.Contains(page, stripped) {
+			t.Fatalf("leading zeros were stripped: %s", stripped)
+		}
+	}
+	if !strings.Contains(page, "|  | [No number](/decisions/no-number.md) | proposed | 2026-04-01 |  |  |") {
+		t.Fatal("a file name without the number convention must leave the column blank")
+	}
+	if !strings.Contains(page, "[later](/decisions/0017-later.md)") {
+		t.Fatal("a resolving supersession pointer must link to the record")
+	}
+	if !strings.Contains(page, "| nobody |") || strings.Contains(page, "[nobody](") {
+		t.Fatal("a pointer at no record must be text, never a link")
+	}
+	if !strings.Contains(page, "| 0009 | [0009-mangled.md](/decisions/0009-mangled.md) |  |  |  |  |") {
+		t.Fatal("unreadable frontmatter: file name then blank cells")
+	}
+	if !strings.Contains(page, "[Gap \\`tick\\` \\| pipe \\[b\\] &lt;i&gt;](/decisions/0006-gap.md)") {
+		t.Fatal("a title must not break the row, close the link, or land as live HTML")
+	}
+	if !strings.Contains(page, "| 0003 | Elsewhere | accepted |") {
+		t.Fatal("an unservable record must be named, not linked")
+	}
+	if strings.Contains(page, "](/0003-elsewhere.md)") {
+		t.Fatal("nothing may link outside the context root")
+	}
+	if !strings.HasSuffix(page, "|\n") {
+		t.Fatal("trailing newline after the last row")
+	}
+}
+
+func TestBuildDecisionsPageHostileFileNameCannotBreakOut(t *testing.T) {
+	// A newline is a legal POSIX file-name byte, and a bare CommonMark destination
+	// ends at one, so an unencoded name closes the link and injects everything after
+	// it into the page as markdown.
+	hostile := "docs/decisions/0001-a.md)\n| 9999 | [pwned](/evil.md) | forged | row |  |  |\n[x](y.md"
+	page := buildDecisionsPage(decisionsManifest("fixture"), []layer.ScannedProfile{
+		decisionRecord(hostile, map[string]any{
+			"id": "a", "title": "A", "status": "accepted", "date": "2026-01-01",
+		}),
+	})
+	rows := 0
+	for _, line := range strings.Split(page, "\n") {
+		if strings.HasPrefix(line, "| ") && !strings.HasPrefix(line, "| Number") && !strings.HasPrefix(line, "| ---") {
+			rows++
+		}
+	}
+	if rows != 1 {
+		t.Fatalf("one record must render exactly one row, got %d", rows)
+	}
+	if strings.Contains(page, "| 9999 |") || strings.Contains(page, "[pwned](") {
+		t.Fatal("the forged row or link became real")
+	}
+	if !strings.Contains(page, "%0A") || !strings.Contains(page, "%20") {
+		t.Fatal("the newline and the space must be percent-encoded into the destination")
+	}
+}
+
+func TestBuildDecisionsPagePlainCellsStayPlain(t *testing.T) {
+	records := []layer.ScannedProfile{
+		decisionRecord("docs/decisions/0001-a.md", map[string]any{
+			"id": "a", "title": "A",
+			// Status is plain text by design, so it must not be able to render as
+			// anything else; the date cell takes the same escape.
+			"status": "[accepted](/evil.md)", "date": "[2026-01-01](/evil.md)",
+			"supersededBy": "[gone](/evil.md)",
+		}),
+		// Outside rootPath: named, never linked. Its own title must not smuggle a
+		// link back in through the very cell that exists to keep it unlinked.
+		decisionRecord("elsewhere/0002-b.md", map[string]any{
+			"id": "b", "title": "[B](/evil.md)", "status": "accepted", "date": "2026-01-02",
+		}),
+	}
+	page := buildDecisionsPage(decisionsManifest("[layer](/evil.md)"), records)
+
+	// The escaped forms still CONTAIN "](/evil.md)"; what makes them inert is the
+	// backslash on the opening bracket. So the blanket check is about an ACTIVE link.
+	if activeEvilLinkRe.MatchString(page) {
+		t.Fatal("an interpolated value rendered as an active link")
+	}
+	for _, want := range []string{
+		"\\[accepted\\](/evil.md)",
+		"\\[2026-01-01\\](/evil.md)",
+		"\\[gone\\](/evil.md)",
+		"\\[B\\](/evil.md)",
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("value not shown inert: %s", want)
+		}
+	}
+	if !strings.HasPrefix(page, "# \\[layer\\](/evil.md): Decisions") {
+		t.Fatal("the heading must be inert too")
+	}
+}
+
+var activeEvilLinkRe = regexp.MustCompile(`(^|[^\\])\[[^\]]*\]\(/evil\.md\)`)
+
+func TestBuildDecisionsPageFirstListedRecordReservesItsID(t *testing.T) {
+	// Two records share an id (a validation error this page does not adjudicate) and
+	// the FIRST in byte order is outside rootPath, so it has no route. Reserving on
+	// route rather than on listing would skip it and hand the link to the second.
+	records := []layer.ScannedProfile{
+		decisionRecord("docs/decisions/0002-in-root.md", map[string]any{
+			"id": "dup", "title": "In root", "status": "accepted", "date": "2026-01-02",
+		}),
+		decisionRecord("docs/decisions/0003-pointer.md", map[string]any{
+			"id": "ptr", "title": "Pointer", "status": "superseded",
+			"date": "2026-01-03", "supersededBy": "dup",
+		}),
+		decisionRecord("archive/0001-out-of-root.md", map[string]any{
+			"id": "dup", "title": "Out of root", "status": "accepted", "date": "2026-01-01",
+		}),
+	}
+	page := buildDecisionsPage(decisionsManifest("fixture"), records)
+
+	if strings.Index(page, "Out of root") > strings.Index(page, "In root") {
+		t.Fatal("the out-of-root record sorts first in byte order")
+	}
+	if strings.Contains(page, "[dup](/decisions/0002-in-root.md)") {
+		t.Fatal("the later duplicate took the reserved id")
+	}
+	if !strings.Contains(page, "| dup |") {
+		t.Fatal("the pointer must render as plain text, the reservation carrying no route")
+	}
+}
+
+func TestHasDecisionsPage(t *testing.T) {
+	if !HasDecisionsPage(decisionsManifest("fixture")) {
+		t.Fatal("a declared decisions category means the page exists")
+	}
+	m := decisionsManifest("fixture")
+	m.Categories = map[string]manifest.CategoryMapping{
+		"domain": {Indexes: []string{"docs/context/domain.md"}},
+	}
+	if HasDecisionsPage(m) {
+		t.Fatal("a layer without a decisions category gets no page")
+	}
+	m.Categories["decisions"] = manifest.CategoryMapping{}
+	if HasDecisionsPage(m) {
+		t.Fatal("a decisions category declaring no index file gets no page either")
+	}
+}
+
+// Both vectors below are the frozen TS reference's own output, read off a scratch
+// run of packages/sdk/dist buildDecisionsPage rather than reasoned about.
+
+// A DECLARED but empty viewer.title is a declared title: the reference resolves it
+// with `?? name`, which falls back only on null/undefined, so the header renders
+// with an empty title rather than the layer name. Truthiness would silently
+// substitute the name and the three SDKs would disagree on the bytes.
+func TestBuildDecisionsPageEmptyViewerTitle(t *testing.T) {
+	records := []layer.ScannedProfile{
+		decisionRecord("docs/decisions/0001-a.md", map[string]any{
+			"id": "a", "title": "A", "status": "accepted", "date": "2026-01-01",
+		}),
+	}
+
+	empty := ""
+	m := decisionsManifest("fixture")
+	m.Viewer = &manifest.Viewer{Title: &empty}
+	if got := strings.SplitN(buildDecisionsPage(m, records), "\n", 2)[0]; got != "# : Decisions" {
+		t.Fatalf("declared-empty title: got %q, want %q", got, "# : Decisions")
+	}
+
+	// Absent title, and no viewer block at all, both fall back to the layer name.
+	absent := decisionsManifest("fixture")
+	absent.Viewer = &manifest.Viewer{}
+	if got := strings.SplitN(buildDecisionsPage(absent, records), "\n", 2)[0]; got != "# fixture: Decisions" {
+		t.Fatalf("absent title: got %q, want %q", got, "# fixture: Decisions")
+	}
+	if got := strings.SplitN(buildDecisionsPage(decisionsManifest("fixture"), records), "\n", 2)[0]; got != "# fixture: Decisions" {
+		t.Fatalf("no viewer block: got %q, want %q", got, "# fixture: Decisions")
+	}
+
+	// The same read feeds the other generated surfaces, so they resolve it the same way.
+	if got := strings.SplitN(buildManifestPage(m, nil), "\n", 2)[0]; got != "# : Manifest" {
+		t.Fatalf("manifest page, declared-empty title: got %q, want %q", got, "# : Manifest")
+	}
+}
+
+// JS `.trim()` counts U+FEFF and the U+2000 block as whitespace; Go's
+// strings.TrimSpace does not. The reference blank-checks the decision title and the
+// supersession pointer with `.trim()`, so a BOM-only value is blank to it: the title
+// falls back to the file name and the pointer cell renders empty.
+func TestBuildDecisionsPageBlankChecksUseJSTrim(t *testing.T) {
+	bom := "\ufeff"
+
+	titleOnly := []layer.ScannedProfile{
+		decisionRecord("docs/decisions/0001-a.md", map[string]any{
+			"id": "a", "title": bom, "status": "accepted", "date": "2026-01-01",
+		}),
+	}
+	page := buildDecisionsPage(decisionsManifest("fixture"), titleOnly)
+	want := "| 0001 | [0001-a.md](/decisions/0001-a.md) | accepted | 2026-01-01 |  |  |"
+	if !strings.Contains(page, want) {
+		t.Fatalf("a BOM-only title must fall back to the file name;\n got %q\nwant %q", page, want)
+	}
+
+	pointer := []layer.ScannedProfile{
+		decisionRecord("docs/decisions/0001-a.md", map[string]any{
+			"id": "a", "title": "A", "status": "superseded", "date": "2026-01-01",
+			"supersededBy": bom,
+		}),
+	}
+	page = buildDecisionsPage(decisionsManifest("fixture"), pointer)
+	want = "| 0001 | [A](/decisions/0001-a.md) | superseded | 2026-01-01 |  |  |"
+	if !strings.Contains(page, want) {
+		t.Fatalf("a BOM-only pointer must render blank;\n got %q\nwant %q", page, want)
+	}
+
+	// Not blank either way: the BOM is stripped by esc's own jsTrim, leaving "x".
+	mixed := []layer.ScannedProfile{
+		decisionRecord("docs/decisions/0001-a.md", map[string]any{
+			"id": "a", "title": bom + " x", "status": "accepted", "date": "2026-01-01",
+		}),
+	}
+	if !strings.Contains(buildDecisionsPage(decisionsManifest("fixture"), mixed), "| 0001 | [x](/decisions/0001-a.md) |") {
+		t.Fatal("a BOM-prefixed title renders its trimmed text")
 	}
 }

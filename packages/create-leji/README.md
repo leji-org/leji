@@ -8,8 +8,9 @@ npm create leji@latest            # the current directory
 npm create leji@latest my-app     # a directory, created if it is not there yet
 ```
 
-No install step: `npm create` fetches the package, runs it once, and leaves nothing behind.
-`npx create-leji@latest` does the same thing.
+No prior install: `npm create` fetches the package and runs it once, so there is no global
+`leji` to put in place first. What stays behind is the scaffold the delegated CLI writes, plus
+whatever your package manager keeps in its own cache. `npx create-leji@latest` does the same thing.
 
 ## What it runs
 

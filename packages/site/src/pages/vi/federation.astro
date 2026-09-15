@@ -1,0 +1,200 @@
+---
+// Vietnamese translation of src/pages/federation.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+
+const source = '0448756deaad3c402173b30bac77dc310e71a6d8';
+const strings = translationStrings('vi');
+
+// Commands and code stay in the source language: they are typed, not read.
+const mounts = `"federation": {
+   "mounts": [
+      {
+         "name": "product-context",
+         "source": "https://github.com/acme/product-context",
+         "pin": "7d3f2a19c4e8b6a0d5f1c2e9b8a7f6d5c4b3a2e1", // mã commit đầy đủ: phiên bản làm chuẩn
+         "trackingRef": "refs/heads/main",                    // độ lỗi thời được xét theo ref này
+         "owner": { "name": "Product team", "contact": "product@acme.example" },
+         "role": "product-side context, owned by the product team",
+         // định tuyến: khi nào mount này liên quan đến một tác vụ
+         "categories": ["domain", "decisions"],
+         "requiredWhen": ["a task changes how a plan or entitlement is represented"]
+      }
+   ]
+}`;
+
+const commands = `leji mounts hydrate --fetch      # hiện thực hoá phép chiếu của từng lớp ngang hàng tại pin
+leji mounts status               # tính sẵn có, tính toàn vẹn và độ tụt lại của từng pin
+leji mounts update-pin <name>    # đưa một pin tiến tới commit đã ghi nhận
+leji mounts locate <name>        # nơi người đọc tìm lớp ngang hàng`;
+---
+
+<Base
+   lang="vi"
+   title="Federation · Leji"
+   description="Ghép các lớp ngữ cảnh Leji thuộc quyền sở hữu riêng biệt thành những mount ngang hàng có ghim, trong khi mỗi nhóm vẫn giữ kho mã nguồn, quyền sở hữu và quy trình xem xét của mình."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/federation/" />
+         <main id="content" class="prose">
+            <PageHeader kind="guide" />
+            <h1>Federation</h1>
+            <TranslationNote strings={strings.note} href="/federation/" />
+            <p class="sp-lede">
+               Federation cho phép các nhóm cùng đọc những lớp ngữ cảnh thuộc quyền sở hữu riêng biệt mà không phải gộp
+               chúng lại hay chuyển giao trách nhiệm giữ cho chúng cập nhật.
+            </p>
+
+            <h2>Vì sao ghép lại thay vì tập trung hoá</h2>
+            <p>
+               Một lớp ngữ cảnh luôn cập nhật vì chính chủ sở hữu đọc và sửa nó trong quá trình làm việc. Nếu tập trung
+               hoá nội dung của nhóm khác, ta sẽ tách nội dung khỏi những người chịu trách nhiệm về nó. Federation giữ
+               nguyên vẹn từng kho mã nguồn, từng chủ sở hữu và từng quy trình xem xét. Trang{' '}
+               <a href="/vi/rationale/">lý do thiết kế</a> lập luận đầy đủ về điều này.
+            </p>
+
+            <h2>Một mount ngang hàng là gì</h2>
+            <p>
+               Một lớp ngang hàng là lớp ngữ cảnh của một nhóm khác, do lớp chủ khai báo trong <code
+                  >federation.mounts</code
+               >. Khai báo này ghim commit bất biến đầy đủ mà lớp chủ đọc, đồng thời ghi lại quyền sở hữu và cách định
+               tuyến theo tác vụ. Công cụ đọc phép chiếu lớp do manifest của lớp ngang hàng định nghĩa, tại đúng pin đó,
+               vào một bộ nhớ đệm bị bỏ qua. Nó không bao giờ chép nội dung của lớp ngang hàng vào lớp chủ.
+            </p>
+            <p>
+               Phép chiếu là hợp của những gì mà chính manifest của lớp ngang hàng làm cho đọc được tại pin: tệp <code
+                  >leji.json</code
+               > của nó, gốc ngữ cảnh của nó, boot profile của nó, các tệp index danh mục của nó, những profile mà các liên
+               kết <code>agents</code> của nó nêu tên, các cây agent-profile và decision-record của nó, index và changelog
+               máy đọc được của nó, cùng mọi đường dẫn được quản trị mà index sinh ra của nó liệt kê, bất kể chúng nằm ở đâu.
+            </p>
+            <p>
+               Một lớp ngang hàng thường nằm bên trong một kho mã nguồn sản phẩm lớn hơn, nên chính ranh giới đó là thứ
+               ngăn một mount phải nhập cả sản phẩm về chỉ để đọc ngữ cảnh của nó.
+            </p>
+            <p>
+               Một mount là một tham chiếu, không phải một bản fork hay một sự cấp quyền. Lớp ngang hàng vẫn giữ thẩm
+               quyền của nó và hệ quản lý phiên bản của nó vẫn quyết định ai được đọc. Việc mount làm cho quan hệ ấy và
+               phiên bản đã chọn trở nên rõ ràng với những người vốn đã có quyền truy cập.
+            </p>
+            <div class="federation-code"><Code code={mounts} lang="jsonc" theme={lejiSyntaxTheme} wrap /></div>
+            <p>
+               Các lần cập nhật pin là những thay đổi đã qua xem xét đối với <code>leji.json</code>. Lớp chủ khai báo
+               quan hệ; lớp ngang hàng giữ kho mã nguồn, chủ sở hữu, cổng xem xét, changelog và tuyên bố mức tuân thủ
+               của riêng nó.
+            </p>
+
+            <h2>Làm việc với các mount</h2>
+            <div class="federation-code"><Code code={commands} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+            <p>
+               Dùng <code>hydrate --fetch</code> để nạp về mọi phép chiếu tại pin tương ứng, đồng thời chủ động tải dữ liệu
+               qua mạng. Dùng{' '}
+               <code>status</code> để xem tính sẵn có, tính toàn vẹn và độ lỗi thời của pin. Dùng <code>locate</code> để lấy
+               đường dẫn do resolver quản lý, nơi người đọc nên mở một lớp ngang hàng.
+            </p>
+            <p>
+               Để cập nhật một mount, hãy chạy trọn vòng lặp này: <code>hydrate --fetch</code> để đọc trạng thái các nguồn,{
+                  ' '
+               }
+               <code>status</code> để xem mỗi pin đã tụt lại bao xa, <code>update-pin</code> để đẩy một pin tiến tới commit
+               mà resolver đã ghi nhận, rồi <code>hydrate</code> lần nữa để nạp về phép chiếu tại pin mới. Việc đổi pin và
+               nạp phép chiếu là hai hành động tách biệt, nên phần viết lại trở thành một diff có thể xem xét trước khi có
+               bất kỳ nội dung nào đổi bên dưới chân bạn.
+            </p>
+            <p>
+               <code>update-pin</code> mặc định chạy offline: lệnh chỉ nâng pin tới mốc commit đã ghi nhận gần nhất mà một
+               lần chạy thực sự quan sát được và ghi rõ điều đó trong đầu ra, thay vì ngầm coi mốc ấy là mới. Thêm <code
+                  >--fetch</code
+               > để quan sát nguồn đã khai báo ngay trong lần chạy, việc này chỉ liên hệ đúng nguồn đó và không gì khác; nếu
+               bất kỳ phần nào trong đó hỏng, lần chạy sẽ từ chối và để nguyên{' '}
+               <code>leji.json</code>. Pin chỉ tiến về phía trước. Một đích không phải hậu duệ của pin hiện tại sẽ bị từ
+               chối, trừ khi bạn nêu tên nó tường minh bằng <code>--to &lt;oid&gt;</code> và thêm{' '}
+               <code>--allow-non-fast-forward</code>. Một nhánh thượng nguồn đã bị viết lại là lý do thường gặp để phải
+               dùng tới cặp cờ đó; một lần chủ động lùi về một commit cũ hơn cũng cần tới chúng, vì phép kiểm xét quan
+               hệ tổ tiên chứ không xét chuyện lịch sử có bị viết lại hay không. Tổ hợp đó được cảnh báo mỗi lần và được
+               ghi vào đầu ra JSON, vì nó đẩy một pin tới một commit mà pin hiện tại không với tới. Dùng <code
+                  >--dry-run</code
+               > để xem phần so sánh và phần viết lại mà không thực sự viết lại manifest; kết hợp với <code
+                  >--fetch</code
+               > thì nó vẫn thực hiện các thao tác lên kho lưu trữ và lên mạng của cờ đó, nên các đối tượng và ref đã tải
+               về vẫn nằm lại trong kho lưu trữ do resolver quản lý.
+            </p>
+            <p>
+               Chỉ các byte của pin được viết lại, nên thứ tự trường, cách định dạng và mọi khoá mà schema không mô hình
+               hoá đều được giữ nguyên. Mục bộ nhớ đệm của pin cũ vẫn ở chỗ cũ: vì được định địa chỉ theo nội dung, nó
+               đơn giản không còn được tham chiếu. Không có lệnh dọn dẹp nào; hãy tự tay xoá các mục cũ dưới <code
+                  >.leji/mounts/</code
+               > khi bạn muốn lấy lại dung lượng.
+            </p>
+            <p>
+               Việc nạp về không bao giờ công bố một phép chiếu dở dang. Vùng đệm nằm dưới <code>.leji/mounts/</code>,
+               và{' '}
+               <code>init</code> thêm đường dẫn đó vào <code>.gitignore</code> ở gốc. Hãy xem đường dẫn ấy là chi tiết triển
+               khai: <code>locate</code> mới cho biết nên đọc lớp ngang hàng ở đâu, còn ghi cứng đường dẫn bộ nhớ đệm sẽ hỏng
+               khi cách công bố thay đổi.
+            </p>
+            <p>
+               Viewer hiển thị trạng thái đó mà không cần terminal. <code>leji viewer</code> sinh một trang Manifest với đồ
+               thị của lớp chủ và các lớp ngang hàng, kèm một dòng cho mỗi mount: tính sẵn có, độ trôi lệch, chủ sở hữu, pin
+               và nguồn. Hãy sinh lại nó sau khi nạp về.
+            </p>
+
+            <h2>Tuyên bố mức <code>federated</code></h2>
+            <p>
+               Một mount chưa nạp về chỉ tạo cảnh báo, không bao giờ làm hỏng bản build. CI có thể buộc kiểm tra tính
+               sẵn có bằng <code>leji validate --federation=available|required</code>. Việc kiểm tra thông thường không
+               tải về và cũng không đòi hỏi phải có đủ mọi mount.
+            </p>
+            <p>
+               Tính sẵn có tại chỗ không phải là mức tuân thủ. Pin phải với tới được từ một ref được quảng bá của <code
+                  >source</code
+               >, và việc đó cần tới mạng. Hãy chạy <code>leji conformance --federation=verify</code> cho phép kiểm ấy. Nếu
+               phép kiểm không với tới được nguồn, nó báo <code>unknown</code>; và <code>unknown</code> thì không bao giờ
+               trao mức.
+            </p>
+            <p>
+               Việc xác minh là điều kiện cần, chưa đủ. Mức <code>federated</code> còn đòi hỏi rằng chính lớp ngữ cảnh này
+               được một kho mã nguồn khác tiêu thụ dưới dạng một mount có ghim, rằng việc báo cáo pin lỗi thời đã có sẵn,
+               và rằng boot profile cùng index được sinh ra đều làm nổi lên mọi lớp ngang hàng.
+            </p>
+            <p>
+               Hai điều đầu là khai theo quy trình, nên <code>verifiedLevel</code> không bao giờ khẳng định thay bạn. Việc
+               một mount đã được nạp về trên máy cụ thể không phải đầu vào để xét mức tuân thủ.
+            </p>
+
+            <h2>Hãy chọn khuôn mẫu phân phối trước</h2>
+            <p>
+               Một git submodule chỉ gồm tài liệu cho phép nhiều kho mã nguồn cùng tiêu thụ một lớp ngữ cảnh. Federation
+               thì nối nhiều nhóm mà mỗi nhóm đã sở hữu một lớp. Hai khuôn mẫu này trả lời những câu hỏi khác nhau, nên
+               federation không thay thế submodule.{' '}
+               <a href="/vi/adoption/#where-it-lives">Hướng dẫn áp dụng</a> giữ trọn quy trình submodule.
+            </p>
+            <p>
+               Hãy đọc <a href="/vi/spec/distribution/">phân phối</a> để có phần chuẩn tắc về bao đóng của phép chiếu, ranh
+               giới lỗi, và toàn bộ quy tắc federation.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .federation-code :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+   }
+</style>

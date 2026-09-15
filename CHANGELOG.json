@@ -119,6 +119,44 @@
       ],
       "proposedBy": "Vuong Nguyen",
       "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "viewer-theme-link",
+      "date": "2026-08-27",
+      "type": "added",
+      "summary": "viewer.theme.link: optional hex link color, applied only above 4.5:1 on the inline-code ground; otherwise a warning and the fixed tone.",
+      "paths": [
+        "schemas/",
+        "packages/sdk/",
+        "packages/sdk-py/",
+        "packages/sdk-go/",
+        "packages/mcp/",
+        "packages/site/",
+        "templates/",
+        "fixtures/"
+      ],
+      "proposedBy": "Vuong Nguyen",
+      "approvedBy": "Vuong Nguyen"
+    },
+    {
+      "id": "release-1-5-0",
+      "date": "2026-09-14",
+      "type": "changed",
+      "summary": "Three clarifications on the frozen 1.0 specification line, no requirement changed: conformance.md states what the boot-profile item's machine check covers and what rides the opt-in content lint; context-layer.md requirement 4 and the manifest schema's rootPath description name the viewer's homepage, logo, and favicon as the one path convention written relative to the context root; governance.md reads \"the owner tends the system's health\". All packages move to 1.5.0 together.",
+      "paths": [
+        "spec/conformance.md",
+        "spec/context-layer.md",
+        "spec/governance.md",
+        "schemas/context-manifest.schema.json",
+        "packages/sdk/",
+        "packages/sdk-py/",
+        "packages/sdk-go/",
+        "packages/mcp/",
+        "packages/create-leji/",
+        "packages/site/"
+      ],
+      "proposedBy": "Vuong Nguyen",
+      "approvedBy": "Vuong Nguyen"
     }
   ]
 }

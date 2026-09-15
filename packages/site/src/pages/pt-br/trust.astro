@@ -1,0 +1,168 @@
+---
+// Brazilian Portuguese translation of src/pages/trust.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation
+// follows. The layout is `Doc.astro`'s, written out here because that layout takes
+// no `lang` and a translated page has to declare its own.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '5dbd0f0ebf13d599ab3f4e97d7b27a0b859d951c';
+const strings = translationStrings('pt-br');
+---
+
+<Base
+   lang="pt-br"
+   title="Confiança · Leji"
+   description="Quem faz a curadoria do Leji, como os produtos comerciais da curadora se relacionam com a especificação, o que a linha 1.0 da especificação promete, o que acontece se a curadora desaparecer e como reportar uma vulnerabilidade."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/trust/" />
+         <main id="content" class="prose">
+            <PageHeader kind="governance" />
+            <h1>Confiança</h1>
+            <TranslationNote strings={strings.note} href="/trust/" />
+            <p>
+               Leji foi projetado para exigir o mínimo possível de confiança. A especificação, os schemas, as
+               ferramentas e as fixtures são públicos, licenciados de forma permissiva e rodam na sua própria máquina.
+               Leji tem uma curadora corporativa nomeada, mas a sua proteção não depende de confiar nas intenções dela:
+               tudo aqui é licenciado abertamente, roda sem nenhum serviço da curadora, não exige nenhum endpoint da
+               curadora, permite implementações concorrentes e serviços comerciais e pode ser bifurcado.
+            </p>
+
+            <h2>Quem mantém isto</h2>
+            <p>
+               Leji foi criado por <a href="https://vuongnguyen.com" target="_blank" rel="noopener">Vuong Nguyen</a> e tem
+               a curadoria de <a href="https://contexing.com" target="_blank" rel="noopener">Contexing, LLC</a>.{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md" target="_blank" rel="noopener"
+                  >GOVERNANCE.md</a
+               >{' '}
+               registra como as decisões são tomadas, como a manutenção é transferida e quais ativos acompanham essa transferência.
+               A Contexing detém o nome Leji. A especificação, os schemas e as ferramentas têm licenças permissivas e podem
+               ser bifurcados por qualquer pessoa, desde que sob outro nome.
+            </p>
+
+            <h2>Produtos comerciais</h2>
+            <p>
+               A Contexing, LLC, curadora do Leji, está desenvolvendo o LejiAI, um visualizador Leji hospedado em
+               leji.ai para equipes cujos integrantes não trabalham em git. Ele é opcional. Nenhum nível de conformidade
+               o exige, nenhuma parte da especificação depende dele, e as ferramentas de referência continuam locais,
+               offline e sem exigir conta. O visualizador hospedado acrescenta infraestrutura, não recursos de formato:
+               autenticação, controle de acesso por pessoa e hospedagem operada. Produtos comerciais independentes
+               construídos sobre Leji, inclusive os que concorrem com os nossos, não precisam de permissão alguma.
+            </p>
+            <p>
+               Propostas da curadora que afetem áreas das quais seus produtos dependem são identificadas como tal e
+               passam por um período público de comentários mais longo. Assim, "nenhuma vantagem de conformidade" se
+               torna algo que você pode verificar, não apenas uma afirmação nossa. Veja{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md" target="_blank" rel="noopener"
+                  >GOVERNANCE.md</a
+               >.
+            </p>
+
+            <h2>A promessa de versionamento</h2>
+            <p>
+               A especificação e os schemas estão na linha 1.0, <strong
+                  >congelada no GA com a versão publicada 1.3.0 do ferramental de referência</strong
+               >{' '}
+               (registrado no log de decisões do repositório). Dentro da linha, as mudanças de schema são apenas aditivas;
+               qualquer mudança incompatível é publicada como uma nova linha, nunca em substituição à atual. O ferramental
+               de referência é versionado à parte e declara quais linhas da especificação ele suporta. Regras completas:{
+                  ' '
+               }
+               <a href="/pt-br/spec/versioning/">versionamento</a>.
+            </p>
+
+            <h2>Idioma</h2>
+            <p>
+               leji.org é escrito em inglês; <a href="/pt-br/translation/">cada página traduzida informa isso</a> e convida
+               a correções.
+            </p>
+
+            <h2>Se a curadora desaparecer</h2>
+            <p>
+               Tudo o que é necessário para continuar sem a curadora já é público e licenciado para isso: a
+               especificação (CC-BY-4.0), os schemas, todas as ferramentas de referência (Apache-2.0) e o conjunto
+               compartilhado de fixtures contra o qual os três SDKs são testados. Validação, geração de estrutura
+               inicial e conformidade rodam offline e não enviam nenhum dado de volta. Uma bifurcação ou implementação
+               independente não precisa de permissão e não perde nenhum recurso.
+            </p>
+            <p>
+               O nome e o logotipo são o que as licenças não cobrem: ambos são marcas com termos de uso próprios, e os
+               arquivos do logotipo ficam fora das licenças acima. Uma bifurcação mantém tudo o que as licenças
+               concedem, a especificação completa, os schemas, os SDKs, a CLI e o conjunto de fixtures, e não precisa de
+               permissão. Ela precisa de um nome diferente e de infraestrutura própria: domínios, registros de pacote e
+               chaves de assinatura são ativos operacionais, não artefatos licenciados. As regras sobre os nomes que uma
+               bifurcação pode ou não adotar estão na{' '}
+               <a href="/pt-br/trademark/">política de marca e de uso</a>.
+            </p>
+
+            <h2>Implementações independentes</h2>
+            <p>
+               Os SDKs de referência são três bases de código independentes (TypeScript, Python, Go) mantidas idênticas
+               em termos de comportamento por um único conjunto compartilhado de fixtures. Esse mesmo conjunto permite
+               testar implementações externas. A conformidade é autodeclarada de acordo com o checklist publicado; não
+               existe programa de certificação nem exigência comercial:{' '}
+               <a href="/pt-br/spec/conformance/"
+                  >todos os níveis podem ser alcançados apenas com a especificação aberta e as ferramentas de referência</a
+               >.
+            </p>
+
+            <h2>Segurança</h2>
+            <p>
+               As ferramentas de referência rodam na sua máquina, sem telemetria, sem conta e sem nenhuma dependência
+               além da própria máquina. Validação, geração de estrutura inicial e conformidade funcionam inteiramente
+               offline, os schemas e templates são distribuídos dentro de cada pacote, e a própria lógica de validação e
+               de geração de estrutura inicial do Leji não faz nenhuma requisição de rede. A Contexing, LLC, curadora do
+               Leji, está desenvolvendo um serviço hospedado em leji.ai; as ferramentas de referência nunca entram em
+               contato com ele.
+            </p>
+            <p>
+               Os comandos de federação que você invoca deliberadamente (<code>leji mounts hydrate --fetch</code>,{' '}
+               <code>leji mounts update-pin --fetch</code> e <code>leji conformance --federation=verify</code>) entram
+               em contato com o repositório que você nomeou e com nada mais.{' '}
+               <code>leji start</code> e o repasse opcional de integração iniciam o agente de código que você já tem, cujo
+               comportamento de rede é próprio desse agente.
+            </p>
+            <p>
+               Este site é separado das ferramentas: na implantação mantida pela curadora, leji.org usa o <a
+                  href="https://usefathom.com"
+                  target="_blank"
+                  rel="noopener">Fathom</a
+               > para métricas agregadas de tráfego; o código-fonte do site não inclui nenhum sistema de métricas, e cada
+               implantação acrescenta o seu. Relate uma vulnerabilidade pelo{' '}
+               <a href="https://github.com/leji-org/leji/security/advisories/new" target="_blank" rel="noopener"
+                  >relato privado de vulnerabilidades do GitHub</a
+               >{' '}
+               ou por <a href="mailto:security@leji.org">security@leji.org</a>; o processo está em{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/SECURITY.md" target="_blank" rel="noopener"
+                  >SECURITY.md</a
+               >.
+            </p>
+
+            <h2>O registro de mudanças</h2>
+            <p>
+               Este repositório roda os mesmos controles de camada de contexto que a especificação pede de quem a adota:
+               um changelog revisado, um índice gerado e registros de decisão, incluindo a transição de prévia para GA e{
+                  ' '
+               }
+               <a
+                  href="https://github.com/leji-org/leji/blob/main/docs/decisions/0007-commercial-hosted-viewer.md"
+                  target="_blank"
+                  rel="noopener">a decisão de construir um visualizador hospedado comercial</a
+               >. As versões publicadas são registradas em{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/CHANGELOG.md" target="_blank" rel="noopener"
+                  >CHANGELOG.md</a
+               >, com um espelho legível por máquina.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

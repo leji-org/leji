@@ -4,7 +4,7 @@ fixtures own the request corpus (`trustCanary`) and the layout claims
 (`export.layout`), so all three SDKs answer identical requests against identical
 bytes. Mirrors packages/sdk/test/canary.test.ts.
 
-Scope: the four F8 layout fixtures — their layout roles, their golden export bytes,
+Scope: the four layout fixtures — their layout roles, their golden export bytes,
 and their canary corpus. The general `export`-block harness (findings, `--strict`
 variants) takes every other fixture.
 """
@@ -474,7 +474,7 @@ def test_sidebar_lifts_no_label_out_of_a_private_profiles_dir(
 # --- The check-before-act invariant on WRITE/CLEAR targets ----------------------------------
 # One structural rule: every location the tool writes into or clears is realpath-
 # resolved and validated against its role BEFORE the operation — never after, never
-# conditionally. These pin the two write-side vectors two review rounds left open.
+# conditionally. These pin the two write-side vectors that were not yet pinned.
 
 
 def test_check_before_act_generation_refuses_viewer_aliased_into_a_private_role(
@@ -611,7 +611,7 @@ def test_export_refuses_an_out_that_resolves_into_a_private_role(
 
 
 # --- Check-before-act completeness: the overview.md write sites and the resolver's dangling paths.
-# These pin the write sites two review rounds after the first left them: overview.md
+# These pin the write sites that were not yet pinned: overview.md
 # (seed AND refresh) is a content write that used to be guarded by containment only,
 # and a nested/chained/unresolvable `--out` whose real destination the resolver used to
 # rebuild lexically. Each hard-refusal case names, in its comment, the mutation that

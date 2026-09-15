@@ -8,14 +8,17 @@ from functools import lru_cache
 from importlib.resources import files
 from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote, urlsplit
 
 from jsonschema.exceptions import ValidationError
 from jsonschema.validators import Draft202012Validator
 
+from .gitutil import git_short_revision
+
 SUPPORTED_LINES = ["1.0"]
 
 try:
-    from importlib.metadata import PackageNotFoundError, version
+    from importlib.metadata import PackageNotFoundError, distribution, version
 
     SDK_VERSION = version("leji")
 except PackageNotFoundError:  # running from a source tree without install
@@ -24,6 +27,97 @@ except PackageNotFoundError:  # running from a source tree without install
 SchemaName = (
     str  # context-manifest | context-index | context-changelog | agent-profile | decision-record
 )
+
+
+def _file_url_path(url: str) -> Optional[str]:
+    """The local path a ``file://`` URL names, or None when it names something this
+    will not treat as one. Pure string handling, so the module graph the export walks
+    stays socket-free: ``urllib.request.url2pathname`` would do this too, but that
+    module can open a socket.
+
+    An authority is a host, not a path component: `file://server/share` names a remote
+    share, and dropping the host would turn it into the unrelated local `/share`. Only
+    the empty authority and `localhost` are this machine, so an editable install
+    recorded from a UNC path prints the bare version rather than a marker read from
+    whatever `/share` happens to be here.
+    """
+    parts = urlsplit(url)
+    if parts.netloc and parts.netloc != "localhost":
+        return None
+    path = unquote(parts.path)
+    # Windows spells a local URL `file:///C:/src`, whose path component carries a
+    # leading slash before the drive letter. POSIX paths are already paths.
+    if re.fullmatch(r"/[A-Za-z]:(/.*)?", path):
+        return path[1:]
+    return path
+
+
+def _editable_source_dir() -> Optional[str]:
+    """The source tree this package was installed from in editable mode, or None for
+    every other install form.
+
+    ``direct_url.json`` is what the installer records (PEP 610) and is the one thing a
+    wheel cannot carry on its own: only an editable install sets ``dir_info.editable``,
+    and its ``url`` is a ``file://`` URL naming the checkout. A wheel installed from a
+    local path has the file without that flag, so the flag is the classification and
+    the path is only the anchor.
+
+    Nothing here raises: this runs on the way to printing one version line, so every
+    unreadable, malformed, or unparseable form of that metadata is simply "not a
+    checkout" and the caller prints the bare version.
+    """
+    try:
+        raw = distribution("leji").read_text("direct_url.json")
+    except (PackageNotFoundError, OSError, ValueError):  # no metadata to read
+        return None
+    # `--version` never raises; anything unreadable is not a checkout.
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        info = json.loads(raw)
+        if not isinstance(info, dict):
+            return None
+        dir_info = info.get("dir_info")
+        if not isinstance(dir_info, dict) or dir_info.get("editable") is not True:
+            return None
+        url = info.get("url")
+        if not isinstance(url, str) or not url.startswith("file://"):
+            return None
+        # urlsplit rejects a malformed authority (`file://[`) with a ValueError, so
+        # the parse shares the guard the JSON has.
+        return _file_url_path(url)
+    except ValueError:
+        return None
+    # `--version` never raises; anything unparseable is not a checkout. The clause
+    # above names what is expected, this one closes the class: deeply nested JSON
+    # raises RecursionError, which is a RuntimeError and not a ValueError.
+    except Exception:
+        return None
+
+
+def display_version() -> str:
+    """The version the CLI prints for ``--version``, ``-v`` and ``version``:
+    ``X.Y.Z+dev.<sha7>`` when it runs from a source checkout of this repository,
+    ``X.Y.Z+dev`` when that checkout's revision cannot be read, and the bare ``X.Y.Z``
+    otherwise. Display only: ``SDK_VERSION`` stays bare everywhere else, so nothing
+    generated or published moves.
+
+    A checkout here is an editable install, which is how the SDK is worked on and how
+    the parity harness installs it; a wheel, in a venv or anywhere else, prints bare.
+    Computed per call: the command prints once and exits.
+    """
+    # `--version` never raises: whatever the detection trips over, the bare version is
+    # the answer.
+    try:
+        source = _editable_source_dir()
+        if source is None:
+            return SDK_VERSION
+        sha = git_short_revision(source, 2)
+    except Exception:
+        return SDK_VERSION
+    return f"{SDK_VERSION}+dev.{sha}" if sha else f"{SDK_VERSION}+dev"
 
 
 def _assets_dir() -> Path:

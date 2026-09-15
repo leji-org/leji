@@ -1,0 +1,291 @@
+---
+// Japanese translation of src/pages/agent-ready.astro. The English page is the page
+// of record; `source` is its git blob sha at the revision this translation follows.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import InstallTabs from '../../components/InstallTabs.astro';
+import CopyableCode from '../../components/CopyableCode.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+// The badge shown below is the canonical fixture itself, not a copy: the four
+// files under fixtures/badge/ are the byte oracle the three SDKs are tested
+// against, so the sample on this page cannot drift from what `leji badge` writes.
+// It carries its own role="img", <title> and aria-label, so it needs no wrapper.
+// It is a captured artifact, so its English label stays as captured.
+import badgeSvg from '../../../../../fixtures/badge/governed.svg?raw';
+
+const source = '5c8c494965adf111b26a09a4971295b119166e0a';
+const strings = translationStrings('ja');
+
+// The badge markdown exactly as `leji badge` prints it, for one level, so the
+// sample and the tool cannot read differently: the shape is
+// packages/sdk/src/commands/badge.ts (`badgeMarkdown`, `badgeLabel`), and the
+// four canonical lines are fixtures/badge/<level>.md.
+const badgeLine = '[![Leji 1.0 · governed · self-attested](leji-badge.svg)](https://leji.org/agent-ready/)';
+---
+
+<Base
+   lang="ja"
+   title="エージェント対応 · Leji"
+   description="Leji CLI をインストールして leji start を実行すると、エージェントがチームのコンテキストレイヤーから起動します。自己申告の適合性バッジが示す内容と、その生成方法も説明します。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/agent-ready/" />
+         <main id="content" class="agent-ready-main measured">
+            <section class="hero">
+               <PageHeader kind="guide" />
+               <h1>3 つのコマンドで、リポジトリをエージェント対応に。</h1>
+               <TranslationNote strings={strings.note} href="/agent-ready/" />
+               <p class="lede">
+                  このページを開くきっかけになったであろうバッジは、エージェントの起点となるコンテキストレイヤーを備えたリポジトリであることを示します。検証と判定はメンテナー自身のマシン上で行われ、結果は自己申告です。自分のリポジトリをエージェント対応にするには、次の
+                  3 つのコマンドを実行します。
+               </p>
+               <p class="jump"><a href="#badge">バッジが何を申告しているのか ↓</a></p>
+            </section>
+
+            <p class="fine">
+               <code>leji start</code> は既存のコンテキストレイヤーを開くため、まだないリポジトリでは先に導入が必要です。それが手順
+               02 です。すでに <code>leji.json</code> があるリポジトリは、そのまま手順 03 へ進んでください。<a
+                  href="/ja/quickstart/">クイックスタート</a
+               >では、既存リポジトリへの導入から宣言レベルの判定まで、より詳しい手順を紹介しています。
+            </p>
+
+            <section class="cmds" aria-label="3 つのコマンド">
+               <div class="cmd">
+                  <p class="cmd-label">01 · CLI をインストールする</p>
+                  <div class="cmd-install"><InstallTabs /></div>
+               </div>
+               <div class="cmd">
+                  <p class="cmd-label">02 · リポジトリに導入する</p>
+                  <CopyableCode code="leji adopt" lang="bash" label="adopt コマンドをコピー" />
+               </div>
+               <div class="cmd">
+                  <p class="cmd-label">03 · コンテキストレイヤーに入る</p>
+                  <CopyableCode code="leji start" lang="bash" label="start コマンドをコピー" />
+               </div>
+            </section>
+
+            <section class="what">
+               <h2>いま起きたこと</h2>
+               <ul>
+                  <li>
+                     <code>leji start</code> は検出したエージェントホストをリポジトリルートから起動し、指示をひとつだけ渡しました。最初に<a
+                        href="/ja/spec/boot-profile/">ブートプロファイル</a
+                     >を読むことです。これにより、エージェントが最初に参照するコンテキストは、ツリーから推測した情報ではなく、チームが用意したものになります。ただしこれは指示であって、チェックではありません。leji
+                     はエージェントにそのファイルを指し示すだけで、実際に読んだかどうかを検証することはありません。ホストがひとつも検出されない場合や、スクリプトから実行した場合は、何も起動せず、代わりに実行すべきコマンドを表示します。
+                  </li>
+                  <li>
+                     起動前に、<code>leji start</code> はこのクローン用の Setup ブロックを表示しました。ここでは、リポジトリが宣言する
+                     Leji CLI を、レイヤーの仕様系列が求めるバージョンで解決できるか、選択したホスト用の MCP サーバーが登録されているか、共有の
+                     <code>.mcp.json</code> がコミットされているか、pre-commit フックが導入されているかを確認します。不足している項目は、それを補うコマンドとともに個別に報告されますが、いずれも起動を妨げません。
+                  </li>
+                  <li>
+                     レイヤー自体の点検は別です。スキーマとリントルールには <code>leji validate</code>、<a
+                        href="/ja/spec/conformance/">宣言したレベル</a
+                     >には <code>leji conformance</code> を使います。どちらも、いまインストールしたパッケージを使って自分のマシン上で実行され、仲介するサービスはありません。
+                  </li>
+                  <li>
+                     ツールが自発的に接続を開くことはなく、背後にアカウント、レジストリ、ホスト型サービスもありません。ネットワークへアクセスするのは、自分で明示的に呼び出した処理だけです。フェデレーションの取得は指定したリポジトリにのみ接続し、<code
+                        >leji init</code
+                     > と <code>leji adopt</code>
+                     の依存関係に関する処理では、明示的に同意した場合に限り、手元のパッケージマネージャーが実行されます。leji
+                     が起動するのは、すでに利用しているエージェントです。ネットワーク上の振る舞いは、そのエージェント自体に依存します。
+                  </li>
+               </ul>
+            </section>
+
+            <section class="badge" id="badge">
+               <h2>バッジが申告していること</h2>
+               <p>
+                  バッジはローカルで生成されます。<code>leji badge</code> は <code>leji conformance</code>
+                  でリポジトリを判定し、オフライン実行で検証されたレベルの SVG を書き出して、それを埋め込む markdown を 1
+                  行表示します。
+               </p>
+               <CopyableCode code="leji badge" lang="bash" label="badge コマンドをコピー" />
+               <p class="caption">
+                  <code>governed</code> レベルで検証されたコンテキストレイヤーの場合、バッジはこうなります。
+               </p>
+               <div class="badge-shot" set:html={badgeSvg} />
+               <aside class="attest-note">
+                  <strong>自己申告</strong
+                  >とは、リポジトリ自体のツールで判定したという意味です。レジストリもエンドポイントもアカウントもありません。バッジが示すのは、このオフライン実行で検証されたレベルです。コンテキストレイヤーの宣言レベルを上回ることはなく、下回る場合はあります。
+               </aside>
+               <p class="caption">README に埋め込むための markdown の行です。</p>
+               <div class="badge-md"><Code code={badgeLine} lang="markdown" theme={lejiSyntaxTheme} wrap /></div>
+               <p>
+                  レベルは <code>core</code>、<code>indexed</code>、<code>governed</code>、<code>federated</code>
+                  で、それぞれが前のレベルを含みます。<a href="/ja/spec/conformance/">適合性のチェックリスト</a
+                  >には、各レベルでチームに求められる要件が示されています。どのレベルにも、公開された仕様とリファレンスのツールだけで到達できます。
+               </p>
+               <p>
+                  したがって、確認すべきなのはバッジの画像ではなくチェック結果です。同じリポジトリで <code
+                     >leji conformance</code
+                  >
+                  を実行し、報告内容を確認してください。<a href="/ja/trust/">信頼</a>のページでは、Leji
+                  を誰が保守しているのか、1.0
+                  系列で何が保証されるのか、スチュワード（仕様の管理主体）が不在になった場合にどうなるのかを説明しています。
+               </p>
+            </section>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   /* No top padding: .doc-shell already sets the space above the first line, and
+      every doc page starts its h1 there. */
+   .hero {
+      padding: 0 0 1rem;
+      max-width: 760px;
+   }
+   .lede {
+      font-size: var(--text-lede);
+      line-height: 1.7;
+      color: var(--leji-text-body);
+      max-width: var(--measure-fine);
+      margin: 0;
+   }
+
+   h2 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 1.6rem;
+      line-height: 1.25;
+      color: var(--leji-text);
+      margin: 0 0 0.6rem;
+   }
+
+   p,
+   li {
+      color: var(--leji-text-body);
+   }
+   a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+
+   /* The jump the badge-clicker takes when the attestation is what they came for.
+      Same instrument as the quickstart's "what each level asks of you" link. */
+   .jump {
+      margin: 1.1rem 0 0;
+   }
+   .jump a {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-decoration: none;
+      border-bottom: 1px solid var(--leji-brand);
+      padding-bottom: 2px;
+      white-space: nowrap;
+   }
+   .jump a:hover {
+      color: var(--leji-text);
+      border-color: var(--leji-text);
+   }
+
+   /* The pitch: the two commands, one under the other, nothing between them. */
+   .cmds {
+      margin-top: 1.8rem;
+      display: grid;
+      gap: 1.8rem;
+   }
+   .cmd-label {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-text-body);
+      margin: 0 0 0.6rem;
+   }
+   .cmd-install {
+      background: var(--leji-deep);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      overflow: hidden;
+   }
+
+   .fine {
+      margin: 1.6rem 0 0;
+   }
+
+   .what {
+      margin-top: 3.4rem;
+   }
+   .what ul {
+      margin: 0.6rem 0 0;
+      padding-left: 1.1rem;
+   }
+   .what li {
+      margin: 0.5rem 0;
+   }
+
+   .badge {
+      margin-top: 3.4rem;
+      padding-bottom: 1rem;
+      /* the jump link lands the heading below the sticky header, not under it */
+      scroll-margin-top: calc(var(--header-h) + 1.5rem);
+   }
+   .badge p {
+      margin: 0 0 1.1rem;
+   }
+   .badge .caption {
+      margin: 1.4rem 0 0;
+   }
+   /* The badge at its own size on the page background, which is how it sits in a
+      README: no frame, no scaling, nothing this page adds to it. The face shows the
+      level alone, so the note under it carries what the badge claims. */
+   .badge-shot {
+      margin: 0.9rem 0 1rem;
+   }
+   .badge-shot :global(svg) {
+      display: block;
+   }
+
+   /* Same instrument as the quickstart's map-note: brand rule, accent ground. Kept
+      at body size rather than that page's smaller setting, because this is the
+      section's claim and not marginalia. */
+   .attest-note {
+      margin: 0 0 1.4rem;
+      padding: 0.9rem 1.2rem;
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
+      border-radius: 0 8px 8px 0;
+      color: var(--leji-text-body);
+      line-height: 1.6;
+   }
+   .attest-note strong {
+      color: var(--leji-text);
+   }
+
+   /* The printed markdown is a sample, not a line to copy: one level's wording,
+      whichever level the reader's own run verifies. Hence no copy button. */
+   .badge-md {
+      margin: 0.6rem 0 1.6rem;
+   }
+   .badge-md :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+      margin: 0;
+      overflow-x: auto;
+   }
+</style>

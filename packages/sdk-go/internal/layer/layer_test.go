@@ -228,6 +228,52 @@ func TestScanDecisionRecordsDedupesAcrossDirs(t *testing.T) {
 	}
 }
 
+// Two file names differing only in one character: U+E000 is EE 80 80 in UTF-8 and
+// U+10000 is F0 90 80 80, so bytes put U+E000 first. Go compares strings bytewise, so
+// this pins the order the Node SDK must sort its way to (UTF-16 code units put the
+// astral name first, its lead surrogate D800 sorting below E000) and the one Python
+// reaches by code point. Both scans are shared primitives whose order reaches
+// generated output (the index and the sidebar, the Agents group straight off the
+// profile scan's walk), so all three SDKs return the same sequence.
+func TestLayerScansReturnPathsInByteOrder(t *testing.T) {
+	root := t.TempDir()
+	pua := "docs/decisions/2-\ue000.md"
+	astral := "docs/decisions/2-\U00010000.md"
+	puaProfile := "docs/agents/role-\ue000.md"
+	astralProfile := "docs/agents/role-\U00010000.md"
+	m := &manifest.Manifest{
+		RootPath: "docs/",
+		Machine: &manifest.Machine{
+			AgentProfilesPath:   "docs/agents/",
+			DecisionRecordsPath: "docs/decisions/",
+		},
+	}
+	for _, rel := range []string{astral, pua} {
+		writeFile(t, root, rel, "---\nid: d\n---\n\n# D\n")
+	}
+	for _, rel := range []string{astralProfile, puaProfile} {
+		writeFile(t, root, rel, "---\nid: r\nname: R\nrole: r\n---\n\n# R\n")
+	}
+
+	got := ScanDecisionRecords(root, m)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 decision records, got %d", len(got))
+	}
+	if got[0].RelPath != pua || got[1].RelPath != astral {
+		t.Fatalf("scan order = %q, %q; want the U+E000 record first", got[0].RelPath, got[1].RelPath)
+	}
+
+	// ScanAgentProfiles hands WalkMd's order straight to the viewer's Agents group.
+	profiles := ScanAgentProfiles(root, m)
+	if len(profiles) != 2 {
+		t.Fatalf("expected 2 agent profiles, got %d", len(profiles))
+	}
+	if profiles[0].RelPath != puaProfile || profiles[1].RelPath != astralProfile {
+		t.Fatalf("profile walk order = %q, %q; want the U+E000 profile first",
+			profiles[0].RelPath, profiles[1].RelPath)
+	}
+}
+
 func TestDuplicateIDFindings(t *testing.T) {
 	items := []IDItem{
 		{ID: "DR-1", RelPath: "a.md"},

@@ -2195,7 +2195,8 @@ export async function adoptLayer(options: AdoptOptions): Promise<AdoptResult> {
    }
    writes.push({ rel: `${joinUnderRoot(r, 'decisions/')}0001-adopt-leji.md`, content: buildFirstDecision(answers) });
    // Stub index file per category so the manifest's `indexes` resolve to real
-   // content. (Tree-scan population is the adopt rework that follows.)
+   // content. Each one selects the whole category directory, so a document already
+   // sitting there is governed without being listed by name.
    for (const category of answers.categories) {
       writes.push({ rel: `${layout.contextDir}${category}.md`, content: categoryIndexFile(r, category) });
    }

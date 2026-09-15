@@ -13,8 +13,8 @@ Contracts (per the resolver-only mounts design):
 - The sidecar is evidence, never proof: verification reads the object store.
 - No network unless the caller passes fetch=True (git fetch into the
   resolver-managed store); everything else is offline.
-- The witness namespace is the resolver's own: ``hydrate --fetch`` writes
-  refs/leji-witness/v1/ in the managed store and nothing else does, so pin
+- The witness namespace is the resolver's own: ``hydrate --fetch`` and ``update-pin --fetch``
+  write refs/leji-witness/v1/ in the managed store, so pin
   ancestry has a ref to compare against without ``status`` ever fetching.
 """
 
@@ -166,9 +166,13 @@ def read_text_within(root: str, abs_path: Path) -> str | None:
     """Read a declared file's text, only if it is a regular file whose real path
     stays within ``root``. Returns None when missing, not a regular file, or
     symlinked out of root. Mirrors Node's readTextWithin; the single shared
-    implementation for resolver-state reads (validate.py imports it too)."""
+    implementation for resolver-state reads (validate.py imports it too).
+
+    Containment is judged first and existence second, the order the link resolver
+    already uses, so the trust-boundary idiom reads the same way everywhere. Both
+    must pass, so the returned value is unchanged either way."""
     p = Path(abs_path)
-    if not p.is_file() or not resolved_within_root(root, p):
+    if not resolved_within_root(root, p) or not p.is_file():
         return None
     return p.read_text(encoding="utf-8")
 
@@ -522,9 +526,9 @@ def fetch_into_store(
     source_identity: str,
     ignore_context: LejiIgnoreContext | None = None,
 ) -> FetchResult:
-    """Fetch the pin and refresh the managed witness ref in the store. This is the
-    only writer of the witness namespace: ``status`` never fetches, so a mount
-    whose pin a hint already resolves still needs its store populated here."""
+    """Fetch the pin and refresh the managed witness ref in the store. ``status``
+    never fetches, so a mount whose pin a hint already resolves still needs its
+    store populated here."""
     retained = retain_pin_in_store(root, mount, source_identity, mount.pin, ignore_context)
     if retained.repo is None:
         return retained

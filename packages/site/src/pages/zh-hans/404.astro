@@ -1,0 +1,61 @@
+---
+// Simplified Chinese translation of src/pages/404.astro. The English page is the page
+// of record; `source` is its git blob sha at the revision this translation follows.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '2962daecd782a203b8023fc8b4e9404066028a07';
+const strings = translationStrings('zh-hans');
+---
+
+<Base
+   lang="zh-hans"
+   title="页面不存在 · Leji"
+   description="leji.org 上不存在这个页面。你可以返回首页，或直接前往规范。"
+   noindex
+>
+   <SiteHeader />
+   <main id="content" class="wrap">
+      <section class="lost">
+         <p class="lost-eyebrow">404 · 页面不存在</p>
+         <h1>未找到这个页面。</h1>
+         <TranslationNote strings={strings.note} href="/404" />
+         <p class="lost-text">
+            你访问的页面不在这里。请返回<a href="/zh-hans/">首页</a>，或直接前往<a href="/zh-hans/spec/">规范</a>。
+         </p>
+      </section>
+   </main>
+   <SiteFooter />
+</Base>
+
+<style>
+   .lost {
+      padding: clamp(4rem, 14vh, 9rem) 0 6rem;
+      max-width: 640px;
+   }
+   .lost-eyebrow {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.22em;
+      color: var(--leji-link);
+      margin: 0 0 1rem;
+   }
+   h1 {
+      font-family: var(--serif-display);
+      font-size: clamp(2.2rem, 6vw, 3.4rem);
+      font-weight: 520;
+      color: var(--leji-text);
+      margin: 0 0 1rem;
+   }
+   .lost-text {
+      color: var(--leji-text-body);
+   }
+   .lost-text a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+</style>

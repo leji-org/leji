@@ -10,6 +10,7 @@ import { generateIndex } from './indexgen.js';
 import {
    type IndexEntryLite,
    ACTIVE_EXTENSIONS,
+   DECISIONS_REL,
    OVERVIEW_REL,
    assembleSidebar,
    declaresInherits,
@@ -317,11 +318,12 @@ export function serveViewer(
             // fall through to the stored artifact
          }
       }
-      // The generated Manifest page lives in the viewer dir (gitignored chrome) but
-      // is linked from the sidebar and fetched under the content root, like
-      // _sidebar.md. Reserved underscore name; served from the last generation.
-      if (rel === 'content/_manifest.md') {
-         serveFrom(res, viewerAbs, '_manifest.md');
+      // The generated Manifest and Decisions pages live in the viewer dir
+      // (gitignored chrome) but are linked from the sidebar and fetched under the
+      // content root, like _sidebar.md. Reserved underscore names; served from the
+      // last generation, so a layer that generated no Decisions page 404s here.
+      if (rel === 'content/_manifest.md' || rel === `content/${DECISIONS_REL}`) {
+         serveFrom(res, viewerAbs, rel.slice('content/'.length));
          return;
       }
       // The overview homepage is served RENDERED: the source bytes with the layer map

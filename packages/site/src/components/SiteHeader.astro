@@ -2,63 +2,121 @@
 // Site header. `flush` drops the band background and mint line where the header sits inside the monument (the landing page).
 import LejiLogo from './LejiLogo.astro';
 import githubIcon from '../assets/github.svg?raw';
+import { chromeStrings, navStrings } from '../data/i18n';
+import { englishKey, localeOf, localeOptions, localizedHref } from '../i18n';
 const { flush = false } = Astro.props;
 
-// Section-aware active state across the reference and adoption sections.
+// The header is on every page in every language and takes no props for it, so the
+// language it renders in is read from the page's own URL. Each destination is the
+// same page in that language where it exists, and the English one where it does not.
 const path = Astro.url.pathname;
-const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(p)) ? 'page' : undefined);
+const locale = localeOf(path);
+const nav = navStrings(locale);
+const chrome = chromeStrings(locale);
+const href = (route: string) => localizedHref(route, locale);
+
+// Section-aware active state across the reference and adoption sections, compared on
+// the English route both sides reduce to: a translated page marks the entry its own
+// page of record marks, which a comparison against the served path cannot do.
+const here = englishKey(path);
+const inSection = (route: string) => {
+   const key = englishKey(route);
+   return here === key || here.startsWith(`${key}/`);
+};
+const active = (...routes: string[]) => (routes.some(inSection) ? 'page' : undefined);
+
+// The languages this page exists in, and nothing where it exists in one only: a
+// reader is never offered a link into a page that was never written. It sits
+// beside the logo rather than in the menu, because which language you are
+// reading is a property of the whole site, not one more destination in it.
+const languages = localeOptions(path);
+const readingNow = languages.find((l) => l.current);
+const languageLabel = readingNow ? nav.language.replace('{language}', readingNow.label) : '';
 ---
 
 <header class:list={['site-header-band', { flush }]}>
    <div class="wrap header-row">
-      <a class="brand" href="/" aria-label="Leji home"><LejiLogo height={30} /></a>
-      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu">
+      <div class="brand-row">
+         <a class="brand" href={href('/')} aria-label={nav.home}><LejiLogo height={30} /></a>
+         {
+            readingNow && (
+               <details class="locale-select">
+                  <summary aria-label={languageLabel}>
+                     <span lang={readingNow.locale}>{readingNow.label}</span>
+                     <span class="caret" aria-hidden="true">
+                        ›
+                     </span>
+                  </summary>
+                  {/* A disclosure, so the list opens by click and by keyboard with
+                      no script of its own, the way the sidebar's groups do. A div
+                      rather than a nav: the header's bare `nav` rules style the
+                      menu band, and a second nav here would inherit them. */}
+                  <div class="locale-menu">
+                     {languages.map((l) => (
+                        <a
+                           href={l.href}
+                           hreflang={l.locale}
+                           lang={l.locale}
+                           aria-current={l.current ? 'true' : undefined}
+                        >
+                           {l.label}
+                        </a>
+                     ))}
+                  </div>
+               </details>
+            )
+         }
+      </div>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" aria-label={nav.openMenu}>
          <span class="bars" aria-hidden="true"></span>
       </button>
-      <nav id="site-nav" aria-label="Primary">
-         <a href="/quickstart/" aria-current={active('/quickstart/')}>Quickstart</a>
-         <a href="/spec/" aria-current={active('/spec/')}>Spec</a>
+      <nav id="site-nav" aria-label={nav.primary}>
+         <a href={href('/quickstart/')} aria-current={active('/quickstart/')}>{nav.quickstart}</a>
+         <a href={href('/spec/')} aria-current={active('/spec/')}>{nav.spec}</a>
          <div class="nav-group">
             <a
-               href="/adoption/"
+               href={href('/adoption/')}
                class="nav-trigger"
                aria-haspopup="true"
                aria-current={active('/adoption/', '/federation/')}
             >
-               Adopt <span class="caret" aria-hidden="true">›</span>
+               {nav.adopt}{' '}
+               <span class="caret" aria-hidden="true">›</span>
             </a>
             <div class="nav-menu">
-               <a href="/adoption/">Adoption guide</a>
-               <a href="/federation/">Federation</a>
+               <a href={href('/adoption/')}>{nav.adoptionGuide}</a>
+               <a href={href('/federation/')}>{nav.federation}</a>
             </div>
          </div>
          <div class="nav-group">
             <a
-               href="/manifest/"
+               href={href('/manifest/')}
                class="nav-trigger"
                aria-haspopup="true"
                aria-current={active('/manifest/', '/schemas/', '/cli/', '/mcp/')}
             >
-               Reference <span class="caret" aria-hidden="true">›</span>
+               {nav.reference}{' '}
+               <span class="caret" aria-hidden="true">›</span>
             </a>
             <div class="nav-menu">
-               <a href="/manifest/">Manifest</a>
-               <a href="/schemas/">Schemas</a>
-               <a href="/cli/">CLI</a>
-               <a href="/mcp/">MCP server</a>
+               <a href={href('/manifest/')}>{nav.manifest}</a>
+               <a href={href('/schemas/')}>{nav.schemas}</a>
+               <a href={href('/cli/')}>{nav.cli}</a>
+               <a href={href('/mcp/')}>{nav.mcp}</a>
             </div>
          </div>
-         <a href="/rationale/" aria-current={active('/rationale/')}>Rationale</a>
+         <a href={href('/rationale/')} aria-current={active('/rationale/')}>{nav.rationale}</a>
          <!-- Trust is deliberately not here: it lives in the footer and in the
-              Resources group of every doc page's sidebar. -->
+              Resources group of every doc page's sidebar. Nor is the language
+              selector: it sits beside the logo. -->
          <a
             class="source-link"
             href="https://github.com/leji-org/leji"
             target="_blank"
             rel="noopener"
-            aria-label="Source repository on GitHub"
+            aria-label={chrome.sourceRepository}
          >
-            Source
+            {chrome.source}
             <span class="gh-icon" set:html={githubIcon} />
          </a>
       </nav>
@@ -154,9 +212,96 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
       padding-top: 1.05rem;
       padding-bottom: 1.05rem;
    }
+   /* The logo and the language selector travel together as one flex item, so
+      the row's space-between still puts the brand left and the nav right. */
+   .brand-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.85rem;
+   }
    .brand {
       color: var(--leji-surface);
       display: inline-flex;
+   }
+
+   /* Language selector. A small bordered pill carrying the native language name
+      in its own case, set apart from the nav's uppercase links because it names
+      the language being read rather than a destination. It is a <details>, so it
+      opens by click and by keyboard with no script of its own, and it is rendered
+      only where the page exists in more than one language. */
+   .locale-select {
+      position: relative;
+   }
+   .locale-select summary {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.03em;
+      text-transform: none;
+      line-height: 1.4;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35em;
+      cursor: pointer;
+      list-style: none;
+      padding: 0.3em 0.7em 0.3em 0.8em;
+      border: 1px solid var(--leji-accent-rule);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--white-soft);
+      transition:
+         color 0.2s,
+         border-color 0.2s,
+         background-color 0.2s;
+   }
+   /* The native marker, replaced by the caret the rest of the header uses. */
+   .locale-select summary::-webkit-details-marker {
+      display: none;
+   }
+   .locale-select summary:hover,
+   .locale-select summary:focus-visible,
+   .locale-select[open] summary {
+      color: var(--leji-accent);
+      border-color: var(--leji-accent);
+      background: rgba(112, 216, 194, 0.08);
+   }
+   .locale-select summary .caret {
+      font-size: 0.85em;
+   }
+   .locale-select[open] summary .caret {
+      transform: rotate(270deg);
+   }
+   .locale-menu {
+      position: absolute;
+      top: calc(100% + 0.7rem);
+      left: 0;
+      min-width: 10rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      padding: 0.5rem;
+      background: var(--leji-surface);
+      border: 1px solid var(--leji-border);
+      border-radius: 10px;
+      box-shadow: 0 14px 34px rgba(24, 61, 59, 0.24);
+      z-index: 30;
+   }
+   .locale-menu a {
+      color: var(--leji-text-body);
+      text-decoration: none;
+      text-transform: none;
+      letter-spacing: 0.01em;
+      font-size: 0.82rem;
+      white-space: nowrap;
+      padding: 0.4rem 0.7rem;
+      border-radius: 5px;
+   }
+   .locale-menu a:hover {
+      color: var(--leji-text);
+      background: rgba(0, 159, 113, 0.06);
+   }
+   .locale-menu a[aria-current='true'] {
+      color: var(--leji-text);
+      font-weight: 600;
    }
    .nav-toggle {
       display: none;
@@ -305,7 +450,7 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
    }
    .nav-menu a:hover {
       color: var(--leji-text);
-      background: var(--leji-accent-soft);
+      background: rgba(0, 159, 113, 0.06);
       border-color: transparent;
    }
 
@@ -355,6 +500,14 @@ const active = (...prefixes: string[]) => (prefixes.some((p) => path.startsWith(
       }
       .caret {
          display: none;
+      }
+      /* Except the selector's. The nav triggers lose their caret because their
+         children are laid out open below them here; the selector is still a
+         closed disclosure at this width, so it keeps the one affordance that
+         says so. Everything else about it is unchanged: it stays beside the
+         logo, and its panel stays a panel. */
+      .locale-select .caret {
+         display: inline-block;
       }
       /* Reference children as an indented sub-list, always visible on touch */
       .nav-menu {

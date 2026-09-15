@@ -3,9 +3,9 @@ leji start: Open a coding agent in this context layer, booted from the boot
 
 Usage: leji start [--agent <name>] [--root <dir>] [--json] [-- <host flags…>]
 
-Detects an installed agent (or use --agent), launches it from the context root,
-and points it at the boot profile so it loads the team's context first. The
-agent-facing counterpart to `leji view`. Several detected agents prompt for
+Detects an installed agent (or use --agent), launches it from the repository
+root, and points it at the boot profile so it loads the team's context first.
+The agent-facing counterpart to `leji view`. Several detected agents prompt for
 which; with none detected or in a non-interactive shell, it prints the command
 to run. Everything after a literal -- passes verbatim to the launched host
 binary, before the boot prompt. Host-specific flags ride with a pinned host:

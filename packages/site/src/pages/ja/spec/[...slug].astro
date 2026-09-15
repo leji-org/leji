@@ -1,0 +1,208 @@
+---
+// The Japanese specification routes: one route file for every translated document
+// plus the locale's one-page view, which appears only once all ten exist.
+//
+// These are informative translations. The normative text is the English `spec/*.md`,
+// so the page carries the banner naming it and emits none of the article metadata the
+// English page uses to present itself as the specification.
+import {
+   buildSpecI18nFull,
+   getSpecI18nStaticPaths,
+   parseSpecI18nId,
+   renderSpecI18nEntry,
+   type SpecI18nPageProps,
+} from '../../../spec-i18n';
+import { SPEC_DOCS, specDocTitle, specPath } from '../../../data/spec-docs';
+import { specBannerStrings, translationStrings } from '../../../data/i18n';
+import { correctionLinks } from '../../../i18n';
+import Base from '../../../layouts/Base.astro';
+import SiteHeader from '../../../components/SiteHeader.astro';
+import SiteFooter from '../../../components/SiteFooter.astro';
+import SectionNav from '../../../components/SectionNav.astro';
+import PageHeader from '../../../components/PageHeader.astro';
+import SpecTranslationBanner from '../../../components/SpecTranslationBanner.astro';
+
+export const getStaticPaths = () => getSpecI18nStaticPaths('ja');
+
+const { locale, entry, entries } = Astro.props as SpecI18nPageProps;
+const strings = specBannerStrings(locale);
+const note = translationStrings(locale).note;
+// The one-page view is composed from ten files rather than one, so its invitation to
+// open a pull request is per document, beside the heading that document opens with.
+const editHrefs: Record<string, string> = Object.fromEntries(
+   (entries ? correctionLinks(Astro.url.pathname).documents : []).map((row) => [row.doc, row.editHref]),
+);
+
+const doc = entry ? parseSpecI18nId(entry.id).doc : null;
+const sections = entries ? await buildSpecI18nFull(locale, entries) : null;
+const Content = entry ? (await renderSpecI18nEntry(entry)).Content : null;
+
+// The document titles a Japanese reader sees, in the specification's reading order.
+// The ids are the English documents'; only the labels are in the reader's language.
+const TITLES: Record<string, string> = {
+   readme: 'Leji 仕様',
+   'context-layer': 'コンテキストレイヤー',
+   'content-categories': 'コンテンツカテゴリ',
+   'boot-profile': 'ブートプロファイル',
+   'machine-readable-surface': '機械可読サーフェス',
+   decisions: '決定',
+   governance: 'ガバナンス',
+   distribution: '配布',
+   conformance: '適合性',
+   versioning: 'バージョニング',
+};
+const title = (id: string) => TITLES[id] ?? specDocTitle(id);
+
+const fullTitle = 'Leji 仕様（1 ページ）';
+const pageTitle = doc ? `${title(doc)} · Leji` : `${fullTitle} · Leji`;
+const description = doc
+   ? `${title(doc)}。AI ネイティブなチームの共有コンテキストレイヤーを定義する Leji 仕様の一部を参考訳として掲載しています。`
+   : 'Leji 仕様の参考訳全文を 1 ページにまとめています。規範となるのは英語版の各文書です。';
+
+// The same reading order the English pages carry, so a reader can move through the
+// specification without going back to the sidebar.
+const order = doc ? SPEC_DOCS.findIndex((d) => d.id === doc) : -1;
+const prev = order > 0 ? SPEC_DOCS[order - 1] : null;
+const next = order >= 0 && order < SPEC_DOCS.length - 1 ? SPEC_DOCS[order + 1] : null;
+const localePath = (slug: string) => (slug === 'readme' ? '/ja/spec/' : `/ja/spec/${slug}/`);
+---
+
+<Base lang="ja" title={pageTitle} description={description}>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current={doc ? specPath(doc) : '/spec/full/'} />
+         <main id="content" class="prose">
+            <PageHeader kind="normative" />
+            {
+               entries && sections ? (
+                  <div class="spec-full">
+                     <SpecTranslationBanner strings={strings} note={note} href="/spec/full/" />
+                     <h1>{fullTitle}</h1>
+                     <p class="sp-lede">
+                        規範となる仕様の参考訳全文を、読む順に 1
+                        ページへまとめています。通読にも検索にも利用できます。各セクションから、見出しごとに引用用アンカーを備えた個別ページへ移動できます。
+                     </p>
+
+                     <nav class="doc-toc onepage-toc" aria-label="目次">
+                        <p class="toc-title">目次</p>
+                        <ol>
+                           {sections.map((s) => (
+                              <li>
+                                 <a href={`#sec-${s.id}`}>{title(s.id)}</a>
+                              </li>
+                           ))}
+                        </ol>
+                     </nav>
+
+                     {sections.map(({ id, html }) => (
+                        <section class="spec-section" id={`sec-${id}`}>
+                           <p class="sec-meta">
+                              <a href={localePath(id)}>{title(id)} ↗</a>
+                              <a class="sec-edit" href={editHrefs[id]}>
+                                 {note.editLinkText}
+                              </a>
+                           </p>
+                           <Fragment set:html={html} />
+                        </section>
+                     ))}
+                  </div>
+               ) : (
+                  entry &&
+                  doc &&
+                  Content && (
+                     <Fragment>
+                        <SpecTranslationBanner strings={strings} note={note} href={specPath(doc)} />
+                        {doc === 'readme' && (
+                           <p class="spec-find">
+                              仕様内を検索するには、<a href="/ja/spec/full/">1 ページ版</a>
+                              を開き、ブラウザのページ内検索を使用してください。
+                           </p>
+                        )}
+                        <Content />
+                        {(prev || next) && (
+                           <nav class="doc-seq" aria-label="仕様の並び順">
+                              {prev ? (
+                                 <a class="doc-seq-prev" href={localePath(prev.id)}>
+                                    <span>前へ</span>
+                                    {title(prev.id)}
+                                 </a>
+                              ) : (
+                                 <span />
+                              )}
+                              {next && (
+                                 <a class="doc-seq-next" href={localePath(next.id)}>
+                                    <span>次へ</span>
+                                    {title(next.id)}
+                                 </a>
+                              )}
+                           </nav>
+                        )}
+                     </Fragment>
+                  )
+               )
+            }
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .spec-find {
+      margin: 0.4rem 0 0;
+      font-size: 0.9rem;
+      color: var(--leji-text-body);
+   }
+   /* box chrome comes from the shared `.doc-toc`; ten sections read better in two */
+   .onepage-toc ol {
+      columns: 2;
+      column-gap: 2rem;
+   }
+   .spec-section {
+      scroll-margin-top: calc(var(--header-h) + 1.5rem);
+      padding-top: 1.5rem;
+      margin-top: 2.5rem;
+      border-top: 1px solid var(--leji-border);
+   }
+   .spec-section:first-of-type {
+      border-top: none;
+      margin-top: 1.5rem;
+   }
+   .sec-meta {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin: 0 0 -0.6rem;
+   }
+   .sec-meta a {
+      color: var(--leji-text-body);
+      text-decoration: none;
+   }
+   .sec-meta a:hover {
+      color: var(--leji-link);
+   }
+   /* the correction link, on the same meta line as the document's own page */
+   .sec-edit::before {
+      content: '\00b7';
+      margin: 0 0.45em;
+   }
+   /* the demoted h2 (was h1) reads as the section title on the consolidated page */
+   .sec-meta + :global(h2) {
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.7rem;
+      color: var(--leji-text);
+      margin: 0.2rem 0 0.8rem;
+   }
+   /* the overview's own heading repeats the page title, so drop it here */
+   .spec-section:first-of-type .sec-meta + :global(h2) {
+      display: none;
+   }
+   /* hide per-heading anchors here: repeated ids would point at the first match;
+      the section links above are the navigation path */
+   .spec-full :global(a.heading-anchor) {
+      display: none;
+   }
+</style>

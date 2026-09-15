@@ -5,12 +5,12 @@
     "schemas/agent-profile.schema.json": "sha256:9597a0ff39db7587daf210177fdc7ede41f9efeaab54596289534209826ba657",
     "schemas/context-changelog.schema.json": "sha256:616fd7bddd1f07638e2cbdc2cfa665166f4739283c5194eca34fbf923218ced4",
     "schemas/context-index.schema.json": "sha256:c3618e356622793326076a424d53843bfccf00511520cdba010c6946262ab440",
-    "schemas/context-manifest.schema.json": "sha256:3d8ea744f37f06ceabc277da05d852c89895eb2f47d5aece5eecea76345a7cd4",
+    "schemas/context-manifest.schema.json": "sha256:95bb698001450ea21e55f58e315a79250cc9bd9d9ade0253a32bd22044384bef",
     "schemas/decision-record.schema.json": "sha256:f5db3e68be8b2233b9029949d79109b4784ce43ef1a1cd26e44a0427c8915b07",
     "templates/README.md": "sha256:3fa28c144a26076cc75dc2a6d23014d61370abcb2073afa7d5bd3f26af4884c7",
     "templates/agent-profile.md": "sha256:fb1cf77aeaffc10718795231b936a7eab9b54c9221f4de072677e3afd3656545",
-    "templates/agents/core.md": "sha256:496814fd60776312c3d4e96547defa17bcd26c55af6f6c688c22d19c842c0295",
-    "templates/boot-profile.md": "sha256:e3cfe63f45bc0ce0f761f90542bc8eb2afeca995072d143f2cb9b1efb409d365",
+    "templates/agents/core.md": "sha256:57d6ac021dbe415f3eeafcb1aa1985af52b3014bd5a93f21aba37d5bca4c6b17",
+    "templates/boot-profile.md": "sha256:25ad16885a0e9219801ee0126a68908d61937e0501d31c5540a117152577a40a",
     "templates/decision-record.md": "sha256:ea122e7ceb5984b1610c66df2503128d619b312b5b5fc57c29f4e017a300c91c",
     "templates/identity.md": "sha256:dc9b30ab64ba13f27db998c1bb070e5f560b8c442881566f3426fcf637fbfc62",
     "templates/leji.json": "sha256:4b265b83901e8995a4aa0f81984bda6a4b26373cec15baa7b825e832942d34cc",
@@ -44,7 +44,7 @@
     "templates/viewer/assets/viewer-boot.js": "sha256:39b1335cc5e4783865d0d83dd187248338bb7ae369e48e30d153780df810bf54",
     "templates/viewer/assets/vue.css": "sha256:61d5ec46e3b2235b55a5ed038ff4451ffef42b9a5fed5dfb926918082159dda3",
     "templates/viewer/assets/zoom-image.min.js": "sha256:c142e32432c4fd0d47ea1a6d5640a66d4ffa9a331496a5bdb45c0449f6d381f9",
-    "templates/viewer/index.html": "sha256:fd6e43cde0d72678dd26c9ad38753f046ed3c5e3e550fbd211c0f4307edd8806",
+    "templates/viewer/index.html": "sha256:dfcb2e81b640265a47adddd8ef5ba40582ad0f4c47b0fbba5e8ea6f5ea7095a2",
     "templates/writing-style.md": "sha256:ee17bb1b97cbe87c4d8ef59b80b2e1d03d997d8839a98d3eb2080c540efa7b2c"
   }
 }

@@ -16,7 +16,7 @@ Do not confuse: Leji is a specification, not a SaaS product, a consulting method
 
 ## Specification
 
-Each page below is also raw markdown under /spec/ with a `.md` suffix (e.g. https://leji.org/spec/context-layer.md; the overview is https://leji.org/spec/readme.md), and the whole spec as one file at https://leji.org/llms-full.txt .
+Each page below is also raw markdown under /spec/ with a `.md` suffix (e.g. https://leji.org/spec/context-layer.md; the overview is https://leji.org/spec/readme.md), and the whole spec as one file at https://leji.org/llms-full.txt . The same one-page view for reading and searching in a browser is https://leji.org/spec/full/ .
 
 - [Overview & vocabulary](https://leji.org/spec/): entry point, the two ideas, defined terms
 - [The context layer](https://leji.org/spec/context-layer/): what the context layer is and owns
@@ -50,8 +50,9 @@ JSON Schemas served at their canonical $id URLs:
 
 - [What is an AI-native team?](https://leji.org/ai-native/): the definitional page for the term and its vocabulary
 - [Quickstart](https://leji.org/quickstart/): install the reference CLI (npm, PyPI, and Go), bootstrap or map a context layer, validate, score conformance
-- [Adoption guides](https://leji.org/adoption/): monorepo, multi-repo, and federation adoption paths
+- [Adoption guide](https://leji.org/adoption/): monorepo, multi-repo, and federation adoption paths
 - [Rationale](https://leji.org/rationale/): why the specification exists and the design bets
 - [Trust](https://leji.org/trust/): who stewards Leji, how the steward's commercial products relate to the specification, the versioning promise, and what continues without the steward
+- [Translation](https://leji.org/translation/): how leji.org is translated, which text governs where a translation and the English differ, the terminology references each language follows, and how to report a mistake
 - [Trademark & usage policy](https://leji.org/trademark/): how the Leji name may be used, what forks need, and what the logo requires
 - [Source repository](https://github.com/leji-org/leji): spec prose (CC-BY-4.0), code and schemas (Apache-2.0)

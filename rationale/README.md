@@ -32,7 +32,7 @@ Wikis rot because nothing forces them current. The context layer has three forci
 
 - Agents read it on every task, so wrong context produces wrong output someone feels the same day.
 - Changes ride code review, so there's no separate process to forget.
-- Mechanical drift (a stale index, a rewound changelog, a broken profile) is a check that fails, which at `governed` runs in CI on every change.
+- Mechanical drift (a stale index, a broken profile) is a check that fails, which at `governed` runs in CI on every change. The append-only check compares the changelog in the working tree with the one at `HEAD`, so a rewind still in the working tree fails it; a rewind that arrives already committed is caught by the review of the change set, not by the check.
 
 ## Why vendor files redirect
 

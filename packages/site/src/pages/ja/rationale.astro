@@ -1,0 +1,132 @@
+---
+// Japanese translation of src/pages/rationale.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+//
+// The English page renders the shared `rationale` collection, splitting it at one
+// heading so the circle figure sits above that section. A translation is site-owned
+// prose rather than a second copy of that document, so the two halves are authored
+// here and rendered through the same pipeline, split at the same place.
+import { createSatteriMarkdownProcessor } from '@astrojs/markdown-satteri';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import CircleChart from '../../components/CircleChart.astro';
+import { translationStrings } from '../../data/i18n';
+import { markdownRenderOptions } from '../../markdown-options';
+
+const source = '0ddffffc1603fd1aec577a54e9674ba6f9a226ac';
+const strings = translationStrings('ja');
+
+const before = `
+この文書は規範的ではありません。仕様がこの形になった理由を説明します。
+
+## 指示ではなく意図を
+
+命令形の指示（「これを、この形式で、このベンダーファイルに対して実行する」）は、エージェントホストやタスクが変わるたび、新しいメンバーが加わるたびに書き直す必要があります。一方、持続する意図（何を意味し、何が成立していなければならず、なぜそうなのか）は、一度記述すれば、どのホストやタスクでもそこから必要な行動を導き出せます。
+
+そのため、コンテキストレイヤーのカテゴリには、タスクではなく持続的な意味に基づく主題の軸（ドメイン、システム、ガバナンス、決定）を採用しています。将来のバージョンでは、実際の運用に基づくタスクエンベロープが加わる可能性があります。1.0 では、意図的に小さなサーフェスだけを標準化しています。
+`;
+
+const after = `
+## 階層ではなく輪
+
+現在、コンテキストに関する文書の多くは、*エージェント向けに*書かれています。人が指示を書き、エージェントホストがそれを読み込むという、一方向の階層構造です。これによって個々の作業は速くなりますが、以前からある問題は解決されません。人から人へ伝えるべき知識は頭の中やスレッドに残り、エージェントホストごとに、少しずつ実態とずれていく情報の写しを抱えることになります。
+
+Leji は、ひとつのコンテキストレイヤーを囲む 3 つの流れを等しく一級のものとして扱います。**人から人へ**（オンボーディング、レビュー、議論の決着）、**人から AI へ**（エージェントに委ねる作業）、そして**人から AI を経て人へ**（エージェントが作ったものを人がレビューする）です。
+
+全員が同じコンテキストレイヤーを読み、人もエージェントも変更を提案します。アクセスは平等でも、権限は平等ではありません。書き込みはすべて提案として行われ、何を真とするかは人が承認します。3 つの流れすべてに役立つ内容であること自体が、更新を促す力になります。エージェントしか読まないページは気づかれないまま劣化しますが、人も頼りにするページなら、どちらの側からも修正されます。
+
+## 意図と記録
+
+実際のリポジトリにあるドキュメントには、真実の捉え方が異なる 2 種類の情報が混在しています。意図（用語集、不変条件、規約、ガードレール）は、真であり*続ける*必要があります。現実が変われば、文書のほうを更新します。一方、記録（ステータス、評価、台帳、報告、アーカイブ）は、一定の境界内で真のものとして*作成されます*。後の状態によって置き換えられ、日付によって、いつ時点の記述かが決まります。
+
+記録を意図として扱うと、誰も守れないレビューの約束が生まれます。かといって記録を除外すれば、リポジトリの大部分がガバナンスの外に置かれます。Leji は代わりに、両方を区別したうえで統制します。
+
+記録も意図と同じようにインデックスされ、レビューを受け、所有者を持ちます。ただし、必須のコンテキストではなく、日付付きの候補として扱われます。読み手に対する契約が異なるからです。記録は日付のある証拠であり、現在の真実ではありません。鮮度の期限が適用されるのは意図だけです。5 つのカテゴリは引き続き主題の軸であり、種別はそれと直交します。システムの評価は、システム*について*記述すると同時に、*その日付の時点で真*だった内容でもあります。
+
+仕様は、どの記録が「最新」かを認定しません。1.0 では、記録の系列も順序も宣言していないためです。読み手は、インデックスに記載された日付から新しさを判断します。仕様自体の決定記録は、日付を持ち、追記のみで管理され、鮮度の期限による失効の対象にはなりません。このパターンの実例でもあります。
+
+## これがウィキではない理由
+
+ウィキが劣化するのは、最新の状態を保つ仕組みがないからです。コンテキストレイヤーには、ウィキにはない 3 つの強制力があります。
+
+- エージェントがタスクのたびに読むため、誤ったコンテキストは、その日のうちに誰かが問題を実感するような誤出力を生みます。
+- 変更はコードレビューに含まれるため、別プロセスとして忘れ去られることがありません。
+- 機械的なずれ（古いインデックス、壊れたプロファイル）はチェックの失敗として検出されます。\`governed\` では、そのチェックが変更のたびに CI で実行されます。追記のみのチェックは、作業ツリーの変更履歴を \`HEAD\` のものと比較します。そのため、作業ツリーに残っている巻き戻しはこのチェックで失敗しますが、すでにコミットされた状態で持ち込まれた巻き戻しを捉えるのは、このチェックではなく変更セットのレビューです。
+
+## ベンダーファイルが誘導にとどまる理由
+
+正典となるコンテキストを特定ベンダーの設定形式に置くと、情報が分断され、そのホストに縛られます。エージェントホストはそれぞれのエントリポイントを探すため、Leji はそのファイルをアダプタとして使います。内容はブートプロファイルを指す 1 行だけです。ひとつの出典なら、どのホストよりも長く存続します。
+
+## フェデレーションが中央集約ではなく合成である理由
+
+すべてのチームの知識を中央に集約すると、コンテキストを最新に保つ所有のループが崩れます。所有者は、タスクのたびに利用しながら自分たちのレイヤーを修正します。中央リポジトリでは内容と説明責任が切り離され、チームをまたぐ編集は門番の承認待ちになります。
+
+フェデレーションなら、所有と参照のしやすさを両立できます。各チームのコンテキストレイヤーはそれぞれのリポジトリに残り、そのチームの輪の中で読まれ、承認されます。ホスト側は、閲覧とエージェントの誘導のために、ピン留めしたバージョンの兄弟レイヤーをマウントします。内容がホストへコピーされたり、コミットされたりすることはありません。
+
+変更を承認するのは、引き続き兄弟レイヤーの所有者です。マウントによって得られるのは読み取りアクセスであり、権限ではありません。ほとんどのチームに \`federated\` は必要ありません。これが有効なのは、独立性を保つ価値のあるコンテキストレイヤーを、すでに 2 つ以上のチームが所有している場合だけです。
+
+## 一人のチーム
+
+この輪のどの部分にも、複数の人は必要ありません。同じ一人が提案し、エージェントに作業を委ね、承認できます。その場合でも、エージェントはレビューと助言を担う側であり、所有して承認するのは人です。マニフェストの \`agents\` マップによって説明責任が移ることはありません。
+
+一人のチームは最小の輪であり、別の形ではありません。このモデルは、一人からひとつのチーム、複数チームで構成される組織へと、要素を追加せずに拡張できます。
+`;
+
+const processor = await createSatteriMarkdownProcessor(markdownRenderOptions);
+const beforeHtml = (await processor.render(before)).code;
+const afterHtml = (await processor.render(after)).code;
+---
+
+<Base
+   lang="ja"
+   title="設計の理由 · Leji"
+   description="Leji がこの形をしている理由。ベンダーごとの指示ではなく持続する意図、階層ではなく人とエージェントの輪、意図と記録、そしてこれがウィキではない理由。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/rationale/" />
+         <main id="content" class="prose">
+            <PageHeader kind="background" title="設計の理由" />
+            <TranslationNote strings={strings.note} href="/rationale/" />
+            <Fragment set:html={beforeHtml} />
+            <figure class="rationale-figure">
+               <CircleChart />
+               <figcaption class="figure-note">
+                  <span class="flows">人から人へ · 人から AI へ · 人から AI を経て人へ</span>
+                  全員が読みます。誰でも提案できます。承認するのは人です。古くなったコンテキストが、黙っていまのものとして扱われることはありません。
+               </figcaption>
+            </figure>
+            <Fragment set:html={afterHtml} />
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .rationale-figure {
+      margin: 1.5rem 0 2.4rem;
+   }
+   /* The figure's reading, as page text rather than baked into the SVG, so it
+      reflows, stays selectable, and is quotable by an answer engine. */
+   /* Reads as body copy, not as a caption: it is the figure's argument, and the
+      surrounding prose is where the reader already is. Inherits size, colour and
+      leading from the page. */
+   .figure-note {
+      max-width: var(--measure);
+      margin: 1rem 0 0;
+   }
+   .figure-note .flows {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--leji-link);
+      margin-bottom: 0.3rem;
+   }
+</style>

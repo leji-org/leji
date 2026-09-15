@@ -1,0 +1,204 @@
+---
+// Spanish translation of src/pages/federation.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+// The Doc layout is composed here rather than imported so the page can declare its
+// own `lang`.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+
+const source = '0448756deaad3c402173b30bac77dc310e71a6d8';
+const strings = translationStrings('es');
+
+// Commands and code stay in the source language: they are typed, not read.
+const mounts = `"federation": {
+   "mounts": [
+      {
+         "name": "product-context",
+         "source": "https://github.com/acme/product-context",
+         "pin": "7d3f2a19c4e8b6a0d5f1c2e9b8a7f6d5c4b3a2e1", // id de commit completo: la versión de referencia
+         "trackingRef": "refs/heads/main",                    // la desactualización se determina respecto a esta referencia
+         "owner": { "name": "Product team", "contact": "product@acme.example" },
+         "role": "product-side context, owned by the product team",
+         // enrutamiento: cuándo es relevante este montaje para una tarea
+         "categories": ["domain", "decisions"],
+         "requiredWhen": ["a task changes how a plan or entitlement is represented"]
+      }
+   ]
+}`;
+
+const commands = `leji mounts hydrate --fetch      # materializa la proyección de cada hermana en su fijación
+leji mounts status               # disponibilidad, integridad y retraso de cada fijación
+leji mounts update-pin <name>    # adelanta una fijación hasta el commit observado
+leji mounts locate <name>        # ubicación desde la que un lector debe leer la hermana`;
+---
+
+<Base
+   lang="es"
+   title="Federación · Leji"
+   description="Componga capas de contexto Leji de propiedad separada como montajes hermanos fijados, mientras cada equipo conserva su repositorio, su responsabilidad y su flujo de revisión."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/federation/" />
+         <main id="content" class="prose">
+            <PageHeader kind="guide" />
+            <h1>Federación</h1>
+            <TranslationNote strings={strings.note} href="/federation/" />
+            <p class="sp-lede">
+               La federación permite que los equipos consulten conjuntamente capas de contexto con responsables
+               distintos, sin fusionarlas ni transferir la responsabilidad de mantenerlas vigentes.
+            </p>
+
+            <h2>Por qué componer en lugar de centralizar</h2>
+            <p>
+               Una capa de contexto se mantiene vigente porque sus responsables la leen y corrigen mientras trabajan.
+               Centralizar el contenido de otro equipo lo aleja de las personas que responden de él. La federación deja
+               intactos cada repositorio, cada responsable y cada flujo de revisión. La{' '}
+               <a href="/es/rationale/">justificación</a> lo argumenta por extenso.
+            </p>
+
+            <h2>Qué es un montaje hermano</h2>
+            <p>
+               Una hermana es la capa de contexto de otro equipo, declarada por la anfitriona en <code
+                  >federation.mounts</code
+               >. La declaración fija el commit completo e inmutable que lee la anfitriona y registra la responsabilidad
+               y el enrutamiento por tarea. El utillaje materializa en una caché ignorada la proyección de la capa que
+               define el manifiesto de la hermana en esa fijación. Nunca copia contenido de la hermana dentro de la
+               anfitriona.
+            </p>
+            <p>
+               La proyección es la unión de lo que el propio manifiesto de la hermana hace legible en la fijación: su <code
+                  >leji.json</code
+               >, su raíz del contexto, su perfil de arranque, sus archivos de índice de categoría, los perfiles que
+               nombran sus vinculaciones de <code>agents</code>, sus árboles de perfiles de agente y de registros de
+               decisión, su índice y su registro de cambios para máquinas, y toda ruta gobernada que enumere su índice
+               generado, estén donde estén.
+            </p>
+            <p>
+               Una hermana suele estar dentro de un repositorio de producto mayor, así que ese límite es lo que evita
+               que un montaje incorpore el producto entero para leer su contexto.
+            </p>
+            <p>
+               Un montaje es una referencia, no una bifurcación ni una concesión de acceso. La hermana sigue siendo la
+               autoridad y su control de versiones sigue decidiendo quién puede leerla. Montar hace legible la relación
+               y la revisión elegida para quienes ya tienen acceso.
+            </p>
+            <div class="federation-code"><Code code={mounts} lang="jsonc" theme={lejiSyntaxTheme} wrap /></div>
+            <p>
+               Las actualizaciones de fijación son cambios revisados de <code>leji.json</code>. La anfitriona declara la
+               relación; la hermana conserva su propio repositorio, responsable, proceso de revisión y aprobación,
+               registro de cambios y declaración de conformidad.
+            </p>
+
+            <h2>Trabajar con los montajes</h2>
+            <div class="federation-code"><Code code={commands} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+            <p>
+               Use <code>hydrate --fetch</code> para materializar cada proyección en su fijación, con una descarga de red
+               explícita. Use{' '}
+               <code>status</code> para inspeccionar la disponibilidad, la integridad y el retraso de las fijaciones. Use{
+                  ' '
+               }
+               <code>locate</code> para obtener la ruta gestionada por el resolutor donde un lector debe abrir una hermana.
+            </p>
+            <p>
+               Para mantener un montaje al día, repita ese mismo ciclo: <code>hydrate --fetch</code> para observar los orígenes,{
+                  ' '
+               }
+               <code>status</code> para comprobar cuánto se ha retrasado cada fijación, <code>update-pin</code> para adelantar
+               una fijación hasta el commit observado por el resolutor y, después, <code>hydrate</code> de nuevo para materializar
+               la proyección en la nueva fijación. Mover la fijación y materializarla son actos separados, de modo que la
+               reescritura produce un diff que puede revisarse antes de que cambie el contenido que se está utilizando.
+            </p>
+            <p>
+               <code>update-pin</code> funciona offline de forma predeterminada: avanza hasta la última referencia observada
+               en una ejecución y lo indica expresamente en la salida, sin dar a entender que esté vigente. Añada <code
+                  >--fetch</code
+               > para observar el origen declarado durante la ejecución, lo que contacta con ese origen y con nada más; si
+               alguna parte de eso falla, la ejecución se niega y deja{' '}
+               <code>leji.json</code> intacto. La fijación solo avanza. Un destino que no sea descendiente de la fijación
+               actual se rechaza salvo que usted lo nombre explícitamente con <code>--to &lt;oid&gt;</code> y añada{' '}
+               <code>--allow-non-fast-forward</code>. Una rama de origen que fue reescrita es el motivo habitual para
+               recurrir a ese par de opciones; una vuelta atrás deliberada a un commit anterior también las necesita,
+               porque lo que se comprueba es la ascendencia y no si se reescribió el historial. Esa combinación siempre
+               genera un aviso y queda anotada en la salida JSON, porque mueve una fijación a un commit al que la actual
+               no llega. Use <code>--dry-run</code> para ver la comparación y la reescritura sin reescribir el manifiesto;
+               combinado con <code>--fetch</code> sigue realizando los actos de almacén y de red de esa opción, así que los
+               objetos y las referencias descargados sí acaban en el almacén gestionado.
+            </p>
+            <p>
+               Solo se reescriben los bytes de la propia fijación, así que el orden de sus campos, su formato y
+               cualquier clave que el esquema no modele sobreviven a la edición sin cambios. La entrada de caché de la
+               fijación antigua se queda donde está: está direccionada por contenido, así que sencillamente deja de
+               estar referenciada. No hay comando de recorte; elimine a mano las entradas antiguas bajo <code
+                  >.leji/mounts/</code
+               > cuando quiera recuperar el espacio.
+            </p>
+            <p>
+               La hidratación no publica ninguna proyección parcial. La caché vive bajo <code>.leji/mounts/</code>, que <code
+                  >init</code
+               > añade al <code>.gitignore</code> de la raíz. Trate esa ruta como un detalle de implementación: <code
+                  >locate</code
+               > informa de dónde leer una hermana, y fijar en el código una ruta de caché se rompe cuando cambia la publicación.
+            </p>
+            <p>
+               El visor muestra el mismo estado sin terminal. <code>leji viewer</code> genera una página de manifiesto que
+               representa gráficamente la anfitriona y sus hermanas, y después muestra una fila por montaje: disponibilidad,
+               desviación, responsable, fijación y origen. Vuelva a generarla después de hidratar.
+            </p>
+
+            <h2>Declarar <code>federated</code></h2>
+            <p>
+               Un montaje sin hidratar es un aviso, nunca un fallo de compilación. La integración continua puede exigir
+               la disponibilidad explícitamente con <code>leji validate --federation=available|required</code>. La
+               validación ordinaria no descarga ni exige todos los montajes.
+            </p>
+            <p>
+               La disponibilidad local no es conformidad. La fijación debe ser alcanzable desde una referencia anunciada
+               de <code>source</code>, lo que requiere red. Ejecute <code>leji conformance --federation=verify</code> para
+               esa comprobación. Si la comprobación no puede alcanzar el origen, informa <code>unknown</code>;{' '}
+               <code>unknown</code> nunca otorga el nivel.
+            </p>
+            <p>
+               La verificación es necesaria, no suficiente. <code>federated</code> exige además que esta capa de contexto
+               sea a su vez consumida por otro repositorio como montaje fijado, que haya informe de fijaciones desactualizadas
+               en funcionamiento, y que el perfil de arranque y el índice generado expongan a todas las hermanas.
+            </p>
+            <p>
+               Los dos primeros se atestiguan por proceso, así que <code>verifiedLevel</code> nunca los afirma en su nombre.
+               Materializar en una máquina no es una entrada de conformidad.
+            </p>
+
+            <h2>Elija primero el patrón de distribución</h2>
+            <p>
+               Un submódulo de git de solo documentación permite que muchos repositorios consuman una capa de contexto.
+               La federación conecta varios equipos que ya poseen una cada uno. Estos patrones responden a preguntas
+               distintas, así que la federación no sustituye al submódulo. La{' '}
+               <a href="/es/adoption/#where-it-lives">guía de adopción</a> conserva el procedimiento completo del submódulo.
+            </p>
+            <p>
+               Lea <a href="/es/spec/distribution/">distribución</a> para el cierre normativo de la proyección, el límite
+               de fallo y las reglas completas de federación.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .federation-code :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+   }
+</style>

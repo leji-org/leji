@@ -6,6 +6,7 @@ package schemas
 import (
 	"encoding/json"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -25,7 +26,63 @@ import (
 var SupportedLines = []string{"1.0"}
 
 // SDKVersion is overridable via ldflags; defaults to match Node/Python.
-var SDKVersion = "1.4.1"
+var SDKVersion = "1.5.0"
+
+// ReleaseBuild is set by the release build's ldflags. When it is non-empty the
+// binary is a published artifact and DisplayVersion returns the bare version
+// whatever the build info carries: the release path compiles from a checkout, so
+// its binaries record a vcs.revision that would otherwise read as a dev build. It
+// is the ldflag, not the stamped SDKVersion, that says "release", because a stamp
+// carrying the source literal's own value is indistinguishable from no stamp.
+var ReleaseBuild string
+
+// DisplayVersion is the version the CLI prints for `--version`, `-v` and `version`:
+// SDKVersion+dev.<sha7> when the binary was built from a source checkout,
+// SDKVersion+dev when that build recorded a revision this cannot read, and the bare
+// SDKVersion otherwise. Display only: SDKVersion stays bare everywhere else, so
+// nothing generated or published moves.
+//
+// What the toolchain records IS the test, and it records less than it looks:
+// `go build` and `go install ./cmd/leji` from a checkout stamp vcs.revision, while
+// `go run` and `go test` stamp none, and neither does a module downloaded through
+// the proxy (`go install pkg@v1.2.3`) or a build with -buildvcs=false. So `go run`
+// prints bare from the same tree `go build` marks, and an in-process test sees the
+// bare string. The release path is the exception the ReleaseBuild ldflag answers
+// for. Computed per call: the command prints once and exits.
+func DisplayVersion() string {
+	if ReleaseBuild != "" {
+		return SDKVersion
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return SDKVersion
+	}
+	for _, setting := range info.Settings {
+		if setting.Key != "vcs.revision" {
+			continue
+		}
+		// A revision that is not seven hex characters is a VCS this cannot spell as
+		// the agreed marker (Subversion numbers its revisions), not a release build.
+		if sha := setting.Value; isHex7(sha) {
+			return SDKVersion + "+dev." + sha[:7]
+		}
+		return SDKVersion + "+dev"
+	}
+	return SDKVersion
+}
+
+// isHex7 reports whether s begins with seven lowercase hex digits.
+func isHex7(s string) bool {
+	if len(s) < 7 {
+		return false
+	}
+	for _, c := range s[:7] {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
 
 type CliOption struct {
 	Flags   string `json:"flags"`

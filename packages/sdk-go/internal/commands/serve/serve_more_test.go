@@ -367,7 +367,7 @@ func TestServeLeavesDocumentBytesAlone(t *testing.T) {
 	// One instance of every link class a real document mixes. Routing is config plus
 	// the generated sidebar, never a transform over the author's markdown, so the
 	// served bytes are the file's. How an image path resolves under relativePath is
-	// a separate item and is deliberately not asserted here.
+	// out of scope here and is deliberately not asserted.
 	body := strings.Join([]string{
 		"# Links",
 		"",

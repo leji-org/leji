@@ -1,0 +1,208 @@
+{
+  "agent-profile": {
+    "source": "6f35071154c7a40523370848f4c2d0e88102aaaa",
+    "strings": {
+      "/title": "Frontmatter của agent profile Leji",
+      "/description": "Kiểm tra phần frontmatter YAML của một tài liệu agent profile. Phần thân markdown vẫn để tự do.",
+      "/properties/id/description": "Định danh ổn định cho profile này, ví dụ \"core\" hoặc \"reviewer\".",
+      "/properties/name/description": "Tên vai trò, dạng người đọc được.",
+      "/properties/role/description": "Định danh vai trò mà profile này đảm nhận, được gắn trong map agents của manifest.",
+      "/properties/purpose/description": "Một dòng nói vai trò này để làm gì.",
+      "/properties/version/description": "Phiên bản của profile này; không bắt buộc.",
+      "/properties/inherits/description": "id của một profile core duy nhất mà profile này kế thừa các mảng tư thế và phần thân, được phân giải theo bản đặc tả. Việc phân giải chỉ một cấp: đích phải tồn tại, phải là duy nhất, và phải khai báo role là core. Một profile có khai báo inherits được phép bỏ qua requiredRead và mustAskWhen ở những chỗ profile gốc đã cung cấp.",
+      "/properties/requiredRead/description": "Các đường dẫn vai trò này nạp trước bất kỳ tác vụ nào.",
+      "/properties/defaultContext/description": "Các danh mục vai trò này nạp mặc định.",
+      "/properties/mustAskWhen/description": "Những điều kiện mà ở đó vai trò phải dừng lại và hỏi một con người.",
+      "/properties/mustRefuseWhen/description": "Những điều kiện mà ở đó vai trò phải từ chối thẳng thay vì hỏi.",
+      "/properties/escalation/description": "Chuyển lên cho ai hoặc cho đâu.",
+      "/properties/owners/description": "Chủ sở hữu của profile này; không bắt buộc.",
+      "/properties/freshness/description": "Hạn xem xét lại của profile này.",
+      "/properties/freshness/properties/reviewAfter/description": "Ngày theo ISO 8601, sau ngày đó profile nên được xem xét lại xem đã lỗi thời chưa.",
+      "/properties/host/description": "Agent host chạy agent này, ví dụ \"claude-code\", \"codex\", \"cursor\". Bỏ trống với những profile không gắn với host nào.",
+      "/properties/invocation/description": "Cách gọi agent này như một CLI bên ngoài. Bỏ trống với agent thường trú của chính host.",
+      "/properties/invocation/properties/command/description": "Mẫu câu lệnh để gọi agent này từ shell. Phải mang chỗ giữ <prompt>, đứng thành một từ shell riêng không đặt trong dấu nháy; pattern chỉ kiểm rằng chỗ thay thế có tồn tại, còn vị trí đặt là quy tắc của bản đặc tả.",
+      "/properties/invocation/properties/constraints/description": "Những ràng buộc vận hành đáng cho máy biết, ví dụ giới hạn độ dài prompt hay thời gian chờ."
+    },
+    "example": {
+      "source": "350f79bd5da7f1f45dd056e68cc8e4e71e6015d2",
+      "strings": {
+        "/purpose": "Ý kiến thứ hai độc lập về câu chữ, các quyết định thiết kế và những câu hỏi cần phán đoán.",
+        "/invocation/constraints/0": "giữ prompt ngắn gọn; prompt quá dài sẽ làm CLI treo",
+        "/invocation/constraints/1": "không tương tác; một prompt vào, một câu trả lời ra, không giữ trạng thái phiên",
+        "/mustAskWhen/0": "khi kết luận sẽ làm thay đổi một quyết định đã ghi",
+        "/mustAskWhen/1": "khi câu hỏi liên quan tới tài liệu mật chưa có trong lớp ngữ cảnh"
+      },
+      "body": "# Thought Partner (Codex)\n\nĐược gọi qua vai trò `thought-partner` trong `leji.json`, không bao giờ gọi\nđích danh trong các quy trình. Hãy giao việc bằng những prompt tự chứa: đoạn câu\nchữ hoặc quyết định liên quan, những ràng buộc đang chi phối nó, và câu hỏi\nchính xác cần trả lời. Nó không truy cập được kho mã nguồn này hay lịch sử của\nkho mã nguồn; mọi thứ nó cần cân nhắc đều phải nằm trong prompt.\n\nHãy xem kết luận của nó như một góc nhìn. Khi partner này và agent thường trú\nbất đồng, việc đó được đưa lên một con người, kèm cả hai cách nhìn."
+    }
+  },
+  "context-changelog": {
+    "source": "c37993e1f94a670b97ced6604478192b05678f43",
+    "strings": {
+      "/title": "Context changelog của Leji",
+      "/description": "Bản ghi máy đọc được, chỉ nối thêm, về các thay đổi của lớp ngữ cảnh.",
+      "/properties/schemaVersion/description": "Nhánh đặc tả Leji mà tệp này được viết theo, ví dụ \"1.0\".",
+      "/properties/entries/description": "Các thay đổi của lớp ngữ cảnh. Thứ tự chuẩn được suy ra bằng cách sắp xếp tăng dần theo (date, id); vị trí trong mảng không mang ý nghĩa. Mục mới có thể nằm ở bất cứ đâu; những mục cũ nhất có thể được gộp lại bằng một mục compaction. Phải có ít nhất một mục: một changelog sinh ra đã rỗng là không hợp lệ, và việc gộp bao giờ cũng để lại mục compaction của chính nó.",
+      "/properties/entries/items/properties/id/description": "Định danh ổn định cho mục thay đổi này, duy nhất trong phạm vi changelog.",
+      "/properties/entries/items/properties/date/description": "ISO 8601 theo UTC: một ngày lịch YYYY-MM-DD (xếp thứ tự như đầu ngày) hoặc một dấu thời gian đầy đủ kết thúc bằng Z, ví dụ 2026-06-13T15:04:05Z. Không cho phép độ lệch múi giờ và thời gian không có múi giờ, nhờ vậy thứ tự chữ cũng là thứ tự thời gian.",
+      "/properties/entries/items/properties/type/description": "Loại thay đổi.",
+      "/properties/entries/items/properties/summary/description": "Mô tả một dòng về những gì đã thay đổi.",
+      "/properties/entries/items/properties/paths/description": "Các đường dẫn tương đối so với gốc kho mã nguồn mà thay đổi này chạm tới. Ít nhất một đường dẫn; một mục compaction ghi hợp của những đường dẫn nó đã gộp, hoặc chính đường dẫn của changelog khi hợp đó rỗng.",
+      "/properties/entries/items/properties/categories/description": "Các danh mục nội dung mà thay đổi này chạm tới.",
+      "/properties/entries/items/properties/decisionRefs/description": "Id của các bản ghi quyết định liên quan tới thay đổi này.",
+      "/properties/entries/items/properties/proposedBy/description": "Con người hoặc agent đã đề xuất thay đổi.",
+      "/properties/entries/items/properties/approvedBy/description": "Con người đã phê duyệt thay đổi.",
+      "/properties/entries/items/properties/breaking/description": "Thay đổi này có phá vỡ những nơi tiêu thụ lớp ngữ cảnh hay không.",
+      "/properties/entries/items/properties/compacted/description": "Bắt buộc với mục compaction: việc gộp đã lấy đi những gì ở đầu cũ nhất.",
+      "/properties/entries/items/properties/compacted/properties/entries/description": "Việc gộp này đã lấy đi bao nhiêu mục ở đầu cũ nhất.",
+      "/properties/entries/items/properties/compacted/properties/firstId/description": "Id của mục cũ nhất bị việc gộp này lấy đi.",
+      "/properties/entries/items/properties/compacted/properties/lastId/description": "Id của mục mới nhất bị việc gộp này lấy đi."
+    },
+    "example": {
+      "source": "9f6e37373aa0afc00b85a6125f4aa703e67a1f76",
+      "strings": {
+        "/entries/0/summary": "Gieo lớp ngữ cảnh: boot profile, bảng thuật ngữ, bất biến hệ thống, bản ghi quyết định đầu tiên.",
+        "/entries/1/summary": "Thêm agent profile thought-partner và gắn nó vào vai trò trong map agents của manifest.",
+        "/entries/2/summary": "Chuyển quyền sở hữu lớp ngữ cảnh từ Jo Lee sang Acme Platform Team."
+      }
+    }
+  },
+  "context-index": {
+    "source": "a2f819e56b9f0ea827117dcb4e0ef69a80e294a9",
+    "strings": {
+      "/title": "Context index của Leji",
+      "/description": "Bản đồ được sinh ra của lớp ngữ cảnh. Không bao giờ bảo trì bằng tay; hãy sinh lại mỗi khi có thay đổi.",
+      "/properties/schemaVersion/description": "Nhánh đặc tả Leji mà tệp này được viết theo, ví dụ \"1.0\".",
+      "/properties/generatedAt/description": "Dấu thời gian ISO 8601 lúc index được sinh ra.",
+      "/properties/generator/description": "Công cụ đã sinh ra index này.",
+      "/properties/generator/properties/name/description": "Tên công cụ sinh ra, ví dụ \"leji\".",
+      "/properties/generator/properties/version/description": "Phiên bản của công cụ sinh ra.",
+      "/properties/rootPath/description": "Gốc ngữ cảnh mà index này được sinh cho; khớp với rootPath của manifest. Đường dẫn trong các mục là tương đối so với gốc kho mã nguồn, không tính lại theo gốc ngữ cảnh.",
+      "/properties/entries/description": "Mỗi tài liệu được đưa vào index của lớp ngữ cảnh có một mục. Mỗi `id` và mỗi `path` là duy nhất trên toàn bộ các mục; bộ kiểm tra tham chiếu thực thi điều này (JSON Schema không làm được, vì ràng buộc nằm ở một trường con chứ không phải cả đối tượng).",
+      "/properties/entries/items/properties/id/description": "Định danh ổn định; việc đổi tên và di chuyển cập nhật path, không bao giờ đổi id.",
+      "/properties/entries/items/properties/path/description": "Đường dẫn tới tài liệu, tương đối so với gốc kho mã nguồn.",
+      "/properties/entries/items/properties/title/description": "Tiêu đề dạng người đọc được, lấy từ tiêu đề đầu tiên của tài liệu hoặc từ frontmatter.",
+      "/properties/entries/items/properties/category/description": "Tài liệu này thuộc danh mục nội dung nào.",
+      "/properties/entries/items/properties/kind/description": "Tài liệu là sự thật hiện tại được duy trì (intent) hay bằng chứng có ngày tháng (record). Bỏ trống nghĩa là intent.",
+      "/properties/entries/items/properties/date/description": "Ngày của một record, chỉ lấy từ trường date hợp lệ trong frontmatter.",
+      "/properties/entries/items/properties/summary/description": "Tóm tắt một dòng về tài liệu, dùng cho việc định tuyến và điều hướng.",
+      "/properties/entries/items/properties/tags/description": "Các nhãn tự do; không bắt buộc.",
+      "/properties/entries/items/properties/owners/description": "Chủ sở hữu của tài liệu này; không bắt buộc.",
+      "/properties/entries/items/properties/lastModified/description": "Ngày ISO 8601 tài liệu thay đổi lần cuối, lấy từ hệ quản lý phiên bản nếu có.",
+      "/properties/entries/items/properties/contentHash/description": "Hash nội dung của tài liệu, dùng để phát hiện trôi lệch và những lần di chuyển ổn định.",
+      "/properties/entries/items/properties/freshness/description": "Hạn xem xét lại của tài liệu này.",
+      "/properties/entries/items/properties/freshness/properties/reviewAfter/description": "Ngày theo ISO 8601, sau ngày đó tài liệu nên được xem xét lại xem đã lỗi thời chưa.",
+      "/properties/entries/items/properties/links/description": "Các tham chiếu đi ra từ tài liệu này; không bắt buộc.",
+      "/properties/mounts/description": "Các bản ghi định tuyến cho những lớp ngữ cảnh ngang hàng được federation, suy ra từ federation.mounts của manifest (bản đặc tả: distribution.md, machine-readable-surface.md). Chỉ là siêu dữ liệu định tuyến: công cụ KHÔNG ĐƯỢC sao chép các mục index hay câu chữ của lớp ngang hàng vào đây. Một bản ghi mount không bao giờ tiết lộ những gì người đọc của lớp chủ không được phép thấy.",
+      "/properties/mounts/items/properties/name/description": "Tên của lớp ngang hàng; khớp với tên trong manifest của chính lớp đó.",
+      "/properties/mounts/items/properties/source/description": "Địa chỉ kho mã nguồn đã chuẩn hoá của lớp ngang hàng.",
+      "/properties/mounts/items/properties/pin/description": "Id commit đầy đủ và bất biến (SHA-1 hoặc SHA-256) của bản sửa đổi lớp ngang hàng mà lớp chủ đọc.",
+      "/properties/mounts/items/properties/trackingRef/description": "Ref đối chiếu có tên đầy đủ, nếu được khai báo, dùng làm mốc để kiểm tra khả năng truy cập và độ lỗi thời.",
+      "/properties/mounts/items/properties/owner/description": "Chủ sở hữu của lớp ngang hàng.",
+      "/properties/mounts/items/properties/role/description": "Mô tả bằng lời về những gì lớp ngang hàng mang.",
+      "/properties/mounts/items/properties/categories/description": "Những phạm vi danh mục nội dung mà lớp ngang hàng này có thể trả lời.",
+      "/properties/mounts/items/properties/topics/description": "Các nhãn chủ đề ngắn dùng cho việc định tuyến theo mức liên quan.",
+      "/properties/mounts/items/properties/requiredWhen/description": "Những điều kiện tác vụ mà ở đó người đọc phải phân giải mount này, nếu không thì dừng an toàn."
+    },
+    "example": {
+      "source": "1fccbf70bba6d629e338183ef7f1ddae193eb5f8",
+      "strings": {
+        "/entries/0/title": "Áp dụng lớp ngữ cảnh Leji",
+        "/entries/1/title": "Bảng thuật ngữ",
+        "/entries/1/summary": "Ở Acme, invoice, credit note và settlement nghĩa là gì.",
+        "/entries/2/title": "Bất biến hệ thống",
+        "/entries/2/summary": "Xử lý tiền, quy tắc chỉ nối thêm của sổ cái, ranh giới giữa các dịch vụ."
+      }
+    }
+  },
+  "context-manifest": {
+    "source": "c9af35cb227900101494492f8824a1685ac4124c",
+    "strings": {
+      "/title": "Context manifest của Leji (leji.json)",
+      "/description": "Điểm vào cho máy của một lớp ngữ cảnh Leji. Nằm ở gốc kho mã nguồn với tên leji.json.",
+      "/properties/leji/description": "Nhánh đặc tả Leji mà lớp ngữ cảnh này nhắm tới, ví dụ \"1.0\". Khoá tự đặt tên theo quy ước của OpenAPI và cho biết tệp này là một manifest Leji.",
+      "/properties/name/description": "Một định danh ngắn, ổn định cho lớp ngữ cảnh này, ví dụ \"acme-billing-context\".",
+      "/properties/description/description": "Tóm tắt một dòng về phạm vi lớp ngữ cảnh này bao phủ.",
+      "/properties/rootPath/description": "Gốc ngữ cảnh, đường dẫn POSIX tương đối so với gốc kho mã nguồn. Nó khai báo lớp ngữ cảnh nằm ở đâu; nó không tính lại các đường dẫn mà nó quản trị: các mục index, các trang được ghim, các đường dẫn tới profile và mọi đường dẫn khác trong các tệp Leji đều phân giải từ gốc kho mã nguồn. `homepage`, `logo` và `favicon` của viewer là ngoại lệ: chúng được viết tương đối so với gốc ngữ cảnh, và một đường dẫn tương đối so với gốc kho mã nguồn nhưng nằm dưới gốc ngữ cảnh cũng được chấp nhận.",
+      "/properties/bootProfilePath/description": "Đường dẫn tới boot profile, điểm vào không phụ thuộc agent mà mọi host và mọi người đều bắt đầu từ đó.",
+      "/properties/categories/description": "Ánh xạ từ danh mục logic sang tệp index. Khoá là năm định danh danh mục; mỗi khoá trỏ tới một hoặc nhiều tệp index được biên soạn, liệt kê nội dung của danh mục đó.",
+      "/properties/categories/properties/domain/description": "Nơi nội dung domain nằm: ngôn ngữ nghiệp vụ và ngữ nghĩa sản phẩm.",
+      "/properties/categories/properties/system/description": "Nơi nội dung system nằm: kiến trúc và những bất biến mà mọi thay đổi phải tôn trọng.",
+      "/properties/categories/properties/practice/description": "Nơi nội dung practice nằm: quy ước và những khuôn mẫu đã được kiểm chứng.",
+      "/properties/categories/properties/governance/description": "Nơi nội dung governance nằm: các ràng buộc bảo vệ cho agent và các quy tắc vận hành.",
+      "/properties/categories/properties/decisions/description": "Nơi các bản ghi quyết định nằm: những bản ghi có ngày tháng về lý do mọi thứ ở trạng thái hiện tại.",
+      "/$defs/categoryMapping/properties/indexes/description": "Một hoặc nhiều tệp index cho danh mục này, đường dẫn tương đối so với gốc kho mã nguồn. Mỗi tệp index là markdown được biên soạn, mang một khối `leji-index` có rào, trong đó các dòng `- path: <thư-mục-hoặc-tệp>` chọn nội dung thuộc về danh mục này. Nội dung vẫn nằm nguyên chỗ của nó; tệp index chỉ khai báo việc đưa vào.",
+      "/properties/machine/description": "Vị trí của các tệp máy đọc được: index, changelog, các profile, và các bản ghi quyết định.",
+      "/properties/machine/properties/indexPath/description": "Đường dẫn tới context index được sinh ra.",
+      "/properties/machine/properties/changelogPath/description": "Đường dẫn tới context changelog máy đọc được.",
+      "/properties/machine/properties/agentProfilesPath/description": "Thư mục chứa các tài liệu agent profile.",
+      "/properties/machine/properties/decisionRecordsPath/description": "Thư mục chứa các bản ghi quyết định.",
+      "/properties/agents/description": "Gắn vai trò với agent profile. Khoá là định danh vai trò (ví dụ \"thought-partner\", \"reviewer\"); giá trị là đường dẫn tới tài liệu agent profile. Các quy trình gọi vai trò; map này quyết định ai đảm nhận vai trò đó.",
+      "/properties/actors/description": "Danh bạ các actor có thể đảm nhận vai trò; không bắt buộc. Khoá là định danh actor ổn định. Một actor khai báo những vai trò nó đủ điều kiện đảm nhận và một mẫu câu lệnh cho mỗi vai trò. Hãy dùng khi một vai trò có nhiều hơn một actor đủ điều kiện, hoặc khi một actor cần cách gọi khác nhau tuỳ vai trò nó đang đảm nhận; chỉ một trong hai điều đó đã là đủ lý do. Một vai trò chỉ có một actor và chỉ cần một câu lệnh thì đã được phục vụ bởi host và invocation của chính agent profile.",
+      "/properties/owners/description": "Ai chịu trách nhiệm về sức khoẻ của lớp ngữ cảnh. Chủ sở hữu chịu trách nhiệm giữ cho lớp ngữ cảnh luôn hiện thời và được tỉa gọn; không phải chỉ mình họ viết hay biên soạn nội dung đó (governance.md).",
+      "/properties/owners/properties/primary/description": "Người chịu trách nhiệm về tính hiện thời của lớp ngữ cảnh. Lớp ngữ cảnh không có chủ thì sẽ mục ruỗng.",
+      "/properties/owners/properties/continuity/description": "Không bắt buộc. Một người khác mang đúng trách nhiệm đó khi người chính vắng mặt hoặc rời đi; những lần áp dụng có hỗ trợ nên chỉ định một người trước khi bên hỗ trợ rút đi. Nêu lại chính người chính thì không tạo ra tính liên tục nào, và một agent không thể đảm nhận: chủ sở hữu là những con người chịu trách nhiệm.",
+      "/$defs/owner/properties/name/description": "Tên của người đó.",
+      "/$defs/owner/properties/contact/description": "Cách liên hệ với họ, ví dụ một địa chỉ email.",
+      "/properties/conformance/description": "Mức tuân thủ mà lớp ngữ cảnh này tuyên bố, công cụ kiểm được.",
+      "/properties/conformance/properties/claimedLevel/description": "Mức tuân thủ được tuyên bố: core, indexed, governed, hoặc federated.",
+      "/properties/conformance/properties/claimedAt/description": "Ngày ISO 8601 tuyên bố được khẳng định lần gần nhất.",
+      "/properties/federation/description": "Những lớp ngang hàng được mount vào kho mã nguồn này (bản đặc tả: distribution.md, khuôn mẫu 3). Vòng tròn ghép các quyền sở hữu lại với nhau; nó không tập trung hoá chúng.",
+      "/properties/federation/properties/mounts/description": "Mỗi mount là một lớp ngữ cảnh ngang hàng được đọc tại một phiên bản đã ghim, thông qua phép chiếu lớp do resolver nạp về, đồng thời giữ nguyên kho mã nguồn, quyền sở hữu và cổng xem xét của riêng nó. Nội dung được tạo thành tệp cục bộ nằm trong bộ nhớ đệm của resolver, được Git bỏ qua và không bao giờ được commit vào đây.",
+      "/properties/federation/properties/mounts/items/properties/name/description": "Tên của lớp ngang hàng; phải khớp với `name` trong manifest của chính lớp đó.",
+      "/properties/federation/properties/mounts/items/properties/source/description": "Địa chỉ kho mã nguồn đã chuẩn hoá của lớp ngang hàng: một URL từ xa dạng https://, ssh://, hoặc kiểu SCP. Đây là gốc phân giải và là không gian tên của pin. Đường dẫn tệp cục bộ chỉ hợp lệ trong những gợi ý cục bộ của máy, không bao giờ ở đây.",
+      "/properties/federation/properties/mounts/items/properties/pin/description": "Id commit đầy đủ và bất biến (SHA-1 hoặc SHA-256) của bản sửa đổi lớp ngang hàng mà lớp chủ này đọc. Đây là trạng thái mong muốn do manifest giữ: việc cập nhật pin là hành động biên soạn có chủ ý và đã qua xem xét.",
+      "/properties/federation/properties/mounts/items/properties/trackingRef/description": "Ref đối chiếu có tên đầy đủ trên nguồn (refs/heads/* hoặc refs/tags/*), dùng làm mốc cho báo cáo pin lỗi thời và kiểm tra khả năng truy cập trong federation; không bắt buộc. Nếu vắng, nhánh mặc định mà nguồn quảng bá sẽ được dùng và được ghi lại trong kết quả câu lệnh.",
+      "/properties/federation/properties/mounts/items/properties/owner/description": "Chủ sở hữu của lớp ngang hàng. Quyền sở hữu vẫn thuộc về nhóm của lớp đó; lớp chủ không bao giờ hấp thụ nội dung của nó.",
+      "/properties/federation/properties/mounts/items/properties/role/description": "Lớp ngang hàng này mang những gì, viết bằng lời, ví dụ \"ngữ cảnh phía sản phẩm\". Dành cho con người; việc định tuyến dùng các trường có cấu trúc bên dưới.",
+      "/properties/federation/properties/mounts/items/properties/categories/description": "Những phạm vi danh mục nội dung mà lớp ngang hàng này có thể trả lời. Chỉ là siêu dữ liệu định tuyến; nội dung của lớp ngang hàng vẫn nằm ở lớp đó. Bắt buộc với mức tuân thủ federated.",
+      "/properties/federation/properties/mounts/items/properties/topics/description": "Các nhãn chủ đề ngắn mà lớp chủ nhìn thấy, dùng để định tuyến một tác vụ tới lớp ngang hàng này, ví dụ \"billing\", \"checkout\". Chỉ là siêu dữ liệu định tuyến.",
+      "/properties/federation/properties/mounts/items/properties/requiredWhen/description": "Những điều kiện tác vụ mà ở đó người đọc phải phân giải mount này, hoặc dừng lại và báo rằng ngữ cảnh chưa đầy đủ nếu không phân giải được (dừng an toàn). Lớp chủ nhìn thấy được; không được tiết lộ bất cứ điều gì người đọc của lớp chủ không được phép thấy.",
+      "/properties/vendorAdapters/description": "Các tệp điểm vào của nhà cung cấp có mặt trong kho mã nguồn này; mỗi tệp phải chuyển hướng về boot profile.",
+      "/properties/viewer/description": "Tuỳ chọn trình bày mà `leji viewer` đọc. Đây là cấu hình tiện lợi, không mang tính chuẩn tắc; bản thân việc trình bày nằm ngoài phạm vi chuẩn tắc.",
+      "/properties/viewer/properties/port/description": "Cổng ưa dùng cho bản xem trước cục bộ của `leji viewer serve`. Cờ --port sẽ ghi đè; mặc định là 5354 (LEJI trên bàn phím điện thoại).",
+      "/properties/viewer/properties/logo/description": "Ảnh logo cho viewer, dạng đường dẫn nằm dưới gốc ngữ cảnh (ví dụ \"assets/logo.svg\"). Mặc định là dấu hiệu của Leji.",
+      "/properties/viewer/properties/title/description": "Tiêu đề hiển thị của viewer (đầu thanh bên và tiêu đề trang). Mặc định là tên lớp ngữ cảnh.",
+      "/properties/viewer/properties/agentsLabel/description": "Nhãn thanh bên cho nhóm agent profile (dùng emoji cũng được). Mặc định là \"🤖 Agents\". Nhóm này liệt kê các agent profile của lớp và được sắp xếp theo viewer.groupOrder như mọi nhóm khác.",
+      "/properties/viewer/properties/favicon/description": "Favicon cho viewer, dạng đường dẫn nằm dưới gốc ngữ cảnh (ví dụ \"assets/icon.svg\"). Mặc định là dấu hiệu của Leji.",
+      "/properties/viewer/properties/homepage/description": "Trang đích của viewer, dạng đường dẫn tương đối so với gốc ngữ cảnh (ví dụ \"README.md\"). Mặc định là tệp overview.md được tạo sẵn.",
+      "/properties/viewer/properties/pins/description": "Các trang được ghim lên đầu thanh bên: đường dẫn markdown tương đối so với gốc kho mã nguồn, hoặc {path, label} nếu muốn nhãn tự biên soạn. Ghim boot profile sẽ thay cho dòng mặc định của nó.",
+      "/properties/viewer/properties/groupOrder/description": "Trình tự nhóm trên thanh bên do người dùng biên soạn, theo đúng nhãn nhóm (chính là H1 của tệp index). Những nhóm được liệt kê xếp trước theo thứ tự này; các nhóm còn lại theo sau theo thứ tự suy ra.",
+      "/properties/viewer/properties/theme/description": "Ghi đè chủ đề của viewer.",
+      "/properties/viewer/properties/theme/properties/primary/description": "Màu chính/màu nhấn dạng màu CSS hex (ví dụ \"#009F71\"). Nó chi phối khung viewer, các trạng thái đang hoạt động và màu nhấn của sơ đồ; còn liên kết trong phần thân và mã nội dòng dùng tông màu dễ tiếp cận đã cố định, trừ khi viewer.theme.link cung cấp một màu vượt qua được ngưỡng tương phản.",
+      "/properties/viewer/properties/theme/properties/link/description": "Màu liên kết dạng màu CSS hex (ví dụ \"#5A50F9\"). Chỉ áp dụng cho liên kết trong phần thân và mã nội dòng khi nó đạt tỉ lệ 4,5:1 so với nền mã nội dòng, là nền hẹp hơn trong hai nền mà chúng nằm lên; nếu không, tông màu dễ tiếp cận đã cố định vẫn được giữ và `leji view` / `leji export` sẽ cảnh báo.",
+      "/properties/viewer/properties/mermaid/description": "Kết xuất các khối mã ```mermaid có rào thành sơ đồ trong viewer. Mặc định là true.",
+      "/properties/viewer/properties/poweredBy/description": "Hiển thị dấu hiệu nhỏ \"Powered by Leji\" ở góc viewer. Mặc định là true; đặt false để bỏ đi.",
+      "/properties/viewer/properties/categoryEmojis/description": "Ghi đè emoji mặc định hiển thị bên cạnh mỗi danh mục trong bản đồ lớp được sinh ra. (Các nhóm trên thanh bên được đặt nhãn theo chính H1 của mỗi tệp index.)"
+    },
+    "example": {
+      "source": "32556a875f9eca2f9d5d29f18a2efbed666da4ee",
+      "strings": {
+        "/description": "Lớp ngữ cảnh dùng chung cho monorepo nền tảng thanh toán của Acme."
+      }
+    }
+  },
+  "decision-record": {
+    "source": "9b31f508bd89be01f86088922ef0a30ebccf9408",
+    "strings": {
+      "/title": "Frontmatter của bản ghi quyết định Leji",
+      "/description": "Kiểm tra phần frontmatter YAML của một bản ghi quyết định. Phần thân markdown mang bối cảnh, quyết định và hệ quả, viết bằng lời.",
+      "/properties/id/description": "Định danh ổn định cho quyết định này, ví dụ \"adopt-leji\".",
+      "/properties/title/description": "Tiêu đề ngắn của quyết định.",
+      "/properties/status/description": "Trạng thái vòng đời của quyết định.",
+      "/properties/date/description": "Ngày ISO 8601 quyết định được đưa ra; ngày này bất biến khi đã công bố, và việc đổi trạng thái về sau không làm nó thay đổi.",
+      "/properties/deciders/description": "Những người đã đưa ra quyết định.",
+      "/properties/supersedes/description": "id của bản ghi mà quyết định này thay thế.",
+      "/properties/supersededBy/description": "id của bản ghi đã thay thế bản ghi này. BẮT BUỘC khi status là \"superseded\": một bản ghi đã bị thay thế phải trỏ tới bản kế nhiệm, để liên kết thay thế đi được cả hai chiều.",
+      "/properties/affectedPaths/description": "Các đường dẫn tương đối so với gốc kho mã nguồn mà quyết định này ảnh hưởng tới.",
+      "/properties/affectedCategories/description": "Các danh mục nội dung mà quyết định này ảnh hưởng tới.",
+      "/properties/links/description": "Các tham chiếu đi ra, ví dụ tới các quyết định hoặc issue liên quan; không bắt buộc."
+    },
+    "example": {
+      "source": "55a82c1b15d8fbf3275232827a3d11cf05925fe0",
+      "strings": {
+        "/title": "Áp dụng lớp ngữ cảnh Leji"
+      },
+      "body": "# Áp dụng lớp ngữ cảnh Leji\n\n## Context\n\nKiến thức kỹ thuật nằm trong đầu người, trong các luồng chat, và trong ba tệp cấu hình công cụ ngày càng lệch nhau. Agent sinh ra mã không khớp với các bất biến của chúng tôi, bởi vì các bất biến đó chưa được viết ở bất cứ nơi nào một công cụ có thể đọc.\n\n## Decision\n\nÁp dụng Leji ở mức `indexed`: manifest, boot profile, nội dung domain và system, các bản ghi quyết định, index được sinh ra, changelog cho máy.\n\n## Consequences\n\nCác tệp cấu hình của nhà cung cấp trở thành những dòng chuyển hướng một dòng. Việc sửa ngữ cảnh đi cùng chính những PR làm lộ ra vấn đề. Jo là chủ sở hữu lớp ngữ cảnh."
+    }
+  }
+}

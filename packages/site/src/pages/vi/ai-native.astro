@@ -1,0 +1,158 @@
+---
+// Vietnamese translation of src/pages/ai-native.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows, and it
+// is what the drift gate compares against the current blob.
+//
+// The vocabulary and FAQ structured data on the English page is not repeated here: the
+// site's JSON-LD keeps English as its canonical language, so one graph defines the terms.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '521aed1784f59b213d781aaa912fdc8ea02a2a86';
+const strings = translationStrings('vi');
+---
+
+<Base
+   lang="vi"
+   title="Nhóm AI-native là gì? · Leji"
+   description="Nhóm AI-native là nhóm mà người và AI agent cùng làm việc từ một lớp ngữ cảnh dùng chung, có đánh phiên bản và được quản trị. Leji là bản đặc tả mở cho điều đó."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/ai-native/" />
+         <main id="content" class="prose">
+            <PageHeader kind="background" />
+            <h1 id="ai-native-team">Nhóm AI-native là gì?</h1>
+            <TranslationNote strings={strings.note} href="/ai-native/" />
+
+            <p class="sp-lede">
+               Nhóm AI-native là nhóm mà người và AI agent cùng làm việc từ một{' '}
+               <strong>lớp ngữ cảnh dùng chung</strong>: một bản ghi thuộc về kho mã nguồn, thể hiện cách nhóm suy nghĩ,
+               có đánh phiên bản và chỉ thay đổi qua vòng xem xét.
+            </p>
+
+            <p>
+               Lớp ngữ cảnh lưu giữ ngôn ngữ lĩnh vực mà nhóm sử dụng, các ràng buộc luôn phải đúng, những quyết định
+               làm nền cho hệ thống, các quy ước nhóm tuân theo và các quy tắc giới hạn hoạt động của agent. Người và
+               agent đọc nó trong mọi tác vụ, và mọi thay đổi với nó đều đi qua cùng một cổng xem xét. <a
+                  href="/vi/spec/">Leji</a
+               > là bản đặc tả mở cho lớp ngữ cảnh.
+            </p>
+
+            <h2>Xa hơn prompt và việc dùng công cụ</h2>
+            <p>
+               Công cụ AI làm cho từng tác vụ nhanh hơn, nhưng những prompt rải rác, chỉ dẫn riêng của từng công cụ, và
+               kiến thức chỉ nằm trong trí nhớ của từng người không đủ để thay đổi cách cả nhóm vận hành. Một nhóm
+               AI-native sẽ cùng chia sẻ, đánh phiên bản và quản trị một <a href="/vi/spec/context-layer/"
+                  >lớp ngữ cảnh</a
+               >.
+            </p>
+
+            <h2>Chủ ý thay vì chỉ dẫn</h2>
+            <p>
+               Ngữ cảnh dùng chung ghi lại chủ ý bền vững: mọi thứ nghĩa là gì, điều gì phải luôn đúng, và vì sao. Người
+               và agent tự suy ra hành động bằng cách kết hợp chủ ý đó với tác vụ, còn ý nghĩa và ràng buộc thì tồn tại
+               lâu hơn mọi nhà cung cấp. Trang <a href="/vi/rationale/">lý do thiết kế</a> giải thích vì sao.
+            </p>
+
+            <h2 id="a-circle-not-a-tier">Một vòng tròn, không phải một tầng</h2>
+            <p>
+               Ngữ cảnh luân chuyển theo một vòng tròn qua ba luồng công việc: người với người, người với AI, và người
+               với AI với người. Ai có quyền truy cập đều đọc nó, ai cũng có thể đề xuất thay đổi, và người là bên phê
+               duyệt. Bản thân quyền truy cập là việc của hệ quản lý phiên bản; phần ngữ cảnh bị hạn chế thuộc về một
+               lớp ngữ cảnh có phân quyền riêng.
+            </p>
+
+            <h2 id="mechanism-over-goodwill">Cơ chế thay vì thiện chí</h2>
+            <p>
+               Ngữ cảnh dùng chung sẽ dần xuống cấp khi thực tế thay đổi. Cổng xem xét, các phép kiểm đối với những dạng
+               trôi lệch máy kiểm được và hạn tươi giúp việc bảo trì không còn phụ thuộc vào kỷ luật của riêng ai. <a
+                  href="/vi/spec/governance/">Các quy tắc quản trị</a
+               > đưa những biện pháp cưỡng chế đó vào cơ chế vận hành và chỉ ra phần ngữ cảnh đã cũ.
+            </p>
+
+            <h2 id="ai-native-workflow">Một quy trình làm việc AI-native</h2>
+            <p>
+               Một kỹ sư và một agent cùng nạp lớp ngữ cảnh cho một tác vụ, khởi đầu từ cùng một ngôn ngữ, cùng những
+               ràng buộc và cùng những quyết định. Agent đề xuất thay đổi cho code và cho ngữ cảnh ở những chỗ cần; một
+               người xem xét cả hai qua cùng một cổng, khiến việc bảo trì ngữ cảnh trở thành một phần của công việc.
+            </p>
+
+            <h2>Leji làm cho điều đó kiểm được bằng cách nào</h2>
+            <p>
+               Tuyên bố AI-native thì dễ, xác minh mới khó. Leji giúp lớp ngữ cảnh trở nên kiểm được: một manifest{' '}
+               <code>leji.json</code> tuyên bố mức tuân thủ, còn <a href="/vi/quickstart/">CLI tham chiếu</a> thì áp dụng
+               cho kho mã nguồn, kiểm tra các sản phẩm đầu ra theo những schema đã công bố, và chấm mức tuân thủ.
+            </p>
+            <p>
+               Bốn <a href="/vi/spec/conformance/">mức tuân thủ</a> (<code>core</code>, <code>indexed</code>,{' '}
+               <code>governed</code> và <code>federated</code>) lần lượt đặt ra các tập yêu cầu mà mức sau bao hàm mức
+               trước; một lớp ngữ cảnh hoặc đáp ứng, hoặc không đáp ứng từng yêu cầu. Đây không phải thang điểm trưởng
+               thành: phần lớn các nhóm nên đi tới{' '}
+               <code>governed</code> rồi dừng.
+            </p>
+            <p>
+               Mức <code>federated</code> dành cho những tổ chức nơi đã có hơn một nhóm sở hữu một lớp ngữ cảnh đáng giữ nguyên
+               vẹn; các lớp ngang hàng vẫn là những nguồn riêng biệt, thuộc quyền sở hữu độc lập, mà một lớp chủ mount theo
+               ghim.
+            </p>
+            <p>
+               CLI kiểm những gì máy kiểm được và báo cáo phần còn lại để nhóm tự khai, nhờ đó mỗi tuyên bố là có căn cứ
+               chứ không chỉ được nói ra.
+            </p>
+
+            <h2>Câu hỏi thường gặp</h2>
+
+            <details class="fold">
+               <summary><h3>AI-native có phải chỉ là dùng công cụ AI để viết code?</h3></summary>
+               <p>
+                  Không. Công cụ AI chỉ giúp từng tác vụ riêng lẻ nhanh hơn. Trở thành AI-native nghĩa là thay đổi cách
+                  cả nhóm vận hành: phần ngữ cảnh mà công việc dựa vào là dùng chung, có đánh phiên bản và được quản
+                  trị, nên người và agent làm việc từ cùng một nguồn. Dùng công cụ chỉ là một bước trong hành trình,
+                  không phải đích đến.
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary><h3>AI-native có đòi hỏi một nhà cung cấp hay công cụ cụ thể nào không?</h3></summary>
+               <p>
+                  Không. Lớp ngữ cảnh không phụ thuộc công cụ. Leji chuẩn hoá hình thái và cách quản trị, chứ không
+                  chuẩn hoá nội dung; và mức tuân thủ không bao giờ đòi hỏi một sản phẩm hay dịch vụ thương mại cụ thể
+                  nào, kể cả của chính đơn vị quản thủ. Các điểm vào của nhà cung cấp chỉ là những chỗ chuyển hướng về
+                  đúng một lớp ngữ cảnh ấy.
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary><h3>Leji và lớp ngữ cảnh khác nhau ở chỗ nào?</h3></summary>
+               <p>
+                  Leji là bản đặc tả mở. Lớp ngữ cảnh là thứ một nhóm xây dựng và sở hữu khi đi theo bản đặc tả đó. Leji
+                  chuẩn hoá hình thái và cách quản trị, chứ không chuẩn hoá nội dung.
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary><h3>Một nhóm AI-native giữ cho lớp ngữ cảnh không lỗi thời bằng cách nào?</h3></summary>
+               <p>
+                  Các thay đổi của lớp ngữ cảnh đi qua cùng cổng xem xét như code, hạn tươi làm lộ phần ngữ cảnh đã cũ,
+                  và công cụ không bao giờ âm thầm coi ngữ cảnh lỗi thời là còn hiệu lực. Nhóm AI-native cập nhật lớp
+                  ngữ cảnh ngay trong lúc làm việc, nên sự lỗi thời lộ ra sớm thay vì âm thầm tích lại.
+               </p>
+            </details>
+
+            <p class="next-step">
+               Tiếp theo: <a href="/vi/spec/">đọc bản đặc tả</a> hoặc <a href="/vi/quickstart/"
+                  >dựng một lớp ngữ cảnh và kiểm xem nó có tuân thủ không</a
+               >.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

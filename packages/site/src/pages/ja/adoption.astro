@@ -1,0 +1,208 @@
+---
+// Japanese translation of src/pages/adoption.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+//
+// The English page renders the shared `adoption` collection, which holds the one
+// English document. A translation is site-owned prose rather than a second copy of
+// that document, so it is authored here and rendered through the same markdown
+// pipeline, which is what keeps the two pages structurally identical.
+import { createSatteriMarkdownProcessor } from '@astrojs/markdown-satteri';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import { markdownRenderOptions } from '../../markdown-options';
+
+const source = 'b0a7cbb4e90903e9ce8944f64eee3ad4ffd51081';
+const strings = translationStrings('ja');
+
+// Commands, flags, file names and code blocks stay in the source language: they are
+// typed, not read.
+const body = `
+Leji を導入すると、スキャフォールドの状態だったリポジトリが、実用的なコンテキストレイヤーへと育ちます。既存文書を分類し、エントリポイントを接続し、チェックを追加して、配置場所を決めます。これにより、誰もが迷わず同じ場所から始められます。
+
+<span id="scaffold"></span>
+
+## <span class="step-num">01</span>スキャフォールド
+
+\`leji adopt\` は \`docs/\`、\`doc/\`、\`documentation/\` をそのまま再利用し、既存の成果物を動かしません。書き出すのは次のものです。
+
+- ディレクトリ名から取った \`name\`、設定済みの \`rootPath\`、利用可能な git identity から取った \`owners\` を持つ \`leji.json\`。
+- ブートプロファイル、カテゴリインデックス、オンボーディングブリーフ、そして \`status: accepted\` を持つ完成した最初の決定記録。
+- 既存のものがない場合の、ポインタだけの \`AGENTS.md\`。
+
+\`\`\`bash
+leji adopt --dry-run       # すべての書き込みをプレビューし、実際には何も書き込まない
+leji adopt                 # 既存リポジトリ：現在の構成を生かしてスキャフォールドする
+leji init                  # 新規リポジトリ：leji.json、ブートプロファイル、カテゴリの初期ファイル、最初の決定を作る
+leji adopt --wire-adapters # ベンダーのエントリポイント（CLAUDE.md、AGENTS.md）をつないで導入を完了する
+\`\`\`
+
+あるいは、事前に何もインストールせず、1 ステップで済ませることもできます。\`npm create leji\` はディレクトリを調べ、導入対象があればここで \`leji adopt\` を、導入するものがないリポジトリでは \`leji init\` を実行します。これはこの手順の前段ではなく、この手順自体の代わりになります。実行後は、次の見出しへ進んでください。
+
+名前を変更せず、実際に使われているパスをそのまま登録してください。\`docs/engineering/START-HERE.md\` はブートプロファイルとして適合します。新規のレイヤーでは小文字ケバブケースの既定名を使ってください。
+
+<span id="make-it-yours"></span>
+
+## <span class="step-num">02</span>自分たちのものにする
+
+まず、既存文書を分類します。用意された各インデックスファイルはそのカテゴリのディレクトリ全体を選択するため、すでにそこに置かれている文書は、スキャフォールドが配置された時点で統制の対象になります。それ以外の場所に書いたものは、誰かが一覧に追加するまでコンテキストレイヤーの外に残ります。オンボーディングブリーフをエージェントに渡して、提示されたマッピングを承認するか、インデックスファイルを自分で編集してください。
+
+ファイルを移動する必要はありません。カテゴリは人が選んだインデックスファイルに対応づけられ、各エントリは単一のファイルかディレクトリ全体のいずれかを指します。既存の \`docs/\` ツリーは、現在の場所にそのまま残せます（[コンテンツカテゴリ](/ja/spec/content-categories/)）。
+
+決定の履歴もあわせて取り込みます。既存の ADR ディレクトリは、各記録に[決定記録スキーマ](/ja/schemas/decision-record/)が求めるフロントマターがあれば、そのまま利用できます。最初の 1 件となる \`<rootPath>/decisions/0001-adopt-leji.md\` は、スキャフォールドによってすでに作成されています。
+
+次に、発見される経路をつなぎます。既存の \`CLAUDE.md\`、\`GEMINI.md\`、\`.cursor/rules\`、\`AGENTS.md\` の上に導入した場合、それらのファイルは設計上そのまま残されます。つまり導入はまだ下書きの状態です。古いエントリポイントはまだブートプロファイルへ誘導せず、\`leji validate\` は \`vendor-adapter-redirect\` を報告し、\`leji conformance\` は宣言した \`core\` に対して \`none\` と判定します。
+
+\`leji adopt --wire-adapters\` はその内容をコンテキストレイヤーへ移し、エントリポイントを次の一行に置き換えます。\`Read ./<bootProfilePath> first. It is the canonical context entrypoint for this repository.\` これで検証は \`core\` を通過できます。
+
+\`AGENTS.md\` は移植性のあるアダプタで、多くのホストがそのまま読みます。\`init\` と \`adopt\` は、それがない場合にポインタだけのファイルを作ります。\`--no-agents\` を付けると省略されます。単一ベンダー向けのエントリポイントが作られることはありません。
+
+手作業で導入する場合は、[\`templates/leji.json\`](https://github.com/leji-org/leji/blob/main/templates/leji.json) と [\`templates/boot-profile.md\`](https://github.com/leji-org/leji/blob/main/templates/boot-profile.md) をコピーし、インデックスを作り、[\`templates/decision-record.md\`](https://github.com/leji-org/leji/blob/main/templates/decision-record.md) を使ってください。\`core\` を宣言する前に、\`leji validate\` が名指ししたプレースホルダーをすべて取り除き、不要な \`agents\` エントリやカテゴリは削除してください。
+
+<span id="put-it-to-work"></span>
+
+## <span class="step-num">03</span>実務に載せる
+
+コンテキストレイヤーの価値が生きるのは、エージェントが作業後ではなく作業前に読み込むときです。\`leji start\` はリポジトリルートからコーディングエージェントを起動するため、エージェントは自ら推測した情報ではなく、ブートプロファイルを起点に作業できます。
+
+\`\`\`bash
+leji start                                  # ホストを検出し、コンテキストレイヤー内で起動する
+leji start --agent codex                    # 検出せず、ホストを固定する
+leji start --agent claude-code -- --chrome  # そのホストへフラグを渡す
+\`\`\`
+
+\`leji detect\` はホストを一覧します。パススルーの説明は \`leji start --help\` にあります。スクリプトからは \`bootProfilePath\` を使ってください。\`agents\` のバインディングは、たとえ \`default\` であってもプロファイルを記録するだけで、読み込むことはありません。読み込ませるのはブートプロファイルの指示だけです。
+
+<span id="keep-it-honest"></span>
+
+## <span class="step-num">04</span>正直な状態を保つ
+
+正直なコンテキストレイヤーは、リポジトリの現状を表します。ここでのチェックは、参照切れや、出典と一致しなくなったインデックスがあると失敗します。インデックス未登録の markdown や残存するプレースホルダーは、エラーとして却下されるのではなく、指摘として報告されます。エージェントが古い指示に従う前に、ずれを目で確認できるようにするためです。
+
+\`leji validate --content\` はプレースホルダーと内容の薄いドキュメントを見つけます。\`leji status\` はインデックス未登録、参照切れ、古くなった資料を見つけます。\`leji conformance\` は進み具合を報告します。
+
+\`indexed\` では、\`leji index\` が \`context-index.json\` を生成し、\`leji index --check\` はそれが古いときに失敗します。\`leji changelog check\` は機械可読な変更履歴を検証します。
+
+CI の慣習がまだない場合は、\`leji ci\` がワークフローを生成します。\`leji ci --hooks\` は同じゲートを pre-commit として導入します。CLI の解決方法は \`leji ci --help\` が説明します。
+
+すでにパイプラインがある場合は、必須ジョブとフックの中で \`leji validate\` と \`leji index --check\` を実行してください。クリーンインストールで CLI が入るように、開発用依存として宣言します。\`leji init\` と \`leji adopt\` は、このリポジトリが実際に使っているパッケージマネージャーを見つけ、あなたが明示的に同意したときにだけ、そのパッケージマネージャー自身の追加コマンドを実行します（pip と 1.24 より前の Go では、実行の代わりに追加すべき行が表示されます）。
+
+\`governed\` では、レビュー済みの変更、妥当なエージェントプロファイル、鮮度チェック、必須の CI を加えます。
+
+### 適合性を示す
+
+\`leji badge\` はリポジトリルートに \`leji-badge.svg\` を書き出し、README に貼るための一行を表示します。
+
+\`\`\`bash
+leji badge                        # leji-badge.svg を書き出し、スニペットを表示する
+leji badge --out docs/badge.svg   # 別の場所へ書き出す。スニペットもそのパスに従う
+\`\`\`
+
+\`\`\`markdown
+[![Leji 1.0 · governed · self-attested](leji-badge.svg)](https://leji.org/agent-ready/)
+\`\`\`
+
+このバッジは自己申告であり、この実行の結果について正直です。表示されるのは \`leji conformance\` が検証したレベルです。\`leji.json\` の宣言レベルを上回ることはなく、下回る場合はあります。オフライン実行で確認できなかった宣言はバッジに反映されず、標準出力に具体的に表示されます。
+
+コミット済みのツリーで実行してください。コミット済みの基準がない変更履歴は、追記のみという規律を検証できません。そのため \`leji.json\` が何を宣言していても、実行は \`core\` で止まります。コミット済みの変更履歴に積み上げた追記は \`HEAD\` と比較され、それ自体をコミットしなくても検証を通ります。どのレベルも検証できなかった実行は、バッジをまったく書き出しません。
+
+スニペット内の画像パスはリポジトリルートからの相対です。サブディレクトリにある README では、そこからファイルに届くようにパスを調整してください。
+
+<span id="where-it-lives"></span>
+
+## <span class="step-num">05</span>置き場所
+
+ひとつのリポジトリは、その作業のそばにひとつのコンテキストレイヤーを持ちます。
+
+多数のリポジトリでひとつのレイヤーを共有する場合は、ドキュメント専用のサブモジュールを使います。そのリポジトリを作成し、各利用側の \`context/\` にマウントして、リポジトリごとにピン留めします。ピンの更新は、レビューできる形でスクリプトから提案してください。ビルド時や実行時に依存してはいけません。
+
+エージェントには \`context/docs/boot-profile.md\` を指し示します。残しておいたベンダーファイルはそこへ誘導します。[マルチリポジトリの例](https://github.com/leji-org/leji/tree/main/examples/multi-repo)と[配布の仕様](/ja/spec/distribution/)を参照してください。
+
+フェデレーションは、チームがそれぞれレイヤーを所有している場合のためのものです。その[ガイド](/ja/federation/)が、宣言、ハイドレーション、状態、ルーティング、\`federated\` のチェックを扱います。
+
+<span id="optional-cases"></span>
+
+## <span class="step-num">06</span>任意のケース
+
+<details class="fold">
+<summary>ひとつのロールを複数のアクターが担える</summary>
+
+通常、ひとつのロールはひとつのプロファイルに結び付き、\`host\` と \`invocation\` が関わり方を説明します。参加者が複数いる場合やロールごとの起動方法がある場合は、任意の \`actors\` で担当できるロールとコマンドテンプレートを列挙します。[コンテキストマニフェストのスキーマ](/ja/schemas/context-manifest/)を参照してください。
+
+アクターを指定しても、承認権限は付与されません。選択するのはオーケストレーターであり、Leji 1.0 はその選択規則を定義しません。
+
+</details>
+
+<details class="fold">
+<summary>意図と記録が同じディレクトリにある</summary>
+
+ステータスや報告は記録として統制します。ファイルセレクタを使えば、意図を同じディレクトリに置いたままにできます。
+
+\`\`\`\`markdown
+\`\`\`leji-index record
+- path: docs/operations/
+\`\`\`
+
+\`\`\`leji-index intent
+- path: docs/operations/escalation-policy.md
+\`\`\`
+\`\`\`\`
+
+ファイルセレクタが優先されます。エージェントはこのポリシーを必須の意図として読み込みます。一方、記録は日付付きの候補として別に返され、タスクで選択された場合か、誰かが要求した場合に限って読み込まれます。[コンテンツカテゴリ](/ja/spec/content-categories/)を参照してください。
+
+</details>
+
+<details class="fold">
+<summary>コンテキストレイヤーをビューアーで見せる</summary>
+
+\`context-index.json\` はドキュメンテーションツールから利用できます。CLI のコマンドは次のとおりです。
+
+\`\`\`bash
+leji viewer serve      # http://127.0.0.1:5354/ で localhost プレビューを開く
+leji viewer build      # 内部ホスティング用の自己完結した静的フォルダをエクスポートする
+\`\`\`
+
+\`serve\` はホスティング機能ではありません。公開範囲は、そのコンテキストレイヤーの読み手に限定してください。ビルド結果はリポジトリ内に出力されます（既定では \`.leji/dist/\`、または \`--out\` で指定したリポジトリ内のパス）。出力フォルダは自由に扱えるため、ホストが参照する場所へコピーできます。ナビゲーションは統制された H1 から生成され、ブランディングとピンにはマニフェストの \`viewer\` フィールドが使われます。MkDocs もこのインデックスを利用できます。[機械可読サーフェスの仕様](/ja/spec/machine-readable-surface/)を参照してください。
+
+markdown の解釈はレンダラーによって異なるため、コンテキストレイヤーが使用できる記法は[レンダリングプロファイル](https://github.com/leji-org/leji/blob/main/adoption/rendering.md)で固定されています。\`leji export\` は対象となるすべてのドキュメントをこのプロファイルに照らしてリントします。問題なくエクスポートできるレイヤーは、文書化された部分集合の範囲に収まり、このプロファイルが名指しする差異を含みません。これは、どのホストやエディタのプレビューでも同一に描画されるということではなく、それより狭い保証です。
+
+</details>
+
+<details class="fold">
+<summary>同期されたサーフェスやサンドボックスから読む</summary>
+
+Leji は、クローン、サンドボックスのマウント、あるいは git を保持する Google Drive や Dropbox のフォルダとして提示された git ツリーを読みます。
+
+アップロードされたファイル、貼り付けられたテキスト、\`.git\` のないドキュメントには、バージョンメタデータがありません。いつ時点のものかは判断できず、正典となるのは引き続き git のチェックアウトです。[ガバナンス](/ja/spec/governance/)を参照してください。
+
+</details>
+
+<p class="next-step">次は、全フィールドを見るなら<a href="/ja/manifest/">マニフェストのリファレンス</a>、その背後にある規則を見るなら<a href="/ja/spec/">仕様</a>です。</p>
+`;
+
+const processor = await createSatteriMarkdownProcessor(markdownRenderOptions);
+const html = (await processor.render(body)).code;
+---
+
+<Base
+   lang="ja"
+   title="導入ガイド · Leji"
+   description="モノレポでも、複数リポジトリの組織でも、既存のコンテキストリポジトリと併用する形でも、いま持っているドキュメントを動かさずに Leji を導入する方法。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/adoption/" />
+         <main id="content" class="prose">
+            <PageHeader kind="guide" title="導入ガイド" />
+            <TranslationNote strings={strings.note} href="/adoption/" />
+            <Fragment set:html={html} />
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

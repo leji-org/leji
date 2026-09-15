@@ -1,0 +1,258 @@
+---
+// The Brazilian Portuguese specification route: one file for all eleven routes, the
+// ten translated documents and the locale's one-page view. The English `spec/*.md`
+// stays the normative text, so every page here carries the informative-translation
+// banner and none of them emits the `TechArticle` metadata the English pages carry.
+//
+// The layout is `Doc.astro`'s, written out here because that layout takes no `lang`
+// and a translated page has to declare its own.
+import {
+   buildSpecI18nFull,
+   getSpecI18nStaticPaths,
+   parseSpecI18nId,
+   renderSpecI18nEntry,
+   specI18nPath,
+   type SpecI18nPageProps,
+} from '../../../spec-i18n';
+import { SPEC_DOCS, specPath } from '../../../data/spec-docs';
+import Base from '../../../layouts/Base.astro';
+import SiteHeader from '../../../components/SiteHeader.astro';
+import SiteFooter from '../../../components/SiteFooter.astro';
+import SectionNav from '../../../components/SectionNav.astro';
+import PageHeader from '../../../components/PageHeader.astro';
+import SpecTranslationBanner from '../../../components/SpecTranslationBanner.astro';
+import { specBannerStrings, translationStrings } from '../../../data/i18n';
+import { correctionLinks } from '../../../i18n';
+
+// A literal, not the constant below: Astro hoists an exported binding into its own
+// module scope, where a frontmatter const does not resolve.
+export const getStaticPaths = () => getSpecI18nStaticPaths('pt-br');
+
+const LOCALE = 'pt-br';
+
+// The document names in this locale, for the page title, the sequential navigation
+// and the one-page view's contents. The document bodies carry their own translated
+// h1; these are the navigation labels around them.
+const DOC_TITLES: Record<string, string> = {
+   readme: 'A Especificação Leji',
+   'context-layer': 'A camada de contexto',
+   'content-categories': 'Categorias de conteúdo',
+   'boot-profile': 'O perfil de boot',
+   'machine-readable-surface': 'Superfície legível por máquina',
+   decisions: 'Decisões',
+   governance: 'Governança',
+   distribution: 'Distribuição',
+   conformance: 'Conformidade',
+   versioning: 'Versionamento',
+};
+const docTitle = (id: string) => DOC_TITLES[id] ?? id.replace(/-/g, ' ');
+
+const { locale, entry, entries } = Astro.props as SpecI18nPageProps;
+const strings = specBannerStrings(locale);
+const note = translationStrings(locale).note;
+// The one-page view is composed from ten files rather than one, so its invitation to
+// open a pull request is per document, beside the heading that document opens with.
+const editHrefs: Record<string, string> = Object.fromEntries(
+   (entries ? correctionLinks(Astro.url.pathname).documents : []).map((row) => [row.doc, row.editHref]),
+);
+
+const doc = entry ? parseSpecI18nId(entry.id).doc : null;
+const sections = entries ? await buildSpecI18nFull(locale, entries) : null;
+const rendered = entry ? await renderSpecI18nEntry(entry) : null;
+const Content = rendered?.Content ?? null;
+
+const title = doc ? `${docTitle(doc)} · Leji` : 'A Especificação Leji (página única) · Leji';
+const description = doc
+   ? doc === 'readme'
+      ? 'A especificação Leji: uma especificação aberta para a camada de contexto compartilhada de equipes nativas de IA.'
+      : `${docTitle(doc)}, parte da especificação Leji para a camada de contexto compartilhada de equipes nativas de IA.`
+   : 'A especificação Leji completa em uma página: todos os documentos normativos da especificação aberta para a camada de contexto compartilhada de equipes nativas de IA.';
+
+// The sidebar links the English routes, so the current marker is the English route
+// this page translates.
+const current = doc ? specPath(doc) : '/spec/full/';
+
+// The reading order around this document, so a reader who finished one is offered
+// the next without going back to the sidebar.
+const order = doc ? SPEC_DOCS.findIndex((d) => d.id === doc) : -1;
+const prev = order > 0 ? SPEC_DOCS[order - 1] : null;
+const next = order >= 0 && order < SPEC_DOCS.length - 1 ? SPEC_DOCS[order + 1] : null;
+
+// The in-page contents, a view over the anchors the headings already carry. Three
+// sections is where it starts to pay.
+interface TocEntry {
+   slug: string;
+   text: string;
+   children: { slug: string; text: string }[];
+}
+const label = (text: string) => text.replace(/#$/, '').trimEnd();
+const contents: TocEntry[] = [];
+for (const h of rendered?.headings ?? []) {
+   if (h.depth === 2) contents.push({ slug: h.slug, text: label(h.text), children: [] });
+   else if (h.depth === 3) contents.at(-1)?.children.push({ slug: h.slug, text: label(h.text) });
+}
+const showContents = contents.length >= 3;
+---
+
+<Base lang={LOCALE} title={title} description={description}>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current={current} />
+         <main id="content" class="prose">
+            <PageHeader kind="normative" />
+            {
+               entries && sections ? (
+                  <div class="spec-full">
+                     <SpecTranslationBanner strings={strings} note={note} href="/spec/full/" />
+                     <h1>A Especificação Leji</h1>
+                     <p class="sp-lede">
+                        A especificação normativa completa em uma única página, organizada na ordem de leitura para quem
+                        quiser percorrê-la de ponta a ponta ou fazer uma pesquisa. Cada seção leva à página
+                        correspondente, onde todos os títulos incluem uma âncora de citação.
+                     </p>
+
+                     <nav class="doc-toc onepage-toc" aria-label="Conteúdo">
+                        <p class="toc-title">Conteúdo</p>
+                        <ol>
+                           {sections.map((s) => (
+                              <li>
+                                 <a href={`#sec-${s.id}`}>{docTitle(s.id)}</a>
+                              </li>
+                           ))}
+                        </ol>
+                     </nav>
+
+                     {sections.map(({ id, href, html }) => (
+                        <section class="spec-section" id={`sec-${id}`}>
+                           <p class="sec-meta">
+                              <a href={href}>{docTitle(id)} ↗</a>
+                              <a class="sec-edit" href={editHrefs[id]}>
+                                 {note.editLinkText}
+                              </a>
+                           </p>
+                           <Fragment set:html={html} />
+                        </section>
+                     ))}
+                  </div>
+               ) : (
+                  entry &&
+                  doc &&
+                  Content && (
+                     <>
+                        <SpecTranslationBanner strings={strings} note={note} href={specPath(doc)} />
+                        {doc === 'readme' && (
+                           <p class="spec-find">
+                              Para pesquisar na especificação, abra a{' '}
+                              <a href={specI18nPath(LOCALE, 'full')}>página única</a> e use a busca do seu navegador.
+                           </p>
+                        )}
+                        {showContents && (
+                           <nav class="doc-toc" aria-label="Conteúdo">
+                              <p class="toc-title">Conteúdo</p>
+                              <ol>
+                                 {contents.map((h) => (
+                                    <li>
+                                       <a href={`#${h.slug}`}>{h.text}</a>
+                                       {h.children.length > 0 && (
+                                          <ol>
+                                             {h.children.map((c) => (
+                                                <li>
+                                                   <a href={`#${c.slug}`}>{c.text}</a>
+                                                </li>
+                                             ))}
+                                          </ol>
+                                       )}
+                                    </li>
+                                 ))}
+                              </ol>
+                           </nav>
+                        )}
+                        <Content />
+                        {(prev || next) && (
+                           <nav class="doc-seq" aria-label="Ordem da especificação">
+                              {prev ? (
+                                 <a class="doc-seq-prev" href={specI18nPath(LOCALE, prev.id)}>
+                                    <span>Anterior</span>
+                                    {docTitle(prev.id)}
+                                 </a>
+                              ) : (
+                                 <span />
+                              )}
+                              {next && (
+                                 <a class="doc-seq-next" href={specI18nPath(LOCALE, next.id)}>
+                                    <span>Próximo</span>
+                                    {docTitle(next.id)}
+                                 </a>
+                              )}
+                           </nav>
+                        )}
+                     </>
+                  )
+               )
+            }
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .spec-find {
+      margin: 0.4rem 0 0;
+      font-size: 0.9rem;
+      color: var(--leji-text-body);
+   }
+
+   /* box chrome comes from the shared `.doc-toc`; ten sections read better in two */
+   .onepage-toc ol {
+      columns: 2;
+      column-gap: 2rem;
+   }
+   .spec-section {
+      scroll-margin-top: calc(var(--header-h) + 1.5rem);
+      padding-top: 1.5rem;
+      margin-top: 2.5rem;
+      border-top: 1px solid var(--leji-border);
+   }
+   .spec-section:first-of-type {
+      border-top: none;
+      margin-top: 1.5rem;
+   }
+   .sec-meta {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin: 0 0 -0.6rem;
+   }
+   .sec-meta a {
+      color: var(--leji-text-body);
+      text-decoration: none;
+   }
+   .sec-meta a:hover {
+      color: var(--leji-link);
+   }
+   /* the correction link, on the same meta line as the document's own page */
+   .sec-edit::before {
+      content: '\00b7';
+      margin: 0 0.45em;
+   }
+   /* the demoted h2 (was h1) reads as the section title on the consolidated page */
+   .sec-meta + :global(h2) {
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.7rem;
+      color: var(--leji-text);
+      margin: 0.2rem 0 0.8rem;
+   }
+   /* the overview's own heading repeats the page title, so drop it here */
+   .spec-section:first-of-type .sec-meta + :global(h2) {
+      display: none;
+   }
+   /* hide per-heading anchors here: repeated ids would point at the first match;
+      the section links above are the navigation path */
+   .spec-full :global(a.heading-anchor) {
+      display: none;
+   }
+</style>

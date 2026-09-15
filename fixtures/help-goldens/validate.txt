@@ -6,9 +6,10 @@ Usage: leji validate [--content] [--federation <available|required> [--paths
 
 Loads leji.json and checks it against the schemas and the lint rules: declared
 files exist, categories are populated, vendor entrypoints redirect to the boot
-profile, frontmatter is valid, and (per the claimed conformance level) the index
-is current and the changelog is append-only. One of the two gates the generated
-CI runs, beside `leji index --check`. With --content it also runs a warning-only
+profile, frontmatter is valid, every markdown link in a governed document
+resolves inside the layer, and (per the claimed conformance level) the index is
+current and the changelog is append-only. One of the two gates the generated CI
+runs, beside `leji index --check`. With --content it also runs a warning-only
 content lint (placeholder text, generic boot identity, thin categories) that
 never errors and never affects a conformance level.
 

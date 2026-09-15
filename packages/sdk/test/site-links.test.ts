@@ -23,6 +23,15 @@ import { fileURLToPath } from 'node:url';
 // route (`pages/spec/[...slug].astro`) is not recognized as a target. No emitted
 // URL uses one today; one that did would fail here loudly, and the rule below is
 // where to widen it.
+//
+// The second test walks the translated trees under `pages/<locale>/`, where a
+// locale mirrors the English route tree beneath its prefix. It uses the same
+// resolver, in the other direction: a translated page whose English route does
+// not exist is an orphan, which would advertise an `hreflang` alternate and a
+// header switch pointing at a page nobody can reach. The English tree is not
+// checked for completeness: an English-only surface is the normal state, and the
+// machine surfaces (`/schemas/**`, `llms*.txt`, the raw `.md` routes) are never
+// translated at all.
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const packageDir = path.resolve(testDir, '..');
@@ -97,6 +106,40 @@ function targetExists(sitePath: string): boolean {
    return sitePath.startsWith(SCHEMA_PREFIX) ? schemaExists(sitePath) : pageExists(sitePath);
 }
 
+/** The translated locales, read out of the site's own registry so this test and
+ *  the site cannot disagree about which trees exist. English is the source tree
+ *  and has no directory of its own. */
+function translatedLocales(): string[] {
+   const registry = path.join(repoRoot, 'packages', 'site', 'src', 'i18n.ts');
+   const declaration = /export const LOCALES = \[([^\]]*)\]/.exec(fs.readFileSync(registry, 'utf8'));
+   assert.ok(declaration, 'packages/site/src/i18n.ts no longer declares LOCALES: this test cannot find the trees');
+   return [...declaration[1].matchAll(/'([a-z0-9-]+)'/g)].map((m) => m[1]).filter((locale) => locale !== 'en');
+}
+
+interface TranslatedPage {
+   /** The English route it mirrors, resolved by the same rule as a site URL. */
+   route: string;
+   /** Where the translation lives, repository-relative, for the failure message. */
+   source: string;
+}
+
+/** Every `.astro` page under one locale directory, as the English route it
+ *  mirrors: the locale tree repeats the English route tree beneath its prefix. */
+function translatedPages(dir: string, route = '', out: TranslatedPage[] = []): TranslatedPage[] {
+   for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) translatedPages(abs, `${route}/${entry.name}`, out);
+      else if (entry.isFile() && entry.name.endsWith('.astro')) {
+         const base = entry.name.slice(0, -'.astro'.length);
+         out.push({
+            route: base === 'index' ? `${route}/` : `${route}/${base}/`,
+            source: path.relative(repoRoot, abs).split(path.sep).join('/'),
+         });
+      }
+   }
+   return out;
+}
+
 test('every leji.org URL the SDK emits has a target in this repository', () => {
    const urls = collect();
    // A scan that finds nothing would pass silently; these URLs exist, so an empty
@@ -108,5 +151,22 @@ test('every leji.org URL the SDK emits has a target in this repository', () => {
       [],
       `leji.org URLs with no target in this repository: ${missing.join(', ')}\n` +
          'Add the page under packages/site/src/pages (or the schema under schemas/), or stop emitting the URL.',
+   );
+});
+
+test('every translated page mirrors an English route in this repository', () => {
+   const orphans: string[] = [];
+   for (const locale of translatedLocales()) {
+      const dir = path.join(pagesDir, locale);
+      if (!fs.existsSync(dir)) continue;
+      for (const page of translatedPages(dir)) {
+         if (!pageExists(page.route)) orphans.push(`${page.source} -> ${page.route}`);
+      }
+   }
+   assert.deepEqual(
+      orphans,
+      [],
+      `translated pages with no English route: ${orphans.join(', ')}\n` +
+         'Add the English page under packages/site/src/pages, or withdraw the translation.',
    );
 });

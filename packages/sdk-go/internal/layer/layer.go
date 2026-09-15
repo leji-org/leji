@@ -77,6 +77,10 @@ type selector struct {
 	indexRel       string
 	isFileSelector bool
 	depth          int
+	// pos is the 0-based position of the entry within its index file's authored
+	// order (the leji-index blocks concatenated in document order). Curation the
+	// viewer renders; resolution never reads it.
+	pos int
 	// covered holds the markdown paths this selector resolves to.
 	covered []string
 }
@@ -174,7 +178,11 @@ func collectSelectors(root string, m *manifest.Manifest) ([]*selector, []finding
 			for _, e := range parsed.Errors {
 				fs = append(fs, findings.New("index-file-parse", findings.Error, e, indexRel))
 			}
-			for _, entry := range parsed.Entries {
+			// The entry's own index carries its authored position, so an entry that
+			// fails to expand still spends its place and the others keep theirs.
+			// Positions enumerate PARSED entries: a malformed, invalid or duplicate
+			// line produced no entry above and so spends no place.
+			for pos, entry := range parsed.Entries {
 				covered, isFile, skipped, ok := expandEntry(root, indexRel, entry.Path, &fs)
 				if !ok {
 					continue
@@ -186,6 +194,7 @@ func collectSelectors(root string, m *manifest.Manifest) ([]*selector, []finding
 					indexRel:       indexRel,
 					isFileSelector: isFile,
 					depth:          len(strings.Split(strings.TrimRight(entry.Path, "/"), "/")),
+					pos:            pos,
 					covered:        covered,
 				})
 				for _, rel := range skipped {
@@ -218,12 +227,17 @@ func ResolveCategoryPaths(root string, m *manifest.Manifest, category string) ([
 }
 
 // Assignment is a document's resolved assignment: its single category, the
-// winning selector's kind (before any frontmatter override), and the index file
-// that declared the winning selector (the viewer groups by it).
+// winning selector's kind (before any frontmatter override), the index file
+// that declared the winning selector (the viewer groups by it), and that
+// selector's declared position (the viewer orders by it).
 type Assignment struct {
 	Category string
 	Kind     string
 	IndexRel string
+	// Order is the winning selector's pos: where the entry that won this document
+	// sits in its index file's authored order. Every document a directory entry
+	// expands to shares that entry's single position.
+	Order int
 }
 
 // ShadowedSelector is a broad selector fully displaced by more-specific ones.
@@ -305,7 +319,7 @@ func ResolveCategoryAssignments(root string, m *manifest.Manifest, includeExclud
 		for _, s := range best {
 			winners[s] = true
 		}
-		assignments[relPath] = Assignment{Category: first.category, Kind: first.kind, IndexRel: first.indexRel}
+		assignments[relPath] = Assignment{Category: first.category, Kind: first.kind, IndexRel: first.indexRel, Order: first.pos}
 	}
 
 	// A selector that covered documents but won none is fully shadowed by

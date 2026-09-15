@@ -206,7 +206,7 @@ func TestCheckBeforeActOverviewSwappedBetweenAuthorizationAndReadIsRefused(t *te
 	// hook performs the swap inline, so the window is exercised on every run (the idiom
 	// the export canaries use).
 	//
-	// Mutation that reddens: give the route the pre-review shape, a ResolvedPath that
+	// Mutation that reddens: give the route the unguarded shape, a ResolvedPath that
 	// authorizes the path followed by a read that resolves the path again
 	// (fsx.VerifiedTargetRead), and the swapped-in file's bytes are served with a 200.
 	dir, m := overviewLayer(t)

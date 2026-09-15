@@ -666,6 +666,10 @@ func printFindings(fs []findings.Finding) {
 		where := ""
 		if f.HasPath && f.Path != "" {
 			where = " " + f.Path
+			// A rule that locates a line says so, so a reader can go to it.
+			if f.Line > 0 {
+				where += ":" + strconv.Itoa(f.Line)
+			}
 		}
 		sev := "warning"
 		if f.Severity == findings.Error {
@@ -850,7 +854,7 @@ func Run(argv []string) int {
 		return 0
 	}
 	if f.version {
-		fmt.Println(schemas.SDKVersion)
+		fmt.Println(schemas.DisplayVersion())
 		return 0
 	}
 	var command, sub string
@@ -868,7 +872,7 @@ func Run(argv []string) int {
 		return 2
 	}
 	if command == "version" {
-		fmt.Println(schemas.SDKVersion)
+		fmt.Println(schemas.DisplayVersion())
 		return 0
 	}
 
@@ -1721,10 +1725,7 @@ func Run(argv []string) int {
 		// to 127.0.0.1, which localhost resolves to on loopback. Viewer is served
 		// at the web root, so the URL is just `/`.
 		url := fmt.Sprintf("http://localhost:%d/", actual)
-		title := load.Manifest.Name
-		if load.Manifest.Viewer != nil && load.Manifest.Viewer.Title != "" {
-			title = load.Manifest.Viewer.Title
-		}
+		title := manifest.EffectiveViewerTitle(load.Manifest)
 		fmt.Printf("%s viewer → %s   (Ctrl+C to stop)\n", title, url)
 		if wantOpen {
 			serve.OpenBrowser(url)

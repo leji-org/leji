@@ -7,6 +7,7 @@ import {
    DEFAULT_ACCENT,
    VIEWER_CONSOLE_ALLOWANCES,
    VIEWER_URL,
+   assertDecisionsPage,
    assertImageAtDepth,
    assertLayerHome,
    assertManifestPage,
@@ -49,6 +50,12 @@ test.describe('viewer (served)', () => {
    test('the manifest page renders', async ({ page }) => {
       const errors = collectConsoleErrors(page);
       await assertManifestPage(page, VIEWER_URL);
+      expectNoConsoleErrors(errors, VIEWER_CONSOLE_ALLOWANCES);
+   });
+
+   test('the decisions page renders and lists the layer record', async ({ page }) => {
+      const errors = collectConsoleErrors(page);
+      await assertDecisionsPage(page, VIEWER_URL);
       expectNoConsoleErrors(errors, VIEWER_CONSOLE_ALLOWANCES);
    });
 

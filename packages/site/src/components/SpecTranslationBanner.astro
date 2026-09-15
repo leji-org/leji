@@ -1,0 +1,70 @@
+---
+// The banner at the top of a translated specification page. It says, in the reader's
+// language, that the page is an informative translation of a named English document on
+// the frozen specification line, and that the English text governs. The page carries no
+// article metadata of its own, so nothing on the site presents a translation as the
+// specification itself.
+//
+// It opens with the sentence every translated page opens with, on how the translation
+// was made, and closes with the same invitation to correct it. The one-page view is
+// composed from ten files rather than one, so its sentence invites a pull request from
+// the links beside the document headings instead of one of its own.
+import { templateParts, type NoteStrings, type SpecBannerStrings } from '../data/i18n';
+import { correctionLinks, localeOf, sentenceGap } from '../i18n';
+
+interface Props {
+   strings: SpecBannerStrings;
+   /** The locale's note strings, which hold the two shared sentences. */
+   note: NoteStrings;
+   /** The normative English page this one translates. */
+   href: string;
+}
+
+const { strings, note, href } = Astro.props;
+const { issueHref, editHref } = correctionLinks(Astro.url.pathname);
+// The sentences are joined here rather than in the strings file, so how a language
+// separates them is decided once for every locale (`zh-hans` and `ja` abut).
+const gap = sentenceGap(localeOf(Astro.url.pathname));
+
+const template = editHref ? strings.template : strings.fullTemplate;
+const corrections = editHref ? note.corrections : note.correctionsFull;
+// The links a sentence may place, by the placeholder that names it. The one-page view
+// has no file of its own, so it has no `{edit}` link and its sentence asks for none.
+const links: Record<string, { href: string; text: string }> = {
+   '{issue}': { href: issueHref, text: note.issueLinkText },
+   ...(editHref ? { '{edit}': { href: editHref, text: note.editLinkText } } : {}),
+};
+---
+
+<aside class="spec-translation">
+   <p>
+      {`${note.made}${gap}`}
+      {templateParts(template).map((part) => (part === '{link}' ? <a href={href}>{strings.linkText}</a> : part))}
+      {gap}
+      {
+         templateParts(corrections).map((part) =>
+            links[part] ? <a href={links[part].href}>{links[part].text}</a> : part,
+         )
+      }
+   </p>
+</aside>
+
+<style>
+   .spec-translation {
+      margin: 0 0 1.6rem;
+      padding: 0.9rem 1.2rem;
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
+      border-radius: 0 8px 8px 0;
+      font-size: 0.92rem;
+      color: var(--leji-text-body);
+   }
+   .spec-translation p {
+      margin: 0;
+   }
+   .spec-translation a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+</style>

@@ -1,6 +1,95 @@
 # Changelog
 
-## Unreleased
+## 1.5.0 · 2026-09-14
+
+### Added
+
+- **`decision-number-duplicate`** (error): `leji validate` reports two decision records
+  that carry the same leading number, so a renumbering or a copied record cannot leave
+  "0017" pointing at two files; padding does not hide it, `0017-a.md` and `17-b.md` are the
+  same number. Additive, with no change to any existing rule name or severity.
+- **`link-unresolved`** (error): `leji validate` now walks the markdown links of every
+  governed document (the boot profile, every indexed document, the agent profiles, the
+  decision records) and fails one whose target the layer does not carry, so a rename or a
+  move cannot leave a dangling reference. Relative targets resolve against the linking
+  document, a leading `/` against `rootPath`, and a directory passes when it holds a
+  `README.md`; URLs, `mailto:`, and bare fragments are never judged; a target that leaves
+  the layer, by `..` or through a symlink, does not resolve. Links inside fenced blocks and
+  code spans are code. Always on, not behind `--content`. Additive, with no change to any
+  existing rule name or severity.
+- **A set-read guardrail in the scaffolded agent guidance**: the boot profile and core
+  profile that `leji init` and `leji adopt` write now tell an agent that when one change
+  introduces two or more decision records, the set is read together before it lands, for
+  overlap, contradiction, and any record that narrates a state the landed tree will not
+  show. Existing layers can copy the sentence; nothing rewrites them.
+- **`viewer.theme.link`**: an optional manifest field that colors the viewer's body links
+  and inline code, applied only when it reaches 4.5:1 against the inline-code ground, the
+  narrower of the two backgrounds those land on. A malformed or too-pale value emits nothing
+  and warns (`viewer-theme-link-contrast`), so the fixed accessible tone stays; a layer that
+  sets no `link` renders byte-identically to 1.4.1. Additive schema field, `$id` unchanged.
+- **A build marker on source-checkout builds**: `--version`, `-v`, and `version` print
+  `X.Y.Z+dev.<short-sha>` from a checkout, bare `X.Y.Z` from an installed copy. Released
+  binaries stay bare: the Go release build stamps a release flag.
+- **A generated decisions index**: a layer that declares a decisions category gets a
+  `_decisions.md` page beside the Manifest page, listing every decision record with its
+  number, title, status, date, and supersession, all read from the records' own
+  frontmatter, so no layer maintains a summary table that lags its records. The sidebar's
+  decisions group links it first and `leji export` carries it into the static site.
+- **leji.org in five more languages.** Every prose page, the specification pages, and the
+  schema reference pages now ship in Spanish, Brazilian Portuguese, Vietnamese, Japanese, and
+  Simplified Chinese beside the English page of record, with `hreflang` alternates, a
+  language selector, language-aware navigation and footer, and a translation page that says
+  how the translations are made and how to report a correction. The specification pages are
+  informative renderings: the English text stays the only normative one, and a check on every
+  site build fails if any translation has fallen behind its English source.
+- **Japanese and Chinese emphasis renders without Markdown's padding space.** In the Japanese
+  and Simplified Chinese specification pages, the site's markdown pipeline deletes the
+  half-width space Markdown forces around emphasis at a boundary between two CJK characters,
+  so the text reads as the language writes it. Headings, links, and code spans keep their
+  spaces, and the sources are unchanged.
+- **A release-date check on the release path.** `node scripts/version.ts --check --release`
+  asserts, on top of version coherence, that the `CHANGELOG.md` heading for the declared
+  version is dated `YYYY-MM-DD` and that the matching `CHANGELOG.json` entry, when present,
+  names the same day. The pre-publish smoke and the rehearsal run it, so a tag cannot be cut
+  past an undated heading, and `RELEASING.md` makes the bump and the stamp one release-day
+  step.
+
+### Changed
+
+- **Sidebar groups follow authored `leji-index` order**: a non-alphabetical index reorders
+  on upgrade; alphabetizing its entries keeps the previous appearance.
+- **The ecosystem scan proves the entry it judged is the entry it reads**, in all three
+  SDKs. Each manifest and lockfile directly under a root is judged on its own directory
+  entry, then opened through the verified-source chokepoint, and the descriptor must be the
+  same regular file a fresh `lstat` of the name reports; the bytes that decide come from that
+  descriptor. A name retargeted between the judgment and the open is refused rather than
+  read, while a manifest that is merely unopenable stays unreadable as before; the Python
+  CLI now takes those bytes from the descriptor too, so its line handling matches the other
+  two SDKs.
+- **Path order is byte order in the TypeScript SDK.** The scans behind the index check, the
+  sidebar, the decisions page, the agent profiles, and the freshness report sort repository
+  paths by byte order, as the Python and Go SDKs already did, so a name carrying a character
+  above the Basic Multilingual Plane orders the same in all three. No fixture's output
+  changes; only such a name could have ordered differently.
+- **The CLI reference says what the commands do.** `adopt` names its `--wire-adapters`
+  exception; `start` launches from the repository root; `mounts hydrate` no longer claims to
+  be the only writer of the witness namespace; `export --strict` says the export destination
+  is what stays untouched. Help output moves with it.
+- **Three clarifications on the frozen 1.0 specification line, no requirement changed.**
+  `conformance.md` states what the boot-profile item's machine check covers (the identity,
+  loading, and posture headings, reported as a `boot-profile-sections` warning on every
+  `validate`) and what rides the opt-in content lint; `context-layer.md` requirement 4 and
+  the manifest schema's `rootPath` description name the viewer's `homepage`, `logo`, and
+  `favicon` as the one path convention written relative to the context root; `governance.md`
+  reads "the owner tends the system's health". Every translation follows.
+
+### Fixed
+
+- **The site builds from any working directory.** Pages find the repository by walking up to
+  `leji.json` instead of assuming Astro's working directory, so `astro build` from the
+  repository root reads the same schemas and specification as a build from the site package.
+
+## 1.4.1 · 2026-08-26
 
 A hardening release. The CLI keeps its own generated tree out of git, the viewer takes the
 brand's typography, the federation commands say which act failed and how to recover, and the

@@ -31,12 +31,13 @@ from leji import (
     write_index,
 )
 from leji.fsx import under_path, walk_md
-from leji.viewer_cmd import build_layer_map
-from leji.manifest import bind_agent_in_manifest_text
+from leji.viewer_cmd import SidebarGroup, build_layer_map
+from leji.manifest import Manifest, bind_agent_in_manifest_text
 from leji.layer import (
     excluded_from_categories,
     scan_agent_profiles,
     scan_categories,
+    scan_decision_records,
 )
 from leji.route import RoutedRecord
 from leji.status import ShadowedSelector
@@ -139,6 +140,32 @@ def test_no_machine_block_agents_and_decisions_resolve_to_defaults(tmp_path: Pat
     assert excluded("docs/agents/core.md") is True
     docs = scan_categories(str(layer), manifest).docs
     assert not any(d.rel_path == "docs/agents/core.md" for d in docs)
+
+
+def test_read_text_within_reads_a_contained_file_and_refuses_an_escaping_one(
+    tmp_path: Path,
+) -> None:
+    # Containment is judged first and existence second, the order the link resolver
+    # already uses. Both checks must pass either way, so what the order has to leave
+    # unchanged is the set of refusals.
+    from leji.layer import _read_text_within
+
+    base = Path(os.path.realpath(tmp_path))
+    root = base / "layer"
+    root.mkdir()
+    away = base / "away"
+    away.mkdir()
+    (root / "inside.md").write_text("inside\n")
+    (away / "real.md").write_text("outside\n")
+    (root / "escape.md").symlink_to(away / "real.md")
+    (root / "dir").mkdir()
+    (root / "dir" / "up").symlink_to(away)
+
+    assert _read_text_within(str(root), root / "inside.md") == "inside\n"
+    assert _read_text_within(str(root), root / "escape.md") is None
+    assert _read_text_within(str(root), root / "dir" / "up" / "real.md") is None
+    assert _read_text_within(str(root), root / "absent.md") is None
+    assert _read_text_within(str(root), root / "dir") is None
 
 
 def test_corrupt_stored_index_is_artifact_parse(tmp_path: Path) -> None:
@@ -588,6 +615,7 @@ def test_viewer_generates_viewer_and_sidebar(tmp_path: Path) -> None:
         ".leji/viewer/assets/zoom-image.min.js",
         "docs/overview.md",
         ".leji/viewer/_manifest.md",
+        ".leji/viewer/_decisions.md",
     ]
     viewer = layer / ".leji" / "viewer"
     html = (viewer / "index.html").read_text()
@@ -648,6 +676,7 @@ def test_viewer_generates_viewer_and_sidebar(tmp_path: Path) -> None:
             "- **⚙️ System**",
             "  - [Invariants](/system/invariants.md)",
             "- **🧭 Decisions**",
+            "  - [Decisions index](/_decisions.md)",
             "  - [Adopt the Leji context layer](/decisions/0001-adopt-leji.md)",
             "",
         ]
@@ -982,6 +1011,25 @@ def test_viewer_md_link_dest_is_escaped_absolute_and_idempotent() -> None:
         ("a(b).md", r"/a\(b\).md"),
         ("(x).md", r"/\(x\).md"),
         (r"a\b.md", r"/a\\b.md"),
+        # A bare CommonMark destination may hold neither an ASCII control
+        # character nor a space: either ENDS it, so an unencoded one in a file
+        # name (both are legal POSIX bytes) puts everything after it into the
+        # page as markdown. Percent-encoded, uppercase hex, two digits, and they
+        # still route.
+        ("with space.md", "/with%20space.md"),
+        ("a\nb.md", "/a%0Ab.md"),
+        ("a\rb.md", "/a%0Db.md"),
+        ("a\tb.md", "/a%09b.md"),
+        ("a\u0000b.md", "/a%00b.md"),
+        ("a\u007fb.md", "/a%7Fb.md"),
+        # The two neutralizations compose: the space encoded, the paren escaped.
+        ("a (b).md", r"/a%20\(b\).md"),
+        # Injection vector in full: the newline cannot close the destination, so
+        # the forged row never becomes a row.
+        (
+            "x.md)\n| forged | row |\n[y](z.md",
+            r"/x.md\)%0A|%20forged%20|%20row%20|%0A[y]\(z.md",
+        ),
     ]
     for src, want in vectors:
         assert _md_link_dest(src) == want, src
@@ -994,7 +1042,7 @@ def test_viewer_serves_a_document_byte_identical_whatever_links_it_carries(
     # One instance of every link class a real document mixes. Routing is config plus
     # the generated sidebar, never a transform over the author's markdown, so the
     # served bytes are the file's. How an image path resolves under relativePath is
-    # a separate item and is deliberately not asserted here.
+    # out of scope here and is deliberately not asserted.
     body = "\n".join(
         [
             "# Links",
@@ -1437,6 +1485,86 @@ def test_viewer_mermaid_text_color_over_every_accepted_form() -> None:
     assert _wcag_contrast("#777777", "#ffffff") < 4.5
 
 
+def test_viewer_link_guard_measures_the_narrower_ground() -> None:
+    """The guard checks the inline-code ground only, because that ground is the
+    narrower one. #767676 is the counterexample both halves of that claim need: AA on
+    white, below AA on inline code, so a white-only check would ship it."""
+    white, code_bg = "#FFFFFF", "#E8F4EE"
+    assert abs(_wcag_contrast("#767676", white) - 4.54) < 0.01
+    assert _wcag_contrast("#767676", white) >= 4.5
+    assert abs(_wcag_contrast("#767676", code_bg) - 4.02) < 0.01
+    assert _wcag_contrast("#767676", code_bg) < 4.5
+    # The hex fixtures/valid-viewer-link-pass configures clears the narrower ground,
+    # so it clears both.
+    assert _wcag_contrast("#5A50F9", code_bg) >= 4.5
+    assert _wcag_contrast("#5A50F9", white) >= 4.5
+
+
+def test_viewer_link_that_names_no_color_is_refused_by_name(tmp_path: Path) -> None:
+    """A malformed value has no measurable ratio, so the guard's other message says
+    what is wrong with it and names what the viewer does instead."""
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    manifest["viewer"] = {"theme": {"link": "rebeccapurple"}}
+    result = generate_viewer(str(layer), manifest)
+    warnings = [f for f in result.findings if f.rule == "viewer-theme-link-contrast"]
+    assert len(warnings) == 1
+    assert warnings[0].severity == "warning"
+    assert warnings[0].message == (
+        'viewer.theme.link "rebeccapurple" is not a hex color; '
+        "body links keep the fixed accessible tone"
+    )
+    html = (layer / ".leji" / "viewer" / "index.html").read_text()
+    assert "--leji-link:" not in html
+
+
+def test_viewer_link_empty_or_blank_is_a_bad_value_not_an_absent_one(tmp_path: Path) -> None:
+    """The schema accepts `link: ""`, so it is a present value the guard must judge —
+    reading it as "unset" would let the one input most likely to arrive from a
+    half-filled manifest pass without the warning the design promises."""
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    for blank in ("", "   ", "\t", "\n"):
+        manifest["viewer"] = {"theme": {"link": blank}}
+        result = generate_viewer(str(layer), manifest)
+        warnings = [f for f in result.findings if f.rule == "viewer-theme-link-contrast"]
+        assert len(warnings) == 1, repr(blank)
+        assert warnings[0].severity == "warning", repr(blank)
+        assert warnings[0].message == (
+            f'viewer.theme.link "{blank}" is not a hex color; '
+            "body links keep the fixed accessible tone"
+        ), repr(blank)
+        html = (layer / ".leji" / "viewer" / "index.html").read_text()
+        assert "--leji-link:" not in html, repr(blank)
+
+    # The absent case is the only silent one: no key, no finding, no declaration.
+    manifest["viewer"] = {"theme": {}}
+    result = generate_viewer(str(layer), manifest)
+    assert [f for f in result.findings if f.rule == "viewer-theme-link-contrast"] == []
+    assert "--leji-link:" not in (layer / ".leji" / "viewer" / "index.html").read_text()
+
+
+def test_viewer_link_that_clears_the_floor_reaches_the_page(tmp_path: Path) -> None:
+    """A passing value is accepted silently and lands in the generated style block;
+    a failing one warns with its measured ratio and declares nothing."""
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    manifest["viewer"] = {"theme": {"link": "#5A50F9"}}
+    result = generate_viewer(str(layer), manifest)
+    assert [f for f in result.findings if f.rule == "viewer-theme-link-contrast"] == []
+    assert "--leji-link: #5A50F9;" in (layer / ".leji" / "viewer" / "index.html").read_text()
+
+    manifest["viewer"] = {"theme": {"link": "#9ad0c0"}}
+    result = generate_viewer(str(layer), manifest)
+    warnings = [f for f in result.findings if f.rule == "viewer-theme-link-contrast"]
+    assert len(warnings) == 1
+    assert warnings[0].message == (
+        'viewer.theme.link "#9ad0c0" reaches 1.53:1 against the inline-code ground; '
+        "body links keep the fixed accessible tone"
+    )
+    assert "--leji-link:" not in (layer / ".leji" / "viewer" / "index.html").read_text()
+
+
 def test_viewer_escapes_html_in_sidebar_labels(tmp_path: Path) -> None:
     """A manifest label reaches the generated sidebar verbatim, so its angle
     brackets are escaped rather than landing as live HTML."""
@@ -1670,7 +1798,7 @@ def test_check_before_act_overview_swapped_between_authorization_and_read_is_ref
     # resolver performs the swap inline, so the window is exercised on every run (the
     # idiom the export canaries use).
     #
-    # Mutation that reddens: give the route the pre-review shape, a resolved_path that
+    # Mutation that reddens: give the route the unguarded shape, a resolved_path that
     # authorizes the path followed by a read that resolves the path again
     # (verified_target_read), and the swapped-in file's bytes are served with a 200.
     from leji import fsx
@@ -1682,8 +1810,8 @@ def test_check_before_act_overview_swapped_between_authorization_and_read_is_ref
     inside = layer / "docs" / "home.md"
     overview.rename(inside)
     outside = layer / "outside.md"
-    secret = "SECRET-OUTSIDE-THE-CONTENT-ROOT"
-    outside.write_text(f"# Outside\n\n{secret}\n")
+    marker = "MARKER-OUTSIDE-THE-CONTENT-ROOT"
+    outside.write_text(f"# Outside\n\n{marker}\n")
     overview.symlink_to(inside)
     server, port = _serve_on_free_port(layer, manifest["rootPath"])
 
@@ -1709,7 +1837,7 @@ def test_check_before_act_overview_swapped_between_authorization_and_read_is_ref
 
     assert state["swapped"], "the link was retargeted inside the route, after the resolution"
     assert os.readlink(overview) == str(outside), "and it still points outside the mount"
-    assert secret not in body.decode("utf-8"), "no byte from outside the content mount was served"
+    assert marker not in body.decode("utf-8"), "no byte from outside the content mount was served"
     # The mapping the ordinary content route uses: the source resolves outside the
     # mount, so the mount answers, and it answers before anything is read.
     assert status == 403, "the swapped-in target is refused"
@@ -2133,4 +2261,550 @@ def test_records_fully_displaced_broad_selector_is_shadowed_in_status(tmp_path: 
     report = status_report(str(layer), manifest)
     assert report.shadowed == [
         ShadowedSelector(index_file="docs/context/domain.md", path="docs/records/")
+    ]
+
+
+# The decisions page is built from records handed in as DATA, so the tests below
+# mirror the TS reference's pure unit tests one for one (test/units.test.ts):
+# same vectors, same expected bytes. The shared fixture family pins the
+# end-to-end bytes.
+_NL = chr(10)
+_BS = chr(92)
+# An ACTIVE link to /evil.md: an unescaped `[` that reaches `](/evil.md)`.
+_ACTIVE_EVIL_LINK = r"(^|[^\\])\[(?:[^\]]*)\]\(/evil\.md\)"
+
+
+def _decisions_manifest(name: str) -> dict:
+    return {
+        "leji": "1.0",
+        "name": name,
+        "rootPath": "docs/",
+        "bootProfilePath": "docs/boot-profile.md",
+        "categories": {"decisions": {"indexes": ["docs/context/decisions.md"]}},
+    }
+
+
+def _decision_record(rel_path: str, frontmatter: object) -> object:
+    from leji.layer import ScannedProfile
+
+    return ScannedProfile(rel_path=rel_path, frontmatter=frontmatter, body="", findings=[])
+
+
+def test_build_decisions_page_order_numbers_supersession_and_escaping() -> None:
+    from leji.viewer_cmd import build_decisions_page
+
+    # Deliberately out of order, so the page's own sort is what the assertions read.
+    records = [
+        _decision_record(
+            "docs/decisions/0017-later.md",
+            {"id": "later", "title": "Later", "status": "accepted", "date": "2026-07-01"},
+        ),
+        _decision_record(
+            "outside/0003-elsewhere.md",
+            {
+                "id": "elsewhere",
+                "title": "Elsewhere",
+                "status": "accepted",
+                "date": "2026-03-01",
+            },
+        ),
+        _decision_record(
+            "docs/decisions/0006-gap.md",
+            {
+                "id": "gap",
+                "title": "Gap `tick` | pipe [b] <i>",
+                "status": "superseded",
+                "date": "2026-06-01",
+                "supersededBy": "later",
+            },
+        ),
+        _decision_record(
+            "docs/decisions/no-number.md",
+            {
+                "id": "no-number",
+                "title": "No number",
+                "status": "proposed",
+                "date": "2026-04-01",
+            },
+        ),
+        _decision_record(
+            "docs/decisions/0002-dangling.md",
+            {
+                "id": "dangling",
+                "title": "Dangling",
+                "status": "superseded",
+                "date": "2026-05-01",
+                "supersededBy": "nobody",
+            },
+        ),
+        _decision_record("docs/decisions/0009-mangled.md", None),
+    ]
+    page = build_decisions_page(_decisions_manifest("demo | layer"), records)
+
+    assert page.startswith("# demo " + _BS + "| layer: Decisions" + _NL)
+    assert "Generated from the decision records' frontmatter" in page
+    assert "| Number | Decision | Status | Date | Supersedes | Superseded by |" in page
+
+    def at(needle: str) -> int:
+        i = page.find(needle)
+        assert i != -1, needle
+        return i
+
+    # Byte order by file name: "outside/" sorts after every "docs/" record whatever
+    # number its own file name carries.
+    assert at("| 0002 |") < at("| 0006 |") < at("| 0009 |") < at("| 0017 |")
+    assert at("| 0017 |") < at("| 0003 |")
+    # Presentation, not identity: the validation key would render these 2, 6, 9, 17.
+    for stripped in ("| 2 |", "| 6 |", "| 9 |", "| 17 |"):
+        assert stripped not in page, stripped
+    assert "|  | [No number](/decisions/no-number.md) | proposed | 2026-04-01 |  |  |" in page
+    assert "[later](/decisions/0017-later.md)" in page
+    assert "| nobody |" in page
+    assert "[nobody](" not in page
+    assert "| 0009 | [0009-mangled.md](/decisions/0009-mangled.md) |  |  |  |  |" in page
+    gap = (
+        "[Gap "
+        + _BS
+        + "`tick"
+        + _BS
+        + "` "
+        + _BS
+        + "| pipe "
+        + _BS
+        + "[b"
+        + _BS
+        + "] &lt;i&gt;](/decisions/0006-gap.md)"
+    )
+    assert gap in page
+    assert "| 0003 | Elsewhere | accepted |" in page
+    assert "](/0003-elsewhere.md)" not in page
+    assert page.endswith("|" + _NL)
+
+
+def test_build_decisions_page_hostile_file_name_cannot_break_out() -> None:
+    from leji.viewer_cmd import build_decisions_page
+
+    # A newline is a legal POSIX file-name byte, and a bare CommonMark destination
+    # ends at one, so an unencoded name closes the link and injects everything after
+    # it into the page as markdown.
+    hostile = (
+        "docs/decisions/0001-a.md)"
+        + _NL
+        + "| 9999 | [pwned](/evil.md) | forged | row |  |  |"
+        + _NL
+        + "[x](y.md"
+    )
+    page = build_decisions_page(
+        _decisions_manifest("fixture"),
+        [
+            _decision_record(
+                hostile,
+                {"id": "a", "title": "A", "status": "accepted", "date": "2026-01-01"},
+            )
+        ],
+    )
+    rows = [
+        line
+        for line in page.split(_NL)
+        if line.startswith("| ")
+        and not line.startswith("| Number")
+        and not line.startswith("| ---")
+    ]
+    assert len(rows) == 1
+    assert "| 9999 |" not in page
+    assert "[pwned](" not in page
+    # Percent-encoded rather than escaped: a backslash does not help, because it is
+    # the character itself that ends the destination.
+    assert "%0A" in page
+    assert "%20" in page
+
+
+def test_build_decisions_page_plain_cells_stay_plain() -> None:
+    import re as _re
+
+    from leji.viewer_cmd import build_decisions_page
+
+    records = [
+        _decision_record(
+            "docs/decisions/0001-a.md",
+            {
+                "id": "a",
+                "title": "A",
+                # Status is plain text by design, so it must not be able to render
+                # as anything else; the date cell takes the same escape.
+                "status": "[accepted](/evil.md)",
+                "date": "[2026-01-01](/evil.md)",
+                "supersededBy": "[gone](/evil.md)",
+            },
+        ),
+        # Outside rootPath: named, never linked. Its own title must not smuggle a
+        # link back in through the very cell that exists to keep it unlinked.
+        _decision_record(
+            "elsewhere/0002-b.md",
+            {
+                "id": "b",
+                "title": "[B](/evil.md)",
+                "status": "accepted",
+                "date": "2026-01-02",
+            },
+        ),
+    ]
+    page = build_decisions_page(_decisions_manifest("[layer](/evil.md)"), records)
+
+    # The escaped forms still CONTAIN "](/evil.md)"; what makes them inert is the
+    # backslash on the opening bracket. So the blanket check is about an ACTIVE link.
+    assert not _re.search(_ACTIVE_EVIL_LINK, page)
+    for want in ("accepted", "2026-01-01", "gone", "B"):
+        assert _BS + "[" + want + _BS + "](/evil.md)" in page
+    assert page.startswith("# " + _BS + "[layer" + _BS + "](/evil.md): Decisions")
+
+
+def test_build_decisions_page_first_listed_record_reserves_its_id() -> None:
+    from leji.viewer_cmd import build_decisions_page
+
+    # Two records share an id (a validation error this page does not adjudicate)
+    # and the FIRST in byte order is outside rootPath, so it has no route.
+    # Reserving on route rather than on listing would skip it and hand the link to
+    # the second.
+    records = [
+        _decision_record(
+            "docs/decisions/0002-in-root.md",
+            {"id": "dup", "title": "In root", "status": "accepted", "date": "2026-01-02"},
+        ),
+        _decision_record(
+            "docs/decisions/0003-pointer.md",
+            {
+                "id": "ptr",
+                "title": "Pointer",
+                "status": "superseded",
+                "date": "2026-01-03",
+                "supersededBy": "dup",
+            },
+        ),
+        _decision_record(
+            "archive/0001-out-of-root.md",
+            {
+                "id": "dup",
+                "title": "Out of root",
+                "status": "accepted",
+                "date": "2026-01-01",
+            },
+        ),
+    ]
+    page = build_decisions_page(_decisions_manifest("fixture"), records)
+
+    assert page.index("Out of root") < page.index("In root")
+    assert "[dup](/decisions/0002-in-root.md)" not in page
+    assert "| dup |" in page
+
+
+def test_has_decisions_page() -> None:
+    from leji.viewer_cmd import has_decisions_page
+
+    assert has_decisions_page(_decisions_manifest("fixture"))
+    no_decisions = _decisions_manifest("fixture")
+    no_decisions["categories"] = {"domain": {"indexes": ["docs/context/domain.md"]}}
+    assert not has_decisions_page(no_decisions)
+    no_decisions["categories"]["decisions"] = {"indexes": []}
+    assert not has_decisions_page(no_decisions)
+
+
+# Both vectors below are the frozen TS reference's own output, read off a scratch run
+# of packages/sdk/dist buildDecisionsPage rather than reasoned about.
+_BOM = chr(0xFEFF)
+
+
+def _one_record() -> list:
+    return [
+        _decision_record(
+            "docs/decisions/0001-a.md",
+            {"id": "a", "title": "A", "status": "accepted", "date": "2026-01-01"},
+        )
+    ]
+
+
+def test_build_decisions_page_empty_viewer_title() -> None:
+    """A DECLARED but empty viewer.title is a declared title: the reference resolves
+    it with `?? name`, which falls back only on null/undefined, so the header renders
+    with an empty title rather than the layer name. Truthiness would silently
+    substitute the name and the three SDKs would disagree on the bytes."""
+    from leji.viewer_cmd import build_decisions_page, build_manifest_page
+
+    records = _one_record()
+
+    declared_empty = _decisions_manifest("fixture")
+    declared_empty["viewer"] = {"title": ""}
+    assert build_decisions_page(declared_empty, records).split(_NL)[0] == "# : Decisions"
+
+    # Absent title, and no viewer block at all, both fall back to the layer name.
+    absent = _decisions_manifest("fixture")
+    absent["viewer"] = {}
+    assert build_decisions_page(absent, records).split(_NL)[0] == "# fixture: Decisions"
+    assert (
+        build_decisions_page(_decisions_manifest("fixture"), records).split(_NL)[0]
+        == "# fixture: Decisions"
+    )
+
+    # The same read feeds the other generated surfaces, so they resolve it the same way.
+    assert build_manifest_page(declared_empty, []).split(_NL)[0] == "# : Manifest"
+
+
+def test_build_decisions_page_blank_checks_use_js_trim() -> None:
+    """JS `.trim()` counts U+FEFF and the U+2000 block as whitespace; Python's default
+    str.strip() does not. The reference blank-checks the decision title and the
+    supersession pointer with `.trim()`, so a BOM-only value is blank to it: the title
+    falls back to the file name and the pointer cell renders empty."""
+    from leji.viewer_cmd import build_decisions_page
+
+    title_only = [
+        _decision_record(
+            "docs/decisions/0001-a.md",
+            {"id": "a", "title": _BOM, "status": "accepted", "date": "2026-01-01"},
+        )
+    ]
+    page = build_decisions_page(_decisions_manifest("fixture"), title_only)
+    assert "| 0001 | [0001-a.md](/decisions/0001-a.md) | accepted | 2026-01-01 |  |  |" in page
+
+    pointer = [
+        _decision_record(
+            "docs/decisions/0001-a.md",
+            {
+                "id": "a",
+                "title": "A",
+                "status": "superseded",
+                "date": "2026-01-01",
+                "supersededBy": _BOM,
+            },
+        )
+    ]
+    page = build_decisions_page(_decisions_manifest("fixture"), pointer)
+    assert "| 0001 | [A](/decisions/0001-a.md) | superseded | 2026-01-01 |  |  |" in page
+
+    # Not blank either way: the BOM is stripped by _esc's own JS trim, leaving "x".
+    mixed = [
+        _decision_record(
+            "docs/decisions/0001-a.md",
+            {"id": "a", "title": _BOM + " x", "status": "accepted", "date": "2026-01-01"},
+        )
+    ]
+    page = build_decisions_page(_decisions_manifest("fixture"), mixed)
+    assert "| 0001 | [x](/decisions/0001-a.md) |" in page
+
+
+def _fixture_sidebar_groups(name: str) -> tuple[Manifest, list[SidebarGroup]]:
+    """A fixture layer's spine groups, built the way a generation pass builds
+    them: every governed document handed over as an index entry. Read-only, so
+    the fixture stays pristine."""
+    from leji.viewer_cmd import build_sidebar_groups
+
+    directory = str(FIXTURES / name)
+    manifest = load_manifest(directory).manifest
+    assert manifest is not None
+    entries = [
+        {"path": d.rel_path, "title": d.rel_path} for d in scan_categories(directory, manifest).docs
+    ]
+    return manifest, build_sidebar_groups(directory, manifest, entries)
+
+
+def _group_rels(groups: list[SidebarGroup], label: str) -> list[str]:
+    for g in groups:
+        if g.label == label:
+            return [e.rel for e in g.entries]
+    raise AssertionError(f"no group labeled {label!r}")
+
+
+def test_sidebar_order_follows_the_index_file() -> None:
+    _manifest, groups = _fixture_sidebar_groups("valid-sidebar-order")
+    # docs/context/domain.md declares zebra.md, then docs/domain/nested/, then
+    # apple.md. The directory entry holds one position and the two documents it
+    # expands to fill that position in path byte order.
+    assert _group_rels(groups, "Domain context") == [
+        "domain/zebra.md",
+        "domain/nested/alpha.md",
+        "domain/nested/beta.md",
+        "domain/apple.md",
+    ]
+
+
+def test_sidebar_order_merges_whole_contributions() -> None:
+    _manifest, groups = _fixture_sidebar_groups("valid-sidebar-order")
+    # The system index (canonically the earlier category) declares rules, limits
+    # and naming at positions 0, 1 and 2; the governance index declares approvals
+    # at position 0. Positions are numbered per index file, so approvals still
+    # renders last: contributions concatenate and nothing sorts across them.
+    assert _group_rels(groups, "Shared context") == [
+        "shared/rules.md",
+        "shared/limits.md",
+        "shared/naming.md",
+        "shared/approvals.md",
+    ]
+
+
+def test_sidebar_order_subgroup_at_first_member_and_browse_zone_alphabetical() -> None:
+    from leji.viewer_cmd import TreeNode, build_sidebar
+
+    manifest, groups = _fixture_sidebar_groups("valid-sidebar-order")
+    sidebar = build_sidebar(
+        manifest,
+        groups,
+        [TreeNode(rel="zeta.md", title="Zeta"), TreeNode(rel="alpha.md", title="Alpha")],
+    )
+    assert (
+        "\n".join(
+            [
+                "- **Domain context**",
+                "  - [Zebra](/domain/zebra.md)",
+                "  - **Nested**",
+                "    - [Alpha](/domain/nested/alpha.md)",
+                "    - [Beta](/domain/nested/beta.md)",
+                "  - [Apple](/domain/apple.md)",
+            ]
+        )
+        in sidebar
+    )
+    # The reference tree is nobody's curated order, so it keeps sorting by name:
+    # fed zeta before alpha, it still renders alpha first.
+    assert (
+        "\n".join(["- **Reference**", "  - [Alpha](/alpha.md)", "  - [Zeta](/zeta.md)"]) in sidebar
+    )
+
+
+def test_sidebar_order_hoisted_directory_keeps_its_declared_place() -> None:
+    from leji.viewer_cmd import build_sidebar
+
+    manifest, groups = _fixture_sidebar_groups("valid-sidebar-order")
+    sidebar = build_sidebar(manifest, groups)
+    # docs/context/practice.md is labeled "Business" and declares
+    # docs/business/pricing.md, then the root-level docs/middle.md, then
+    # docs/business/accounts.md. The label hoists the business/ level away, so its
+    # two documents become siblings of middle.md and hold the places the index gave
+    # them around it. Merging that level in after the fact and sorting by name
+    # would render Accounts, Middle, Pricing: the exact reversal.
+    assert (
+        "\n".join(
+            [
+                "- **Business**",
+                "  - [Pricing](/business/pricing.md)",
+                "  - [Middle](/middle.md)",
+                "  - [Accounts](/business/accounts.md)",
+            ]
+        )
+        in sidebar
+    )
+
+
+def test_sidebar_order_takes_the_winning_selector_position() -> None:
+    _manifest, groups = _fixture_sidebar_groups("valid-records")
+    # valid-records declares docs/domain/ (position 0), docs/records/ (position 1)
+    # and then docs/records/escalation-policy.md (position 2) to override that
+    # file's kind. The file selector wins the document, so its position is the
+    # file selector's and the override renders after the directory it carved out of.
+    assert _group_rels(groups, "Domain context") == [
+        "domain/overview.md",
+        "records/2026-07-03-status.md",
+        "records/ledger.md",
+        "records/escalation-policy.md",
+    ]
+
+
+def test_assignment_order_spends_failed_expansions_and_compacts_bad_lines(
+    tmp_path: Path,
+) -> None:
+    """The convention _sidebar.md parity cannot observe, pinned directly: positions
+    enumerate PARSED entries, so a malformed, invalid or duplicate line spends no
+    place, while an entry that parsed and then failed to expand does spend its own.
+    The index below parses to four entries, and good3 lands at 3 rather than at its
+    sixth line: the three rejected lines cost nothing, the missing file costs one."""
+    from leji.layer import resolve_category_assignments
+
+    layer = tmp_path / "layer"
+    (layer / "docs" / "context").mkdir(parents=True)
+    (layer / "docs" / "domain").mkdir(parents=True)
+    (layer / "leji.json").write_text(
+        json.dumps(
+            {
+                "leji": "1.0",
+                "name": "fixture",
+                "rootPath": "docs/",
+                "bootProfilePath": "docs/boot-profile.md",
+                "categories": {"domain": {"indexes": ["docs/context/domain.md"]}},
+                "owners": {"primary": {"name": "Fixture Owner"}},
+            }
+        )
+    )
+    (layer / "docs" / "boot-profile.md").write_text("# Boot Profile\n\n## Identity\n\nA fixture.\n")
+    for n in ("good1", "good2", "good3"):
+        (layer / "docs" / "domain" / f"{n}.md").write_text(f"# {n}\n\nbody\n")
+    (layer / "docs" / "context" / "domain.md").write_text(
+        "\n".join(
+            [
+                "# Domain context",
+                "",
+                "```leji-index",
+                "- path: docs/domain/good1.md",  # parsed, expands         -> pos 0
+                "- path: docs/domain/missing.md",  # parsed, expansion fails -> spends pos 1
+                "- path: docs/domain/good2.md",  # parsed, expands         -> pos 2
+                "- path: docs/domain/good1.md",  # duplicate: no entry, spends nothing
+                "- path: ",  # no path: no entry, spends nothing
+                "not an entry line",  # malformed: no entry, spends nothing
+                "- path: docs/domain/good3.md",  # parsed, expands         -> pos 3
+                "```",
+                "",
+            ]
+        )
+    )
+    manifest = load_manifest(str(layer)).manifest
+    assert manifest is not None
+    assignments, _findings, _shadowed = resolve_category_assignments(str(layer), manifest)
+    assert assignments["docs/domain/good1.md"].order == 0
+    assert assignments["docs/domain/good2.md"].order == 2
+    assert assignments["docs/domain/good3.md"].order == 3
+
+
+def test_layer_scans_return_paths_in_byte_order(tmp_path: Path) -> None:
+    # Two file names differing only in one character: U+E000 is EE 80 80 in UTF-8 and
+    # U+10000 is F0 90 80 80, so bytes put U+E000 first. Python's own string order is by
+    # code point, which agrees; the Node SDK compares UTF-16 code units, whose lead
+    # surrogate D800 sorts below E000, so it has to sort these bytewise to match. Both
+    # scans are shared primitives whose order reaches generated output (the index and
+    # the sidebar, the Agents group straight off the profile scan's walk), so all three
+    # SDKs return the same sequence.
+    layer = tmp_path / "layer"
+    (layer / "docs" / "decisions").mkdir(parents=True)
+    (layer / "docs" / "agents").mkdir(parents=True)
+    (layer / "docs" / "context").mkdir(parents=True)
+    pua = "docs/decisions/2-\ue000.md"
+    astral = "docs/decisions/2-\U00010000.md"
+    pua_profile = "docs/agents/role-\ue000.md"
+    astral_profile = "docs/agents/role-\U00010000.md"
+    (layer / "leji.json").write_text(
+        json.dumps(
+            {
+                "leji": "1.0",
+                "name": "byte-order",
+                "rootPath": "docs/",
+                "bootProfilePath": "docs/boot-profile.md",
+                "categories": {"decisions": {"indexes": ["docs/context/decisions.md"]}},
+                "owners": {"primary": {"name": "Fixture Owner"}},
+            }
+        )
+    )
+    (layer / "docs" / "boot-profile.md").write_text("# Boot Profile\n")
+    (layer / "docs" / "context" / "decisions.md").write_text(
+        "# Decisions\n\n```leji-index\n- path: docs/decisions/\n```\n"
+    )
+    for rel in (pua, astral):
+        (layer / rel).write_text(
+            "---\nid: d\ntitle: D\nstatus: accepted\ndate: 2026-09-14\n---\n\n# D\n"
+        )
+    for rel in (pua_profile, astral_profile):
+        (layer / rel).write_text("---\nid: r\nname: R\nrole: r\n---\n\n# R\n")
+
+    manifest = load_manifest(str(layer)).manifest
+    assert manifest is not None
+    assert [r.rel_path for r in scan_decision_records(str(layer), manifest)] == [pua, astral]
+    # scan_agent_profiles hands walk_md's order straight to the viewer's Agents group.
+    assert [p.rel_path for p in scan_agent_profiles(str(layer), manifest)] == [
+        pua_profile,
+        astral_profile,
     ]

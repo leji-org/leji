@@ -24,4 +24,4 @@ The shared posture for all agents working in this repository. Role profiles inhe
 
 ## Escalation
 
-Ask the primary owner (<ownerName>) whenever mustAskWhen applies; record durable rulings in decisions.
+Ask the primary owner (<ownerName>) whenever mustAskWhen applies; record durable rulings in decisions. When one change introduces two or more decision records, read the set together before it lands, for overlap, contradiction, and any record that narrates a state the landed tree will not show.

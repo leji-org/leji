@@ -1,14 +1,22 @@
 ---
 // Tabbed install, one tab per runtime; the selected command shows below with a
 // copy button. Single source of truth: runtimes.ts.
+//
+// The component takes no props for its language, so it reads the page's own URL. The
+// copy button renames itself while the feedback shows, so both of its names are handed
+// to the script below as data attributes rather than written into it: one script serves
+// every language, and a word inside it could only be in one of them.
 import { runtimes } from '../data/runtimes';
 import copyIcon from '../assets/copy.svg?raw';
 import checkIcon from '../assets/check.svg?raw';
+import { chromeStrings } from '../data/i18n';
+import { localeOf } from '../i18n';
 const first = runtimes[0];
+const chrome = chromeStrings(localeOf(Astro.url.pathname));
 ---
 
-<div class="it" data-install-tabs>
-   <div class="it-tabs" role="tablist" aria-label="Install Leji">
+<div class="it" data-install-tabs data-copy-label={chrome.copyCommand} data-copied-label={chrome.copied}>
+   <div class="it-tabs" role="tablist" aria-label={chrome.install}>
       {
          runtimes.map((r, i) => (
             <button
@@ -31,7 +39,7 @@ const first = runtimes[0];
       <code class="it-cmd"
          ><span class="it-prompt" aria-hidden="true">$ </span><span class="it-cmd-text">{first.command}</span></code
       >
-      <button type="button" class="it-copy" aria-label="Copy install command">
+      <button type="button" class="it-copy" aria-label={chrome.copyCommand}>
          <span class="it-i it-i-copy" set:html={copyIcon} />
          <span class="it-i it-i-check" set:html={checkIcon} />
       </button>
@@ -168,6 +176,8 @@ const first = runtimes[0];
       const copyBtn = root.querySelector<HTMLButtonElement>('.it-copy');
       const tablist = root.querySelector<HTMLElement>('[role="tablist"]');
       if (!panel || !cmdText || !copyBtn || !tablist) continue;
+      // Both names come from the markup, in the language the page was rendered in.
+      const { copyLabel = '', copiedLabel = '' } = root.dataset;
 
       const select = (tab: HTMLButtonElement) => {
          for (const t of tabs) {
@@ -203,11 +213,11 @@ const first = runtimes[0];
          try {
             await navigator.clipboard.writeText(cmdText.textContent ?? '');
             copyBtn.classList.add('copied');
-            copyBtn.setAttribute('aria-label', 'Copied');
+            copyBtn.setAttribute('aria-label', copiedLabel);
             window.clearTimeout(timer);
             timer = window.setTimeout(() => {
                copyBtn.classList.remove('copied');
-               copyBtn.setAttribute('aria-label', 'Copy install command');
+               copyBtn.setAttribute('aria-label', copyLabel);
             }, 1400);
          } catch {
             // clipboard unavailable: the command stays visible to copy manually

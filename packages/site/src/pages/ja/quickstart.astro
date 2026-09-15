@@ -1,0 +1,536 @@
+---
+// Japanese translation of src/pages/quickstart.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation
+// follows, and it is what the drift gate compares against the current blob.
+//
+// The English page's SoftwareSourceCode graph is not repeated here: it names the
+// packages once for answer engines, and the English page is the page of record
+// for them.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import SupportedRuntimes from '../../components/SupportedRuntimes.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import InstallTabs from '../../components/InstallTabs.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+
+const source = '1d85a2ee9d95b8dcb58708c54e093711d2d5ff27';
+const strings = translationStrings('ja');
+
+// Commands and code stay in the source language: they are typed, not read.
+const initCode = `leji adopt --dry-run    # 正確な書き込み計画。実際には何も書き込まない
+leji adopt              # 既存リポジトリに導入する（新規なら leji init）
+                        # 続いて Claude Code または Codex を開くか確認する
+
+leji adopt --wire-adapters  # 既存の CLAUDE.md / AGENTS.md をつないで導入する
+
+npm create leji         # または、事前インストールなしで以上を 1 ステップで行う：
+                        # ディレクトリを読み、adopt か init を選ぶ`;
+
+const validateCode = `leji validate           # スキーマとリントルール
+leji validate --content # プレースホルダーと内容の薄いドキュメントの警告も追加
+leji index              # インデックスを生成する`;
+
+const conformanceCode = `leji conformance        # 宣言を判定する`;
+
+const viewCode = `leji view               # 人が読めるビューアーをブラウザで開く
+leji viewer build       # 内部認証の背後でホストする静的フォルダをエクスポートする`;
+
+const ciCode = `leji ci                 # ワークフローを生成する
+leji ci --hooks         # ローカルの pre-commit に同じゲートを設ける
+
+# 生成されたジョブが実行するもの：
+leji validate           # スキーマとリントルール
+leji index --check      # 古いインデックスなら失敗する
+
+# indexed 以上で追加するもの：
+leji changelog check    # 追記のみ`;
+
+const startCode = 'leji start              # または --agent claude-code | codex でひとつに固定する';
+
+const apiCode = `import { validateLayer, writeIndex, conformanceReport } from '@leji-org/leji';
+
+const { findings } = validateLayer('.');`;
+
+const mcpCode = `# Claude Code（このプロジェクト）
+claude mcp add leji --scope project -- npx -y @leji-org/mcp
+
+# Codex
+codex mcp add leji -- npx -y @leji-org/mcp`;
+---
+
+<Base
+   lang="ja"
+   title="クイックスタート · Leji"
+   description="クイックスタート：Leji CLI をインストールし、コンテキストレイヤーを新規作成するか既存文書を割り当てて、検証と宣言レベルに対する判定を行います。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/quickstart/" />
+         <main id="content" class="adopt-main measured">
+            <section class="gs-hero">
+               <PageHeader kind="guide" />
+               <h1>コンテキストレイヤーを作り、適合性を確認する。</h1>
+               <TranslationNote strings={strings.note} href="/quickstart/" />
+               <p class="lede">
+                  インストールから適合性の判定まで、必要なコマンドは 5 つです。leji
+                  のすべての機能はパッケージに同梱され、オフラインで動作します。ネットワークへアクセスする処理は、利用者が明示的に呼び出します。<code
+                     >leji init</code
+                  > と <code>leji adopt</code>
+                  の依存関係に関する処理では、同意した場合に限り、手元のパッケージマネージャーが実行されます。フェデレーションでネットワークに触れるのは、明示的に指定したリポジトリへ接続する次の
+                  3 つだけです。{' '}
+                  <code>leji mounts hydrate --fetch</code>、<code>leji mounts update-pin --fetch</code>、そして{' '}
+                  <code>leji conformance --federation=verify</code> です。
+               </p>
+            </section>
+
+            <SupportedRuntimes />
+
+            <section class="steps" aria-label="クイックスタートの手順">
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">01</span>ツールをインストールする</h2>
+                     <p>
+                        3 つとも同じフィクスチャ一式でテストされているため、CI にどれをインストールしても、フラグ、JSON
+                        出力、終了コードは同一です。
+                     </p>
+                     <p>
+                        CI も、pre-commit
+                        フックも、すべての貢献者も、ピン留めした同じバージョンを実行できるようにするには、開発用依存として宣言します。コマンドを自分で調べる必要はありません。
+                        <code>leji init</code> と <code>leji adopt</code>
+                        は、リポジトリで実際に使われているパッケージマネージャーを検出し、明示的に同意した場合に限り、そのパッケージマネージャーの追加コマンドを実行するか確認します。対象は
+                        <code>npm</code>、<code>pnpm</code>、<code>yarn</code>、<code>bun</code>、
+                        <code>uv</code>、<code>poetry</code>、<code>pdm</code>、<code>pipenv</code>、そして
+                        <code>go get -tool</code>（これには Go 1.24 以降が必要で、Go の CLI 自体のビルドには Go 1.26.6
+                        以降が必要です）。pip の場合、leji
+                        はコマンドを実行せず、追加すべき行を表示します。グローバルインストールが干渉することはありません。特定のバージョンをピン留めしているリポジトリ内では、Node
+                        と Python の CLI は毎回そのバージョンを実行します（<a href="/ja/cli/#pinned-cli"
+                           >リポジトリがピン留めする CLI</a
+                        >）。
+                     </p>
+                  </div>
+                  <div class="step-install"><InstallTabs /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2>
+                        <span class="step-num">02</span
+                        >新しいコンテキストレイヤーを作る、または既存のリポジトリに導入する
+                     </h2>
+                     <p>
+                        作成されるのは、リポジトリルートの <code>leji.json</code>
+                        マニフェスト、ブートプロファイル、ひな型となるカテゴリ文書、最初の決定記録、オンボーディングブリーフです。さらに、コンテキストルート外に置かれるファイルが
+                        2 つあります。リポジトリにまだない場合に作られる、ポインタだけの <code>AGENTS.md</code>（<code
+                           >--no-agents</code
+                        > で省略できます）と、ブリーフを置く作業場所 <code>.leji/</code> のために、ルートの <code
+                           >.gitignore</code
+                        > に追加される 1 行です。いずれの作成にも、エージェントは必要ありません。
+                     </p>
+                     <p>
+                        スキャフォールドの初期状態はプレースホルダーです。提案を受け入れると、エージェントがリポジトリを読み、承認用のマッピングを提案した後、ブリーフを削除します。断った場合は、後から実行するためのコマンドが表示されます。<code
+                           >--yes</code
+                        > を付けるとこの確認が省略されるため、CI を無人で実行できます。
+                     </p>
+                     <p>
+                        一人で作業していますか。<code>--mode solo</code> では、identity と writing-style の出発点が用意され、ブリーフは所有者へのインタビュー形式になります。回答は入力、添付、フォルダへの配置のいずれでも構いません。コンテキストになるのは、承認した統合結果だけであり、元の素材はリポジトリルートの
+                        <code>.leji/</code> にある gitignore された作業場所にとどまります。<code>init</code> と <code
+                           >adopt</code
+                        > はその ignore ルールを書き込み、その配下に git の追跡対象が 1 つでもあるかぎり、どちらも実行自体を拒否します。コンテキストレイヤーの内容が整うと、エージェントがその成果物を削除します。
+                     </p>
+                     <aside class="map-note">
+                        <strong>すでに <code>docs/</code> のツリーがありますか。</strong>
+                        <code>adopt</code> は既存ツリーの横にスキャフォールドを作成し、ファイルは一切移動しません。既存のエントリポイントはそのまま残るため、<code
+                           >--wire-adapters</code
+                        > を実行するまでは、適合したレイヤーではなく、導入途中の下書きがある状態です。
+                     </aside>
+                  </div>
+                  <div class="step-code"><Code code={initCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">03</span>検証する</h2>
+                     <ul class="checks">
+                        <li>
+                           <strong>スキーマで確認されるもの:</strong>
+                           マニフェスト、インデックス、変更履歴、そしてエージェントプロファイルと決定記録のフロントマター。
+                        </li>
+                        <li>
+                           <strong>構造とリント:</strong>
+                           ブートプロファイル、インデックスファイル、通常のドキュメントにはスキーマがありません。宣言されたファイルは実在しなければならず、変更履歴は{
+                              ' '
+                           }
+                           <code>HEAD</code> に対して追記のみです。<code>indexed</code>
+                           以上では、古いインデックスは失敗として扱われます。
+                        </li>
+                     </ul>
+                     <p class="fine">
+                        既存の <code>CLAUDE.md</code> や <code>AGENTS.md</code> の上に素の <code>adopt</code> を実行した後は、<code
+                           >--wire-adapters</code
+                        > を実行するまで、そのそれぞれについて <code>vendor-adapter-redirect</code> の失敗が報告されます。
+                     </p>
+                  </div>
+                  <div class="step-code"><Code code={validateCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">04</span>レベルを宣言し、検証する</h2>
+                     <p>
+                        段階的に導入できるよう設計されています。<code>core</code>
+                        から始め、各レベルは前のレベルを含みます。宣言はマニフェストが行い、{' '}
+                        <code>leji conformance</code> がそれに照らしてコンテキストレイヤーを判定します。
+                     </p>
+                     <p class="ladder-line">
+                        <code>core</code> → <code>indexed</code> → <code>governed</code> → <code>federated</code>
+                     </p>
+                     <p class="ladder-more">
+                        <a href="/ja/spec/conformance/">各レベルが求めること</a>
+                     </p>
+                  </div>
+                  <div class="step-code"><Code code={conformanceCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">05</span>コンテキストレイヤーを見る</h2>
+                     <p>エージェントが読むものと同じレイヤーを、人向けに可視化します。</p>
+                  </div>
+                  <div class="step-code"><Code code={viewCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+            </section>
+
+            <section class="duo">
+               <div class="duo-cell">
+                  <h2>CI で正直な状態を保つ</h2>
+                  <p>
+                     プロバイダーは <code>origin</code> リモートから推定され、判別できない場合は GitHub とみなされます。
+                  </p>
+                  <Code code={ciCode} lang="bash" theme={lejiSyntaxTheme} wrap />
+                  <p class="fine">
+                     終了コードは CI 向けです。<code>0</code> は問題なし（警告は許容されます）、<code>1</code> は通らなかったチェックがあること（指摘の有無は問いません）、<code
+                        >2</code
+                     > は使い方の誤り、または上書きの拒否のような内部的な失敗です。
+                  </p>
+               </div>
+               <div class="duo-cell">
+                  <h2>コンテキストレイヤーに入る</h2>
+                  <p>レイヤーがエージェントの最初のコンテキストになります。間にベンダーファイルを挟みません。</p>
+                  <Code code={startCode} lang="bash" theme={lejiSyntaxTheme} wrap />
+                  <p class="fine">
+                     複数のホストが見つかった場合は、どれを使うか確認します。ひとつも見つからない場合や、スクリプトまたは
+                     CI から実行した場合は、推測せずに実行すべきコマンドを表示します。{' '}
+                     <a href="/ja/adoption/#put-it-to-work">導入ガイド</a
+                     >では、ホストへのパススルーフラグとベンダーファイルの対応表を説明しています。
+                  </p>
+               </div>
+            </section>
+
+            <section class="mcp-block">
+               <h2>エージェントにコンテキストだけでなくツールも渡す</h2>
+               <p>
+                  コンテキストレイヤーに入ることは、エージェントにコンテキストを渡すことです。<a href="/ja/mcp/"
+                     >MCP サーバー</a
+                  >はツールを提供します。ディスク上のコンテキストレイヤーを検証し、適合性を判定する、ローカルかつ読み取り専用のサーバーです。そのため、エージェントにシェルは必要ありません。読み取って報告するだけで、書き込むことはありません。
+               </p>
+               <Code code={mcpCode} lang="bash" theme={lejiSyntaxTheme} wrap />
+               <p class="fine">
+                  <code>init</code> と <code>adopt</code> は、Claude Code にはプロジェクト単位、Codex にはユーザー単位で登録するか確認します。上のコマンドは、その確認をスキップした場合に使います。<code
+                     >--scope project</code
+                  > を <code>--scope user</code>
+                  に変えると、このリポジトリ単位ではなく、ユーザー単位で 1 回だけ登録されます。どの MCP クライアントでも利用できます。ツールの一覧は
+                  <a href="/ja/mcp/">MCP サーバー</a>のページにあります。
+               </p>
+            </section>
+
+            <section class="shapes" aria-label="状況別の導入の形">
+               <h2>利用状況に合わせて導入する</h2>
+               <table class="shape-table">
+                  <tbody>
+                     <tr>
+                        <th scope="row"><a href="/ja/adoption/#where-it-lives">モノレポ</a></th>
+                        <td>1 つのリポジトリ、1 つのコンテキストレイヤー。リポジトリルートで一度だけ初期化します。</td>
+                     </tr>
+                     <tr>
+                        <th scope="row"><a href="/ja/adoption/#where-it-lives">多数のリポジトリ、1 つのレイヤー</a></th>
+                        <td>
+                           専用のコンテキストリポジトリを、各利用側へドキュメント専用としてマウントし、リポジトリごとにピン留めします。
+                        </td>
+                     </tr>
+                     <tr>
+                        <th scope="row"><a href="/ja/federation/">所有された複数のレイヤー</a></th>
+                        <td
+                           >各チームがすでにコンテキストレイヤーを所有している構成です。各レイヤーを兄弟としてマウントします。所有関係も仕事の進め方も変わりません。</td
+                        >
+                     </tr>
+                  </tbody>
+               </table>
+            </section>
+
+            <section class="api-peek">
+               <div class="peek-text">
+                  <h2>スクリプトから</h2>
+                  <p>
+                     ほとんどのコマンドは、フック、ボット、ビルド手順からライブラリとしても呼び出せます。ソースは <a
+                        href="https://github.com/leji-org/leji"
+                        target="_blank"
+                        rel="noopener">leji-org/leji</a
+                     >、Apache-2.0 です。
+                  </p>
+               </div>
+               <div class="peek-code"><Code code={apiCode} lang="js" theme={lejiSyntaxTheme} wrap /></div>
+            </section>
+
+            <p class="next-step">
+               次は、既存のリポジトリなら<a href="/ja/adoption/">導入ガイド</a
+               >、複数のチームがそれぞれコンテキストレイヤーを所有しているなら{' '}
+               <a href="/ja/federation/">フェデレーション</a>です。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .gs-hero {
+      /* No top padding: .doc-shell already sets the 2.5rem above the first line,
+         and every Doc page starts its h1 there. This section used to add another
+         2.5-4.5rem, which is why this page's header sat lower than the rest. */
+      padding: 0 0 1rem;
+      max-width: 760px;
+   }
+   /* .eyebrow now comes from global.css via PageHeader; the local copy is gone so
+      the classification cannot drift from the rest of the site. */
+   /* h1 comes from the shared .measured/.prose display scale in global.css. */
+   .lede {
+      font-size: var(--text-lede);
+      line-height: 1.7;
+      color: var(--leji-text-body);
+      max-width: var(--measure-fine);
+      margin: 0;
+   }
+
+   h2 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 1.6rem;
+      line-height: 1.25;
+      color: var(--leji-text);
+      margin: 0 0 0.6rem;
+   }
+
+   .steps {
+      margin-top: 2.5rem;
+      display: grid;
+      gap: 2.8rem;
+      padding: 1.6rem 0 0.4rem;
+   }
+   .step {
+      display: grid;
+      gap: 0.9rem;
+   }
+   .step-text p {
+      color: var(--leji-text-body);
+      margin: 0.4rem 0 0;
+   }
+   .step-text code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+   .map-note {
+      margin-top: 1.1rem;
+      padding: 0.9rem 1.2rem;
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
+      border-radius: 0 8px 8px 0;
+      font-size: 0.92rem;
+      color: var(--leji-text-body);
+   }
+   .map-note strong {
+      color: var(--leji-text);
+   }
+   .checks {
+      margin: 0.6rem 0 1rem;
+      padding-left: 1.1rem;
+      color: var(--leji-text-body);
+   }
+   .checks li {
+      margin: 0.4rem 0;
+   }
+   .checks strong {
+      color: var(--leji-text);
+      font-weight: 600;
+   }
+   .ladder-line {
+      font-size: 0.92rem;
+   }
+   .step-text .ladder-more {
+      margin-top: 1.15rem;
+   }
+   .ladder-more a {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+      text-decoration: none;
+      border-bottom: 1px solid var(--leji-brand);
+      padding-bottom: 2px;
+      white-space: nowrap;
+   }
+   .ladder-more a:hover {
+      color: var(--leji-text);
+      border-color: var(--leji-text);
+   }
+
+   /* CI + invocation */
+   .duo {
+      margin-top: 4rem;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2.8rem;
+   }
+   .duo-cell h2 {
+      font-size: 1.35rem;
+   }
+   .duo-cell p {
+      color: var(--leji-text-body);
+      margin: 0 0 1.1rem;
+   }
+   .duo-cell .fine {
+      margin: 1rem 0 0;
+   }
+   .duo-cell .fine a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   .duo-cell code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+
+   /* by situation */
+   .shapes {
+      margin-top: 4rem;
+   }
+   .shape-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.4rem 0 0;
+   }
+   .shape-table th,
+   .shape-table td {
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: baseline;
+      text-align: left;
+      padding: 0.85rem 0 0.85rem 0;
+   }
+   .shape-table th {
+      white-space: nowrap;
+      padding-right: 2.2rem;
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.08rem;
+   }
+   .shape-table th a {
+      color: var(--leji-text);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+      transition: color 0.15s;
+   }
+   .shape-table th a:hover {
+      color: var(--leji-link);
+   }
+   .shape-table td {
+      font-size: 0.95rem;
+      color: var(--leji-text-body);
+      line-height: 1.55;
+   }
+
+   /* library surface */
+   .api-peek {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.4rem;
+      padding: 4rem 0 4.5rem;
+   }
+   .peek-text p {
+      color: var(--leji-text-body);
+   }
+   .peek-text a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   .peek-text code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+
+   .step-code {
+      margin-top: 0;
+   }
+
+   .step-install {
+      background: var(--leji-deep);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      overflow: hidden;
+   }
+
+   .mcp-block {
+      margin-top: 4rem;
+   }
+   .mcp-block p {
+      color: var(--leji-text-body);
+      margin: 0 0 1.1rem;
+   }
+   .mcp-block code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+   /* Continuation prose, not marginalia: what leji init does, and where the full
+      tool list lives. Same size and measure as the paragraph above the snippet;
+      the smaller setting was the only thing making them read as a footnote. */
+   .mcp-block .fine {
+      margin: 1rem 0 0;
+   }
+   .mcp-block .fine a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+
+   .step-code :global(.astro-code),
+   .duo-cell :global(.astro-code),
+   .peek-code :global(.astro-code),
+   .mcp-block :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 12px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.65;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      margin: 0;
+   }
+</style>

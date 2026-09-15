@@ -177,7 +177,7 @@ export async function assertUnknownRouteInApp(page: Page, base: string): Promise
 }
 
 /** A `#RRGGBB` color as the string `getComputedStyle` reports for it. */
-function rgb(hex: string): string {
+export function rgb(hex: string): string {
    const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
    return `rgb(${r}, ${g}, ${b})`;
 }
@@ -188,6 +188,13 @@ function rgb(hex: string): string {
 async function colorOf(locator: Locator): Promise<string> {
    await expect(locator).toBeVisible();
    return locator.evaluate((node) => getComputedStyle(node as Element).color);
+}
+
+/** The color the browser actually paints behind an element, asked for the same reason
+ * as `colorOf`: a ground can be set by a token, a rule further down, or neither. */
+export async function backgroundOf(locator: Locator): Promise<string> {
+   await expect(locator).toBeVisible();
+   return locator.evaluate((node) => getComputedStyle(node as Element).backgroundColor);
 }
 
 /**
@@ -226,4 +233,16 @@ export async function assertManifestPage(page: Page, base: string): Promise<void
    await expect(page.locator('.markdown-section h1').first()).toHaveText(`${LAYER_NAME}: Manifest`);
    await expect(page.locator('.markdown-section').getByRole('heading', { name: 'Identity' })).toBeVisible();
    await expect(page.locator('.markdown-section')).toContainText('Fixture Owner');
+}
+
+/** The generated Decisions page: the same class of chrome, judged on the row it is
+ * for, which is the fixture layer's one decision record, rendered as a linked title
+ * with the status the record's frontmatter declares. */
+export async function assertDecisionsPage(page: Page, base: string): Promise<void> {
+   await page.goto(`${base}/#/_decisions`);
+   await expect(page.locator('.markdown-section h1').first()).toHaveText(`${LAYER_NAME}: Decisions`);
+   const row = page.locator('.markdown-section table tbody tr').filter({ hasText: 'Adopt the Leji context layer' });
+   await expect(row).toHaveCount(1);
+   await expect(row.getByRole('link', { name: 'Adopt the Leji context layer' })).toBeVisible();
+   await expect(row).toContainText('accepted');
 }

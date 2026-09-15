@@ -1,0 +1,99 @@
+---
+// Simplified Chinese translation of src/pages/manifest.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation follows.
+//
+// The shell is composed here rather than through `Doc.astro` so the page can declare the
+// language it is written in while the sidebar stays on the English route it highlights.
+import fs from 'node:fs';
+import path from 'node:path';
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import SchemaFields from '../../components/SchemaFields.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import { localizeSchema, readSchemaSources, schemaMap, schemaMapInputs } from '../../schema-i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+import { REPO_ROOT, SITE_ROOT } from '../../repo-root';
+
+const source = 'f3e18af84beae4479599b3eb247f7e8ff97cb27c';
+const strings = translationStrings('zh-hans');
+
+// Field rows are generated from the schema, so this page can't drift from it. The schema
+// file itself is a machine surface and is never translated; what this page shows of it is
+// read through the locale's schema map, the same one the translated schema reference
+// renders from, so the two pages state the same contract in the same words.
+const schemaRaw = fs.readFileSync(path.join(REPO_ROOT, 'schemas', 'context-manifest.schema.json'), 'utf-8');
+const schemaMapZhHans = schemaMap('zh-hans', schemaMapInputs(readSchemaSources()));
+const schema = localizeSchema(JSON.parse(schemaRaw), schemaMapZhHans['context-manifest'].strings);
+// A manifest that exercises every field; verified against the schema above.
+const exampleRaw = fs.readFileSync(path.join(SITE_ROOT, 'src', 'data', 'manifest-complete.json'), 'utf-8');
+---
+
+<Base
+   lang="zh-hans"
+   title="清单（leji.json） · Leji"
+   description="leji.json 清单：Leji 上下文层的机器入口，声明它的上下文根目录、引导配置、类别索引文件与一致性声明。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/manifest/" />
+         <main id="content" class="prose">
+            <PageHeader kind="reference" />
+            <h1>清单：<code>leji.json</code></h1>
+            <TranslationNote strings={strings.note} href="/manifest/" />
+            <p class="sp-lede">{schema.description}</p>
+
+            <p>清单是 Leji 唯一规定了固定名称的文件，工具始终可以在仓库根目录找到它。</p>
+            <p>
+               字段表由<a href="/zh-hans/schemas/context-manifest/">该 schema</a
+               >生成，因此本页内容始终与契约保持一致。本页涵盖顶层字段和部分嵌套字段；更深层的结构，例如某个 actor
+               的角色与命令，请直接阅读 schema。必填字段已作标记。
+            </p>
+
+            <h2>字段</h2>
+            <SchemaFields schema={schema} />
+
+            <h2>一个完整示例</h2>
+            <p>
+               下面是一个组织级联邦上下文层的完整示例，其中挂载了一个同级层，使用的字段远多于实际场景通常所需。多数上下文层只需声明自己用到的字段子集：<code
+                  >leji init</code
+               > 脚手架生成的只是其中少数几个字段，而一个 <code>core</code> 级别的清单要短得多。
+            </p>
+            <p>
+               这个形态里有两点容易读错：每个类别指向的是撰写好的<strong>索引文件</strong>，不是内容目录；而 <code
+                  >agents</code
+               > 把角色标识符绑定到配置文档，它是角色目录而不是加载顺序，因此绑定某一份配置绝不会导致它被读取。
+            </p>
+            <p>
+               有一个字段是条件式的，而不是声明式的：<code>viewer.theme.link</code>
+               只有在相对查看器的行内代码背景达到 4.5:1 的对比度时，才会为正文链接与行内代码着色；未达到该下限的取值会以告警形式报告，同时保留那个固定的无障碍色调。
+            </p>
+            <div class="manifest-example">
+               <Code code={exampleRaw.trimEnd()} lang="json" theme={lejiSyntaxTheme} wrap />
+            </div>
+
+            <p>
+               清单与索引、变更日志和各类配置之间的关系，见<a href="/zh-hans/spec/machine-readable-surface/"
+                  >机器可读接口</a
+               >；<code>leji</code> 这个规范版本系列键，见<a href="/zh-hans/spec/versioning/">版本管理</a>。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .manifest-example :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+   }
+</style>

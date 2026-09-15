@@ -1,0 +1,145 @@
+---
+// The Spanish specification route: one file for every translated document plus the
+// locale's one-page view. It renders the translated collection entries, never the
+// normative English `spec/*.md`, so the banner names the English document and the
+// page emits no `TechArticle` metadata that would present a translation as the
+// specification itself.
+import {
+   buildSpecI18nFull,
+   parseSpecI18nId,
+   renderSpecI18nEntry,
+   getSpecI18nStaticPaths,
+   type SpecI18nPageProps,
+} from '../../../spec-i18n';
+import { specPath } from '../../../data/spec-docs';
+import Base from '../../../layouts/Base.astro';
+import SiteHeader from '../../../components/SiteHeader.astro';
+import SiteFooter from '../../../components/SiteFooter.astro';
+import SectionNav from '../../../components/SectionNav.astro';
+import PageHeader from '../../../components/PageHeader.astro';
+import SpecTranslationBanner from '../../../components/SpecTranslationBanner.astro';
+import { specBannerStrings, translationStrings } from '../../../data/i18n';
+import { correctionLinks } from '../../../i18n';
+
+export const getStaticPaths = () => getSpecI18nStaticPaths('es');
+
+const { locale, entry, entries } = Astro.props as SpecI18nPageProps;
+const strings = specBannerStrings(locale);
+const note = translationStrings(locale).note;
+// The one-page view is composed from ten files rather than one, so its invitation to
+// open a pull request is per document, beside the heading that document opens with.
+const editHrefs: Record<string, string> = Object.fromEntries(
+   (entries ? correctionLinks(Astro.url.pathname).documents : []).map((row) => [row.doc, row.editHref]),
+);
+
+// The reader-facing titles, in Spanish.
+const TITLES: Record<string, string> = {
+   readme: 'La especificación Leji',
+   'context-layer': 'La capa de contexto',
+   'content-categories': 'Categorías de contenido',
+   'boot-profile': 'El perfil de arranque',
+   'machine-readable-surface': 'La superficie legible por máquinas',
+   decisions: 'Decisiones',
+   governance: 'Gobernanza',
+   distribution: 'Distribución',
+   conformance: 'Conformidad',
+   versioning: 'Versionado',
+};
+
+const doc = entry ? parseSpecI18nId(entry.id).doc : null;
+const sections = entries ? await buildSpecI18nFull(locale, entries) : null;
+const Content = entry ? (await renderSpecI18nEntry(entry)).Content : null;
+
+const heading = doc ? TITLES[doc] : 'La especificación Leji (una sola página)';
+const title = `${heading} · Leji`;
+const description = entries
+   ? 'La especificación Leji completa en una sola página, traducida al español con carácter informativo; el texto normativo es el inglés.'
+   : doc === 'readme'
+     ? 'La especificación Leji: una especificación abierta para la capa de contexto compartida de los equipos nativos de IA, traducida al español con carácter informativo.'
+     : `${heading}, parte de la especificación Leji, traducida al español con carácter informativo; el texto normativo es el inglés.`;
+const current = doc ? specPath(doc) : '/spec/full/';
+---
+
+<Base lang="es" title={title} description={description}>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current={current} />
+         <main id="content" class="prose">
+            <PageHeader kind="normative" />
+            {
+               entries && sections ? (
+                  <div class="spec-full">
+                     <SpecTranslationBanner strings={strings} note={note} href="/spec/full/" />
+                     <h1>La especificación Leji</h1>
+                     {sections.map((section) => (
+                        <section class="spec-section" id={`sec-${section.id}`}>
+                           <p class="sec-edit">
+                              <a href={editHrefs[section.id]}>{note.editLinkText}</a>
+                           </p>
+                           <Fragment set:html={section.html} />
+                        </section>
+                     ))}
+                  </div>
+               ) : (
+                  entry &&
+                  doc &&
+                  Content && (
+                     <>
+                        <SpecTranslationBanner strings={strings} note={note} href={specPath(doc)} />
+                        <Content />
+                     </>
+                  )
+               )
+            }
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   /* The one-page view's section rhythm, as on the English page: ten documents
+      separated by a rule, each anchored by its own section id. */
+   .spec-section {
+      scroll-margin-top: calc(var(--header-h) + 1.5rem);
+      padding-top: 1.5rem;
+      margin-top: 2.5rem;
+      border-top: 1px solid var(--leji-border);
+   }
+   .spec-section:first-of-type {
+      border-top: none;
+      margin-top: 1.5rem;
+   }
+   /* the correction link for the document this section holds, above its title */
+   .sec-edit {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin: 0 0 -0.6rem;
+   }
+   .sec-edit a {
+      color: var(--leji-text-body);
+      text-decoration: none;
+   }
+   .sec-edit a:hover {
+      color: var(--leji-link);
+   }
+   /* the demoted h2 (was h1) reads as the section title on the consolidated page */
+   .spec-section > :global(h2) {
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.7rem;
+      color: var(--leji-text);
+      margin: 0.2rem 0 0.8rem;
+   }
+   /* the overview's own heading repeats the page title, so drop it here */
+   .spec-section:first-of-type > :global(h2) {
+      display: none;
+   }
+   /* hide per-heading anchors here: repeated ids would point at the first match */
+   .spec-full :global(a.heading-anchor) {
+      display: none;
+   }
+</style>

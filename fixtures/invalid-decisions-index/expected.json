@@ -1,0 +1,39 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "decision-frontmatter",
+        "severity": "error",
+        "path": "docs/decisions/0005-mangled-frontmatter.md"
+      }
+    ]
+  },
+  "export": {
+    "exit": 0,
+    "findings": [],
+    "out": ".leji/dist",
+    "layout": {
+      "roles": {
+        "viewer": ".leji/viewer/",
+        "dist": ".leji/dist/"
+      },
+      "present": [
+        ".leji/viewer/_decisions.md",
+        ".leji/dist/content/_decisions.md",
+        ".leji/dist/content/_sidebar.md",
+        ".leji/dist/index.html"
+      ],
+      "absent": ["docs/.leji/"],
+      "preserved": []
+    },
+    "rerun": {
+      "byteIdentical": true
+    },
+    "goldenTree": {
+      "status": "baked",
+      "contentDir": "expected-export/content",
+      "manifest": "expected-export.manifest.json"
+    }
+  }
+}

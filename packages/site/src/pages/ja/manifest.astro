@@ -1,0 +1,103 @@
+---
+// Japanese translation of src/pages/manifest.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+//
+// The field rows and the lede come from the JSON Schema. The schema file itself is a
+// machine surface and is never translated; what this page shows of it is read through the
+// locale's schema map, the same one the translated schema reference renders from, so the
+// two pages state the same contract in the same words.
+import fs from 'node:fs';
+import path from 'node:path';
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import SchemaFields from '../../components/SchemaFields.astro';
+import { translationStrings } from '../../data/i18n';
+import { localizeSchema, readSchemaSources, schemaMap, schemaMapInputs } from '../../schema-i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+import { REPO_ROOT, SITE_ROOT } from '../../repo-root';
+
+const source = 'f3e18af84beae4479599b3eb247f7e8ff97cb27c';
+const strings = translationStrings('ja');
+
+// Field rows are generated from the schema, so this page can't drift from it.
+const schemaRaw = fs.readFileSync(path.join(REPO_ROOT, 'schemas', 'context-manifest.schema.json'), 'utf-8');
+const schemaMapJa = schemaMap('ja', schemaMapInputs(readSchemaSources()));
+const schema = localizeSchema(JSON.parse(schemaRaw), schemaMapJa['context-manifest'].strings);
+// A manifest that exercises every field; verified against the schema above.
+const exampleRaw = fs.readFileSync(path.join(SITE_ROOT, 'src', 'data', 'manifest-complete.json'), 'utf-8');
+---
+
+<Base
+   lang="ja"
+   title="マニフェスト（leji.json） · Leji"
+   description="leji.json マニフェストは、Leji コンテキストレイヤーの機械向けエントリポイントです。コンテキストルート、ブートプロファイル、カテゴリインデックスファイル、適合性の宣言を記述します。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/manifest/" />
+         <main id="content" class="prose">
+            <PageHeader kind="reference" />
+            <h1>マニフェスト：<code>leji.json</code></h1>
+            <TranslationNote strings={strings.note} href="/manifest/" />
+            <p class="sp-lede">{schema.description}</p>
+
+            <p>
+               マニフェストは、Leji
+               で唯一ファイル名が固定されています。ツールがリポジトリルートに必ず存在すると見込める、ただひとつのファイルです。
+            </p>
+            <p>
+               フィールドの行は<a href="/ja/schemas/context-manifest/">スキーマ</a
+               >から生成されるため、ここに記載された内容が契約からずれることはありません。このページでは、トップレベルのフィールドと、一部のネストしたフィールドを取り上げます。アクターのロールやコマンドなど、さらに深い形についてはスキーマそのものを参照してください。必須フィールドには印が付いています。
+            </p>
+
+            <h2>フィールド</h2>
+            <SchemaFields schema={schema} />
+
+            <h2>実例</h2>
+            <p>
+               兄弟レイヤーをマウントする、組織全体のフェデレーションされたコンテキストレイヤーの例です。実際のマニフェストで必要になるより、はるかに多くのフィールドを使っています。たいていのコンテキストレイヤーが宣言するのは、使用するフィールドだけです。<code
+                  >leji init</code
+               > がスキャフォールドするのはこのうちのごく一部で、<code>core</code> のマニフェストはもっと短くなります。
+            </p>
+            <p>
+               この形には、誤解しやすい点が 2
+               つあります。ひとつは、各カテゴリが指す先が、コンテンツのディレクトリではなく、人が記述した<strong
+                  >インデックスファイル</strong
+               >であることです。もうひとつは、<code>agents</code> がロール識別子をプロファイル文書に結び付ける、読み込み順ではなくロールの一覧であり、結び付けただけではその文書が読み込まれないことです。
+            </p>
+            <p>
+               1 つだけ、宣言ではなく条件に応じて機能するフィールドがあります。<code>viewer.theme.link</code>
+               の色が本文リンクとインラインコードに適用されるのは、ビューアーのインラインコード背景とのコントラスト比が 4.5:1
+               以上の場合だけです。この基準に満たない値は警告として報告され、アクセシビリティに配慮した既定色がそのまま使われます。
+            </p>
+            <div class="manifest-example">
+               <Code code={exampleRaw.trimEnd()} lang="json" theme={lejiSyntaxTheme} wrap />
+            </div>
+
+            <p>
+               マニフェストとインデックス、変更履歴、プロファイルの関係については<a
+                  href="/ja/spec/machine-readable-surface/">機械可読サーフェス</a
+               >を、<code>leji</code> という仕様系列のキーについては<a href="/ja/spec/versioning/">バージョニング</a
+               >を参照してください。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .manifest-example :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+   }
+</style>

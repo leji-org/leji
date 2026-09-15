@@ -82,12 +82,13 @@ and a trailing `/` means a directory.
 | --- | --- |
 | `args` | argv after `leji`, default `["export"]`. A variant run (`--strict`, or the co-equal `viewer build` name) states it. |
 | `exit` | expected process exit code: `0` written, `1` error findings or any finding under `--strict`, `2` usage error or refusal. |
-| `findings` | expected findings, matched on **(rule, severity, path, line, construct)**, ordered by (path, line, rule, construct). Message text is never compared. |
+| `findings` | expected findings, matched on **(rule, severity, path, line, construct)**, ordered by (path, line, rule, construct). Message text is never compared. A finding that carries no path, line, or construct — a manifest-level one — omits those keys rather than spelling an absent value. |
 | `out` | expected output directory, repository-root-relative POSIX, matching the `out` field of `--json`. |
 | `layout.roles` | role name → directory the run establishes. |
 | `layout.present` | paths that must exist after the run. A **spot-check of role placement**, never an exhaustive listing — the golden tree is the exhaustive artifact. |
 | `layout.absent` | paths that must not exist after the run (pre-1.4 locations a run must never create). |
 | `layout.preserved` | paths present before the run that must still be present and byte-identical after it. Implies `present`. |
+| `indexHtml` | `{contains, absent}`: substrings that must, and must not, appear in the export's own `index.html` (`<out>/index.html`). For a manifest value the chrome page carries conditionally — a theme override the generator emits only when it passes a guard — so the assertion names the decision it pins. Never a substitute for `goldenTree`, which stays the exhaustive byte contract. |
 | `rerun` | `{byteIdentical}`. `byteIdentical: true`: after a second run over the same layer, **the complete fixture working tree** is byte-identical to the tree after the first run — the design's byte-level no-op, which subsumes every per-path question. |
 | `goldenTree` | the byte contract for the written tree, below. |
 

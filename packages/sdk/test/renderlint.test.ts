@@ -250,9 +250,21 @@ test('family: a declaration takes an ASCII letter of either case, and a terminat
 interface ExpectedFinding {
    rule: string;
    severity: string;
-   path: string;
-   line: number;
-   construct: string;
+   path?: string;
+   line?: number;
+   construct?: string;
+}
+
+/** A finding as the (rule, severity, path, line, construct) tuple the block matches
+ * on, carrying only the coordinates the finding actually has: a manifest-level
+ * finding names no path, line, or construct, and an expected entry states it the same
+ * way — by leaving the key out — rather than by spelling an absent value. */
+function shape(f: ExpectedFinding): Record<string, unknown> {
+   const out: Record<string, unknown> = { rule: f.rule, severity: f.severity };
+   if (f.path !== undefined) out.path = f.path;
+   if (f.line !== undefined) out.line = f.line;
+   if (f.construct !== undefined) out.construct = f.construct;
+   return out;
 }
 
 interface GoldenTree {
@@ -267,6 +279,7 @@ interface ExpectedExport {
    findings: ExpectedFinding[];
    out: string;
    layout?: { roles?: Record<string, string>; present?: string[]; absent?: string[]; preserved?: string[] };
+   indexHtml?: { contains?: string[]; absent?: string[] };
    rerun?: { byteIdentical?: boolean };
    goldenTree: GoldenTree;
 }
@@ -366,17 +379,7 @@ for (const name of fs.readdirSync(fixturesDir).sort()) {
       assert.equal(doc.out.split(path.sep).join('/'), block.out, 'the declared output directory');
       // Matched on (rule, severity, path, line, construct) IN ORDER — message text is
       // never compared, and the order is the canonical one the three SDKs share.
-      assert.deepEqual(
-         doc.findings.map((f) => ({
-            rule: f.rule,
-            severity: f.severity,
-            path: f.path,
-            line: f.line,
-            construct: f.construct,
-         })),
-         block.findings,
-         `findings for ${name}`,
-      );
+      assert.deepEqual(doc.findings.map(shape), block.findings.map(shape), `findings for ${name}`);
 
       // `roles` is the layout's role map — which directory each role NAMES — and
       // `present`/`absent` say which of them a given run establishes: a `--strict`
@@ -403,6 +406,20 @@ for (const name of fs.readdirSync(fixturesDir).sort()) {
 
       // --- the golden tree -----------------------------------------------------
       const out = path.join(dir, ...block.out.split('/'));
+
+      // The chrome page's conditional content, as substrings: what a manifest value
+      // put into the generated <style>, and what a refused one must have left out.
+      // A named substring, not the whole file, so the assertion says which decision
+      // it pins; the golden tree stays the exhaustive byte contract.
+      if (block.indexHtml) {
+         const html = fs.readFileSync(path.join(out, 'index.html'), 'utf8');
+         for (const needle of block.indexHtml.contains ?? []) {
+            assert.ok(html.includes(needle), `${name}: index.html carries ${JSON.stringify(needle)}`);
+         }
+         for (const needle of block.indexHtml.absent ?? []) {
+            assert.ok(!html.includes(needle), `${name}: index.html must not carry ${JSON.stringify(needle)}`);
+         }
+      }
       if (block.goldenTree.status === 'none') {
          assert.ok(!fs.existsSync(out), 'a run that writes no export tree has nothing to bake');
       }

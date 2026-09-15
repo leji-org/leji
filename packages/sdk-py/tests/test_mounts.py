@@ -30,6 +30,7 @@ from leji.mounts import (
     normalize_source,
     object_source_candidates,
     pin_ref_for,
+    read_text_within,
     sha256_hex,
     valid_tracking_ref,
     verify_projection,
@@ -948,3 +949,27 @@ def test_a_reachable_store_without_the_pin_is_unverifiable_and_names_the_prerequ
         "prerequisites unavailable: no reachable object store, unresolvable pin, or "
         "no writable temp dir); an unverified cache is not evidence"
     )
+
+
+def test_read_text_within_reads_a_contained_file_and_refuses_an_escaping_one(
+    tmp_path: Path,
+) -> None:
+    # The resolver-state read, on the same order as the link resolver and the other
+    # two SDKs: containment first, existence second. Both checks must pass either
+    # way, so what the order has to leave unchanged is the set of refusals.
+    base = Path(os.path.realpath(tmp_path))
+    root = base / "host"
+    root.mkdir()
+    away = base / "away"
+    away.mkdir()
+    (root / "inside.json").write_text("inside\n", encoding="utf-8")
+    (away / "real.json").write_text("outside\n", encoding="utf-8")
+    (root / "escape.json").symlink_to(away / "real.json")
+    (root / "dir").mkdir()
+    (root / "dir" / "up").symlink_to(away)
+
+    assert read_text_within(str(root), root / "inside.json") == "inside\n"
+    assert read_text_within(str(root), root / "escape.json") is None
+    assert read_text_within(str(root), root / "dir" / "up" / "real.json") is None
+    assert read_text_within(str(root), root / "absent.json") is None
+    assert read_text_within(str(root), root / "dir") is None

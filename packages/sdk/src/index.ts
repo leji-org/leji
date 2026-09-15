@@ -2,7 +2,14 @@ import { type Finding, finding, hasErrors, sortFindings, summarize } from './lib
 import { DIST_REL, VIEWER_REL } from './lib/layout.js';
 import { type LejiIgnoreContext, newLejiIgnoreContext } from './lib/leji-ignore.js';
 import { effectiveChangelogPath, effectiveIndexPath, loadManifest } from './lib/manifest.js';
-import { type CliCommand, type CliSpec, SDK_VERSION, SUPPORTED_LINES, loadCliSpec } from './lib/schemas.js';
+import {
+   type CliCommand,
+   type CliSpec,
+   SDK_VERSION,
+   SUPPORTED_LINES,
+   displayVersion,
+   loadCliSpec,
+} from './lib/schemas.js';
 import { HELP_WIDTH, exitCodeColumn, helpRow, nameColumn, optionColumn, wrap } from './lib/text.js';
 import { checkIndex, generateIndex, writeIndex } from './commands/indexgen.js';
 import { checkChangelogAppendOnly, validateLayer } from './commands/validate.js';
@@ -1030,7 +1037,7 @@ export async function run(argv: string[]): Promise<number> {
       return 0;
    }
    if (flags.version) {
-      console.log(SDK_VERSION);
+      console.log(displayVersion());
       return 0;
    }
    const [command, sub] = rest;
@@ -1039,7 +1046,7 @@ export async function run(argv: string[]): Promise<number> {
       return command ? 0 : 2;
    }
    if (command === 'version') {
-      console.log(SDK_VERSION);
+      console.log(displayVersion());
       return 0;
    }
 

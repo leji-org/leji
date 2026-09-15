@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { resolvedWithinRoot } from './fsx.js';
+import { openVerifiedSource, resolvedWithinRoot } from './fsx.js';
 
 /**
  * Which dependency ecosystem owns a repository root, which package manager runs
@@ -103,7 +103,7 @@ const MANAGER_COMMANDS: Record<string, { add: string[] | null; runner: string[];
    go: {
       add: ['go', 'get', '-tool', `${GO_TOOL_PATH}@latest`],
       runner: ['go', 'tool', 'leji'],
-      // The same command F10's CI table installs a Go repository's tools with.
+      // The same command the generated CI job installs a Go repository's tools with.
       install: ['go', 'mod', 'download'],
    },
    'go-legacy': { add: null, runner: ['leji'], install: null },
@@ -202,9 +202,9 @@ const TEXT = {
       unreadable: (manifest: string): string => `Ecosystem: ${manifest}; unreadable`,
       refused: (files: string[]): string => `Ecosystem: ${joinAnd(files)}; not a regular file inside this repository`,
    },
-   /** The consent path (plan section 3): the prompt, and every outcome of running
-    * the manager's own add command. leji writes no manifest byte itself, so these
-    * are the only words it owns once the user says yes. */
+   /** The consent path: the prompt, and every outcome of running the manager's own
+    * add command. leji writes no manifest byte itself, so these are the only words
+    * it owns once the user says yes. */
    consent: {
       /** Printed immediately before the prompt, interactive runs only. The manager
        * runs here, as the user, with the user's environment: say so before asking,
@@ -256,16 +256,75 @@ function joinAnd(items: string[]): string {
  * repository the user pointed at. */
 type EntryKind = 'absent' | 'eligible' | 'refused';
 
-function classify(rootAbs: string, name: string): EntryKind {
+/** One probed name's verdict, carrying its bytes when the caller asked for them:
+ * read from the descriptor the verdict was proved on, never re-opened by name. */
+interface VerifiedEntry {
+   kind: EntryKind;
+   text: string | null;
+}
+
+/**
+ * Judge one probed name on the ENTRY, then prove the judgment on a DESCRIPTOR.
+ *
+ * The entry decides its own kind first, with `lstat`: a link is refused rather
+ * than followed, whatever it resolves to, because evidence reached through a link
+ * is not this repository's evidence. That up-front `lstat` is the cheap refusal,
+ * and on its own it leaves the entry free to become a link before the open, which
+ * the open would then resolve and verify perfectly well — no swap back needed, and
+ * the name would have evidenced a manager it never stood for. So the name is
+ * opened through {@link openVerifiedSource}, which resolves, opens, and proves the
+ * descriptor is the file it judged, and the descriptor's own `fstat` must then
+ * report the same regular file a FRESH `lstat` of the NAME does. A symlink's inode
+ * is never the inode of the file it points at, so an entry that is a link at that
+ * instant cannot pass, and neither can one that has become a different file —
+ * including the name renamed away and linked back to its own inode, which every
+ * comparison against the FIRST `lstat` accepts.
+ *
+ * `wantText` takes the bytes from that same descriptor, so what decides is what was
+ * judged. The descriptor is closed on every path: this asks a question, it does not
+ * hand a source out.
+ *
+ * The two failure classes are kept apart, and the three SDKs answer alike. What the
+ * run can SEE contradicted — the identity or kind differs, the verified open handed
+ * back no descriptor, nothing stands at the name any more — is `refused`, exactly as
+ * a link or a directory is. What it merely could not COMPLETE on an entry still
+ * standing and never contradicted — the open denied, an `fstat` or read failure —
+ * leaves the entry eligible and carries no bytes, which is the unreadable outcome
+ * this scan has always reported for it. What remains is the recorded
+ * check-before-act window (`docs/practice/trust-boundary.md`), which every verified
+ * fact on this path shares.
+ */
+function verify(rootAbs: string, name: string, wantText: boolean): VerifiedEntry {
    const abs = path.join(rootAbs, name);
    let st: fs.Stats;
    try {
       st = fs.lstatSync(abs);
    } catch {
-      return 'absent';
+      return { kind: 'absent', text: null };
    }
-   if (!st.isFile()) return 'refused';
-   return resolvedWithinRoot(rootAbs, abs) ? 'eligible' : 'refused';
+   if (!st.isFile()) return { kind: 'refused', text: null };
+   if (!resolvedWithinRoot(rootAbs, abs)) return { kind: 'refused', text: null };
+   try {
+      const source = openVerifiedSource(abs, (real) => resolvedWithinRoot(rootAbs, real));
+      if (source.fd === null) return { kind: 'refused', text: null };
+      try {
+         const opened = fs.fstatSync(source.fd);
+         const standing = fs.lstatSync(abs, { throwIfNoEntry: false });
+         if (standing === undefined) return { kind: 'refused', text: null }; // nothing stands there now
+         if (!opened.isFile() || opened.dev !== standing.dev || opened.ino !== standing.ino) {
+            return { kind: 'refused', text: null };
+         }
+         return { kind: 'eligible', text: wantText ? fs.readFileSync(source.fd, 'utf8') : null };
+      } finally {
+         try {
+            fs.closeSync(source.fd);
+         } catch {
+            /* the answer is already decided; closing cannot change it */
+         }
+      }
+   } catch {
+      return { kind: 'eligible', text: null }; // standing and uncontradicted, merely unreadable
+   }
 }
 
 /** The probed names of one root, classified once. */
@@ -276,7 +335,7 @@ class RootScan {
    kind(name: string): EntryKind {
       let k = this.kinds.get(name);
       if (k === undefined) {
-         k = classify(this.rootAbs, name);
+         k = verify(this.rootAbs, name, false).kind;
          this.kinds.set(name, k);
       }
       return k;
@@ -292,15 +351,14 @@ class RootScan {
       return names.filter((n) => this.kind(n) === 'refused');
    }
    /** The bytes of one probed name, or null. Structurally gated: a name that is
-    * not an eligible regular file inside the real root is never opened, so no
-    * read can bypass the eligibility rule by being spelled at a new call site. */
+    * not an eligible regular file inside the real root is never opened, so no read
+    * can bypass the eligibility rule by being spelled at a new call site — and the
+    * name is judged ONCE MORE immediately before its bytes are taken, so they come
+    * from the descriptor this run proved rather than from a name a swap could have
+    * retargeted since the scan classified it. */
    read(name: string): string | null {
       if (this.kind(name) !== 'eligible') return null;
-      try {
-         return fs.readFileSync(path.join(this.rootAbs, name), 'utf8');
-      } catch {
-         return null;
-      }
+      return verify(this.rootAbs, name, true).text;
    }
    /** Every root entry matching `re`, sorted bytewise (never by locale: the three
     * SDKs must agree, and a locale collation orders `requirements-Test.txt`

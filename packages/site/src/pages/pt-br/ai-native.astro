@@ -1,0 +1,160 @@
+---
+// Brazilian Portuguese translation of src/pages/ai-native.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation follows,
+// and it is what the drift gate compares against the current blob.
+//
+// The vocabulary and FAQ structured data on the English page is not repeated here: the
+// site's JSON-LD keeps English as its canonical language, so one graph defines the terms.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '521aed1784f59b213d781aaa912fdc8ea02a2a86';
+const strings = translationStrings('pt-br');
+---
+
+<Base
+   lang="pt-br"
+   title="O que é uma equipe nativa de IA? · Leji"
+   description="Uma equipe nativa de IA é uma equipe em que pessoas e agentes de IA trabalham a partir de uma única camada de contexto compartilhada, versionada e governada. Leji é a especificação aberta para isso."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/ai-native/" />
+         <main id="content" class="prose">
+            <PageHeader kind="background" />
+            <h1 id="ai-native-team">O que é uma equipe nativa de IA?</h1>
+            <TranslationNote strings={strings.note} href="/ai-native/" />
+
+            <p class="sp-lede">
+               Uma equipe nativa de IA é uma equipe em que pessoas e agentes de IA trabalham a partir de uma única{' '}
+               <strong>camada de contexto compartilhada</strong>: um registro de como a equipe pensa, pertencente ao
+               repositório, versionado e alterado por meio de revisão.
+            </p>
+
+            <p>
+               A camada de contexto guarda a linguagem do domínio da equipe, as restrições que precisam valer, as
+               decisões por trás do sistema, as convenções que ela segue e as travas de proteção que orientam a atuação
+               dos agentes. Pessoas e agentes a consultam a cada tarefa, e toda mudança passa pelo mesmo processo de
+               revisão e aprovação. <a href="/pt-br/spec/">Leji</a> é a especificação aberta da camada de contexto.
+            </p>
+
+            <h2>Além dos prompts e da adoção de ferramentas</h2>
+            <p>
+               Ferramentas de IA aceleram tarefas, mas prompts espalhados, instruções por ferramenta e conhecimento
+               guardado na memória de cada um não mudam a forma de trabalhar de uma equipe. Já uma equipe nativa de IA
+               compartilha, versiona e governa uma única <a href="/pt-br/spec/context-layer/">camada de contexto</a>.
+            </p>
+
+            <h2>Intenção acima de instruções</h2>
+            <p>
+               O contexto compartilhado registra a intenção duradoura: o que as coisas significam, o que precisa valer e
+               por quê. Pessoas e agentes definem as ações com base nessa intenção e na tarefa, enquanto o significado e
+               as restrições sobrevivem a qualquer fornecedor. A <a href="/pt-br/rationale/">justificativa</a> explica por
+               quê.
+            </p>
+
+            <h2 id="a-circle-not-a-tier">Um círculo, não um degrau</h2>
+            <p>
+               O contexto circula pelo trabalho entre pessoas, de pessoas para a IA e de pessoas para a IA e de volta
+               para as pessoas. Todos que têm acesso o consultam, qualquer pessoa pode propor mudanças e a aprovação
+               cabe às pessoas. O controle de versão concede o acesso; o contexto restrito fica em uma camada de
+               contexto com permissões próprias.
+            </p>
+
+            <h2 id="mechanism-over-goodwill">Mecanismo acima de boa vontade</h2>
+            <p>
+               O contexto compartilhado se deteriora conforme a realidade muda. Etapas obrigatórias de revisão,
+               verificações mecânicas de desvio e horizontes de atualidade evitam que a manutenção dependa apenas da
+               disciplina das pessoas. As <a href="/pt-br/spec/governance/">regras de governança</a> aplicam esses mecanismos
+               de imposição de forma mecânica e sinalizam o contexto que envelheceu.
+            </p>
+
+            <h2 id="ai-native-workflow">Um fluxo de trabalho nativo de IA</h2>
+            <p>
+               Uma pessoa da engenharia e um agente carregam a camada de contexto para uma tarefa e partem da mesma
+               linguagem, das mesmas restrições e das mesmas decisões. O agente propõe as mudanças de código e de
+               contexto onde forem necessárias; uma pessoa revisa as duas pelo mesmo processo de revisão e aprovação, e
+               assim manter o contexto passa a fazer parte do trabalho.
+            </p>
+
+            <h2>Como o Leji torna isso verificável</h2>
+            <p>
+               Ser nativo de IA é fácil de declarar e difícil de verificar. O Leji torna a camada de contexto
+               verificável: um manifesto <code>leji.json</code> declara a conformidade, e a <a href="/pt-br/quickstart/"
+                  >CLI de referência</a
+               > adota o repositório, valida os artefatos de acordo com os schemas publicados e determina o nível de conformidade.
+            </p>
+            <p>
+               Os quatro <a href="/pt-br/spec/conformance/">níveis de conformidade</a> (<code>core</code>,{' '}
+               <code>indexed</code>, <code>governed</code> e <code>federated</code>) nomeiam, cada um, um conjunto
+               cumulativo de requisitos que uma camada de contexto tem ou não tem em funcionamento. Eles não são uma
+               nota de maturidade: a maioria das equipes deveria chegar a <code>governed</code> e parar.
+            </p>
+            <p>
+               O nível <code>federated</code> existe para organizações em que mais de uma equipe já é dona de uma camada de
+               contexto que vale manter inteira; as irmãs continuam sendo fontes distintas, de donos independentes, que uma
+               hospedeira monta por pin.
+            </p>
+            <p>
+               A CLI verifica o que pode ser conferido por máquina e relata o restante, que a equipe atesta. Assim, a
+               declaração tem fundamento e não se limita a uma afirmação.
+            </p>
+
+            <h2>Perguntas frequentes</h2>
+
+            <details class="fold">
+               <summary><h3>Ser nativo de IA é só usar ferramentas de IA para programar?</h3></summary>
+               <p>
+                  Não. Usar ferramentas de IA acelera tarefas individuais. Ser nativo de IA muda a forma de trabalhar da
+                  equipe: o contexto de trabalho é compartilhado, versionado e governado, então pessoas e agentes
+                  trabalham a partir da mesma fonte. Adotar ferramentas é um passo no caminho, não o destino.
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary><h3>Ser nativo de IA exige algum fornecedor ou ferramenta específica?</h3></summary>
+               <p>
+                  Não. A camada de contexto independe de ferramenta. O Leji padroniza o formato e a governança, não o
+                  conteúdo, e a conformidade nunca exige um produto ou serviço comercial específico, nem mesmo os da
+                  própria curadora. Os pontos de entrada de fornecedor são redirecionamentos para a única camada de
+                  contexto.
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary><h3>Qual é a diferença entre o Leji e a camada de contexto?</h3></summary>
+               <p>
+                  O Leji é a especificação aberta. A camada de contexto é o que uma equipe constrói e possui ao
+                  segui-la. O Leji padroniza o formato e a governança, não o conteúdo.
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary
+                  ><h3>Como uma equipe nativa de IA impede que a camada de contexto fique desatualizada?</h3></summary
+               >
+               <p>
+                  As mudanças na camada de contexto passam pelo mesmo processo de revisão e aprovação que o código, os
+                  horizontes de atualidade sinalizam o contexto que envelheceu, e as ferramentas nunca tratam
+                  silenciosamente contexto desatualizado como atual. Uma equipe nativa de IA atualiza a camada de
+                  contexto como parte de fazer o trabalho. Assim, a desatualização aparece cedo, em vez de se acumular
+                  sem que ninguém perceba.
+               </p>
+            </details>
+
+            <p class="next-step">
+               A seguir: <a href="/pt-br/spec/">leia a especificação</a> ou <a href="/pt-br/quickstart/"
+                  >construa uma camada de contexto e verifique se ela está em conformidade</a
+               >.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

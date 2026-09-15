@@ -62,7 +62,13 @@ from .preflight import (
     render_preflight,
     run_preflight,
 )
-from .manifest import CATEGORY_IDS, effective_changelog_path, effective_index_path, load_manifest
+from .manifest import (
+    CATEGORY_IDS,
+    effective_changelog_path,
+    effective_index_path,
+    effective_viewer_title,
+    load_manifest,
+)
 from .mounts import (
     SelfProjection,
     federation_enforcement,
@@ -72,7 +78,7 @@ from .mounts import (
 )
 from .route import RouteInput, route
 from .status import status_report, unindexed_paths
-from .schemas import SDK_VERSION, SUPPORTED_LINES, load_cli_spec
+from .schemas import SDK_VERSION, SUPPORTED_LINES, display_version, load_cli_spec
 from .update_pin import (
     MOUNT_UPDATE_PIN_REASONS,
     UpdatePinResult,
@@ -1401,7 +1407,7 @@ def main(argv: list[str] | None = None) -> int:
         print(cmd_help if cmd_help is not None else USAGE)
         return 0
     if meta == "version":
-        print(SDK_VERSION)
+        print(display_version())
         return 0
     command = _first_command(argv)
     if command is None or command == "help":
@@ -1410,7 +1416,7 @@ def main(argv: list[str] | None = None) -> int:
         print(USAGE)
         return 0 if command is not None else 2
     if command == "version":
-        print(SDK_VERSION)
+        print(display_version())
         return 0
     if command not in _KNOWN_COMMANDS:
         print(f'leji: unknown command "{command}"\n', file=sys.stderr)
@@ -2108,7 +2114,7 @@ def main(argv: list[str] | None = None) -> int:
             # Display localhost (nicer, still a secure context); server stays bound
             # to 127.0.0.1. Viewer is served at web root, so the URL is just `/`.
             url = f"http://localhost:{port}/"
-            title = (load.manifest.get("viewer") or {}).get("title") or load.manifest["name"]
+            title = effective_viewer_title(load.manifest)
             print(f"{title} viewer → {url}   (Ctrl+C to stop)", flush=True)
             if want_open:
                 open_browser(url)

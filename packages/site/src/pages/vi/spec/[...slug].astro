@@ -1,0 +1,256 @@
+---
+// The Vietnamese specification: one route for every translated document, plus the
+// one-page view once the locale has them all. The English documents in `spec/` are the
+// normative text, so these pages are informative translations of them: each carries the
+// translation banner and none emits article metadata that would present it as the
+// specification itself.
+//
+// The page composes the document shell itself rather than using `Doc.astro`, for the
+// same reason the other Vietnamese pages do: the shell has to declare the language the
+// page is written in, and the sidebar has to stay on the English route it highlights.
+import Base from '../../../layouts/Base.astro';
+import SiteHeader from '../../../components/SiteHeader.astro';
+import SiteFooter from '../../../components/SiteFooter.astro';
+import SectionNav from '../../../components/SectionNav.astro';
+import PageHeader from '../../../components/PageHeader.astro';
+import SpecTranslationBanner from '../../../components/SpecTranslationBanner.astro';
+import {
+   buildSpecI18nFull,
+   FULL_SLUG,
+   getSpecI18nStaticPaths,
+   parseSpecI18nId,
+   renderSpecI18nEntry,
+   specI18nPath,
+} from '../../../spec-i18n';
+import { SPEC_DOCS, specPath } from '../../../data/spec-docs';
+import { specBannerStrings, translationStrings } from '../../../data/i18n';
+import { correctionLinks } from '../../../i18n';
+
+export async function getStaticPaths() {
+   const paths = await getSpecI18nStaticPaths('vi');
+   // The one-page view is generated only once every document is translated, so the
+   // overview links it only when it is actually there.
+   const hasFull = paths.some((path) => path.params.slug === FULL_SLUG);
+   return paths.map((path) => ({ ...path, props: { ...path.props, hasFull } }));
+}
+
+// The documents are named in Vietnamese wherever the name labels a Vietnamese page a
+// reader is about to open.
+const DOC_TITLES: Record<string, string> = {
+   readme: 'Bản đặc tả Leji',
+   'context-layer': 'Lớp ngữ cảnh',
+   'content-categories': 'Danh mục nội dung',
+   'boot-profile': 'Boot profile',
+   'machine-readable-surface': 'Bề mặt máy đọc được',
+   decisions: 'Quyết định',
+   governance: 'Quản trị',
+   distribution: 'Phân phối',
+   conformance: 'Mức tuân thủ',
+   versioning: 'Đánh phiên bản',
+};
+const docTitle = (id: string) => DOC_TITLES[id] ?? id.replace(/-/g, ' ');
+
+const { locale, entry, entries, hasFull } = Astro.props;
+const strings = specBannerStrings(locale);
+const note = translationStrings(locale).note;
+// The one-page view is composed from ten files rather than one, so its invitation to
+// open a pull request is per document, beside the heading that document opens with.
+const editHrefs: Record<string, string> = Object.fromEntries(
+   (entries ? correctionLinks(Astro.url.pathname).documents : []).map((row) => [row.doc, row.editHref]),
+);
+
+const doc = entry ? parseSpecI18nId(entry.id).doc : null;
+const sections = entries ? await buildSpecI18nFull(locale, entries) : null;
+const rendered = entry ? await renderSpecI18nEntry(entry) : null;
+const Content = rendered?.Content ?? null;
+
+// The sidebar is the English one, so it is told the English route this page translates.
+const current = doc ? specPath(doc) : '/spec/full/';
+
+const title = doc ? `${docTitle(doc)} · Leji` : 'Bản đặc tả Leji (một trang) · Leji';
+const description = doc
+   ? doc === 'readme'
+      ? 'Bản đặc tả Leji: một bản đặc tả mở cho lớp ngữ cảnh dùng chung của các nhóm AI-native.'
+      : `${docTitle(doc)}, một phần của bản đặc tả Leji cho lớp ngữ cảnh dùng chung của các nhóm AI-native.`
+   : 'Toàn bộ bản đặc tả Leji trên một trang: mọi tài liệu chuẩn tắc của bản đặc tả mở cho lớp ngữ cảnh dùng chung của các nhóm AI-native.';
+
+// The same contents list the English document page builds: a view over the anchors the
+// headings already carry, worth showing from three sections up.
+interface TocEntry {
+   slug: string;
+   text: string;
+   children: { slug: string; text: string }[];
+}
+const label = (text: string) => text.replace(/#$/, '').trimEnd();
+const contents: TocEntry[] = [];
+for (const heading of rendered?.headings ?? []) {
+   if (heading.depth === 2) contents.push({ slug: heading.slug, text: label(heading.text), children: [] });
+   else if (heading.depth === 3) contents.at(-1)?.children.push({ slug: heading.slug, text: label(heading.text) });
+}
+const showContents = contents.length >= 3;
+
+const order = doc ? SPEC_DOCS.findIndex((d) => d.id === doc) : -1;
+const prev = order > 0 ? SPEC_DOCS[order - 1] : null;
+const next = order >= 0 && order < SPEC_DOCS.length - 1 ? SPEC_DOCS[order + 1] : null;
+---
+
+<Base lang={locale} title={title} description={description}>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current={current} />
+         <main id="content" class="prose">
+            <PageHeader kind="normative" />
+            {
+               entries && sections ? (
+                  <div class="spec-full">
+                     <SpecTranslationBanner strings={strings} note={note} href="/spec/full/" />
+                     <h1>Bản đặc tả Leji</h1>
+                     <p class="sp-lede">
+                        Toàn bộ bản đặc tả chuẩn tắc được gom trên một trang theo thứ tự đọc, thuận tiện để đọc liền
+                        mạch hoặc tìm kiếm. Mỗi phần đều dẫn về trang riêng, nơi từng tiêu đề có neo trích dẫn.
+                     </p>
+
+                     <nav class="doc-toc onepage-toc" aria-label="Mục lục">
+                        <p class="toc-title">Mục lục</p>
+                        <ol>
+                           {sections.map((section) => (
+                              <li>
+                                 <a href={`#sec-${section.id}`}>{docTitle(section.id)}</a>
+                              </li>
+                           ))}
+                        </ol>
+                     </nav>
+
+                     {sections.map((section) => (
+                        <section class="spec-section" id={`sec-${section.id}`}>
+                           <p class="sec-meta">
+                              <a href={section.href}>{docTitle(section.id)} ↗</a>
+                              <a class="sec-edit" href={editHrefs[section.id]}>
+                                 {note.editLinkText}
+                              </a>
+                           </p>
+                           <Fragment set:html={section.html} />
+                        </section>
+                     ))}
+                  </div>
+               ) : (
+                  doc &&
+                  entry &&
+                  Content && (
+                     <>
+                        <SpecTranslationBanner strings={strings} note={note} href={specPath(doc)} />
+                        {doc === 'readme' && hasFull && (
+                           <p class="spec-find">
+                              Tìm trong bản đặc tả: mở <a href={specI18nPath(locale, FULL_SLUG)}>bản một trang</a> rồi
+                              dùng chức năng tìm kiếm của trình duyệt.
+                           </p>
+                        )}
+                        {showContents && (
+                           <nav class="doc-toc" aria-label="Mục lục">
+                              <p class="toc-title">Mục lục</p>
+                              <ol>
+                                 {contents.map((h) => (
+                                    <li>
+                                       <a href={`#${h.slug}`}>{h.text}</a>
+                                       {h.children.length > 0 && (
+                                          <ol>
+                                             {h.children.map((c) => (
+                                                <li>
+                                                   <a href={`#${c.slug}`}>{c.text}</a>
+                                                </li>
+                                             ))}
+                                          </ol>
+                                       )}
+                                    </li>
+                                 ))}
+                              </ol>
+                           </nav>
+                        )}
+                        <Content />
+                        {(prev || next) && (
+                           <nav class="doc-seq" aria-label="Thứ tự bản đặc tả">
+                              {prev ? (
+                                 <a class="doc-seq-prev" href={specI18nPath(locale, prev.id)}>
+                                    <span>Trước</span>
+                                    {docTitle(prev.id)}
+                                 </a>
+                              ) : (
+                                 <span />
+                              )}
+                              {next && (
+                                 <a class="doc-seq-next" href={specI18nPath(locale, next.id)}>
+                                    <span>Tiếp theo</span>
+                                    {docTitle(next.id)}
+                                 </a>
+                              )}
+                           </nav>
+                        )}
+                     </>
+                  )
+               )
+            }
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .spec-find {
+      margin: 0.4rem 0 0;
+      font-size: 0.9rem;
+      color: var(--leji-text-body);
+   }
+   /* box chrome comes from the shared `.doc-toc`; ten sections read better in two */
+   .onepage-toc ol {
+      columns: 2;
+      column-gap: 2rem;
+   }
+   .spec-section {
+      scroll-margin-top: calc(var(--header-h) + 1.5rem);
+      padding-top: 1.5rem;
+      margin-top: 2.5rem;
+      border-top: 1px solid var(--leji-border);
+   }
+   .spec-section:first-of-type {
+      border-top: none;
+      margin-top: 1.5rem;
+   }
+   .sec-meta {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin: 0 0 -0.6rem;
+   }
+   .sec-meta a {
+      color: var(--leji-text-body);
+      text-decoration: none;
+   }
+   .sec-meta a:hover {
+      color: var(--leji-link);
+   }
+   /* the correction link, on the same meta line as the document's own page */
+   .sec-edit::before {
+      content: '\00b7';
+      margin: 0 0.45em;
+   }
+   /* the demoted h2 (was h1) reads as the section title on the consolidated page */
+   .sec-meta + :global(h2) {
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.7rem;
+      color: var(--leji-text);
+      margin: 0.2rem 0 0.8rem;
+   }
+   /* the overview's own heading repeats the page title, so drop it here */
+   .spec-section:first-of-type .sec-meta + :global(h2) {
+      display: none;
+   }
+   /* hide per-heading anchors here: repeated ids would point at the first match;
+      the section links above are the navigation path */
+   .spec-full :global(a.heading-anchor) {
+      display: none;
+   }
+</style>

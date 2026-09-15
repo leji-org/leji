@@ -1,0 +1,296 @@
+---
+// Simplified Chinese translation of src/pages/translation.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation follows.
+//
+// The shell is composed here rather than through `Doc.astro` so the page can declare the
+// language it is written in while the sidebar stays on the English route it highlights.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '1945f00a4c9f5b164931b380bc776df47d8224c6';
+const strings = translationStrings('zh-hans');
+---
+
+<Base
+   lang="zh-hans"
+   title="翻译 · Leji"
+   description="leji.org 如何翻译：以英文页面为准，一份翻译如何完成并获得批准，各语言的术语表参照哪些资料，翻译如何保持与英文同步，以及如何报告错误。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/translation/" />
+         <main id="content" class="prose">
+            <PageHeader kind="governance" />
+            <h1>leji.org 如何翻译</h1>
+            <TranslationNote strings={strings.note} href="/translation/" />
+            <p>
+               leji.org
+               以英文书写，再逐一翻译成各种语言。本页记录两个版本出现出入时以哪一份为准、一份翻译如何完成、它的术语参照哪些资料，以及如何报告错误。
+            </p>
+
+            <h2>以英文页面为准</h2>
+            <p>
+               每个页面都先用英文写成。翻译页面是对该英文页面的翻译，并在标题下方写明这一点；两者出现出入时，以英文文本为准。规范的译文属于资料性译文：规范性文本是冻结的
+               1.0 版本系列上的英文原文，每个翻译后的规范页面都带有说明此事的横幅。
+            </p>
+
+            <h2>一份翻译如何完成</h2>
+            <p>
+               页面先以智能体辅助的工作流起草，再逐页批准后才会发布。两个未参与起草的独立评审引擎会分别核对与英文的忠实程度、术语是否符合该语言的术语表，以及行文是否流畅；只有两者都认可，页面才会发布。
+            </p>
+
+            <h2>术语</h2>
+            <p>
+               每种语言都维护一份 Leji
+               所用术语的术语表。若某个术语在某个知名开源项目的人工翻译中已有约定俗成的译法，术语表会沿用它，或记录一个有理由的例外。这些参照只是辅助，绝不是来源。下面的清单会随着这些项目译本的出现与消失而保持更新。
+            </p>
+
+            <h3>简体中文</h3>
+            <ul>
+               <li>
+                  <a href="https://developer.mozilla.org/zh-CN/docs/Glossary" target="_blank" rel="noopener"
+                     >MDN Web Docs (zh-CN)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://kubernetes.io/zh-cn/docs/" target="_blank" rel="noopener">Kubernetes 文档（zh-cn）</a
+                  >
+               </li>
+               <li><a href="https://git-scm.com/book/zh/v2" target="_blank" rel="noopener">Pro Git (zh)</a></li>
+               <li><a href="https://docs.github.com/zh/" target="_blank" rel="noopener">GitHub Docs (zh)</a></li>
+               <li>
+                  <a href="https://docs.python.org/zh-cn/3/glossary.html" target="_blank" rel="noopener"
+                     >Python 3 文档（zh-cn）</a
+                  >
+               </li>
+               <li><a href="https://cn.vuejs.org/glossary/" target="_blank" rel="noopener">Vue.js (zh)</a></li>
+               <li><a href="https://cn.vitejs.dev/guide/" target="_blank" rel="noopener">Vite (zh)</a></li>
+               <li><a href="https://zh-hans.react.dev/" target="_blank" rel="noopener">React (zh-hans)</a></li>
+               <li>
+                  <a href="https://www.typescriptlang.org/zh/docs/handbook/" target="_blank" rel="noopener"
+                     >TypeScript (zh)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://keepachangelog.com/zh-CN/1.1.0/" target="_blank" rel="noopener"
+                     >Keep a Changelog (zh-CN)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://semver.org/lang/zh-CN/" target="_blank" rel="noopener">Semantic Versioning (zh-CN)</a
+                  >
+               </li>
+               <li>
+                  <a
+                     href="https://huggingface.co/learn/agents-course/zh-CN/unit1/what-are-agents"
+                     target="_blank"
+                     rel="noopener">Hugging Face Agents Course (zh-CN)</a
+                  >
+               </li>
+            </ul>
+
+            <h3>日语</h3>
+            <ul>
+               <li><a href="https://git-scm.com/book/ja/v2" target="_blank" rel="noopener">Pro Git (ja)</a></li>
+               <li><a href="https://docs.github.com/ja/" target="_blank" rel="noopener">GitHub Docs (ja)</a></li>
+               <li>
+                  <a href="https://kubernetes.io/ja/docs/reference/glossary/" target="_blank" rel="noopener"
+                     >Kubernetes 文档与术语表（ja）</a
+                  >
+               </li>
+               <li>
+                  <a href="https://developer.mozilla.org/ja/docs/Glossary" target="_blank" rel="noopener"
+                     >MDN Web Docs (ja)</a
+                  >
+               </li>
+               <li><a href="https://ja.react.dev/" target="_blank" rel="noopener">React (ja)</a></li>
+               <li><a href="https://ja.vuejs.org/glossary/" target="_blank" rel="noopener">Vue (ja)</a></li>
+               <li>
+                  <a href="https://docs.python.org/ja/3/glossary.html" target="_blank" rel="noopener"
+                     >Python 文档（ja）</a
+                  >
+               </li>
+               <li>
+                  <a href="https://packaging.python.org/ja/latest/" target="_blank" rel="noopener"
+                     >Python Packaging User Guide (ja)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://waic.jp/translations/WCAG21/" target="_blank" rel="noopener">WCAG 2.1 (ja, WAIC)</a>
+               </li>
+               <li>
+                  <a href="https://triple-underscore.github.io/w3c-common-ja.html" target="_blank" rel="noopener"
+                     >W3C 规范通用内容（ja）</a
+                  >
+               </li>
+               <li><a href="https://www.w3.org/ja/standards/types/" target="_blank" rel="noopener">W3C (ja)</a></li>
+               <li>
+                  <a href="https://keepachangelog.com/ja/1.1.0/" target="_blank" rel="noopener">Keep a Changelog (ja)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://semver.org/lang/ja/" target="_blank" rel="noopener">Semantic Versioning (ja)</a>
+               </li>
+               <li><a href="https://ja.vite.dev/guide/" target="_blank" rel="noopener">Vite (ja)</a></li>
+               <li><a href="https://railsguides.jp/" target="_blank" rel="noopener">Rails Guides (ja)</a></li>
+               <li>
+                  <a href="https://docs.openstack.org/ja/security-guide/" target="_blank" rel="noopener"
+                     >OpenStack Security Guide (ja)</a
+                  >
+               </li>
+            </ul>
+
+            <h3>巴西葡萄牙语</h3>
+            <ul>
+               <li><a href="https://git-scm.com/book/pt-br/v2" target="_blank" rel="noopener">Pro Git (pt-br)</a></li>
+               <li><a href="https://docs.github.com/pt" target="_blank" rel="noopener">GitHub Docs (pt)</a></li>
+               <li>
+                  <a href="https://kubernetes.io/pt-br/docs/home/" target="_blank" rel="noopener"
+                     >Kubernetes 文档（pt-br）</a
+                  >
+               </li>
+               <li>
+                  <a href="https://docs.python.org/pt-br/3/glossary.html" target="_blank" rel="noopener"
+                     >Python 文档（pt-br）</a
+                  >
+               </li>
+               <li>
+                  <a href="https://developer.mozilla.org/pt-BR/" target="_blank" rel="noopener">MDN Web Docs (pt-BR)</a>
+               </li>
+               <li>
+                  <a href="https://www.w3.org/Translations/WCAG20-pt-br/" target="_blank" rel="noopener"
+                     >W3C WCAG 2.0 授权译本（pt-br）</a
+                  >
+               </li>
+               <li>
+                  <a href="https://docs.djangoproject.com/pt-br/5.2/glossary/" target="_blank" rel="noopener"
+                     >Django 文档（pt-br）</a
+                  >
+               </li>
+               <li><a href="https://pt-br.react.dev/learn" target="_blank" rel="noopener">React 文档（pt-br）</a></li>
+               <li><a href="https://docs.astro.build/pt-br/" target="_blank" rel="noopener">Astro 文档（pt-br）</a></li>
+               <li>
+                  <a href="https://keepachangelog.com/pt-BR/1.1.0/" target="_blank" rel="noopener"
+                     >Keep a Changelog (pt-BR)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://www.typescriptlang.org/pt/" target="_blank" rel="noopener">TypeScript 站点（pt）</a>
+               </li>
+               <li><a href="https://pt.vuejs.org/" target="_blank" rel="noopener">Vue 文档（pt）</a></li>
+            </ul>
+
+            <h3>西班牙语</h3>
+            <ul>
+               <li><a href="https://git-scm.com/book/es/v2" target="_blank" rel="noopener">Pro Git (es)</a></li>
+               <li>
+                  <a href="https://raw.githubusercontent.com/git/git/master/po/es.po" target="_blank" rel="noopener"
+                     >Git 的西班牙语本地化翻译（po/es.po）</a
+                  >
+               </li>
+               <li>
+                  <a href="https://kubernetes.io/es/docs/reference/glossary/" target="_blank" rel="noopener"
+                     >Kubernetes 文档与术语表（es）</a
+                  >
+               </li>
+               <li>
+                  <a href="https://developer.mozilla.org/es/docs/Glossary" target="_blank" rel="noopener"
+                     >MDN Web Docs (es)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://docs.python.org/es/3/glossary.html" target="_blank" rel="noopener"
+                     >Python 文档（es）</a
+                  >
+               </li>
+               <li><a href="https://es.react.dev/" target="_blank" rel="noopener">React 文档（es）</a></li>
+               <li>
+                  <a href="https://keepachangelog.com/es-ES/1.1.0/" target="_blank" rel="noopener"
+                     >Keep a Changelog (es)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://semver.org/lang/es/" target="_blank" rel="noopener">Semantic Versioning (es)</a>
+               </li>
+               <li>
+                  <a href="https://www.conventionalcommits.org/es/v1.0.0/" target="_blank" rel="noopener"
+                     >Conventional Commits (es)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://opensource.guide/es/leadership-and-governance/" target="_blank" rel="noopener"
+                     >Open Source Guides (es)</a
+                  >
+               </li>
+               <li>
+                  <a
+                     href="https://docs.github.com/es/get-started/learning-about-github/github-glossary"
+                     target="_blank"
+                     rel="noopener">GitHub Docs (es)</a
+                  >
+               </li>
+               <li><a href="https://docs.astro.build/es/" target="_blank" rel="noopener">Astro 文档（es）</a></li>
+            </ul>
+
+            <h3>越南语</h3>
+            <ul>
+               <li>
+                  <a href="https://raw.githubusercontent.com/git/git/master/po/vi.po" target="_blank" rel="noopener"
+                     >Git 的越南语本地化翻译（po/vi.po）</a
+                  >
+               </li>
+               <li>
+                  <a href="https://kubernetes.io/vi/docs/" target="_blank" rel="noopener"
+                     >Kubernetes 文档与术语表（vi）</a
+                  >
+               </li>
+               <li>
+                  <a href="https://semver.org/lang/vi/" target="_blank" rel="noopener">Semantic Versioning 2.0.0 (vi)</a
+                  >
+               </li>
+               <li><a href="https://vi.vuejs.org/" target="_blank" rel="noopener">Vue.js 文档（vi，Vue 2）</a></li>
+               <li><a href="https://12factor.net/vi/" target="_blank" rel="noopener">The Twelve-Factor App (vi)</a></li>
+               <li>
+                  <a
+                     href="https://www.contributor-covenant.org/vi/version/2/1/code_of_conduct/"
+                     target="_blank"
+                     rel="noopener">Contributor Covenant 2.1 (vi)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://gitlab.gnome.org/GNOME/gtk/-/raw/main/po/vi.po" target="_blank" rel="noopener"
+                     >GNOME GTK 本地化翻译（po/vi.po）</a
+                  >
+               </li>
+               <li><a href="https://ibst.vn/" target="_blank" rel="noopener">越南国家标准草案（标准文件用语）</a></li>
+               <li>
+                  <a href="https://vi.wikipedia.org/" target="_blank" rel="noopener">越南语维基百科（次要参考）</a>
+               </li>
+            </ul>
+
+            <h2>保持与英文同步</h2>
+            <p>
+               每个翻译页面都记录它所依据的英文源文件修订版本。每次构建时都有一项检查，只要有译文落后于它的来源，就让这次构建失败，因此已发布的译文绝不会比它所翻译的英文更旧。这个修订版本只做记录，不会显示出来。
+            </p>
+
+            <h2>报告错误</h2>
+            <p>
+               每个翻译页面在标题下方都带有两个链接：一个用于新建议题，语言与页面已经预先填好；另一个打开该页面自身的源文件，用于发起拉取请求。单页规范视图是个例外：它由多份文档合成，而不是只有一份，因此它的议题链接位于页面顶部的横幅中，每个文档标题旁各有一个编辑链接。更正会像其他任何改动一样经过评审，并随下一次发布落地。
+            </p>
+
+            <h2>哪些内容不翻译</h2>
+            <p>
+               命令名、标志、路径、JSON 键与代码示例保持英文；代码示例中的注释会翻译。JSON Schema 文件本身与原始
+               markdown 路由保持英文。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

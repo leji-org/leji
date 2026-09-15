@@ -1,10 +1,18 @@
 ---
 // Syntax-highlighted code block with a copy button. The button copies the
 // rendered code's textContent, so the copied text is exactly the source.
+//
+// A page names the button after the command it copies, in its own language; where it
+// names nothing the general label stands in, read from the page's URL like the rest of
+// the shared chrome. The button renames itself while the feedback shows, so that name
+// is handed to the script below as a data attribute: one script serves every language,
+// and a word inside it could only be in one of them.
 import { Code } from 'astro:components';
 import copyIcon from '../assets/copy.svg?raw';
 import checkIcon from '../assets/check.svg?raw';
 import lejiSyntaxTheme from '../styles/shiki-leji.json';
+import { chromeStrings } from '../data/i18n';
+import { localeOf } from '../i18n';
 
 interface Props {
    code: string;
@@ -12,10 +20,11 @@ interface Props {
    /** Accessible label for the button (and its copied/idle states). */
    label?: string;
 }
-const { code, lang = 'text', label = 'Copy to clipboard' } = Astro.props;
+const chrome = chromeStrings(localeOf(Astro.url.pathname));
+const { code, lang = 'text', label = chrome.copyCode } = Astro.props;
 ---
 
-<div class="cc" data-copy-code data-copy-label={label}>
+<div class="cc" data-copy-code data-copy-label={label} data-copied-label={chrome.copied}>
    <Code code={code} lang={lang} theme={lejiSyntaxTheme} />
    <button type="button" class="cc-copy" aria-label={label}>
       <span class="cc-i cc-i-copy" set:html={copyIcon} />
@@ -94,17 +103,18 @@ const { code, lang = 'text', label = 'Copy to clipboard' } = Astro.props;
       const codeEl = root.querySelector<HTMLElement>('.astro-code');
       const copyBtn = root.querySelector<HTMLButtonElement>('.cc-copy');
       if (!codeEl || !copyBtn) continue;
-      const label = root.dataset.copyLabel ?? 'Copy to clipboard';
+      // Both names come from the markup, in the language the page was rendered in.
+      const { copyLabel = '', copiedLabel = '' } = root.dataset;
       let timer = 0;
       copyBtn.addEventListener('click', async () => {
          try {
             await navigator.clipboard.writeText(codeEl.textContent ?? '');
             copyBtn.classList.add('copied');
-            copyBtn.setAttribute('aria-label', 'Copied');
+            copyBtn.setAttribute('aria-label', copiedLabel);
             window.clearTimeout(timer);
             timer = window.setTimeout(() => {
                copyBtn.classList.remove('copied');
-               copyBtn.setAttribute('aria-label', label);
+               copyBtn.setAttribute('aria-label', copyLabel);
             }, 1400);
          } catch {
             // clipboard unavailable: the code stays visible to copy by hand

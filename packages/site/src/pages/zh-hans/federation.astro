@@ -1,0 +1,172 @@
+---
+// Simplified Chinese translation of src/pages/federation.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation follows.
+//
+// The shell is composed here rather than through `Doc.astro` so the page can declare the
+// language it is written in while the sidebar stays on the English route it highlights.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+
+const source = '0448756deaad3c402173b30bac77dc310e71a6d8';
+const strings = translationStrings('zh-hans');
+
+// Commands, flags, paths, keys, and values stay unchanged; authored sample comments translate.
+const mounts = `"federation": {
+   "mounts": [
+      {
+         "name": "product-context",
+         "source": "https://github.com/acme/product-context",
+         "pin": "7d3f2a19c4e8b6a0d5f1c2e9b8a7f6d5c4b3a2e1", // 完整提交 ID：作为记录的版本
+         "trackingRef": "refs/heads/main",                    // 据此判断是否过期
+         "owner": { "name": "Product team", "contact": "product@acme.example" },
+         "role": "product-side context, owned by the product team",
+         // 路由：这个挂载何时与任务相关
+         "categories": ["domain", "decisions"],
+         "requiredWhen": ["a task changes how a plan or entitlement is represented"]
+      }
+   ]
+}`;
+
+const commands = `leji mounts hydrate --fetch      # 在各同级层的固定版本处物化层投影
+leji mounts status               # 可用性、完整性，以及各固定版本落后了多少
+leji mounts update-pin <name>    # 将一个固定版本前移到见证的提交
+leji mounts locate <name>        # 读者应从何处读取同级层`;
+---
+
+<Base
+   lang="zh-hans"
+   title="联邦 · Leji"
+   description="把各自独立归属的 Leji 上下文层，以固定版本的同级挂载方式组合起来，同时每个团队都保有自己的仓库、归属与评审流程。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/federation/" />
+         <main id="content" class="prose">
+            <PageHeader kind="guide" />
+            <h1>联邦</h1>
+            <TranslationNote strings={strings.note} href="/federation/" />
+            <p class="sp-lede">
+               通过联邦，多个团队可以共同读取各自独立归属的上下文层，既无需将它们合并，也无需转交维护更新的责任。
+            </p>
+
+            <h2>为什么是组合而不是集中</h2>
+            <p>
+               上下文层能够保持最新，是因为它的负责人在日常工作中会读取并随手修正。集中存放另一个团队的内容，反而会让内容与负责人脱节。联邦保留每个仓库、每位负责人和每套评审流程的原有边界。<a
+                  href="/zh-hans/rationale/">设计理由</a
+               >一页把这个论证讲完整了。
+            </p>
+
+            <h2>同级挂载是什么</h2>
+            <p>
+               同级层是另一个团队的上下文层，由宿主层在 <code>federation.mounts</code>
+               中声明。这条声明固定了宿主层所读取的那个完整不可变提交，并记录归属与任务路由。工具会把同级层在该固定版本处、由其清单定义的层投影读入一个被
+               git 忽略的缓存。它绝不把同级层的内容复制进宿主层。
+            </p>
+            <p>
+               该投影是同级层自身清单在该固定版本处定义为可读的全部内容去重后的并集：它的 <code>leji.json</code
+               >、它的上下文根目录、它的引导配置、它的类别索引文件、它的 <code>agents</code>
+               绑定所指名的那些配置、它的智能体配置树与决策记录树、它的机器索引与变更日志，以及它生成的索引所列出的每一条受治理路径，无论这些位于何处。
+            </p>
+            <p>同级层通常位于更大的产品仓库中；这条边界可以避免挂载在读取上下文时将整个产品仓库一并纳入。</p>
+            <p>
+               挂载是一次引用，不是分叉，也不是授权。同级层依然是权威的，谁可以读它仍由它的版本控制决定。挂载所做的，是让这段关系与它所选定的那个版本，对本就有访问权的人变得清晰可见。
+            </p>
+            <div class="federation-code"><Code code={mounts} lang="jsonc" theme={lejiSyntaxTheme} wrap /></div>
+            <p>
+               固定版本的更新，就是对 <code>leji.json</code>
+               的、经过评审的变更。宿主层声明这段关系；同级层保有自己的仓库、负责人、评审关卡、变更日志与一致性声明。
+            </p>
+
+            <h2>操作这些挂载</h2>
+            <div class="federation-code"><Code code={commands} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+            <p>
+               用 <code>hydrate --fetch</code> 把每个投影在其固定版本处物化，并显式发起一次网络抓取。用
+               <code>status</code> 查看可用性、完整性与固定版本的过期程度。用 <code>locate</code> 取得由解析器管理的路径，读者应当在那里打开某个同级层。
+            </p>
+            <p>
+               更新挂载时，按同一套流程循环操作：用 <code>hydrate --fetch</code> 检查各个来源，用 <code>status</code>
+               查看每个固定版本落后了多少，<code>update-pin</code> 把某个固定版本前移到解析器所见证的那个提交，然后再次
+               <code>hydrate</code>
+               在新的固定版本处物化投影。移动固定版本与物化投影是两个独立动作，因此本地内容发生变化之前，清单改动会先以一份可评审的
+               diff 呈现。
+            </p>
+            <p>
+               <code>update-pin</code> 默认离线：它把某次运行实际观察到的最后一个见证提升上来，并在输出中如实说明，而不是暗示内容是新鲜的。加上
+               <code>--fetch</code> 可以在运行期间观察所声明的 source，那只会与该 source 通信，别无其他；如果其中任何一步失败，该次运行会拒绝执行并让
+               <code>leji.json</code> 保持不变。固定版本只向前移动。若目标不是当前固定版本的后代，会被拒绝，除非你用 <code
+                  >--to &lt;oid&gt;</code
+               > 显式指名它，并加上
+               <code>--allow-non-fast-forward</code
+               >。上游分支被改写过，是动用这一对参数的常见理由；有意回退到更早的提交也同样需要它们，因为这项检查看的是祖先关系，而不是历史是否被改写过。这个组合每次都会给出告警，并被记录在
+               JSON 输出中，因为它把某个固定版本移动到了当前固定版本无法到达的提交上。用 <code>--dry-run</code>
+               可以只看比较结果与将要发生的改写，而不真正改写清单；与 <code>--fetch</code>
+               组合时它仍会执行该标志的对象库与网络动作，因此抓取到的对象与 ref 确实会落入被管理的对象库。
+            </p>
+            <p>
+               只有固定版本本身的几个字节会被改写，因此字段顺序、格式，以及任何 schema
+               未建模的键都会原样保留。旧固定版本对应的缓存条目也会留在原处：缓存按内容寻址，只是该条目不再被引用。系统不提供清理命令；如需释放空间，请手动删除
+               <code>.leji/mounts/</code> 下的旧条目。
+            </p>
+            <p>
+               填充绝不发布任何部分投影。缓存位于 <code>.leji/mounts/</code> 下，<code>init</code> 会把它加入根部的
+               <code>.gitignore</code>。请把那个路径当作实现细节：<code>locate</code>
+               会告诉你在哪里读取某个同级层，而把缓存路径写死，会在发布方式变化时失效。
+            </p>
+            <p>
+               查看器不需要终端也能展示同样的状态。<code>leji viewer</code>
+               会生成一个清单页面，用图展示宿主层与它的同级层，随后每个挂载一行：可用性、漂移、负责人、固定版本与 source。填充之后重新生成即可。
+            </p>
+
+            <h2>声明 <code>federated</code></h2>
+            <p>
+               未填充的挂载是一个告警，绝不是构建失败。CI 可以用 <code
+                  >leji validate --federation=available|required</code
+               > 选择开启可用性强制。普通校验不会抓取，也不要求每个挂载都可用。
+            </p>
+            <p>
+               本地可用不等于一致性。固定版本必须能从 <code>source</code> 所公布的某个 ref 到达，而那需要网络。请运行
+               <code>leji conformance --federation=verify</code> 做这项检查。如果检查无法到达 source，它会报告 <code
+                  >unknown</code
+               >；而 <code>unknown</code> 绝不授予该级别。
+            </p>
+            <p>
+               通过验证是必要条件，而非充分条件。<code>federated</code>
+               还要求这个上下文层本身被另一个仓库作为固定版本挂载消费、过期固定版本的报告已经就位，以及引导配置与生成的索引呈现每一个同级层。
+            </p>
+            <p>
+               前两项由流程担保，因此 <code>verifiedLevel</code> 绝不会替你为它们背书。在某一台机器上完成物化，不是一致性的输入。
+            </p>
+
+            <h2>先选定分发模式</h2>
+            <p>
+               只含文档的 git
+               子模块，让许多仓库消费同一个上下文层。联邦连接的是几个各自已经拥有一个上下文层的团队。这两种模式回答的是不同的问题，因此联邦并不取代子模块。<a
+                  href="/zh-hans/adoption/#where-it-lives">接入指南</a
+               >保留了完整的子模块流程。
+            </p>
+            <p>
+               规范性的投影闭包、失败边界与完整的联邦规则，见<a href="/zh-hans/spec/distribution/">分发</a>。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .federation-code :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+   }
+</style>

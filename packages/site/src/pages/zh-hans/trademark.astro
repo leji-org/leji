@@ -1,0 +1,158 @@
+---
+// Simplified Chinese translation of src/pages/trademark.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation follows.
+//
+// The shell is composed here rather than through `Doc.astro` so the page can declare the
+// language it is written in while the sidebar stays on the English route it highlights.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '80ab9afca319adfc14153a6a422f9b52ffc4016c';
+const strings = translationStrings('zh-hans');
+---
+
+<Base
+   lang="zh-hans"
+   title="商标与使用政策 · Leji"
+   description="你可以如何使用 Leji 这个名称：描述性使用、再分发、分叉、在文件与命令中的功能性使用，以及标识的使用要求。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/trademark/" />
+         <main id="content" class="prose">
+            <PageHeader kind="governance" />
+            <h1>商标与使用政策</h1>
+            <TranslationNote strings={strings.note} href="/trademark/" />
+            <p>
+               Leji™ 是 Contexing, LLC 的商标。请把它用作形容词，修饰它所命名的对象：Leji 规范、Leji schema、Leji
+               工具，而不要把它用作你自己产品的名称。
+            </p>
+            <p>
+               Leji
+               是一份开放规范，而这个名称帮助人们找到官方版本。本政策说明哪些名称用法无需事先询问、哪些情况需要采用不同品牌，以及唯一需要书面许可的事项。它只涉及
+               Leji 的名称与标识，不收窄任何许可：规范采用 CC-BY-4.0，schema、各 SDK 与工具采用 Apache-2.0。见{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/LICENSE.md" target="_blank" rel="noopener"
+                  >LICENSE.md</a
+               >。
+            </p>
+            <p>
+               Contexing, LLC 持有 Leji 的名称与标识，并受托管理这份规范。见{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md" target="_blank" rel="noopener"
+                  >GOVERNANCE.md</a
+               >。
+            </p>
+
+            <h2>你无需询问即可做的事</h2>
+            <ul>
+               <li>
+                  <strong>说明你的产品做什么。</strong>“兼容 Leji”“实现了 Leji 1.0”“支持
+                  Leji”以及类似的真实描述，都不需要许可，也不需要授权。
+               </li>
+               <li>
+                  <strong>再分发正品。</strong
+                  >你可以在不作修改的情况下，以该名称、完全按已发布的形态再分发规范与参考工具。再分发在注册表或应用商店的条目中要写明是谁重新打包的，并且不得把自己呈现为官方分发渠道。
+               </li>
+               <li>
+                  <strong>使用规范要求的那些名称。</strong>规范所定义的文件名、目录名、schema
+                  标识符、清单键与协议标识符，任何实现它的人都可以使用。这种功能性使用不意味着任何背书，也不需要许可。
+               </li>
+               <li>
+                  <strong>让既有命令继续可用。</strong>分叉或独立实现可以发布一个名为
+                  <code>leji</code> 的可执行文件，使既有脚本、CI 配置与文档继续可用。在下文“命令名称”所列条件成立时，我们把它视为对接口标识符的功能性使用，不会据此主张该商标。
+               </li>
+               <li>
+                  <strong>与我们竞争。</strong>我们欢迎基于 Leji
+                  构建独立商业产品与服务，包括与受托方自身产品直接竞争的产品。你无需获得许可、授权，也无需另行告知。
+               </li>
+            </ul>
+
+            <h2>什么需要区分品牌</h2>
+            <p>
+               规范或工具的分叉版本或修改版本，要有自己的产品名称与自己的品牌形象。请如实说明它派生自什么；不要把它呈现为权威的
+               Leji，也不要以暗示受托方为其背书、认证或维护的方式使用该名称。
+            </p>
+
+            <h2>命令名称</h2>
+            <p>
+               我们把兼容实现以 <code>leji</code> 作为命令名称视为对接口标识符的功能性使用，并且不会据此主张 Leji 商标，前提是下列各项全部成立：
+            </p>
+            <ul>
+               <li>
+                  该实现的 <code>--version</code> 输出、<code>--help</code> 输出、打包与文档，都带有它自己的名称，并且该名称与
+                  Leji 明显不同，也不以 Leji 作为其主导标识。
+               </li>
+               <li>同样在这些位置写明它派生自什么，或者写明它是对 Leji 规范的独立实现。</li>
+               <li>其中任何一处都不陈述或暗示它是官方的 Leji 分发版，或者受托方为其背书、认证或维护。</li>
+            </ul>
+            <p>
+               本条仅在所有条件持续成立时适用。任何不满足其中一项条件的使用，都不属于这项“不主张”的范围；本条也不限制法律赋予任何一方的权利。
+            </p>
+            <p>
+               本条只涵盖可执行文件的命令名称。它不涵盖包名、仓库名、组织名、域名，以及在包注册表与应用商店中的条目名称。那些是用来标识来源的，因此适用上文的区分品牌规则。
+            </p>
+
+            <h2>标识</h2>
+            <p>
+               上述许可涵盖的是<strong>名称</strong>。它们不涵盖标识。仓库的各项许可并不延伸到标识文件，其著作权归
+               Contexing, LLC 所有。
+            </p>
+            <p>
+               Contexing, LLC
+               授予你在不作修改的前提下复制、分发与展示标识文件的许可，且仅限于作为该软件未经修改的构建产物的组成部分，以及作为对官方产物忠实、未经修改的再分发的组成部分。法律允许的使用，例如指名性引用与编辑性使用，同样不需要许可。把
+               Leji 标识用作品牌形象，需要事先获得 Contexing, LLC 的书面许可。请通过{' '}
+               <a href="mailto:hello@leji.org">hello@leji.org</a> 询问。
+            </p>
+            <p>如实的文字说明并不需要使用标识，因此本政策不会妨碍你描述自己产品的功能。</p>
+
+            <h2>Leji 的视觉身份</h2>
+            <p>
+               Leji 商标、爱奥尼柱式图形，以及 Leji 绿 <code>#009F71</code>，标识的是这份规范及其受托管理的源。基于 Leji
+               构建的产品自带各自区分的品牌形象，这一点对受托方自己的产品同样成立：它们不会把 Leji 标识或 Leji
+               的视觉身份用作自己的商业外观。
+            </p>
+
+            <h2>一致性声明</h2>
+            <p>
+               对 Leji 的一致性是<strong>自我声明</strong
+               >的。团队或产品在自己的清单中陈述自己的级别，工具则可以对照已公开的检查清单检查每一条机器能检查的要求，并报告其余部分；检查清单写明了哪些条目由机器检查、哪些由流程担保。不存在认证计划、注册表、把关人或费用，因此“符合
+               Leji 1.0”是你自己做出并为之负责的兼容性声明，而不是别人授予你的某种身份。
+            </p>
+            <p>
+               请写明你所声明的版本，例如“符合 Leji
+               1.0”，使该声明可被核查。不属实的一致性声明不在上文的描述性使用许可范围之内。
+            </p>
+
+            <h2>规范中的这个名称</h2>
+            <p>
+               Leji 是这份规范及其源的名称。规范对它所定义的产物使用描述性术语，“context layer”“context
+               manifest”“context index”“context
+               changelog”，因此实现者完全可以在根本不使用该名称的情况下描述自己构建了什么。Contexing
+               对这些单独使用的描述性术语不主张任何商标权利。产物请用描述性术语，Leji 留给这份规范及其受托管理的源。
+            </p>
+            <p>
+               规范定义的、含有“leji”的标识符，例如文件名、目录名、schema
+               标识符与清单键，属于功能性使用，不需要许可，见上文“使用规范要求的那些名称”。命令名称有它自己的条件，见“命令名称”。
+            </p>
+
+            <h2>本政策的变更</h2>
+            <p>
+               我们可能修订本政策，修订自其生效之后适用。某项使用在开始时符合当时的政策，则该项使用以其开始时的形态继续被涵盖。修订之后的持续使用与新的使用，适用当时生效的政策。
+            </p>
+
+            <h2>疑问</h2>
+            <p>
+               如有疑问，请发送邮件至 <a href="mailto:hello@leji.org">hello@leji.org</a
+               >。只要描述属实，且没有把自己的产品呈现为权威的
+               Leji，通常都可以直接使用；本页正是为了让你不必专门发送这封询问邮件。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

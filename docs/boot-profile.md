@@ -5,7 +5,7 @@
 
 ## Identity
 
-This is the Leji repository: the home of the Leji specification, its reference SDKs and tooling, and the leji.org site. Leji is an open specification for the shared context layer of AI-native teams: a versioned, repo-owned record of how a team thinks, read by people and AI agents alike. It is public. Everything here is single-sourced: the normative spec (`spec/`) and its JSON Schemas (`schemas/`), the reference `leji` CLI in TypeScript, Python, and Go (`packages/sdk`, `packages/sdk-py`, `packages/sdk-go`), the MCP server and `create-leji` scaffolder (`packages/mcp`, `packages/create-leji`), and the website (`packages/site`). The spec and schemas are on the v1.0 line (GA, frozen at the v1.3.0 reference-tooling release); the packages release together, currently 1.4.1.
+This is the Leji repository: the home of the Leji specification, its reference SDKs and tooling, and the leji.org site. Leji is an open specification for the shared context layer of AI-native teams: a versioned, repo-owned record of how a team thinks, read by people and AI agents alike. It is public. Everything here is single-sourced: the normative spec (`spec/`) and its JSON Schemas (`schemas/`), the reference `leji` CLI in TypeScript, Python, and Go (`packages/sdk`, `packages/sdk-py`, `packages/sdk-go`), the MCP server and `create-leji` scaffolder (`packages/mcp`, `packages/create-leji`), and the website (`packages/site`). The spec and schemas are on the v1.0 line (GA, frozen at the v1.3.0 reference-tooling release); the packages release together, currently 1.5.0.
 
 ## Loading
 
@@ -42,5 +42,5 @@ If a task surfaces missing or wrong context, fix it in the same change set. Ever
 When you change anything in this context layer:
 
 - Append an entry to `docs/context-changelog.json`: id, date, type, one-line summary, affected paths.
-- Decisions get a record in `docs/decisions/`; copy the shape of an existing one.
+- Decisions get a record in `docs/decisions/`; copy the shape of an existing one. When one change introduces two or more decision records, read the set together before it lands, for overlap, contradiction, and any record that narrates a state the landed tree will not show.
 - Regenerate `docs/context-index.json` when files are added, moved, or retitled.
