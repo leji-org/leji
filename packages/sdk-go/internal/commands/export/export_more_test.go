@@ -437,3 +437,25 @@ func TestClearableExportPropagatesAnOperationalReadFailure(t *testing.T) {
 		t.Fatalf("the operational failure must surface: %v", err)
 	}
 }
+
+// A layer with no decisions category generates no decisions page, so the export's
+// copy is conditional on the same predicate. An unconditional copyChrome would
+// refuse the missing chrome file and fail the whole build. Mirrors the Node test.
+func TestBuildViewerCarriesNoDecisionsPageWithoutTheCategory(t *testing.T) {
+	dir := exampleCopy(t)
+	m := manifest.LoadManifest(dir).Manifest
+	delete(m.Categories, "decisions")
+	res, err := BuildViewer(dir, m, "", Options{})
+	if err != nil {
+		t.Fatalf("BuildViewer: %v", err)
+	}
+	if !res.Wrote {
+		t.Fatal("the export still runs")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".leji", "viewer", "_decisions.md")); !os.IsNotExist(err) {
+		t.Fatalf("no decisions page should be generated: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(res.Out), "content", "_decisions.md")); !os.IsNotExist(err) {
+		t.Fatalf("the export should carry no decisions page: %v", err)
+	}
+}

@@ -1,0 +1,371 @@
+---
+// Vietnamese translation of src/pages/adoption.astro and the adoption/README.md it
+// renders. The English page is the page of record; `source` is the git blob sha of that
+// page at the revision this translation follows.
+//
+// The English page renders shared markdown from a single-sourced English collection, so
+// the translated prose is written here as markup instead, in the same order and carrying
+// the same explicit section anchors, which is what deep links into this guide use.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+
+const source = 'b0a7cbb4e90903e9ce8944f64eee3ad4ffd51081';
+const strings = translationStrings('vi');
+
+const scaffoldCode = `leji adopt --dry-run       # xem trước mọi lần ghi; chưa ghi gì
+leji adopt                 # kho mã nguồn hiện có: dựng khung quanh nội dung đang có
+leji init                  # kho mã nguồn mới: dựng leji.json, boot profile, mầm danh mục và quyết định đầu tiên
+leji adopt --wire-adapters # hoàn tất áp dụng trên điểm vào của nhà cung cấp (CLAUDE.md, AGENTS.md)`;
+
+const startCode = `leji start                                  # phát hiện host rồi mở trong lớp ngữ cảnh
+leji start --agent codex                    # ghim host thay vì phát hiện
+leji start --agent claude-code -- --chrome  # chuyển tiếp cờ tới host đó`;
+
+const badgeCode = `leji badge                        # ghi leji-badge.svg rồi in đoạn mã
+leji badge --out docs/badge.svg   # ghi ở nơi khác; đoạn mã dùng đường dẫn này`;
+
+const badgeLine = '[![Leji 1.0 · governed · self-attested](leji-badge.svg)](https://leji.org/agent-ready/)';
+
+const indexBlocks =
+   '```leji-index record\n- path: docs/operations/\n```\n\n```leji-index intent\n- path: docs/operations/escalation-policy.md\n```';
+
+const viewerCode = `leji viewer serve      # xem trước trên localhost tại http://127.0.0.1:5354/
+leji viewer build      # xuất thư mục tĩnh độc lập để host nội bộ`;
+---
+
+<Base
+   lang="vi"
+   title="Hướng dẫn áp dụng · Leji"
+   description="Cách áp dụng Leji trong một monorepo, một tổ chức nhiều kho mã nguồn, hoặc bên cạnh một kho ngữ cảnh sẵn có, mà không phải di chuyển những tài liệu bạn vốn đã có."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/adoption/" />
+         <main id="content" class="prose">
+            <PageHeader kind="guide" />
+            <h1>Hướng dẫn áp dụng</h1>
+            <TranslationNote strings={strings.note} href="/adoption/" />
+            <p>
+               Áp dụng Leji biến phần khung ban đầu của kho mã nguồn thành một lớp ngữ cảnh dùng được. Bạn sẽ ánh xạ tài
+               liệu hiện có, nối các điểm vào, thêm các phép kiểm và chọn nơi đặt lớp ngữ cảnh. Nhờ đó, ai cũng có một
+               điểm bắt đầu duy nhất và đáng tin cậy.
+            </p>
+
+            <span id="scaffold"></span>
+
+            <h2><span class="step-num">01</span>Dựng khung</h2>
+            <p>
+               <code>leji adopt</code> tái sử dụng <code>docs/</code>, <code>doc/</code>, hoặc <code
+                  >documentation/</code
+               > mà không di chuyển công việc của bạn. Nó ghi ra:
+            </p>
+            <ul>
+               <li>
+                  Một tệp <code>leji.json</code> với <code>name</code> lấy từ tên thư mục, <code>rootPath</code> đã đặt, và{
+                     ' '
+                  }
+                  <code>owners</code> lấy từ một danh tính git có sẵn.
+               </li>
+               <li>
+                  Một boot profile, các index danh mục, một brief onboarding, và một bản ghi quyết định đầu tiên hoàn
+                  chỉnh với <code>status: accepted</code>.
+               </li>
+               <li>Một con trỏ <code>AGENTS.md</code> khi chưa có tệp nào như vậy.</li>
+            </ul>
+
+            <div class="adopt-code"><Code code={scaffoldCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+
+            <p>
+               Hoặc, thực hiện tất cả trong một bước mà không cần cài gì: <code>npm create leji</code> đọc thư mục rồi chạy{
+                  ' '
+               }
+               <code>leji adopt</code> ngay tại đó, hoặc chạy <code>leji init</code> trên một kho mã nguồn chưa có gì để áp
+               dụng. Lệnh này thay thế bước hiện tại chứ không phải chạy trước bước đó; sau khi dùng, hãy chuyển sang mục
+               kế tiếp.
+            </p>
+
+            <p>
+               Hãy ánh xạ những đường dẫn đang dùng thay vì đổi tên chúng. <code>docs/engineering/START-HERE.md</code> vẫn
+               tuân thủ với vai trò một boot profile; còn các lớp mới thì nên dùng mặc định chữ thường nối gạch nối.
+            </p>
+
+            <span id="make-it-yours"></span>
+
+            <h2><span class="step-num">02</span>Biến nó thành của bạn</h2>
+            <p>
+               Trước hết, hãy phân loại những tài liệu hiện có. Mỗi tệp index tạo sẵn chọn nguyên thư mục danh mục của
+               nó, nên bất cứ thứ gì đã nằm sẵn trong đó đều được quản trị ngay khi bản dựng khung xuất hiện; những gì
+               bạn viết ở nơi khác thì vẫn nằm ngoài lớp ngữ cảnh cho tới khi có người liệt kê chúng vào. Hãy đưa brief
+               onboarding cho agent của bạn rồi phê duyệt cách ánh xạ mà nó đề xuất, hoặc tự tay sửa các tệp index.
+            </p>
+            <p>
+               Không cần di chuyển bất kỳ tệp nào. Mỗi danh mục ánh xạ tới các tệp index đã được biên tập, và mỗi mục
+               trong đó chọn hoặc một tệp đơn lẻ hoặc nguyên một thư mục, nên một cây <code>docs/</code> sẵn có có thể ở nguyên
+               đúng chỗ của nó (<a href="/vi/spec/content-categories/">danh mục nội dung</a>).
+            </p>
+            <p>
+               Hãy đưa cả lịch sử quyết định vào lớp ngữ cảnh. Thư mục ADR hiện có có thể dùng nguyên trạng khi các bản
+               ghi mang đủ phần frontmatter mà <a href="/vi/schemas/decision-record/">schema bản ghi quyết định</a> đòi hỏi;
+               bản dựng khung thì đã viết sẵn <code>&lt;rootPath&gt;/decisions/0001-adopt-leji.md</code> làm bản ghi đầu tiên.
+            </p>
+            <p>
+               Tiếp theo, hãy nối phần khám phá. Việc áp dụng lên một tệp <code>CLAUDE.md</code>, <code>GEMINI.md</code
+               >,{' '}
+               <code>.cursor/rules</code>, hay <code>AGENTS.md</code> sẵn có sẽ để nguyên tệp đó theo đúng thiết kế, nghĩa
+               là lần áp dụng ấy vẫn còn là một bản nháp: điểm vào cũ chưa chuyển hướng, <code>leji validate</code> báo{
+                  ' '
+               }
+               <code>vendor-adapter-redirect</code>, và <code>leji conformance</code> xác minh ra <code>none</code> so với
+               mức <code>core</code> mà bạn đã tuyên bố.
+            </p>
+            <p>
+               <code>leji adopt --wire-adapters</code> chuyển phần nội dung đó vào lớp ngữ cảnh và thay điểm vào bằng dòng:{
+                  ' '
+               }
+               <code
+                  >Read ./&lt;bootProfilePath&gt; first. It is the canonical context entrypoint for this repository.</code
+               > Sau đó phép kiểm sẽ qua được ở mức <code>core</code>.
+            </p>
+            <p>
+               <code>AGENTS.md</code> là adapter dùng chung được, nhiều host đọc được nó một cách tự nhiên. <code
+                  >init</code
+               > và <code>adopt</code> tạo ra một tệp chỉ chứa con trỏ khi chưa có tệp nào; <code>--no-agents</code> thì bỏ
+               qua nó. Các điểm vào chỉ dành cho một nhà cung cấp thì không bao giờ được tạo ra.
+            </p>
+            <p>
+               Nếu muốn áp dụng thủ công, hãy chép{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/templates/leji.json" target="_blank" rel="noopener"
+                  ><code>templates/leji.json</code></a
+               > và{' '}
+               <a
+                  href="https://github.com/leji-org/leji/blob/main/templates/boot-profile.md"
+                  target="_blank"
+                  rel="noopener"><code>templates/boot-profile.md</code></a
+               >, tạo các index, rồi dùng{' '}
+               <a
+                  href="https://github.com/leji-org/leji/blob/main/templates/decision-record.md"
+                  target="_blank"
+                  rel="noopener"><code>templates/decision-record.md</code></a
+               >. Hãy bỏ hết mọi nội dung mẫu mà <code>leji validate</code> nêu tên trước khi tuyên bố mức <code
+                  >core</code
+               >; và bỏ đi những mục <code>agents</code> hay những danh mục không cần tới.
+            </p>
+
+            <span id="put-it-to-work"></span>
+
+            <h2><span class="step-num">03</span>Đưa vào sử dụng</h2>
+            <p>
+               Lớp ngữ cảnh chỉ phát huy giá trị khi agent đọc nó trước tác vụ, không phải sau đó. <code
+                  >leji start</code
+               > mở coding agent của bạn ngay từ gốc kho mã nguồn, nên nó khởi đầu bằng boot profile thay vì bằng thứ nó tự
+               suy ra.
+            </p>
+
+            <div class="adopt-code"><Code code={startCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+
+            <p>
+               <code>leji detect</code> liệt kê các host; <code>leji start --help</code> giải thích cách chuyển tiếp cờ. Các
+               script thì dùng <code>bootProfilePath</code>. Một liên kết <code>agents</code>, kể cả <code>default</code
+               >, chỉ ghi nhận các profile chứ không bao giờ nạp chúng; chỉ có chỉ dẫn trong boot profile mới làm việc
+               đó.
+            </p>
+
+            <span id="keep-it-honest"></span>
+
+            <h2><span class="step-num">04</span>Giữ lớp ngữ cảnh trung thực</h2>
+            <p>
+               Một lớp ngữ cảnh trung thực mô tả đúng trạng thái hiện tại của kho mã nguồn. Các phép kiểm này báo lỗi
+               khi có tham chiếu hỏng và khi index không còn khớp với nguồn của nó. Markdown chưa được lập index và nội
+               dung mẫu còn sót lại sẽ được báo cáo chứ không khiến phép kiểm thất bại, để bạn thấy sự trôi lệch trước
+               khi agent làm theo hướng dẫn lỗi thời.
+            </p>
+            <p>
+               <code>leji validate --content</code> tìm ra nội dung mẫu và nội dung sơ sài. <code>leji status</code> tìm ra
+               những gì chưa lập index, tham chiếu treo, hay đã lỗi thời. <code>leji conformance</code> báo cáo tiến độ.
+            </p>
+            <p>
+               Ở mức <code>indexed</code>, <code>leji index</code> sinh ra <code>context-index.json</code>; còn <code
+                  >leji index --check</code
+               > thì báo lỗi khi nó đã lỗi thời. <code>leji changelog check</code> kiểm changelog dành cho máy.
+            </p>
+            <p>
+               Nếu chưa có quy ước CI nào, <code>leji ci</code> sinh ra một workflow; <code>leji ci --hooks</code> cài các
+               cổng chặn đó vào hook pre-commit. <code>leji ci --help</code> giải thích cách phân giải CLI.
+            </p>
+            <p>
+               Trong một pipeline đã ổn định, hãy chạy <code>leji validate</code> và <code>leji index --check</code> trong
+               các job bắt buộc và trong hook. Hãy khai CLI dưới dạng dev dependency để nó luôn có mặt sau một lần cài mới:{
+                  ' '
+               }
+               <code>leji init</code>/<code>leji adopt</code> nhận ra trình quản lý gói mà kho mã nguồn này đang dùng và,
+               khi bạn đồng ý rõ ràng, chạy lệnh thêm gói của chính nó (với pip và Go trước 1.24 thì nó in ra dòng cần thêm).
+            </p>
+            <p>
+               Ở mức <code>governed</code>, hãy thêm các thay đổi đã qua xem xét, các agent profile hợp lệ, các phép
+               kiểm độ tươi, và CI bắt buộc.
+            </p>
+
+            <h3>Hiển thị mức tuân thủ</h3>
+            <p>
+               <code>leji badge</code> ghi ra <code>leji-badge.svg</code> ở gốc kho mã nguồn và in ra dòng để bạn dán vào
+               README:
+            </p>
+
+            <div class="adopt-code"><Code code={badgeCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+            <div class="adopt-code"><Code code={badgeLine} lang="markdown" theme={lejiSyntaxTheme} wrap /></div>
+
+            <p>
+               Huy hiệu mang tính tự khai và phản ánh đúng lần chạy hiện tại: nó nêu mức mà <code>leji conformance</code
+               > đã xác minh, mức đó không bao giờ cao hơn những gì <code>leji.json</code> tuyên bố và đôi khi thấp hơn. Một
+               tuyên bố mà lần chạy offline không xác nhận được thì sẽ được nêu tên trên stdout chứ không được đưa lên huy
+               hiệu.
+            </p>
+            <p>
+               Hãy chạy nó trên một cây đã commit. Một changelog không có mốc nền đã commit thì không kiểm được quy tắc
+               chỉ được thêm vào, nên lần chạy dừng lại ở mức <code>core</code> bất kể <code>leji.json</code> tuyên bố mức
+               nào; còn những phần thêm vào bên trên một changelog đã commit thì được đối chiếu với <code>HEAD</code> và qua
+               được mà không cần commit riêng. Một lần chạy không xác minh được mức nào thì không ghi ra huy hiệu nào cả.
+            </p>
+            <p>
+               Đường dẫn ảnh trong đoạn mã đó là tương đối so với gốc kho mã nguồn. Một tệp README nằm trong thư mục con
+               thì cần chỉnh lại đường dẫn để với tới được tệp ảnh từ chỗ đó.
+            </p>
+
+            <span id="where-it-lives"></span>
+
+            <h2><span class="step-num">05</span>Nơi đặt lớp ngữ cảnh</h2>
+            <p>Một kho mã nguồn giữ một lớp ngữ cảnh ngay bên cạnh phần công việc của nó.</p>
+            <p>
+               Khi nhiều kho mã nguồn cùng dùng một lớp, hãy đặt lớp đó trong một submodule chỉ chứa tài liệu. Tạo một
+               kho mã nguồn riêng, mount tại <code>context/</code> trong từng kho mã nguồn sử dụng, rồi ghim riêng cho mỗi
+               kho mã nguồn. Hãy cập nhật pin bằng script dưới dạng thay đổi có thể xem xét. Phần build và runtime không được
+               phụ thuộc vào lớp này.
+            </p>
+            <p>
+               Hãy trỏ agent tới <code>context/docs/boot-profile.md</code>; những tệp của nhà cung cấp còn giữ lại thì
+               chuyển hướng về đó. Xem{' '}
+               <a href="https://github.com/leji-org/leji/tree/main/examples/multi-repo" target="_blank" rel="noopener"
+                  >ví dụ nhiều kho mã nguồn</a
+               > và <a href="/vi/spec/distribution/">bản đặc tả về phân phối</a>.
+            </p>
+            <p>
+               Federation dành cho những nhóm mà mỗi nhóm đã sở hữu một lớp. <a href="/vi/federation/">Hướng dẫn</a> của nó
+               bao gồm phần khai báo, nạp về, trạng thái, định tuyến, và các phép kiểm mức <code>federated</code>.
+            </p>
+
+            <span id="optional-cases"></span>
+
+            <h2><span class="step-num">06</span>Các trường hợp tuỳ chọn</h2>
+
+            <details class="fold">
+               <summary>Nhiều actor có thể đảm nhận cùng một vai trò</summary>
+
+               <p>
+                  Bình thường một vai trò gắn với một profile; <code>host</code> và <code>invocation</code> mô tả cách triệu
+                  tập. Với nhiều bên tham gia hoặc với những cách triệu tập riêng theo vai trò, trường tuỳ chọn <code
+                     >actors</code
+                  > liệt kê các vai trò đủ điều kiện cùng các khuôn lệnh. Xem{' '}
+                  <a href="/vi/schemas/context-manifest/">schema context-manifest</a>.
+               </p>
+
+               <p>
+                  Actor không trao thẩm quyền phê duyệt nào. Bên điều phối là bên chọn; Leji 1.0 không định nghĩa quy
+                  tắc chọn nào cả.
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary>Chủ ý và bản ghi nằm chung một thư mục</summary>
+
+               <p>
+                  Hãy quản trị các trạng thái và báo cáo dưới dạng bản ghi. Một bộ chọn tệp giữ chủ ý ở lại cùng thư
+                  mục:
+               </p>
+
+               <div class="adopt-code"><Code code={indexBlocks} lang="markdown" theme={lejiSyntaxTheme} wrap /></div>
+
+               <p>
+                  Bộ chọn tệp được ưu tiên. Agent nạp bản chính sách đó như chủ ý bắt buộc; còn các bản ghi được trả về
+                  riêng dưới dạng ứng viên có ngày tháng, chỉ được nạp khi tác vụ chọn tới một bản hoặc khi có người yêu
+                  cầu. Xem{' '}
+                  <a href="/vi/spec/content-categories/">danh mục nội dung</a>.
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary>Trình bày lớp ngữ cảnh trong một viewer</summary>
+
+               <p><code>context-index.json</code> hỗ trợ các công cụ tài liệu. Các câu lệnh CLI:</p>
+
+               <div class="adopt-code"><Code code={viewerCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+
+               <p>
+                  <code>serve</code> không phải là hosting. Chỉ công bố cho đúng nhóm đối tượng của lớp ngữ cảnh. Bản build
+                  ghi ra bên trong kho mã nguồn (mặc định là <code>.leji/dist/</code>, hoặc một đường dẫn <code
+                     >--out</code
+                  > nằm trong đó) và thư mục đầu ra là của bạn: hãy chép nó tới bất cứ nơi nào host của bạn có thể đọc. Các
+                  tiêu đề H1 được quản trị cung cấp phần điều hướng; các trường <code>viewer</code> trong manifest cung cấp
+                  phần thương hiệu và các mục ghim. MkDocs cũng dùng được index. Xem{' '}
+                  <a href="/vi/spec/machine-readable-surface/">bản đặc tả về bề mặt máy đọc được</a>.
+               </p>
+
+               <p>
+                  Các trình kết xuất xử lý markdown không giống nhau, nên những cấu trúc mà lớp ngữ cảnh được phép dùng
+                  đã được quy định trong{' '}
+                  <a
+                     href="https://github.com/leji-org/leji/blob/main/adoption/rendering.md"
+                     target="_blank"
+                     rel="noopener">hồ sơ kết xuất</a
+                  >. <code>leji export</code> lint mọi tài liệu được xuất theo hồ sơ đó, nên một lớp xuất ra sạch thì nằm
+                  gọn trong tập con đã được ghi rõ và không còn những khác biệt mà hồ sơ đó nêu tên. Điều đó hẹp hơn việc
+                  mọi host và mọi bản xem trước của trình soạn thảo đều kết xuất y hệt nhau.
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary>Đọc từ những bề mặt được đồng bộ hoặc chạy trong sandbox</summary>
+
+               <p>
+                  Leji đọc được cây git được cung cấp qua bản clone, mount trong sandbox, hoặc thư mục Google Drive hay
+                  Dropbox có giữ nguyên dữ liệu git.
+               </p>
+
+               <p>
+                  Những tệp tải lên, văn bản dán vào, và tài liệu không có <code>.git</code> thì thiếu siêu dữ liệu phiên
+                  bản. Tính cập nhật của chúng là không rõ; bản checkout git vẫn là bản chính thống. Xem{' '}
+                  <a href="/vi/spec/governance/">quản trị</a>.
+               </p>
+            </details>
+
+            <p class="next-step">
+               Tiếp theo: <a href="/vi/manifest/">tài liệu tra cứu manifest</a> cho từng trường, hoặc{' '}
+               <a href="/vi/spec/">bản đặc tả</a> cho những quy tắc đằng sau chúng.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .adopt-code {
+      margin: 0.9rem 0 1.2rem;
+   }
+   .adopt-code :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+      margin: 0;
+      overflow-x: auto;
+   }
+</style>

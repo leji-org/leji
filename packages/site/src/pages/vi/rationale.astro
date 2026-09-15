@@ -1,0 +1,195 @@
+---
+// Vietnamese translation of src/pages/rationale.astro and the rationale/README.md it
+// renders. The English page is the page of record; `source` is the git blob sha of that
+// page at the revision this translation follows.
+//
+// The English page renders shared markdown through the site pipeline and splits it to
+// place the figure. That collection is single-sourced English, so the translated prose
+// is written here as markup instead, in the same order and with the same heading anchors
+// as the rendered English page. The figure itself is the shared component, whose labels
+// are part of the drawing.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import CircleChart from '../../components/CircleChart.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '0ddffffc1603fd1aec577a54e9674ba6f9a226ac';
+const strings = translationStrings('vi');
+---
+
+<Base
+   lang="vi"
+   title="Lý do thiết kế · Leji"
+   description="Vì sao Leji được dựng theo cách này: chủ ý bền vững thay vì chỉ dẫn theo từng nhà cung cấp, một vòng tròn thay vì một tầng, chủ ý và bản ghi, và vì sao nó không phải một wiki."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/rationale/" />
+         <main id="content" class="prose">
+            <PageHeader kind="background" />
+            <h1>Lý do thiết kế</h1>
+            <TranslationNote strings={strings.note} href="/rationale/" />
+            <p>Không mang tính chuẩn tắc: phần lập luận đằng sau hình hài của bản đặc tả.</p>
+
+            <h2 id="intent-over-instructions">Chủ ý thay vì chỉ dẫn</h2>
+            <p>
+               Những chỉ dẫn mang tính mệnh lệnh ("làm việc này, theo định dạng này, cho tệp của nhà cung cấp này") phải
+               được viết lại cho từng agent host, từng tác vụ và từng người mới tham gia. Chủ ý bền vững (mọi thứ nghĩa
+               là gì, điều gì phải luôn đúng, vì sao lại thế) được viết một lần, để bất kỳ host và tác vụ nào cũng có
+               thể tự suy ra được.
+            </p>
+            <p>
+               Vì vậy, các danh mục của lớp ngữ cảnh được tổ chức theo những trục chủ đề mang ý nghĩa bền vững (domain,
+               system, governance, decisions), không theo tác vụ. Một phiên bản sau có thể bổ sung bao tác vụ được đúc
+               kết từ thực tiễn; còn 1.0 chủ ý chỉ chuẩn hoá bề mặt nhỏ hơn.
+            </p>
+
+            <figure class="rationale-figure">
+               <CircleChart />
+               <figcaption class="figure-note">
+                  <span class="flows">người với người · người với AI · người với AI với người</span>
+                  Ai cũng đọc. Ai cũng đề xuất. Con người phê duyệt. Ngữ cảnh lỗi thời không bao giờ bị âm thầm coi là còn
+                  hiệu lực.
+               </figcaption>
+            </figure>
+
+            <h2 id="a-circle-not-a-tier">Một vòng tròn, không phải một tầng</h2>
+            <p>
+               Phần lớn ngữ cảnh hiện nay được viết <em>cho agent</em>: con người soạn chỉ dẫn, agent host nạp chúng,
+               còn thông tin chỉ chảy một chiều từ trên xuống. Cách này giúp từng cá nhân làm việc nhanh hơn nhưng không
+               giải quyết vấn đề cũ: tri thức giữa người với người vẫn nằm trong đầu và các luồng chat, còn mỗi agent
+               host giữ một bản sao sự thật riêng rồi dần trôi lệch.
+            </p>
+            <p>
+               Leji đặt ba luồng ngang hàng quanh cùng một lớp ngữ cảnh: <strong>người với người</strong> (onboarding, xem
+               xét, phân định các cuộc tranh luận), <strong>người với AI</strong> (công việc giao cho một agent), và{
+                  ' '
+               }
+               <strong>người với AI với người</strong> (công việc do agent làm ra rồi được người xem xét).
+            </p>
+            <p>
+               Ai cũng đọc đúng một lớp ngữ cảnh đó; cả người lẫn agent đều đề xuất thay đổi. Bình đẳng về quyền đọc,
+               không bình đẳng về quyền quyết: mọi lần ghi đều vào dưới dạng một đề xuất, và một người phê duyệt điều gì
+               trở thành sự thật. Việc cùng một nội dung phục vụ cả ba luồng tự nó đã tạo thành cơ chế cưỡng chế: một
+               trang chỉ có agent đọc có thể xuống cấp mà không ai hay, còn trang mà con người cũng dựa vào sẽ được sửa
+               từ cả hai phía.
+            </p>
+
+            <h2 id="intent-and-records">Chủ ý và bản ghi</h2>
+            <p>
+               Tài liệu của một kho mã nguồn thật có hai loại đan xen với hai mô hình sự thật khác nhau. Chủ ý (bảng
+               thuật ngữ, bất biến, quy ước, ràng buộc bảo vệ) phải được <em>giữ</em> cho đúng: khi thực tế đổi thay, tài
+               liệu được sửa lại. Bản ghi (trạng thái, đánh giá, sổ ghi, báo cáo, lưu trữ) thì <em
+                  >đúng ngay khi được tạo</em
+               > trong một ranh giới nhất định; trạng thái về sau thay thế chúng, còn ngày tháng xác định tính cập nhật.
+            </p>
+            <p>
+               Nếu coi bản ghi như chủ ý, ta sẽ tạo ra những cam kết xem xét lại mà không ai duy trì nổi. Nếu loại chúng
+               ra, phần lớn kho mã nguồn sẽ nằm ngoài vòng quản trị. Thay vào đó, Leji quản trị cả hai theo cách tách
+               bạch.
+            </p>
+            <p>
+               Bản ghi được lập index, được xem xét và có chủ sở hữu y như chủ ý, nhưng chúng được định tuyến như những
+               ứng viên có ngày tháng chứ không như ngữ cảnh bắt buộc. Hợp đồng với người đọc thì khác: đó là bằng chứng
+               có ngày tháng, không bao giờ là sự thật hiện hành. Hạn tươi chỉ áp cho chủ ý. Năm danh mục vẫn là các
+               trục chủ đề, còn loại thì trực giao với chúng: một đánh giá hệ thống vừa <em>nói về</em> hệ thống vừa <em
+                  >đúng tính tới ngày của nó</em
+               >.
+            </p>
+            <p>
+               Bản đặc tả không bao giờ chứng nhận bản ghi nào là "mới nhất", vì 1.0 không khai báo chuỗi bản ghi lẫn
+               thứ tự của chúng. Người đọc tự đánh giá độ mới dựa trên ngày tháng mà index hiển thị. Chính các bản ghi
+               quyết định của bản đặc tả này, có ngày tháng, chỉ thêm mới, và không bao giờ lỗi thời, là ví dụ cho khuôn
+               mẫu ấy.
+            </p>
+
+            <h2 id="why-this-is-not-a-wiki">Vì sao đây không phải một wiki</h2>
+            <p>
+               Wiki dần xuống cấp vì không có gì buộc chúng phải luôn cập nhật. Lớp ngữ cảnh có ba cơ chế cưỡng chế mà
+               wiki không có:
+            </p>
+            <ul>
+               <li>
+                  Agent đọc lớp ngữ cảnh trong mọi tác vụ, nên ngữ cảnh sai tạo ra đầu ra sai mà ai đó sẽ nhận thấy ngay
+                  trong ngày.
+               </li>
+               <li>Thay đổi đi qua vòng xem xét code, nên không có thêm một quy trình riêng để bị bỏ quên.</li>
+               <li>
+                  Trôi lệch mà máy phát hiện được (một index lỗi thời, một profile hỏng) là một phép kiểm sẽ báo lỗi, và
+                  ở mức <code>governed</code> thì phép kiểm đó chạy trong CI ở mọi lần thay đổi. Phép kiểm quy tắc chỉ được
+                  thêm vào so sánh changelog trong cây làm việc với bản tại <code>HEAD</code>, nên việc tua ngược còn
+                  nằm trong cây làm việc sẽ khiến phép kiểm thất bại; nếu việc tua ngược đã được commit thì việc xem xét
+                  bộ thay đổi sẽ phát hiện ra, chứ không phải phép kiểm.
+               </li>
+            </ul>
+
+            <h2 id="why-vendor-files-redirect">Vì sao các tệp của nhà cung cấp chỉ chuyển hướng</h2>
+            <p>
+               Ngữ cảnh chính thống nằm trong định dạng cấu hình của một nhà cung cấp sẽ trở nên phân mảnh và bị khoá
+               vào host đó. Vì các agent host tìm tới điểm vào của riêng chúng, Leji dùng những điểm vào ấy làm adapter:
+               một dòng trỏ tới boot profile. Một nguồn sự thật duy nhất thì sống lâu hơn bất kỳ host nào.
+            </p>
+
+            <h2 id="why-federation-composes-instead-of-centralizing">
+               Vì sao federation ghép lại thay vì tập trung hoá
+            </h2>
+            <p>
+               Tập trung hoá tri thức của mọi nhóm sẽ phá vỡ vòng lặp sở hữu vốn giữ cho ngữ cảnh luôn cập nhật. Chủ sở
+               hữu sửa lớp của mình ngay trong lúc dùng nó ở mọi tác vụ; kho mã nguồn trung tâm sẽ tách nội dung khỏi
+               trách nhiệm và khiến các sửa đổi liên nhóm phải xếp hàng chờ người gác cổng.
+            </p>
+            <p>
+               Federation giữ quyền sở hữu và sự rõ ràng đi cùng nhau. Lớp ngữ cảnh của mỗi nhóm ở lại trong kho mã
+               nguồn của nhóm đó, nơi vòng tròn của họ đọc và phê duyệt nó. Một lớp chủ mount một lớp ngang hàng ở một
+               phiên bản đã ghim để đọc nó và định tuyến agent vào đó; không nội dung nào bị sao chép hay commit vào lớp
+               chủ.
+            </p>
+            <p>
+               Chủ sở hữu của lớp ngang hàng vẫn là bên phê duyệt các thay đổi, nên việc mount trao quyền đọc chứ không
+               trao thẩm quyền. Phần lớn các nhóm không bao giờ cần tới <code>federated</code>; nó chỉ có ý nghĩa khi đã
+               có nhiều hơn một nhóm sở hữu một lớp ngữ cảnh đáng giữ nguyên vẹn.
+            </p>
+
+            <h2 id="a-team-of-one">Một nhóm chỉ có một người</h2>
+            <p>
+               Không điều gì trong vòng tròn đòi hỏi phải có nhiều hơn một người. Cùng một cá nhân có thể đề xuất, giao
+               việc cho một agent, và phê duyệt. Ngay cả khi đó, agent vẫn chỉ xem xét và tư vấn trong khi con người sở
+               hữu và phê duyệt; map <code>agents</code> trong manifest không chuyển giao trách nhiệm.
+            </p>
+            <p>
+               Nhóm một người là vòng tròn nhỏ nhất, không phải một mô hình khác. Mô hình này mở rộng từ một người lên
+               một nhóm rồi đến tổ chức gồm nhiều nhóm mà không cần thêm thành phần nào.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .rationale-figure {
+      margin: 1.5rem 0 2.4rem;
+   }
+   /* The figure's reading, as page text rather than baked into the SVG, so it
+      reflows, stays selectable, and is quotable by an answer engine. */
+   /* Reads as body copy, not as a caption: it is the figure's argument, and the
+      surrounding prose is where the reader already is. Inherits size, colour and
+      leading from the page. */
+   .figure-note {
+      max-width: var(--measure);
+      margin: 1rem 0 0;
+   }
+   .figure-note .flows {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--leji-link);
+      margin-bottom: 0.3rem;
+   }
+</style>

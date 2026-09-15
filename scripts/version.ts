@@ -2,8 +2,9 @@
 // Keeps all 9 package-version locations and the internal @leji-org/leji dep
 // ranges on one release number.
 //
-//   node scripts/version.ts <newversion>   # set every location
-//   node scripts/version.ts --check        # assert all agree; print the version
+//   node scripts/version.ts <newversion>       # set every location
+//   node scripts/version.ts --check            # assert all agree; print the version
+//   node scripts/version.ts --check --release  # and the release date is stamped
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -178,7 +179,73 @@ function proseDrift(current: string): { rel: string; line: number; text: string 
    return out;
 }
 
-function checkMode(): never {
+// The remedy every release-mode failure ends on. One sentence, because the step it
+// names carries the detail.
+const STAMP_REMEDY = 'stamp the release date: RELEASING.md step 4, "Bump and stamp the release date".';
+
+/** True for a YYYY-MM-DD string naming a day the calendar actually has. */
+function isCalendarDate(text: string): boolean {
+   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+   if (!m) return false;
+   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+   const date = new Date(Date.UTC(y, mo - 1, d));
+   return date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d;
+}
+
+/**
+ * Release readiness, on top of coherence: the changelog heading for the version the
+ * manifests declare carries the day this release is tagged, not `unreleased`. A tree
+ * that fails here is one a tag would publish with an undated changelog, which is not
+ * correctable in place once the tag exists. Exits non-zero on the first finding.
+ */
+function releaseReady(v: string): void {
+   // Prose extraction and the changelog heading shape are both x.y.z; a prerelease
+   // is out of scope here rather than half-checked.
+   if (v.includes('-')) {
+      console.error(`release mode: the declared version ${v} is a prerelease.`);
+      console.error('Release a plain x.y.z version, or drop --release to check coherence alone.');
+      process.exit(1);
+   }
+   const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+   const md = fs.readFileSync(abs('CHANGELOG.md'), 'utf8');
+   const heading = new RegExp(`^## ${escaped}(?= |$).*$`, 'm').exec(md);
+   if (!heading) {
+      console.error(`CHANGELOG.md carries no "## ${v}" heading for the declared version.`);
+      console.error(STAMP_REMEDY);
+      process.exit(1);
+   }
+   const dated = new RegExp(`^## ${escaped} · (\\d{4}-\\d{2}-\\d{2})$`).exec(heading[0]);
+   if (!dated) {
+      console.error('CHANGELOG.md release heading carries no release date:');
+      console.error(`   ${heading[0]}`);
+      console.error(`expected "## ${v} · YYYY-MM-DD", with nothing after the date.`);
+      console.error(STAMP_REMEDY);
+      process.exit(1);
+   }
+   if (!isCalendarDate(dated[1])) {
+      console.error('CHANGELOG.md release heading names a day the calendar does not have:');
+      console.error(`   ${heading[0]}`);
+      console.error(STAMP_REMEDY);
+      process.exit(1);
+   }
+   // The canonical release entry, when the release carries one. An entry filed under
+   // any other id is not this version's entry and is left to `leji changelog check`.
+   const jsonPath = abs('CHANGELOG.json');
+   if (fs.existsSync(jsonPath)) {
+      const id = `release-${v.replace(/\./g, '-')}`;
+      const entries: { id?: string; date?: string }[] = JSON.parse(fs.readFileSync(jsonPath, 'utf8')).entries ?? [];
+      const entry = entries.find((e) => e?.id === id);
+      if (entry && entry.date !== dated[1]) {
+         console.error(`CHANGELOG.json entry "${id}" is dated ${entry.date ?? '(none)'}, not ${dated[1]}.`);
+         console.error('The heading and the entry name one day.');
+         console.error(STAMP_REMEDY);
+         process.exit(1);
+      }
+   }
+   console.log(`release date stamped: ${heading[0]}`);
+}
+
+function checkMode(release: boolean): never {
    const found = TARGETS.map((t) => ({ rel: t.rel, version: readVersion(t) }));
    const versions = new Set(found.map((f) => f.version));
    if (versions.size === 1) {
@@ -204,6 +271,7 @@ function checkMode(): never {
       console.log(
          `version coherent: ${v} (across ${found.length} locations + ${deps.length} internal dep ranges + ${PROSE.length} prose files)`,
       );
+      if (release) releaseReady(v);
       process.exit(0);
    }
    // Drift: report the majority version and call out every file that disagrees.
@@ -247,11 +315,11 @@ function setMode(next: string): never {
 
 const args = process.argv.slice(2);
 if (args.includes('--check')) {
-   checkMode();
+   checkMode(args.includes('--release'));
 }
 const positional = args.filter((a) => !a.startsWith('-'));
 if (positional.length !== 1) {
-   console.error('usage: node scripts/version.ts <newversion> | --check');
+   console.error('usage: node scripts/version.ts <newversion> | --check [--release]');
    process.exit(2);
 }
 setMode(positional[0]);

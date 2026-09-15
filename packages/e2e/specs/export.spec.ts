@@ -10,6 +10,7 @@ import {
    DEFAULT_ACCENT,
    STATIC_URL,
    VIEWER_CONSOLE_ALLOWANCES,
+   assertDecisionsPage,
    assertImageAtDepth,
    assertLayerHome,
    assertManifestPage,
@@ -52,6 +53,12 @@ test.describe('viewer (static export)', () => {
    test('the manifest page renders', async ({ page }) => {
       const errors = collectConsoleErrors(page);
       await assertManifestPage(page, STATIC_URL);
+      expectNoConsoleErrors(errors, VIEWER_CONSOLE_ALLOWANCES);
+   });
+
+   test('the decisions page renders and lists the layer record', async ({ page }) => {
+      const errors = collectConsoleErrors(page);
+      await assertDecisionsPage(page, STATIC_URL);
       expectNoConsoleErrors(errors, VIEWER_CONSOLE_ALLOWANCES);
    });
 

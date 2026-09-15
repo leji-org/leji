@@ -1,0 +1,105 @@
+---
+// Vietnamese translation of src/pages/manifest.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+//
+// The field rows and the lede come from the JSON Schema. The schema file itself is a
+// machine surface and is never translated; what this page shows of it is read through the
+// locale's schema map, the same one the translated schema reference renders from, so the
+// two pages state the same contract in the same words.
+import fs from 'node:fs';
+import path from 'node:path';
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import SchemaFields from '../../components/SchemaFields.astro';
+import { translationStrings } from '../../data/i18n';
+import { localizeSchema, readSchemaSources, schemaMap, schemaMapInputs } from '../../schema-i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+import { REPO_ROOT, SITE_ROOT } from '../../repo-root';
+
+const source = 'f3e18af84beae4479599b3eb247f7e8ff97cb27c';
+const strings = translationStrings('vi');
+
+// Field rows are generated from the schema, so this page can't drift from it.
+const schemaRaw = fs.readFileSync(path.join(REPO_ROOT, 'schemas', 'context-manifest.schema.json'), 'utf-8');
+const schemaMapVi = schemaMap('vi', schemaMapInputs(readSchemaSources()));
+const schema = localizeSchema(JSON.parse(schemaRaw), schemaMapVi['context-manifest'].strings);
+// A manifest that exercises every field; verified against the schema above.
+const exampleRaw = fs.readFileSync(path.join(SITE_ROOT, 'src', 'data', 'manifest-complete.json'), 'utf-8');
+---
+
+<Base
+   lang="vi"
+   title="Manifest (leji.json) · Leji"
+   description="Manifest leji.json: điểm vào cho máy của một lớp ngữ cảnh Leji, khai báo gốc ngữ cảnh, boot profile, các tệp index theo danh mục, và tuyên bố mức tuân thủ của nó."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/manifest/" />
+         <main id="content" class="prose">
+            <PageHeader kind="reference" />
+            <h1>Manifest: <code>leji.json</code></h1>
+            <TranslationNote strings={strings.note} href="/manifest/" />
+            <p class="sp-lede">{schema.description}</p>
+
+            <p>
+               Manifest là tên tệp cố định duy nhất của Leji: công cụ luôn có thể tìm đúng tệp này ở gốc kho mã nguồn.
+            </p>
+            <p>
+               Các dòng mô tả trường được sinh ra từ{' '}
+               <a href="/vi/schemas/context-manifest/">schema</a>, nên nội dung ở đây luôn khớp với hợp đồng. Trang này
+               trình bày các trường cấp cao nhất cùng một số trường lồng nhau; với những cấu trúc sâu hơn, chẳng hạn các
+               vai trò và câu lệnh của một actor, hãy đọc thẳng schema. Các trường bắt buộc đều được đánh dấu.
+            </p>
+
+            <h2>Các trường</h2>
+            <SchemaFields schema={schema} />
+
+            <h2>Một ví dụ đầy đủ</h2>
+            <p>
+               Ví dụ về một lớp ngữ cảnh federation ở quy mô tổ chức, có mount một lớp ngang hàng, sử dụng nhiều trường
+               hơn hẳn manifest ngoài thực tế. Phần lớn lớp ngữ cảnh chỉ khai báo những trường thực sự dùng: <code
+                  >leji init</code
+               > tạo sẵn một số trường trong đó, còn manifest ở mức <code>core</code> thì ngắn hơn nhiều.
+            </p>
+            <p>
+               Cấu trúc này có hai điểm dễ gây nhầm lẫn: mỗi danh mục trỏ tới các <strong>tệp index</strong> do người viết
+               ra chứ không trỏ tới thư mục nội dung; còn <code>agents</code> gắn định danh vai trò với tài liệu profile.
+               Đây là danh bạ vai trò, không phải thứ tự nạp, vì vậy việc gắn một profile không bao giờ tự động khiến profile
+               đó được đọc.
+            </p>
+            <p>
+               Có một trường mang tính điều kiện chứ không mang tính khai báo: <code>viewer.theme.link</code> chỉ tô màu cho
+               liên kết trong phần thân và cho mã nội dòng khi nó đạt tỉ lệ tương phản 4,5:1 so với nền mã nội dòng của viewer,
+               còn một giá trị không đạt ngưỡng thì được báo là cảnh báo trong khi tông màu dễ tiếp cận đã cố định vẫn được
+               giữ nguyên.
+            </p>
+            <div class="manifest-example">
+               <Code code={exampleRaw.trimEnd()} lang="json" theme={lejiSyntaxTheme} wrap />
+            </div>
+
+            <p>
+               Hãy xem <a href="/vi/spec/machine-readable-surface/">bề mặt máy đọc được</a> để biết manifest liên hệ thế nào
+               với index, changelog và các profile, cùng{' '}
+               <a href="/vi/spec/versioning/">đánh phiên bản</a> cho khoá nhánh đặc tả <code>leji</code>.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .manifest-example :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+   }
+</style>

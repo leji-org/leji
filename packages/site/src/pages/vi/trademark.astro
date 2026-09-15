@@ -1,0 +1,190 @@
+---
+// Vietnamese translation of src/pages/trademark.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '80ab9afca319adfc14153a6a422f9b52ffc4016c';
+const strings = translationStrings('vi');
+---
+
+<Base
+   lang="vi"
+   title="Chính sách nhãn hiệu và cách dùng tên · Leji"
+   description="Bạn được dùng tên Leji như thế nào: dùng để mô tả, phân phối lại, fork, dùng mang tính chức năng trong tên tệp và câu lệnh, và logo đòi hỏi những gì."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/trademark/" />
+         <main id="content" class="prose">
+            <PageHeader kind="governance" />
+            <h1>Chính sách nhãn hiệu và cách dùng tên</h1>
+            <TranslationNote strings={strings.note} href="/trademark/" />
+            <p>
+               Leji™ là nhãn hiệu của Contexing, LLC. Hãy dùng tên này như một tính từ cho đúng đối tượng mà nó chỉ đến,
+               chẳng hạn bản đặc tả Leji, các schema Leji và công cụ Leji, chứ không dùng làm tên sản phẩm của bạn.
+            </p>
+            <p>
+               Leji là một bản đặc tả mở, còn tên gọi giúp mọi người tìm đúng nguồn chính thức. Chính sách này nêu rõ
+               bạn có thể làm gì với tên gọi mà không cần xin phép, trường hợp nào cần thương hiệu riêng và trường hợp
+               duy nhất cần văn bản cho phép. Nó chỉ bao gồm tên gọi và logo Leji. Nó không thu hẹp các giấy phép: bản
+               đặc tả theo CC-BY-4.0, còn các schema, SDK và công cụ theo Apache-2.0. Xem{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/LICENSE.md" target="_blank" rel="noopener"
+                  >LICENSE.md</a
+               >.
+            </p>
+            <p>
+               Contexing, LLC nắm giữ tên gọi và logo Leji, và quản thủ bản đặc tả. Xem{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md" target="_blank" rel="noopener"
+                  >GOVERNANCE.md</a
+               >.
+            </p>
+
+            <h2>Những gì bạn được làm mà không phải hỏi</h2>
+            <ul>
+               <li>
+                  <strong>Nói rõ sản phẩm của bạn làm gì.</strong> "Tương thích Leji", "hiện thực Leji 1.0", "hỗ trợ Leji",
+                  và những mô tả trung thực tương tự đều không cần xin phép và không cần giấy phép nào.
+               </li>
+               <li>
+                  <strong>Phân phối lại bản chính thức.</strong> Bạn được phân phối lại bản đặc tả và công cụ tham chiếu ở
+                  dạng không sửa đổi, dưới đúng tên gọi đó, đúng như đã công bố. Phần mô tả trên registry hay cửa hàng của
+                  một bản phân phối lại phải nói rõ ai đóng gói lại và không tự trình bày mình như kênh phân phối chính thức.
+               </li>
+               <li>
+                  <strong>Dùng những tên mà bản đặc tả đòi hỏi.</strong> Tên tệp, tên thư mục, định danh schema, khoá manifest
+                  và định danh giao thức mà bản đặc tả định nghĩa thì bất cứ ai hiện thực nó đều được dùng. Cách dùng mang
+                  tính chức năng này không hàm ý sự chứng thực nào và không cần xin phép.
+               </li>
+               <li>
+                  <strong>Giữ cho các câu lệnh sẵn có vẫn chạy.</strong> Một bản fork hay một bản hiện thực độc lập được phép
+                  phát hành một tệp thực thi tên là{' '}
+                  <code>leji</code>, để các script, cấu hình CI và tài liệu sẵn có vẫn chạy được. Với các điều kiện nêu
+                  ở mục "Tên câu lệnh" bên dưới, chúng tôi coi đó là cách dùng mang tính chức năng của một định danh
+                  giao diện và không viện dẫn nhãn hiệu để chống lại nó.
+               </li>
+               <li>
+                  <strong>Cạnh tranh với chúng tôi.</strong> Các sản phẩm và dịch vụ thương mại độc lập xây trên Leji, kể
+                  cả những thứ cạnh tranh trực tiếp với chính sản phẩm của đơn vị quản thủ, đều được hoan nghênh. Không cần
+                  xin phép, không cần giấy phép, và không cần thông báo.
+               </li>
+            </ul>
+
+            <h2>Những gì cần thương hiệu riêng</h2>
+            <p>
+               Một bản fork hoặc một phiên bản đã sửa đổi của bản đặc tả hay của công cụ thì phải có tên sản phẩm riêng
+               và thương hiệu riêng. Hãy nói trung thực nó dẫn xuất từ đâu; đừng trình bày nó như bản Leji chính thống,
+               và đừng dùng cái tên theo cách hàm ý rằng đơn vị quản thủ chứng thực, cấp chứng nhận, hay duy trì nó.
+            </p>
+
+            <h2>Tên câu lệnh</h2>
+            <p>
+               Chúng tôi coi việc dùng <code>leji</code> làm tên câu lệnh của một bản hiện thực tương thích là cách dùng mang
+               tính chức năng của một định danh giao diện, và chúng tôi sẽ không viện dẫn nhãn hiệu Leji để chống lại nó,
+               với điều kiện tất cả những điều sau đều đúng:
+            </p>
+            <ul>
+               <li>
+                  Đầu ra <code>--version</code>, đầu ra <code>--help</code>, phần đóng gói và tài liệu của bản hiện thực
+                  đó đều mang tên riêng của nó, một cái tên rõ ràng khác với Leji và không lấy Leji làm định danh chủ
+                  đạo.
+               </li>
+               <li>
+                  Cũng chính những chỗ đó nói rõ nó dẫn xuất từ đâu, hoặc rằng nó hiện thực bản đặc tả Leji một cách độc
+                  lập.
+               </li>
+               <li>
+                  Không chỗ nào trong số đó nói ra hay hàm ý rằng nó là bản phân phối Leji chính thức, hay rằng đơn vị
+                  quản thủ chứng thực, cấp chứng nhận, hay duy trì nó.
+               </li>
+            </ul>
+            <p>
+               Quy định này chỉ áp dụng khi tất cả điều kiện đều được đáp ứng. Cách dùng không đáp ứng dù chỉ một điều
+               kiện sẽ nằm ngoài phạm vi cam kết không viện dẫn nhãn hiệu, nhưng không làm hạn chế quyền mà luật pháp
+               trao cho bất kỳ bên nào.
+            </p>
+            <p>
+               Điều này chỉ bao gồm tên câu lệnh của tệp thực thi. Nó không bao gồm tên gói, tên kho mã nguồn, tên tổ
+               chức, tên miền, hay tên hiển thị trên các registry gói và cửa hàng ứng dụng. Những thứ đó nhận diện nguồn
+               gốc, nên chúng theo quy tắc thương hiệu riêng nêu trên.
+            </p>
+
+            <h2>Logo</h2>
+            <p>
+               Các quyền nêu trên bao gồm <strong>tên gọi</strong>. Chúng không bao gồm logo. Các giấy phép của kho mã
+               nguồn không mở rộng sang các tệp logo, và Contexing, LLC sở hữu bản quyền của chúng.
+            </p>
+            <p>
+               Contexing, LLC cho phép bạn sao chép, phân phối và trưng bày các tệp logo ở dạng không sửa đổi, chỉ với
+               tư cách là bộ phận không tách rời của các bản build không sửa đổi của phần mềm và của những bản phân phối
+               lại trung thực, không sửa đổi, của các artifact chính thức. Những cách dùng mà luật pháp cho phép, chẳng
+               hạn việc dẫn tên và việc dùng trong biên tập báo chí, cũng không cần xin phép. Dùng logo Leji làm thương
+               hiệu thì cần văn bản cho phép trước từ Contexing, LLC. Hãy hỏi tại{' '}
+               <a href="mailto:hello@leji.org">hello@leji.org</a>.
+            </p>
+            <p>
+               Việc dẫn chiếu trung thực bằng văn bản không bao giờ cần tới logo, vì vậy không điều gì trong chính sách
+               này ngăn bạn mô tả sản phẩm của mình làm được gì.
+            </p>
+
+            <h2>Bản sắc Leji</h2>
+            <p>
+               Nhãn hiệu Leji, một cây cột Ionic, và màu xanh Leji <code>#009F71</code> nhận diện bản đặc tả cùng nguồn được
+               quản thủ của nó. Các sản phẩm xây trên Leji mang thương hiệu riêng biệt của mình, và điều đó cũng đúng với
+               chính các sản phẩm của đơn vị quản thủ: chúng không dùng logo Leji hay bản sắc Leji làm bộ nhận diện thương
+               mại của mình.
+            </p>
+
+            <h2>Tuyên bố mức tuân thủ</h2>
+            <p>
+               Việc tuân thủ Leji là <strong>tự khai</strong>. Một nhóm hay một sản phẩm tự nêu mức của mình trong
+               manifest, và công cụ có thể kiểm mọi yêu cầu mà máy kiểm được theo danh sách kiểm đã công bố rồi báo cáo
+               phần còn lại; danh sách kiểm nói rõ mục nào là máy kiểm và mục nào là khai theo quy trình. Không có
+               chương trình chứng nhận, không có sổ đăng ký, không có người gác cổng, và không có khoản phí nào, nên
+               "tuân thủ Leji 1.0" là một tuyên bố về sự tương thích do bạn đưa ra và tự đứng ra bảo đảm, chứ không phải
+               một trạng thái do ai đó cấp cho bạn.
+            </p>
+            <p>
+               Hãy nêu rõ phiên bản trong tuyên bố, chẳng hạn "tuân thủ Leji 1.0", để tuyên bố đó có thể kiểm chứng
+               được. Một tuyên bố tuân thủ không trung thực thì nằm ngoài quyền dùng để mô tả nêu trên.
+            </p>
+
+            <h2>Cái tên trong bản đặc tả</h2>
+            <p>
+               Leji là tên của bản đặc tả và của nguồn phát hành nó. Bản đặc tả dùng những thuật ngữ mang tính mô tả cho
+               các artifact mà nó định nghĩa, gồm "context layer", "context manifest", "context index", "context
+               changelog", để người hiện thực mô tả được thứ mình dựng lên mà hoàn toàn không cần dùng tới cái tên.
+               Contexing không tuyên bố quyền nhãn hiệu nào đối với những thuật ngữ mô tả ấy khi chúng đứng một mình.
+               Hãy dùng thuật ngữ mô tả cho các artifact, và dùng Leji cho bản đặc tả cùng nguồn được quản thủ của nó.
+            </p>
+            <p>
+               Những định danh do đặc tả định nghĩa mà có chứa chữ "leji", chẳng hạn tên tệp, tên thư mục, định danh
+               schema và khoá manifest, đều là cách dùng mang tính chức năng và không cần xin phép, theo mục "Dùng những
+               tên mà bản đặc tả đòi hỏi" ở trên. Tên câu lệnh có các điều kiện riêng của nó, ở mục "Tên câu lệnh".
+            </p>
+
+            <h2>Thay đổi đối với chính sách này</h2>
+            <p>
+               Chúng tôi có thể sửa đổi chính sách này, và các sửa đổi áp dụng từ thời điểm đó về sau. Một cách dùng vốn
+               tuân thủ chính sách vào lúc nó bắt đầu thì vẫn được chính sách này bảo vệ cho đúng cách dùng ấy, ở đúng
+               hình thức mà nó đã được thực hiện. Việc tiếp tục dùng và các cách dùng mới sau một lần sửa đổi thì theo
+               chính sách đang có hiệu lực khi đó.
+            </p>
+
+            <h2>Câu hỏi</h2>
+            <p>
+               Hãy hỏi tại <a href="mailto:hello@leji.org">hello@leji.org</a>. Nếu cách dùng của bạn là trung thực và
+               không trình bày sản phẩm của bạn như bản Leji chính thống, thì câu trả lời thường là được, và trang này
+               viết ra để bạn khỏi phải gửi email đó.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

@@ -1,0 +1,283 @@
+---
+// Simplified Chinese translation of src/pages/agent-ready.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation follows.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import InstallTabs from '../../components/InstallTabs.astro';
+import CopyableCode from '../../components/CopyableCode.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+// The badge shown below is the canonical fixture itself, not a copy: the four
+// files under fixtures/badge/ are the byte oracle the three SDKs are tested
+// against, so the sample on this page cannot drift from what `leji badge` writes.
+// It carries its own role="img", <title> and aria-label, so it needs no wrapper.
+import badgeSvg from '../../../../../fixtures/badge/governed.svg?raw';
+
+const source = '5c8c494965adf111b26a09a4971295b119166e0a';
+const strings = translationStrings('zh-hans');
+
+// The badge markdown exactly as `leji badge` prints it, for one level, so the
+// sample and the tool cannot read differently: the shape is
+// packages/sdk/src/commands/badge.ts (`badgeMarkdown`, `badgeLabel`), and the
+// four canonical lines are fixtures/badge/<level>.md.
+const badgeLine = '[![Leji 1.0 · governed · self-attested](leji-badge.svg)](https://leji.org/agent-ready/)';
+---
+
+<Base
+   lang="zh-hans"
+   title="智能体就绪 · Leji"
+   description="安装 Leji CLI 并运行 leji start：你的智能体从团队的上下文层启动。本页还说明自我声明的一致性徽章主张了什么，以及它是如何生成的。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/agent-ready/" />
+         <main id="content" class="agent-ready-main measured">
+            <section class="hero">
+               <PageHeader kind="guide" />
+               <h1>三条命令，让你的仓库对智能体就绪。</h1>
+               <TranslationNote strings={strings.note} href="/agent-ready/" />
+               <p class="lede">
+                  你很可能是通过那枚徽章来到这里的。它表示智能体可以从该仓库的上下文层启动，而且维护者已经在自己的机器上完成校验与评分，并作出自我声明。要让自己的仓库也对智能体就绪，只需运行下面三条命令。
+               </p>
+               <p class="jump"><a href="#badge">这枚徽章声明了什么 ↓</a></p>
+            </section>
+
+            <p class="fine">
+               <code>leji start</code> 打开的是一个已经存在的上下文层，因此还没有上下文层的仓库要先接入。第 02 步做的就是这件事；已经有
+               <code>leji.json</code> 的仓库可以直接跳到第 03 步。<a href="/zh-hans/quickstart/">快速上手</a
+               >提供了更完整的流程，从接入现有仓库，到评估其所声明的一致性级别。
+            </p>
+
+            <section class="cmds" aria-label="三条命令">
+               <div class="cmd">
+                  <p class="cmd-label">01 · 安装 CLI</p>
+                  <div class="cmd-install"><InstallTabs /></div>
+               </div>
+               <div class="cmd">
+                  <p class="cmd-label">02 · 接入这个仓库</p>
+                  <CopyableCode code="leji adopt" lang="bash" label="复制 adopt 命令" />
+               </div>
+               <div class="cmd">
+                  <p class="cmd-label">03 · 进入上下文层</p>
+                  <CopyableCode code="leji start" lang="bash" label="复制 start 命令" />
+               </div>
+            </section>
+
+            <section class="what">
+               <h2>刚刚发生了什么</h2>
+               <ul>
+                  <li>
+                     <code>leji start</code> 从仓库根目录启动了一个检测到的智能体宿主，并带上唯一一条指令：先读<a
+                        href="/zh-hans/spec/boot-profile/">引导配置</a
+                     >，这样它最先获得的上下文来自团队，而不是自行揣测代码树。这是一条指令，不是一项检查；leji
+                     只是把智能体指向那份文件，绝不核实它是否真的读了。如果没有检测到宿主，或者是在脚本化的运行里，就不会启动任何东西，命令会改为打印出你该运行的那一行。
+                  </li>
+                  <li>
+                     在启动之前，<code>leji start</code> 为这份克隆打印了一段 Setup 信息：这个仓库所声明的 Leji CLI 在这里是否解析到了该层规范版本系列所需的版本、MCP
+                     服务器是否已为选定的宿主注册、共享的
+                     <code>.mcp.json</code> 是否已提交，以及 pre-commit 钩子是否已安装。每一处缺口都会随相应的修复命令一起报告，但都不会阻止你进入上下文层。
+                  </li>
+                  <li>
+                     检查这个层本身是另一回事：<code>leji validate</code> 负责 schema 与 lint 规则，<code
+                        >leji conformance</code
+                     > 负责<a href="/zh-hans/spec/conformance/">它所声明的级别</a
+                     >。两者都由你刚安装的那个包在你自己的机器上运行，中间没有任何服务。
+                  </li>
+                  <li>
+                     工具本身不会打开任何连接，背后也没有账号、注册表或托管服务。会触及网络的部分，都由你自己调用：联邦相关的抓取只与你所指明的那个仓库通信，而
+                     <code>leji init</code> 与 <code>leji adopt</code> 中的依赖步骤，只在你明确同意时才运行你自己的包管理器。leji
+                     所启动的智能体，就是你本来就在用的那个，它的网络行为归它自己。
+                  </li>
+               </ul>
+            </section>
+
+            <section class="badge" id="badge">
+               <h2>这枚徽章声明了什么</h2>
+               <p>
+                  徽章是在本地生成的：<code>leji badge</code> 用 <code>leji conformance</code>
+                  评估仓库，为该次离线运行验证到的级别生成 SVG，并输出一行用于嵌入徽章的 markdown。
+               </p>
+               <CopyableCode code="leji badge" lang="bash" label="复制 badge 命令" />
+               <p class="caption">
+                  对于一个验证到 <code>governed</code> 级别的上下文层，徽章是这样的：
+               </p>
+               <div class="badge-shot" set:html={badgeSvg} />
+               <aside class="attest-note">
+                  <strong>自我声明</strong
+                  >的意思是由仓库自己的工具打分：没有注册表，没有服务端点，没有账号。徽章陈述的是这次离线运行所验证到的级别，绝不会高于上下文层所声明的级别，也可能低于它。
+               </aside>
+               <p class="caption">把它嵌进 README 的那行 markdown：</p>
+               <div class="badge-md"><Code code={badgeLine} lang="markdown" theme={lejiSyntaxTheme} wrap /></div>
+               <p>
+                  级别有 <code>core</code>、<code>indexed</code>、<code>governed</code> 与 <code>federated</code
+                  >，每一级都包含前一级。<a href="/zh-hans/spec/conformance/">一致性检查清单</a
+                  >写明了每个级别对团队的要求，而其中每一个级别，仅凭开放的规范与参考工具就能达到。
+               </p>
+               <p>
+                  因此，真正值得关注的是检查结果，而不是徽章图片：在同一个仓库中运行 <code>leji conformance</code
+                  >，看看它报告什么。<a href="/zh-hans/trust/">信任</a>一页讲的是谁在维护 Leji、1.0
+                  版本系列承诺了什么，以及受托方消失会怎样。
+               </p>
+            </section>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   /* No top padding: .doc-shell already sets the space above the first line, and
+      every doc page starts its h1 there. */
+   .hero {
+      padding: 0 0 1rem;
+      max-width: 760px;
+   }
+   .lede {
+      font-size: var(--text-lede);
+      line-height: 1.7;
+      color: var(--leji-text-body);
+      max-width: var(--measure-fine);
+      margin: 0;
+   }
+
+   h2 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 1.6rem;
+      line-height: 1.25;
+      color: var(--leji-text);
+      margin: 0 0 0.6rem;
+   }
+
+   p,
+   li {
+      color: var(--leji-text-body);
+   }
+   a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+
+   /* The jump the badge-clicker takes when the attestation is what they came for.
+      Same instrument as the quickstart's "what each level asks of you" link. */
+   .jump {
+      margin: 1.1rem 0 0;
+   }
+   .jump a {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-decoration: none;
+      border-bottom: 1px solid var(--leji-brand);
+      padding-bottom: 2px;
+      white-space: nowrap;
+   }
+   .jump a:hover {
+      color: var(--leji-text);
+      border-color: var(--leji-text);
+   }
+
+   /* The pitch: the two commands, one under the other, nothing between them. */
+   .cmds {
+      margin-top: 1.8rem;
+      display: grid;
+      gap: 1.8rem;
+   }
+   .cmd-label {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-text-body);
+      margin: 0 0 0.6rem;
+   }
+   .cmd-install {
+      background: var(--leji-deep);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      overflow: hidden;
+   }
+
+   .fine {
+      margin: 1.6rem 0 0;
+   }
+
+   .what {
+      margin-top: 3.4rem;
+   }
+   .what ul {
+      margin: 0.6rem 0 0;
+      padding-left: 1.1rem;
+   }
+   .what li {
+      margin: 0.5rem 0;
+   }
+
+   .badge {
+      margin-top: 3.4rem;
+      padding-bottom: 1rem;
+      /* the jump link lands the heading below the sticky header, not under it */
+      scroll-margin-top: calc(var(--header-h) + 1.5rem);
+   }
+   .badge p {
+      margin: 0 0 1.1rem;
+   }
+   .badge .caption {
+      margin: 1.4rem 0 0;
+   }
+   /* The badge at its own size on the page background, which is how it sits in a
+      README: no frame, no scaling, nothing this page adds to it. The face shows the
+      level alone, so the note under it carries what the badge claims. */
+   .badge-shot {
+      margin: 0.9rem 0 1rem;
+   }
+   .badge-shot :global(svg) {
+      display: block;
+   }
+
+   /* Same instrument as the quickstart's map-note: brand rule, accent ground. Kept
+      at body size rather than that page's smaller setting, because this is the
+      section's claim and not marginalia. */
+   .attest-note {
+      margin: 0 0 1.4rem;
+      padding: 0.9rem 1.2rem;
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
+      border-radius: 0 8px 8px 0;
+      color: var(--leji-text-body);
+      line-height: 1.6;
+   }
+   .attest-note strong {
+      color: var(--leji-text);
+   }
+
+   /* The printed markdown is a sample, not a line to copy: one level's wording,
+      whichever level the reader's own run verifies. Hence no copy button. */
+   .badge-md {
+      margin: 0.6rem 0 1.6rem;
+   }
+   .badge-md :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+      margin: 0;
+      overflow-x: auto;
+   }
+</style>

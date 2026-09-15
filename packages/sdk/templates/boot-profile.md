@@ -59,6 +59,6 @@ If a task surfaces missing or wrong context, fix it in the same change set. Ever
 When you change anything in this context layer:
 
 - Append an entry to `docs/context-changelog.json`: id, date, type, one-line summary, affected paths.
-- Decisions get a record in `docs/decisions/`; copy the shape of an existing one.
+- Decisions get a record in `docs/decisions/`; copy the shape of an existing one. When one change introduces two or more decision records, read the set together before it lands, for overlap, contradiction, and any record that narrates a state the landed tree will not show.
 - Regenerate `docs/context-index.json` when files are added, moved, or retitled.
 - **A new file is categorized the moment it is created**: add it to the right category index, or deliberately leave it as an ungoverned reference and say so, in the same change set; the unindexed count (`leji status`) must be a choice, never a surprise. When the right category isn't obvious, ask the layer's owners instead of guessing.

@@ -1,0 +1,331 @@
+---
+// Brazilian Portuguese translation of src/pages/translation.astro. The English page is
+// the page of record; `source` is its git blob sha at the revision this translation
+// follows. The layout is `Doc.astro`'s, written out here because that layout takes no
+// `lang` and a translated page has to declare its own.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '1945f00a4c9f5b164931b380bc776df47d8224c6';
+const strings = translationStrings('pt-br');
+---
+
+<Base
+   lang="pt-br"
+   title="Tradução · Leji"
+   description="Como o leji.org é traduzido: o inglês é o texto que prevalece, como uma tradução é feita e aprovada, quais referências de glossário cada idioma segue, como as traduções se mantêm atualizadas e como relatar um erro."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/translation/" />
+         <main id="content" class="prose">
+            <PageHeader kind="governance" />
+            <h1>Como o leji.org é traduzido</h1>
+            <TranslationNote strings={strings.note} href="/translation/" />
+            <p>
+               O leji.org é escrito em inglês e traduzido idioma por idioma. Esta página registra o que prevalece quando
+               as duas versões divergem, como uma tradução é feita, quais referências sua terminologia segue e como
+               relatar um erro.
+            </p>
+
+            <h2>O inglês é o texto que prevalece</h2>
+            <p>
+               Toda página é escrita primeiro em inglês. Uma página traduzida é a tradução dessa página e informa isso
+               logo abaixo do título; onde as duas divergem, o texto em inglês prevalece. As traduções da especificação
+               são informativas: o texto normativo é o inglês da linha 1.0, congelada, e cada página traduzida da
+               especificação traz um aviso dizendo isso.
+            </p>
+
+            <h2>Como uma tradução é feita</h2>
+            <p>
+               As páginas são redigidas com um fluxo de trabalho assistido por agentes e depois aprovadas página por
+               página antes de serem publicadas. Dois mecanismos revisores independentes, nenhum deles envolvido na
+               redação da página, verificam a fidelidade ao inglês, a terminologia em relação ao glossário do idioma e a
+               fluência; a página só é publicada quando os dois concordam.
+            </p>
+
+            <h2>Terminologia</h2>
+            <p>
+               Cada idioma mantém um glossário dos termos que o Leji usa. Quando um termo já tem uma tradução consagrada
+               na tradução humana de um projeto de código aberto conhecido, o glossário a segue ou registra uma exceção
+               fundamentada. Essas referências são apoio, nunca fonte. A lista abaixo é mantida atualizada conforme as
+               traduções desses projetos surgem e desaparecem.
+            </p>
+
+            <h3>Chinês simplificado</h3>
+            <ul>
+               <li>
+                  <a href="https://developer.mozilla.org/zh-CN/docs/Glossary" target="_blank" rel="noopener"
+                     >MDN Web Docs (zh-CN)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://kubernetes.io/zh-cn/docs/" target="_blank" rel="noopener"
+                     >Documentação do Kubernetes (zh-cn)</a
+                  >
+               </li>
+               <li><a href="https://git-scm.com/book/zh/v2" target="_blank" rel="noopener">Pro Git (zh)</a></li>
+               <li><a href="https://docs.github.com/zh/" target="_blank" rel="noopener">GitHub Docs (zh)</a></li>
+               <li>
+                  <a href="https://docs.python.org/zh-cn/3/glossary.html" target="_blank" rel="noopener"
+                     >Documentação do Python 3 (zh-cn)</a
+                  >
+               </li>
+               <li><a href="https://cn.vuejs.org/glossary/" target="_blank" rel="noopener">Vue.js (zh)</a></li>
+               <li><a href="https://cn.vitejs.dev/guide/" target="_blank" rel="noopener">Vite (zh)</a></li>
+               <li><a href="https://zh-hans.react.dev/" target="_blank" rel="noopener">React (zh-hans)</a></li>
+               <li>
+                  <a href="https://www.typescriptlang.org/zh/docs/handbook/" target="_blank" rel="noopener"
+                     >TypeScript (zh)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://keepachangelog.com/zh-CN/1.1.0/" target="_blank" rel="noopener"
+                     >Keep a Changelog (zh-CN)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://semver.org/lang/zh-CN/" target="_blank" rel="noopener">Semantic Versioning (zh-CN)</a
+                  >
+               </li>
+               <li>
+                  <a
+                     href="https://huggingface.co/learn/agents-course/zh-CN/unit1/what-are-agents"
+                     target="_blank"
+                     rel="noopener">Hugging Face Agents Course (zh-CN)</a
+                  >
+               </li>
+            </ul>
+
+            <h3>Japonês</h3>
+            <ul>
+               <li><a href="https://git-scm.com/book/ja/v2" target="_blank" rel="noopener">Pro Git (ja)</a></li>
+               <li><a href="https://docs.github.com/ja/" target="_blank" rel="noopener">GitHub Docs (ja)</a></li>
+               <li>
+                  <a href="https://kubernetes.io/ja/docs/reference/glossary/" target="_blank" rel="noopener"
+                     >Documentação e glossário do Kubernetes (ja)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://developer.mozilla.org/ja/docs/Glossary" target="_blank" rel="noopener"
+                     >MDN Web Docs (ja)</a
+                  >
+               </li>
+               <li><a href="https://ja.react.dev/" target="_blank" rel="noopener">React (ja)</a></li>
+               <li><a href="https://ja.vuejs.org/glossary/" target="_blank" rel="noopener">Vue (ja)</a></li>
+               <li>
+                  <a href="https://docs.python.org/ja/3/glossary.html" target="_blank" rel="noopener"
+                     >Documentação do Python (ja)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://packaging.python.org/ja/latest/" target="_blank" rel="noopener"
+                     >Python Packaging User Guide (ja)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://waic.jp/translations/WCAG21/" target="_blank" rel="noopener">WCAG 2.1 (ja, WAIC)</a>
+               </li>
+               <li>
+                  <a href="https://triple-underscore.github.io/w3c-common-ja.html" target="_blank" rel="noopener"
+                     >Conteúdo comum das especificações do W3C (ja)</a
+                  >
+               </li>
+               <li><a href="https://www.w3.org/ja/standards/types/" target="_blank" rel="noopener">W3C (ja)</a></li>
+               <li>
+                  <a href="https://keepachangelog.com/ja/1.1.0/" target="_blank" rel="noopener">Keep a Changelog (ja)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://semver.org/lang/ja/" target="_blank" rel="noopener">Semantic Versioning (ja)</a>
+               </li>
+               <li><a href="https://ja.vite.dev/guide/" target="_blank" rel="noopener">Vite (ja)</a></li>
+               <li><a href="https://railsguides.jp/" target="_blank" rel="noopener">Rails Guides (ja)</a></li>
+               <li>
+                  <a href="https://docs.openstack.org/ja/security-guide/" target="_blank" rel="noopener"
+                     >OpenStack Security Guide (ja)</a
+                  >
+               </li>
+            </ul>
+
+            <h3>Português do Brasil</h3>
+            <ul>
+               <li><a href="https://git-scm.com/book/pt-br/v2" target="_blank" rel="noopener">Pro Git (pt-br)</a></li>
+               <li><a href="https://docs.github.com/pt" target="_blank" rel="noopener">GitHub Docs (pt)</a></li>
+               <li>
+                  <a href="https://kubernetes.io/pt-br/docs/home/" target="_blank" rel="noopener"
+                     >Documentação do Kubernetes (pt-br)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://docs.python.org/pt-br/3/glossary.html" target="_blank" rel="noopener"
+                     >Documentação do Python (pt-br)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://developer.mozilla.org/pt-BR/" target="_blank" rel="noopener">MDN Web Docs (pt-BR)</a>
+               </li>
+               <li>
+                  <a href="https://www.w3.org/Translations/WCAG20-pt-br/" target="_blank" rel="noopener"
+                     >Tradução autorizada do WCAG 2.0 do W3C (pt-br)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://docs.djangoproject.com/pt-br/5.2/glossary/" target="_blank" rel="noopener"
+                     >Documentação do Django (pt-br)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://pt-br.react.dev/learn" target="_blank" rel="noopener"
+                     >Documentação do React (pt-br)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://docs.astro.build/pt-br/" target="_blank" rel="noopener"
+                     >Documentação do Astro (pt-br)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://keepachangelog.com/pt-BR/1.1.0/" target="_blank" rel="noopener"
+                     >Keep a Changelog (pt-BR)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://www.typescriptlang.org/pt/" target="_blank" rel="noopener">Site do TypeScript (pt)</a
+                  >
+               </li>
+               <li><a href="https://pt.vuejs.org/" target="_blank" rel="noopener">Documentação do Vue (pt)</a></li>
+            </ul>
+
+            <h3>Espanhol</h3>
+            <ul>
+               <li><a href="https://git-scm.com/book/es/v2" target="_blank" rel="noopener">Pro Git (es)</a></li>
+               <li>
+                  <a href="https://raw.githubusercontent.com/git/git/master/po/es.po" target="_blank" rel="noopener"
+                     >Localização do Git para o espanhol (po/es.po)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://kubernetes.io/es/docs/reference/glossary/" target="_blank" rel="noopener"
+                     >Documentação e glossário do Kubernetes (es)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://developer.mozilla.org/es/docs/Glossary" target="_blank" rel="noopener"
+                     >MDN Web Docs (es)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://docs.python.org/es/3/glossary.html" target="_blank" rel="noopener"
+                     >Documentação do Python (es)</a
+                  >
+               </li>
+               <li><a href="https://es.react.dev/" target="_blank" rel="noopener">Documentação do React (es)</a></li>
+               <li>
+                  <a href="https://keepachangelog.com/es-ES/1.1.0/" target="_blank" rel="noopener"
+                     >Keep a Changelog (es)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://semver.org/lang/es/" target="_blank" rel="noopener">Semantic Versioning (es)</a>
+               </li>
+               <li>
+                  <a href="https://www.conventionalcommits.org/es/v1.0.0/" target="_blank" rel="noopener"
+                     >Conventional Commits (es)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://opensource.guide/es/leadership-and-governance/" target="_blank" rel="noopener"
+                     >Open Source Guides (es)</a
+                  >
+               </li>
+               <li>
+                  <a
+                     href="https://docs.github.com/es/get-started/learning-about-github/github-glossary"
+                     target="_blank"
+                     rel="noopener">GitHub Docs (es)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://docs.astro.build/es/" target="_blank" rel="noopener">Documentação do Astro (es)</a>
+               </li>
+            </ul>
+
+            <h3>Vietnamita</h3>
+            <ul>
+               <li>
+                  <a href="https://raw.githubusercontent.com/git/git/master/po/vi.po" target="_blank" rel="noopener"
+                     >Localização do Git para o vietnamita (po/vi.po)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://kubernetes.io/vi/docs/" target="_blank" rel="noopener"
+                     >Documentação e glossário do Kubernetes (vi)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://semver.org/lang/vi/" target="_blank" rel="noopener">Semantic Versioning 2.0.0 (vi)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://vi.vuejs.org/" target="_blank" rel="noopener">Documentação do Vue.js (vi, Vue 2)</a>
+               </li>
+               <li><a href="https://12factor.net/vi/" target="_blank" rel="noopener">The Twelve-Factor App (vi)</a></li>
+               <li>
+                  <a
+                     href="https://www.contributor-covenant.org/vi/version/2/1/code_of_conduct/"
+                     target="_blank"
+                     rel="noopener">Contributor Covenant 2.1 (vi)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://gitlab.gnome.org/GNOME/gtk/-/raw/main/po/vi.po" target="_blank" rel="noopener"
+                     >Localização do GNOME GTK (po/vi.po)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://ibst.vn/" target="_blank" rel="noopener"
+                     >Projetos de normas nacionais vietnamitas (vocabulário de documentos normativos)</a
+                  >
+               </li>
+               <li>
+                  <a href="https://vi.wikipedia.org/" target="_blank" rel="noopener"
+                     >Wikipédia em vietnamita (secundária)</a
+                  >
+               </li>
+            </ul>
+
+            <h2>Manter as traduções atualizadas</h2>
+            <p>
+               Cada página traduzida registra qual revisão da sua fonte em inglês ela segue. Em cada build, uma
+               verificação o faz falhar se alguma tradução ficou para trás em relação à sua fonte, de modo que uma
+               tradução publicada nunca é mais antiga que o inglês que ela traduz. A revisão é registrada, não exibida.
+            </p>
+
+            <h2>Como relatar um erro</h2>
+            <p>
+               Toda página traduzida traz dois links abaixo do título: um abre uma issue com o idioma e a página já
+               preenchidos, o outro abre o arquivo-fonte da própria página para um pull request. A visualização da
+               especificação em página única é a exceção: ela é composta a partir de vários documentos, e não de um só,
+               por isso o link de issue fica no aviso do topo e um link de edição fica ao lado do título de cada
+               documento. Uma correção passa pela mesma revisão de qualquer outra mudança e entra na próxima versão
+               publicada.
+            </p>
+
+            <h2>O que não é traduzido</h2>
+            <p>
+               Nomes de comandos, flags, caminhos, chaves JSON e exemplos de código continuam em inglês; os comentários
+               dentro de um exemplo de código são traduzidos. Os próprios arquivos de JSON Schema e as rotas de markdown
+               bruto continuam em inglês.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

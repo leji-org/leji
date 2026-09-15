@@ -27,9 +27,22 @@ recorded exception, and direct pushes stay blocked either way.
 1. `npm run assets`: re-vendor schemas/templates/cli.json into every SDK.
 2. `npm run assets:check`: must report `assets in sync`.
 3. `npm test` (root) plus `go test ./...` and `pytest -q`: all green.
-4. Bump all 9 version locations at once with `npm run version:set <x>` (one
-   command sets every SDK manifest, the Python pyproject, and the Go SDKVersion
-   constant); confirm coherence with `npm run version:check`.
+4. **Bump and stamp the release date, on the day you tag.** `npm run version:set
+   <x>` sets all 9 version locations at once (every SDK manifest, the Python
+   pyproject, the Go SDKVersion constant) and the internal dependency ranges with
+   them; confirm coherence with `npm run version:check`. In the same change, date
+   the release: every prose claim about the spec freeze names the release that
+   carries it, not a calendar date, so only two places hold a real one and are
+   `unreleased` or stale until this step. The `CHANGELOG.md` release heading
+   becomes `## <version> · YYYY-MM-DD`, and the matching `CHANGELOG.json` entry's
+   `date` becomes the same day when the release carries such an entry.
+   `CHANGELOG.json` declares the context-changelog schema, so its date must stay
+   `YYYY-MM-DD`; do not park a word there. `node scripts/version.ts --check
+   --release` asserts both. If the tag slips to another day, re-stamp the date,
+   amend the release commit, and re-prove the tree on `rc/*`, which any amend
+   already requires. Bumping without stamping is not a state to push: the
+   pre-publish smoke below and the rehearsal's version comparison both run the
+   release-mode check, so the tag cannot be cut past an undated heading.
 5. `npm run smoke:prepublish` (`scripts/smoke-prepublish.sh`): builds each publishable artifact (npm tarball,
    PyPI wheel, Go binary), cold-installs it in a throwaway sandbox, and runs the
    CLI battery plus cross-SDK parity. Must print `Pre-publish smoke GREEN`. It
@@ -55,13 +68,6 @@ recorded exception, and direct pushes stay blocked either way.
    repository using a PACKED artifact (`npm run cli:packed:refresh`; see
    `docs/practice/testing-cli-adoptions.md`), and record the tarball fingerprint
    with the outcome. This supplements the smoke; it never replaces it.
-7. **Stamp the release date.** Every prose claim about the spec freeze names the
-   release that carries it, not a calendar date, so nothing else needs touching.
-   Two places do hold a real date and are `unreleased` or stale until this step:
-   the `CHANGELOG.md` release heading (`## <version> · unreleased`) and the
-   matching `CHANGELOG.json` entry's `date`. Set both to the day you tag.
-   `CHANGELOG.json` declares the context-changelog schema, so its date must stay
-   `YYYY-MM-DD`; do not park a word there.
 
 ## The rehearsal: the release path runs before there is a tag
 
@@ -102,11 +108,11 @@ publish is irreversible.
 
 | Tag | Publishes |
 |---|---|
-| `packages/sdk/v1.4.1` | npm `@leji-org/leji` **and** JSR `@leji-org/leji` (one tag, two jobs) |
-| `packages/create-leji/v1.4.1` | npm `create-leji` |
-| `packages/sdk-py/v1.4.1` | PyPI `leji` |
-| `packages/sdk-go/v1.4.1` | Go module index + goreleaser binaries |
-| `packages/mcp/v1.4.1` | npm `@leji-org/mcp` |
+| `packages/sdk/v1.5.0` | npm `@leji-org/leji` **and** JSR `@leji-org/leji` (one tag, two jobs) |
+| `packages/create-leji/v1.5.0` | npm `create-leji` |
+| `packages/sdk-py/v1.5.0` | PyPI `leji` |
+| `packages/sdk-go/v1.5.0` | Go module index + goreleaser binaries |
+| `packages/mcp/v1.5.0` | npm `@leji-org/mcp` |
 
 Cut all five at the same version once the pre-flight (above) is green. Tag the
 sdk first: `create-leji` and `@leji-org/mcp` both depend on
@@ -116,14 +122,14 @@ sdk's npm publish job to go green and confirm the version is live**
 
 ```
 # 1. The sdk tag; then WAIT for the npm publish to be green and live.
-git tag packages/sdk/v1.4.1          && git push origin packages/sdk/v1.4.1
-npm view @leji-org/leji version      # must print 1.4.1 before continuing
+git tag packages/sdk/v1.5.0          && git push origin packages/sdk/v1.5.0
+npm view @leji-org/leji version      # must print 1.5.0 before continuing
 
-# 2. Only after @leji-org/leji@1.4.1 is live on npm:
-git tag packages/sdk-py/v1.4.1       && git push origin packages/sdk-py/v1.4.1
-git tag packages/sdk-go/v1.4.1       && git push origin packages/sdk-go/v1.4.1
-git tag packages/create-leji/v1.4.1  && git push origin packages/create-leji/v1.4.1
-git tag packages/mcp/v1.4.1          && git push origin packages/mcp/v1.4.1
+# 2. Only after @leji-org/leji@1.5.0 is live on npm:
+git tag packages/sdk-py/v1.5.0       && git push origin packages/sdk-py/v1.5.0
+git tag packages/sdk-go/v1.5.0       && git push origin packages/sdk-go/v1.5.0
+git tag packages/create-leji/v1.5.0  && git push origin packages/create-leji/v1.5.0
+git tag packages/mcp/v1.5.0          && git push origin packages/mcp/v1.5.0
 ```
 
 ## Finalize: publish the Go binaries (required)
@@ -134,7 +140,7 @@ public until the separate `release-finalize` workflow publishes it. Skipping thi
 leaves the announcement pointing at a release nobody can download.
 
 After every publish job is green, run the `release-finalize` workflow manually and
-give it the Go tag as `release_tag` (e.g. `packages/sdk-go/v1.4.1`). It publishes
+give it the Go tag as `release_tag` (e.g. `packages/sdk-go/v1.5.0`). It publishes
 the draft release and enables Discussions. Confirm the release is no longer marked
 draft before announcing.
 
@@ -162,8 +168,8 @@ immutable, so inspect the wheel and sdist before tagging
 The Go module lives at `packages/sdk-go`, so its import path is
 `github.com/leji-org/leji/packages/sdk-go`. Go resolves versions of a module in
 a subdirectory **only** from tags that carry the module subpath prefix
-(`packages/sdk-go/v1.4.1`); a plain `v1.4.1` will **not** make
-`go install github.com/leji-org/leji/packages/sdk-go/cmd/leji@v1.4.1` resolve.
+(`packages/sdk-go/v1.5.0`); a plain `v1.5.0` will **not** make
+`go install github.com/leji-org/leji/packages/sdk-go/cmd/leji@v1.5.0` resolve.
 There is no upload step: pkg.go.dev indexes the tag on first request.
 
 ## One-time setup (before the first tag)

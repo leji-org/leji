@@ -6,10 +6,11 @@ import Doc from '../layouts/Doc.astro';
 import SupportedRuntimes from '../components/SupportedRuntimes.astro';
 import InstallTabs from '../components/InstallTabs.astro';
 import lejiSyntaxTheme from '../styles/shiki-leji.json';
+import { REPO_ROOT } from '../repo-root';
 
 // Single-sourced from the SDK's CLI spec; `leji --help` renders from the same
 // file, so this page and the tool cannot disagree.
-const cli = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), '../../packages/sdk/cli.json'), 'utf-8'));
+const cli = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'packages', 'sdk', 'cli.json'), 'utf-8'));
 const slug = (name: string) => name.replace(/\s+/g, '-');
 
 // Split inline `code` spans on backticks (odd segments are code). Segments stay
@@ -26,10 +27,11 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
    <p class="sp-lede">{cli.summary}</p>
    <p>
       Install it in whichever runtime your toolchain or CI uses; the command surface is identical across all three.
-      Every command takes <code>--root &lt;dir&gt;</code>; the reporting commands also emit machine-readable <code
-         >--json</code
-      >. The same spec generates both this reference and <code>leji --help</code>. Working through an agent? The same
-      validation and conformance are available as <a href="/mcp/">MCP tools</a>.
+      Every command takes <code>--root &lt;dir&gt;</code> to point at an existing layer; <code>init</code> and <code
+         >adopt</code
+      > create one instead, so they name their target with <code>--dir &lt;path&gt;</code>. The reporting commands also
+      emit machine-readable <code>--json</code>. The same spec generates both this reference and <code>leji --help</code
+      >. Working through an agent? The same validation and conformance are available as <a href="/mcp/">MCP tools</a>.
    </p>
 
    <div class="runtimes-block">
@@ -52,7 +54,7 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
       <p>
          Bring a repository into a context layer.{' '}
          <a href="#adopt"><code>leji adopt</code></a> scaffolds a context layer around an existing repo and leaves its files
-         in place (with <code>--wire-adapters</code> it converts existing <code>CLAUDE.md</code> /
+         in place (with <code>--wire-adapters</code> it converts existing <code>CLAUDE.md</code> /{' '}
          <code>AGENTS.md</code> entrypoints into one-line redirects); <a href="#init"><code>leji init</code></a> scaffolds
          a new one with an onboarding brief for your agent to fill; <a href="#detect"><code>leji detect</code></a> finds installed
          hosts, and <a href="#start"><code>leji start</code></a> opens one in the context layer. Preview <code
@@ -128,6 +130,13 @@ const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i %
          }
       </tbody>
    </table>
+   <p>
+      Run from a source checkout of the Leji repository rather than from an installed package, the CLI adds a build
+      marker to the version it prints: a <code>+dev.</code> suffix carrying the short revision that checkout is on, or a bare{
+         ' '
+      }
+      <code>+dev</code> when the revision cannot be read. An installed copy prints the version alone.
+   </p>
 
    <h2 id="pinned-cli">The CLI a repository pins</h2>
    <p>

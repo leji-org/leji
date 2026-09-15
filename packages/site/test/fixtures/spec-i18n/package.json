@@ -1,0 +1,7 @@
+{
+   "name": "spec-i18n-fixture",
+   "version": "0.0.0",
+   "private": true,
+   "description": "Build fixture for the site's translated-specification routes. Not published, not deployed.",
+   "type": "module"
+}

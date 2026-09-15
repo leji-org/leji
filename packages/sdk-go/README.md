@@ -30,7 +30,7 @@ leji agent --name <n>   # bind an additional named agent into the layer
 leji mounts hydrate     # materialize declared federation mounts into the resolver cache
 leji mounts status      # each mount's availability, integrity, and pin ancestry
 leji mounts locate      # resolver state for one mount: projection path, pin, verification
-leji mounts update-pin  # move one mount's declared pin, verified against the source
+leji mounts update-pin  # move one mount's pin, checked against the local witness (--fetch: the source)
 leji changelog compact  # fold the oldest changelog entries into one compaction entry
 ```
 
@@ -41,11 +41,12 @@ In a Go repository that declares the tool, run the pinned copy with `go tool lej
 
 This is the Go reference SDK. It is behaviorally identical to the `@leji-org/leji` npm
 package and the `leji` Python package: same commands, same flags, same findings,
-same exit codes (0 clean, 1 findings, 2 usage error); the one runtime-specific
-behavior is the hand-off to a repository's pinned CLI, which the Node and Python
-CLIs perform and this one does not, because a Go repository's declared copy is
-built on demand by the toolchain rather than installed as an executable: use
-`go tool leji` above. All three implementations
+same exit codes (0 clean, warnings included; 1 a check that did not pass, with
+or without a finding; 2 a usage error or an internal failure); the one
+runtime-specific behavior is the hand-off to a repository's pinned CLI, which
+the Node and Python CLIs perform and this one does not, because a Go
+repository's declared copy is built on demand by the toolchain rather than
+installed as an executable: use `go tool leji` above. All three implementations
 are tested against one shared fixture suite under `fixtures/`; the Go SDK's
 `internal/conformancetest` reproduces that contract (validate findings,
 conformance scoring, and index-check staleness) for every fixture.
@@ -63,7 +64,7 @@ gofmt -l .         # prints nothing
 go test ./...      # all green, including the shared fixtures
 ```
 
-The SDK version is a build-time constant defaulting to `1.4.1`; override it with
+The SDK version is a build-time constant defaulting to `1.5.0`; override it with
 `-ldflags "-X github.com/leji-org/leji/packages/sdk-go/internal/schemas.SDKVersion=<v>"`.
 
 - Specification: https://leji.org

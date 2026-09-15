@@ -615,6 +615,14 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 	if err := copyChrome(filepath.Join(viewerAbs, "_manifest.md"), filepath.Join(outContent, "_manifest.md")); err != nil {
 		return BuildResult{}, err
 	}
+	// The Decisions page exists only where the layer declares a decisions category,
+	// so the copy is conditional on the same predicate the generation used.
+	if viewer.HasDecisionsPage(m) {
+		src := filepath.Join(viewerAbs, viewer.DecisionsRel)
+		if err := copyChrome(src, filepath.Join(outContent, viewer.DecisionsRel)); err != nil {
+			return BuildResult{}, err
+		}
+	}
 	// The viewer assets at the web root.
 	if err := copyChromeTree(filepath.Join(viewerAbs, "assets"), filepath.Join(outAbs, "assets")); err != nil {
 		return BuildResult{}, err

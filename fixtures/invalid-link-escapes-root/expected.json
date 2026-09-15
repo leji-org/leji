@@ -1,0 +1,17 @@
+{
+  "validate": {
+    "exit": 1,
+    "findings": [
+      {
+        "rule": "link-unresolved",
+        "severity": "error",
+        "path": "docs/boot-profile.md"
+      },
+      {
+        "rule": "link-unresolved",
+        "severity": "error",
+        "path": "docs/domain/overview.md"
+      }
+    ]
+  }
+}

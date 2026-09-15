@@ -2,6 +2,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
+import { gitShortRevision } from './git.js';
+import { byteCompare } from './text.js';
 
 /** Spec lines this SDK supports (versioning.md: validate against the declared line). */
 export const SUPPORTED_LINES = ['1.0'];
@@ -26,6 +28,39 @@ function readSdkVersion(): string {
 
 /** This SDK's version, read from its own package metadata. */
 export const SDK_VERSION: string = readSdkVersion();
+
+/** True when `<dir>/.git` is a repository entry: the directory, or the `gitdir:` file a worktree gets. */
+function hasGitEntry(dir: string): boolean {
+   const dotGit = path.join(dir, '.git');
+   try {
+      if (fs.statSync(dotGit).isDirectory()) return true;
+      return fs.readFileSync(dotGit, 'utf8').startsWith('gitdir:');
+   } catch {
+      return false;
+   }
+}
+
+/**
+ * The version the CLI prints for `--version`, `-v`, and `version`: `X.Y.Z+dev.<sha7>`
+ * when it runs from a source checkout of this repository, `X.Y.Z+dev` when that
+ * checkout's revision cannot be read, and the bare `X.Y.Z` otherwise. Display only:
+ * `SDK_VERSION` stays bare everywhere else, so nothing generated or published moves.
+ *
+ * A checkout is the package sitting at `packages/sdk` of a tree that has a `.git`
+ * entry. Every install form (node_modules, an npx cache, a global prefix) fails that
+ * layout test; a published tarball deliberately unpacked at `packages/sdk` inside
+ * some other checkout would pass it, which is why the marker says "source checkout"
+ * rather than "unpublished". Computed per call: the command prints once and exits.
+ */
+export function displayVersion(): string {
+   if (path.basename(packageRoot) !== 'sdk') return SDK_VERSION;
+   const packagesDir = path.dirname(packageRoot);
+   if (path.basename(packagesDir) !== 'packages') return SDK_VERSION;
+   const repoRoot = path.dirname(packagesDir);
+   if (!hasGitEntry(repoRoot)) return SDK_VERSION;
+   const sha = gitShortRevision(repoRoot, 2000);
+   return sha ? `${SDK_VERSION}+dev.${sha}` : `${SDK_VERSION}+dev`;
+}
 
 /** Directory holding the vendored schema files for a spec line. */
 export function schemasDir(): string {
@@ -191,7 +226,7 @@ function renderViolation(path: string, message: string): string {
  * property, each of which recomputes the whole missing set here).
  */
 function finishViolations(rendered: string[]): string[] {
-   return [...new Set(rendered)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+   return [...new Set(rendered)].sort(byteCompare);
 }
 
 /** Validate data against a vendored schema; returns human-readable error strings. */

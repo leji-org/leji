@@ -1,0 +1,254 @@
+---
+// Japanese translation of src/pages/mcp.astro. The English page is the page of record;
+// `source` is its git blob sha at the revision this translation follows.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import CopyableCode from '../../components/CopyableCode.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '0dbbe32b2b9f192f8f0bfa1241ad0ba3b6341a52';
+const strings = translationStrings('ja');
+
+const config = `{
+  "mcpServers": {
+    "leji": { "command": "npx", "args": ["-y", "@leji-org/mcp"] }
+  }
+}`;
+
+const claudeAddProject = 'claude mcp add leji --scope project -- npx -y @leji-org/mcp';
+const claudeAddUser = 'claude mcp add leji --scope user -- npx -y @leji-org/mcp';
+const codexAdd = 'codex mcp add leji -- npx -y @leji-org/mcp';
+
+// The URIs and tool names are identifiers and stay as they are; only what they serve
+// is described in the reader's language.
+const resources = [
+   ['leji://spec/full', '仕様全文を 1 つの文書として返します。'],
+   ['leji://spec/{id}', '仕様文書を 1 つ返します。例：leji://spec/conformance。'],
+   ['leji://schema/{name}', 'JSON Schema を 1 つ返します。例：leji://schema/context-manifest。'],
+   ['leji://cli/help', 'leji CLI のコマンドとオプションのリファレンス。'],
+];
+
+const tools = [
+   ['search_spec', 'クエリに一致する仕様セクションを返します。'],
+   ['fetch_spec_doc', '仕様文書を 1 つ、または仕様全文を返します。'],
+   ['fetch_schema', 'JSON Schema を 1 つ返します。'],
+   ['validate_manifest', 'インラインで渡された leji.json を検証します。'],
+   ['validate_layer', '指定したパスのコンテキストレイヤーを検証します。'],
+   ['score_conformance', '宣言された適合レベルと、検証された適合レベルを返します。'],
+   ['explain_conformance', '検証済みの項目と、次のレベルに必要な項目を返します。'],
+];
+---
+
+<Base
+   lang="ja"
+   title="MCP サーバー · Leji"
+   description="AI エージェントから Leji のツールを利用できます。仕様とスキーマを提供し、ディスク上のコンテキストレイヤーを検査する、ローカルかつ読み取り専用の MCP サーバーです。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/mcp/" />
+         <main id="content" class="prose">
+            <PageHeader kind="reference" />
+            <h1>MCP サーバー</h1>
+            <TranslationNote strings={strings.note} href="/mcp/" />
+            <p class="sp-lede">
+               Leji のツールには 2 つの形があります。<a href="/ja/cli/">CLI</a> は利用者と CI 向け、Model Context Protocol（MCP）サーバーはエージェント向けです。
+            </p>
+            <p>
+               <code>@leji-org/mcp</code> は、リファレンスの SDK をラップする、ローカルの <a
+                  href="https://modelcontextprotocol.io"
+                  target="_blank"
+                  rel="noopener">MCP</a
+               > サーバーです。エージェントは、サイトから取得したり CLI を呼び出したりせずに、仕様とスキーマを読み、ディスク上のコンテキストレイヤーを検証して、その適合性を判定できます。
+            </p>
+            <p>
+               ローカルで stdio を介して動作し、実行時にネットワーク呼び出しは行いません（最初の <code>npx</code> インストール時に限り、パッケージを取得します）。公開されるツールはすべて読み取り専用です。
+            </p>
+
+            <h2>クライアントに追加する</h2>
+            <p>
+               一度設定すれば、そのスコープが及ぶすべてのセッションで <code>leji</code>
+               のツールが表示され、それ以上の準備は不要です。ユーザー単位で登録するとすべてのプロジェクトに、プロジェクト単位で登録するとそのリポジトリに適用されます。クライアントは必要に応じて{
+                  ' '
+               }
+               <code>leji-mcp</code> を起動します。
+            </p>
+            <p>
+               CLI で導入していて、Claude Code か Codex が <code>PATH</code> にある場合、<code>leji init</code>{' '}
+               と <code>leji adopt</code>
+               が、エージェントへ引き渡す前に、このサーバーを対象ホストへ登録するか確認します。
+            </p>
+            <p>
+               この申し出は対話的なので、<code>--yes</code>
+               を付けた実行では省略されます。以下の手順は、その確認をスキップした場合、別のクライアントを使う場合、別のスコープを指定する場合に利用してください。
+            </p>
+
+            <h3>Claude Code</h3>
+            <CopyableCode code={claudeAddProject} lang="bash" label="コマンドをコピー" />
+            <p>
+               <code>--scope project</code> はリポジトリルートに共有の <code>.mcp.json</code>
+               を書き込みます。これをコミットすると、リポジトリをクローンした全員にサーバーが提示されます。自分が使うすべてのプロジェクトを対象にする場合は、次のようにします。
+            </p>
+            <CopyableCode code={claudeAddUser} lang="bash" label="コマンドをコピー" />
+            <p>
+               <code>--scope</code> を省くと、このプロジェクトだけを対象に、あなた個人の設定として登録されます。詳しくは{
+                  ' '
+               }
+               <a href="https://docs.claude.com/en/docs/claude-code/mcp" target="_blank" rel="noopener"
+                  >Claude Code の MCP ドキュメント</a
+               >を参照してください。
+            </p>
+
+            <h3>Codex</h3>
+            <CopyableCode code={codexAdd} lang="bash" label="コマンドをコピー" />
+            <p>
+               あるいは <code>~/.codex/config.toml</code> に <code>[mcp_servers.leji]</code>
+               テーブルを直接追加することもできます。詳しくは{' '}
+               <a href="https://developers.openai.com/codex/mcp" target="_blank" rel="noopener"
+                  >Codex の MCP ドキュメント</a
+               >を参照してください。
+            </p>
+
+            <h3>その他のクライアント</h3>
+            <p>Claude Desktop、Cursor、Windsurf など、他の MCP クライアントは標準の設定を受け付けます。</p>
+            <CopyableCode code={config} lang="json" label="MCP の設定をコピー" />
+
+            <p>
+               <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 22 以降が必要です（<code
+                  >npx</code
+               > は Node に同梱されています）。初回実行時にパッケージを取得し、以降はキャッシュを使用します。各ツールには、<code
+                  >leji.json</code
+               > があるリポジトリルートを指定してください。
+            </p>
+
+            <h2>ツール</h2>
+            <p>
+               すべて読み取り専用です。このサーバーが公開するツールが、コンテキストレイヤーを書き換えることはありません。
+            </p>
+            <table class="mcp-table">
+               <caption class="vh">サーバーが公開する MCP ツール</caption>
+               <thead>
+                  <tr><th scope="col">ツール</th><th scope="col">返すもの</th></tr>
+               </thead>
+               <tbody>
+                  {
+                     tools.map(([name, summary]) => (
+                        <tr>
+                           <th scope="row">
+                              <code>{name}</code>
+                           </th>
+                           <td>{summary}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+
+            <h2>リソース</h2>
+            <table class="mcp-table">
+               <caption class="vh">サーバーが公開する MCP リソース</caption>
+               <thead>
+                  <tr><th scope="col">URI</th><th scope="col">提供するもの</th></tr>
+               </thead>
+               <tbody>
+                  {
+                     resources.map(([uri, summary]) => (
+                        <tr>
+                           <th scope="row">
+                              <code>{uri}</code>
+                           </th>
+                           <td>{summary}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+
+            <h2>CLI があるのに、なぜサーバーが必要なのか</h2>
+            <p>
+               CLI はすでにコンテキストレイヤーの検証と適合性の判定に対応しています。サーバーもこの 2
+               つを提供します。さらに、CLI
+               にはない仕様とスキーマの検索、提供にも対応し、エージェントが自ら利用できる別のサーフェスになります。
+            </p>
+            <ul>
+               <li>
+                  <strong>自動的に認識されます。</strong
+                  >一度設定すれば、セッションのたびにエージェントのツール一覧へ、機能の説明付きで表示されます。Leji
+                  の存在や CLI の場所を、誰かがエージェントに教える必要はありません。
+               </li>
+               <li>
+                  <strong>シェルが使えない場所でも動きます。</strong
+                  >多くのエージェント環境では、任意のコマンドを実行できないか、方針として実行させません。実行時にネットワークへ接続しない読み取り専用サーバーなら、<code
+                     >leji validate</code
+                  > を実行できない環境でも利用できます。
+               </li>
+               <li>
+                  <strong>仕様とスキーマを直接提供します。</strong
+                  >エージェントはウェブから取得せずに、これらをリソースとして読み、作業中に引用できます。
+               </li>
+            </ul>
+            <p>
+               コンテキストレイヤーを利用するだけなら、サーバーは不要です。適合したリポジトリの<a
+                  href="/ja/spec/boot-profile/">ブートプロファイル</a
+               >が、すでにエージェントを案内します。サーバーが担うのはもう一方、つまり Leji
+               を理解し、コンテキストレイヤーを仕様に照らして検証する役割です。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .mcp-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.8rem 0 0;
+   }
+   .mcp-table caption.vh {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+   }
+   .mcp-table th {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: top;
+      text-align: left;
+      font-weight: 400;
+      color: var(--leji-text-body);
+      white-space: nowrap;
+   }
+   .mcp-table thead th {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+   }
+   .mcp-table th code {
+      color: var(--leji-text);
+      font-size: 0.85em;
+   }
+   .mcp-table td {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: top;
+      color: var(--leji-text-body);
+   }
+   .mcp-table td:first-child {
+      white-space: nowrap;
+   }
+   .mcp-table td code {
+      color: var(--leji-text);
+      font-size: 0.85em;
+   }
+</style>

@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest==8.4.2",
-    "coverage==7.15.4",
-    "build==1.5.0",
+    "pytest==9.1.1",
+    "coverage==7.16.1",
+    "build==1.6.1",
 ]

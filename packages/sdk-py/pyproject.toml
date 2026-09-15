@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "leji"
-version = "1.4.1"
+version = "1.5.0"
 description = "Reference SDK and CLI for Leji, the open specification for the shared context layer of AI-native teams: validate, index, changelog, freshness, conformance, status, route, federation mounts, viewer, view, init, adopt, detect, start, ci, and agent."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -33,11 +33,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest==8.4.2",
-    "ruff==0.15.17",
-    "mypy==1.20.2",
-    "coverage==7.15.4",
-    "build==1.5.0",
+    "pytest==9.1.1",
+    "ruff==0.16.7",
+    "mypy==2.3.1",
+    "coverage==7.16.1",
+    "build==1.6.1",
 ]
 
 [project.urls]
@@ -61,6 +61,14 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint]
+# The rule set this package is linted against, stated rather than inherited:
+# ruff's default selection widened in 0.16, and a lint gate whose contents
+# change with the tool version is not a fixed gate. These are the rules the
+# package has been linted against all along. Selecting more is a change of its
+# own, with the source updates it implies.
+select = ["E4", "E7", "E9", "F"]
 
 [tool.mypy]
 python_version = "3.10"

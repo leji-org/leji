@@ -26,7 +26,7 @@ from leji.localcli import (
     launch_local_cli,
     resolve_local_cli,
 )
-from leji.schemas import SDK_VERSION
+from leji.schemas import display_version
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = REPO_ROOT / "fixtures" / "handoff"
@@ -926,7 +926,7 @@ def test_console_uses_the_cwd_and_never_walks_up(tmp_path: Path) -> None:
     assert run_console(["--version"], cwd=root).stdout == marker_line(["--version"])
     nested = root / "docs" / "context"
     nested.mkdir(parents=True)
-    assert run_console(["--version"], cwd=nested).stdout == f"{SDK_VERSION}\n"
+    assert run_console(["--version"], cwd=nested).stdout == f"{display_version()}\n"
 
 
 @console_only
@@ -934,7 +934,7 @@ def test_console_opt_out_runs_the_global(tmp_path: Path) -> None:
     root = seed("python-eligible", tmp_path)
     for value in ("", "0", "1"):
         result = run_console(["--version"], cwd=root, env={"LEJI_NO_LOCAL": value})
-        assert result.stdout == f"{SDK_VERSION}\n", value
+        assert result.stdout == f"{display_version()}\n", value
         assert result.returncode == 0
 
 
@@ -947,7 +947,7 @@ def test_console_runs_the_global_where_the_repository_does_not_qualify(tmp_path:
         else:
             root = seed(name, tmp_path / name)
         result = run_console(["--version"], cwd=root)
-        assert result.stdout == f"{SDK_VERSION}\n", name
+        assert result.stdout == f"{display_version()}\n", name
         assert result.stderr == "", name
         assert result.returncode == 0, name
 
@@ -959,7 +959,7 @@ def test_console_in_the_sdks_own_checkout_runs_itself(tmp_path: Path) -> None:
     nothing. Were it ever eligible, the target would BE this script and the recursion
     guard would refuse it."""
     result = run_console(["--version"], cwd=REPO_ROOT / "packages" / "sdk-py")
-    assert result.stdout == f"{SDK_VERSION}\n"
+    assert result.stdout == f"{display_version()}\n"
     assert result.returncode == 0
 
 
@@ -978,7 +978,7 @@ def test_console_runs_the_global_on_unreadable_eligibility_state(tmp_path: Path)
         if not unreadable(root / relative):
             pytest.skip("this user can read a 0o000 file (root)")
         result = run_console(["--version"], cwd=root)
-        assert result.stdout == f"{SDK_VERSION}\n", relative
+        assert result.stdout == f"{display_version()}\n", relative
         assert result.stderr == "", relative
         assert result.returncode == 0, relative
 

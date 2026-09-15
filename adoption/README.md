@@ -1,6 +1,6 @@
-# Adopting Leji
+# Adoption guide
 
-This guide takes a repository from scaffold to a useful context layer. You will map existing writing, connect entrypoints, add checks, and choose where it lives. Everyone has one dependable place to begin.
+Adopting Leji takes a repository from scaffold to a useful context layer. You will map existing writing, connect entrypoints, add checks, and choose where it lives. Everyone has one dependable place to begin.
 
 <span id="scaffold"></span>
 
@@ -29,7 +29,7 @@ Map lived paths instead of renaming them. `docs/engineering/START-HERE.md` confo
 
 ## <span class="step-num">02</span>Make it yours
 
-First, classify what you have already written. The seeded index files govern only the placeholders the scaffold itself wrote, so nothing you wrote earlier is governed until someone lists it. Hand the onboarding brief to your agent and approve the mapping it proposes, or edit the index files yourself.
+First, classify what you have already written. Each seeded index file selects its whole category directory, so anything already sitting in one is governed the moment the scaffold lands; what you wrote anywhere else stays outside the context layer until someone lists it. Hand the onboarding brief to your agent and approve the mapping it proposes, or edit the index files yourself.
 
 Nothing needs to move. A category maps to curated index files, and an entry there selects either a single file or a whole directory, so an existing `docs/` tree can stay exactly where it is ([content categories](../spec/content-categories.md)).
 
@@ -39,7 +39,7 @@ Next, wire discovery. Adopting over an existing `CLAUDE.md`, `GEMINI.md`, `.curs
 
 `leji adopt --wire-adapters` migrates that content into the context layer and replaces the entrypoint with: `Read ./<bootProfilePath> first. It is the canonical context entrypoint for this repository.` Validation can then pass at `core`.
 
-`AGENTS.md` is the portable adapter, read natively by most hosts. `init` and `adopt` create a pointer-only file when absent; `--no-agents` skips it. Single-vendor entrypoints are never created.
+`AGENTS.md` is the portable adapter, read natively by many hosts. `init` and `adopt` create a pointer-only file when absent; `--no-agents` skips it. Single-vendor entrypoints are never created.
 
 For manual adoption, copy [`templates/leji.json`](https://github.com/leji-org/leji/blob/main/templates/leji.json) and [`templates/boot-profile.md`](https://github.com/leji-org/leji/blob/main/templates/boot-profile.md), create indexes, and use [`templates/decision-record.md`](https://github.com/leji-org/leji/blob/main/templates/decision-record.md). Remove every placeholder named by `leji validate` before claiming `core`; drop unneeded `agents` entries or categories.
 
@@ -47,7 +47,7 @@ For manual adoption, copy [`templates/leji.json`](https://github.com/leji-org/le
 
 ## <span class="step-num">03</span>Put it to work
 
-The layer earns its keep when an agent reads it before the task, not after. `leji start` opens your coding agent from the context root, so it begins with the boot profile instead of whatever it inferred.
+The layer earns its keep when an agent reads it before the task, not after. `leji start` opens your coding agent from the repository root, so it begins with the boot profile instead of whatever it inferred.
 
 ```bash
 leji start                                  # detect a host and open it in the context layer
@@ -88,7 +88,7 @@ leji badge --out docs/badge.svg   # somewhere else; the snippet follows the path
 
 The badge is self-attested and honest about this run: it states the level `leji conformance` verified, which is never above what `leji.json` claims and is sometimes below it. A claim the offline run could not confirm is named on stdout rather than badged.
 
-Run it on a committed tree. An uncommitted changelog leaves the `indexed` check unverifiable, so a working copy that has not been committed badges `core` whatever it claims.
+Run it on a committed tree. A changelog with no committed baseline cannot be checked for append-only discipline, so the run stops at `core` whatever `leji.json` claims; appends made on top of a committed changelog are compared against `HEAD` and pass without a commit of their own. A run that verifies no level writes no badge at all.
 
 The snippet's image path is relative to the repository root. A README in a subdirectory needs the path adjusted to reach the file from there.
 
@@ -102,7 +102,7 @@ When many repositories consume one layer, use a docs-only submodule. Create its 
 
 Point agents at `context/docs/boot-profile.md`; retained vendor files redirect there. See the [multi-repo example](https://github.com/leji-org/leji/tree/main/examples/multi-repo) and [distribution specification](../spec/distribution.md).
 
-Federation is for teams that each own a layer. Its [guide](/federation/) covers declarations, hydration, status, routing, and `federated` checks.
+Federation is for teams that each own a layer. Its [guide](https://leji.org/federation/) covers declarations, hydration, status, routing, and `federated` checks.
 
 <span id="optional-cases"></span>
 
@@ -148,6 +148,8 @@ leji viewer build      # export a self-contained static folder for internal host
 
 `serve` is not hosting. Publish only for the context layer's audience. The build writes inside the repository (`.leji/dist/` by default, or a `--out` path within it) and the output folder is yours: copy it wherever your host reads from. Governed H1s provide navigation; manifest `viewer` fields provide branding and pins. MkDocs can use the index. See the [machine-readable surface specification](../spec/machine-readable-surface.md).
 
+Renderers disagree about markdown, so which constructs a context layer may rely on is fixed by the [rendering profile](https://github.com/leji-org/leji/blob/main/adoption/rendering.md). `leji export` lints every document it carries against that profile, so a layer that exports clean stays inside the documented subset and is free of the differences the profile names. That is narrower than every host and editor preview rendering it identically.
+
 </details>
 
 <details class="fold">
@@ -159,4 +161,4 @@ Uploads, pasted text, and docs without `.git` lack version metadata. Their curre
 
 </details>
 
-<p class="next-step">Next: the <a href="/manifest/">manifest reference</a> for every field, or the <a href="/spec/">specification</a> for the rules behind them.</p>
+<p class="next-step">Next: the <a href="https://leji.org/manifest/">manifest reference</a> for every field, or the <a href="https://leji.org/spec/">specification</a> for the rules behind them.</p>

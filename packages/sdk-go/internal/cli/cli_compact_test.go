@@ -92,13 +92,26 @@ func TestCLIChangelogCompactRequiresFlag(t *testing.T) {
 
 func TestCLIChangelogCompactKeep(t *testing.T) {
 	dir := copyExample(t)
+	src, err := os.ReadFile(filepath.Join(example(t), "docs", "context-changelog.json"))
+	if err != nil {
+		t.Fatalf("read example changelog: %v", err)
+	}
+	var source map[string]any
+	if err := json.Unmarshal(src, &source); err != nil {
+		t.Fatalf("example changelog not JSON: %v", err)
+	}
+	sourceEntries, _ := source["entries"].([]any)
+	n := len(sourceEntries)
+	if n < 2 {
+		t.Fatalf("the example changelog needs at least 2 entries, has %d", n)
+	}
 	code, payload, errs := runJSON(t, []string{"changelog", "compact", "--keep", "1", "--root", dir, "--json"})
 	if code != 0 {
 		t.Fatalf("compact exit %d (%s)", code, errs)
 	}
-	// The example has 2 entries; keep newest 1 → fold 1, kept = 1 survivor + 1 compaction.
-	if payload["folded"].(float64) != 1 {
-		t.Fatalf("folded = %v, want 1", payload["folded"])
+	// Keep newest 1 → fold the rest, kept = 1 survivor + 1 compaction.
+	if payload["folded"].(float64) != float64(n-1) {
+		t.Fatalf("folded = %v, want %d", payload["folded"], n-1)
 	}
 	if payload["kept"].(float64) != 2 {
 		t.Fatalf("kept = %v, want 2", payload["kept"])

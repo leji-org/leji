@@ -1,0 +1,143 @@
+---
+// Japanese translation of src/pages/ai-native.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows, and it
+// is what the drift gate compares against the current blob.
+//
+// The English page's vocabulary and FAQ graph is not repeated here: it defines the terms
+// once for answer engines, and the English page is the page of record for them.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '521aed1784f59b213d781aaa912fdc8ea02a2a86';
+const strings = translationStrings('ja');
+---
+
+<Base
+   lang="ja"
+   title="AI ネイティブなチームとは？ · Leji"
+   description="AI ネイティブなチームとは、人と AI エージェントが、共有され、バージョン管理され、統制されたひとつのコンテキストレイヤーを基に働くチームです。Leji はそのためのオープンな仕様です。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/ai-native/" />
+         <main id="content" class="prose">
+            <PageHeader kind="background" />
+            <h1 id="ai-native-team">AI ネイティブなチームとは？</h1>
+            <TranslationNote strings={strings.note} href="/ai-native/" />
+
+            <p class="sp-lede">
+               AI ネイティブなチームとは、人と AI エージェントがひとつの<strong>共有コンテキストレイヤー</strong
+               >を基盤に活動するチームです。チームの考え方をリポジトリが所有する記録として残し、バージョン管理のもと、レビューを経て更新していきます。
+            </p>
+
+            <p>
+               コンテキストレイヤーには、チームのドメインで使う言葉、必ず満たすべき制約、システム設計の背景にある決定、チームが従う規約、エージェントが動作する際のガードレールが含まれます。人もエージェントも作業のたびにこれを読み、変更はすべて同じレビューのゲートを通ります。<a
+                  href="/ja/spec/">Leji</a
+               > は、そのコンテキストレイヤーのためのオープンな仕様です。
+            </p>
+
+            <h2>プロンプトとツール導入の先へ</h2>
+            <p>
+               AI
+               ツールを使えば個々の作業は速くなります。しかし、プロンプトが散在し、ツールごとに指示が分かれ、知識が個人の記憶にとどまったままでは、チームの仕事の進め方までは変わりません。AI
+               ネイティブなチームでは、ひとつの<a href="/ja/spec/context-layer/">コンテキストレイヤー</a
+               >を共有し、バージョン管理し、統制します。
+            </p>
+
+            <h2>指示ではなく意図を</h2>
+            <p>
+               共有コンテキストが捉えるのは、持続する意図です。何を意味するのか、何が成立していなければならないのか、なぜそうなのかを記録します。人もエージェントも、その意図とタスクから取るべき行動を導き出します。そこに残る意味と制約は、特定のベンダーよりも長く存続します。その理由は<a
+                  href="/ja/rationale/">設計の理由</a
+               >にあります。
+            </p>
+
+            <h2 id="a-circle-not-a-tier">階層ではなく輪</h2>
+            <p>
+               コンテキストは、人から人へ、人から AI へ、人から AI
+               を経て人へという仕事の流れを循環します。アクセス権を持つ全員がこれを読み、誰でも変更を提案できますが、承認するのは人です。アクセス権自体はバージョン管理システムで付与します。閲覧を制限するコンテキストは、権限を分けた別のコンテキストレイヤーに配置します。
+            </p>
+
+            <h2 id="mechanism-over-goodwill">善意ではなく仕組みを</h2>
+            <p>
+               共有コンテキストは、現実の変化とともに古くなります。レビューのゲート、機械的なずれの検査、鮮度の期限を設けることで、保守を誰かの規律だけに頼らずに済みます。<a
+                  href="/ja/spec/governance/">ガバナンスの規則</a
+               >により、これらを機械的に強制し、古くなったコンテキストを識別できます。
+            </p>
+
+            <h2 id="ai-native-workflow">AI ネイティブな進め方</h2>
+            <p>
+               エンジニアとエージェントは、タスクに取りかかる際にコンテキストレイヤーを読み込み、同じ言葉、制約、決定を出発点とします。エージェントは必要に応じてコードとコンテキストの変更を提案し、人が両方を同じゲートでレビューします。こうしてコンテキストの保守が日々の仕事に組み込まれます。
+            </p>
+
+            <h2>Leji がそれを確かめられるようにする方法</h2>
+            <p>
+               AI ネイティブを名乗るのは簡単ですが、実態を確かめるのは容易ではありません。Leji
+               は、コンテキストレイヤーを検証可能にします。<code>leji.json</code>
+               マニフェストが適合性を宣言し、<a href="/ja/quickstart/">リファレンス CLI</a> がリポジトリに導入し、公開されたスキーマに対して成果物を検証し、適合性を採点します。
+            </p>
+            <p>
+               4 つの<a href="/ja/spec/conformance/">適合レベル</a>（<code>core</code>、<code>indexed</code>、<code
+                  >governed</code
+               >、<code>federated</code
+               >）は、コンテキストレイヤーが各要件を満たしているかどうかで決まる、段階的に積み上がる要件の集合です。成熟度を表すスコアではありません。たいていのチームは
+               <code>governed</code> を目標とし、そこで止めるのが適切です。
+            </p>
+            <p>
+               <code>federated</code>
+               レベルは、それぞれ独立性を保つ価値のあるコンテキストレイヤーを、すでに複数のチームが所有している組織向けです。兄弟レイヤーは別々に所有された出典として維持され、ホスト側でピン留めしてマウントします。
+            </p>
+            <p>
+               CLI
+               は機械的に確認できる項目を検証し、それ以外を報告します。残りはチームが保証するため、宣言は単なる主張ではなく、裏付けのあるものになります。
+            </p>
+
+            <h2>よくある質問</h2>
+
+            <details class="fold">
+               <summary><h3>AI ネイティブとは、AI のコーディングツールを使うことですか？</h3></summary>
+               <p>
+                  いいえ。AI ツールは個々の作業を速くします。AI
+                  ネイティブになるとは、チームの仕事の進め方そのものが変わることです。仕事の土台となるコンテキストが共有され、バージョン管理され、統制されるため、人もエージェントも同じ出典を基に作業します。ツールの導入はその過程の一歩であり、最終目的ではありません。
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary><h3>AI ネイティブであるには、特定のベンダーやツールが必要ですか？</h3></summary>
+               <p>
+                  いいえ。コンテキストレイヤーはツールに依存しません。Leji
+                  が標準化するのは形とガバナンスであり、内容ではありません。また、適合性のために特定の商用製品やサービスが必要になることはありません。スチュワード（仕様の管理主体）自身が提供するものも同様です。ベンダーのエントリポイントは、ひとつのコンテキストレイヤーへ誘導するだけのものです。
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary><h3>Leji とコンテキストレイヤーの違いは何ですか？</h3></summary>
+               <p>
+                  Leji はオープンな仕様です。コンテキストレイヤーは、それに従ってチームが作り、所有するものです。Leji
+                  が標準化するのは形とガバナンスであり、内容ではありません。
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary><h3>AI ネイティブなチームは、コンテキストレイヤーが古びるのをどう防ぎますか？</h3></summary>
+               <p>
+                  コンテキストレイヤーへの変更は、コードと同じレビューのゲートを通ります。鮮度の期限によって古くなったコンテキストが識別され、ツールがそれを黙って現行の情報として扱うことはありません。AI
+                  ネイティブなチームは仕事の一部としてコンテキストレイヤーを更新するため、古さが気づかれないまま蓄積せず、早い段階で表面化します。
+               </p>
+            </details>
+
+            <p class="next-step">
+               次は、<a href="/ja/spec/">仕様を読む</a>か、<a href="/ja/quickstart/"
+                  >コンテキストレイヤーを作って、適合していることを確かめる</a
+               >手順へ進みます。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

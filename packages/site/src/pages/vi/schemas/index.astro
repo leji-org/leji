@@ -1,0 +1,83 @@
+---
+// Vietnamese translation of src/pages/schemas/index.astro. The English page is the page
+// of record; `source` is its git blob sha at the revision this translation follows.
+//
+// What each schema validates is the schema's own description, so it is read through the
+// locale's schema map rather than from the file: the map carries one translation per
+// place a string lives, and the build fails if any place the page renders is missing.
+import PageHeader from '../../../components/PageHeader.astro';
+import SectionNav from '../../../components/SectionNav.astro';
+import SiteFooter from '../../../components/SiteFooter.astro';
+import SiteHeader from '../../../components/SiteHeader.astro';
+import TranslationNote from '../../../components/TranslationNote.astro';
+import { translationStrings } from '../../../data/i18n';
+import Base from '../../../layouts/Base.astro';
+import { localizeSchema, readSchemaSources, schemaMap, schemaMapInputs, schemaProjection } from '../../../schema-i18n';
+
+const source = '598bbe8856e6a626d6cb9e6dcc63d8259bb78430';
+const strings = translationStrings('vi');
+
+const sources = readSchemaSources();
+const map = schemaMap('vi', schemaMapInputs(sources));
+const schemas = sources.map((entry) => {
+   const { title, description } = schemaProjection(localizeSchema(entry.schema, map[entry.name].strings));
+   return { file: entry.file, name: entry.name, title: title?.text, description: description?.text };
+});
+---
+
+<Base
+   lang="vi"
+   title="Schemas · Leji"
+   description="Các JSON Schema thuộc nhánh v1.0 của Leji: context manifest, context index, context changelog, agent profile, và bản ghi quyết định."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/schemas/" />
+         <main id="content" class="prose">
+            <PageHeader kind="normative" />
+            <h1>Schemas</h1>
+            <TranslationNote strings={strings.note} href="/schemas/" />
+            <p>
+               JSON Schema (draft 2020-12) cho bề mặt máy đọc được. Đây là văn bản chuẩn tắc; các tệp gốc được phục vụ
+               tại đúng URL <code>$id</code> chuẩn của chúng để công cụ dùng. Hãy xem{' '}
+               <a href="/vi/spec/machine-readable-surface/">bề mặt máy đọc được</a> và{' '}
+               <a href="/vi/spec/versioning/">đánh phiên bản</a> để biết các quy tắc về tính ổn định.
+            </p>
+            <table>
+               <thead>
+                  <tr><th>Schema</th><th>Kiểm tra cho</th><th>Tệp gốc</th></tr>
+               </thead>
+               <tbody>
+                  {
+                     schemas.map((s) => (
+                        <tr>
+                           <td>
+                              <a href={`/vi/schemas/${s.name}/`}>
+                                 <code>{s.name}</code>
+                              </a>
+                           </td>
+                           <td>{s.description ?? s.title}</td>
+                           <td>
+                              <a href={`/schemas/v1.0/${s.file}`}>
+                                 <code>.json</code>
+                              </a>
+                           </td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   /* keep the Raw (.json) column on one line; only the middle "Validates" wraps */
+   td:last-child,
+   th:last-child {
+      white-space: nowrap;
+   }
+</style>

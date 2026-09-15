@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import leji.ecosystem
 from leji.ecosystem import (
     detect_ecosystem,
     render_ecosystem_block,
@@ -241,6 +242,114 @@ def test_evidence_eligibility(tmp_path: Path) -> None:
     py_report = detect_ecosystem(str(py_linked))
     assert py_report.reason == "refused-evidence"
     assert py_report.all[0].ecosystem == "python"
+
+
+def test_an_entry_swapped_to_a_link_between_the_judgment_and_the_open_is_refused(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The window inside the verification itself: package.json is a regular file of
+    this repository when it is judged and a link by the time it is opened.
+
+    Nothing has to be swapped back for a check that judges the entry once and then
+    trusts the open to pass, because the open resolves the link and verifies its
+    target perfectly well. What refuses it is the descriptor's own identity against a
+    fresh lstat of the NAME afterwards. Mutation that reddens: judge with lstat and
+    take the bytes back by path name (the pre-change shape) — the decoy's
+    packageManager and its declaration decide the answer.
+
+    The seam is `open_verified_source` as the scan calls it, wrapped so that the swap
+    happens on the way in, for the manifest only."""
+    root = Path(
+        _plant(
+            tmp_path,
+            {
+                "package.json": "{}",
+                "decoy.json": '{"packageManager":"pnpm@9.12.0",'
+                '"devDependencies":{"@leji-org/leji":"^1"}}',
+            },
+            "swapjudged",
+        )
+    )
+    manifest = root / "package.json"
+    real_open = leji.ecosystem.open_verified_source
+    swapped: list[str] = []
+
+    def swap_then_open(abs_path, allow, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if not swapped and os.path.abspath(str(abs_path)) == os.path.abspath(str(manifest)):
+            swapped.append(str(abs_path))
+            manifest.unlink()
+            manifest.symlink_to(root / "decoy.json")
+        return real_open(abs_path, allow, *args, **kwargs)
+
+    monkeypatch.setattr(leji.ecosystem, "open_verified_source", swap_then_open)
+    report = detect_ecosystem(str(root))
+
+    assert swapped, "the seam fired: a regular file at the lstat, a link at the open"
+    assert manifest.is_symlink(), "the entry really is a link now"
+    assert report.reason == "refused-evidence"
+    assert report.all[0].evidence == ["package.json"]
+    assert report.all[0].manager is None, "the swapped-in packageManager selected nothing"
+    assert report.all[0].direct_declared is False, "and the swapped-in target was never read"
+
+
+def test_a_name_renamed_away_and_linked_back_to_its_own_inode_is_refused(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The case every comparison against the FIRST lstat accepts: the entry the run
+    judged is renamed and its old name becomes a link to that same inode, so each
+    identity the open can see agrees — the resolve lands on that file, the descriptor's
+    fstat is the judged inode, and the verified open's own recheck matches. Only a
+    FRESH lstat of the NAME catches it, because a symlink's inode is never the inode of
+    the file it points at, and a lockfile reached through a link is not this
+    repository's evidence. Mutation that reddens: compare the descriptor with the
+    initial stat instead of with a fresh one."""
+    root = Path(_plant(tmp_path, {"package.json": "{}", "package-lock.json": ""}, "relinked"))
+    lock = root / "package-lock.json"
+    moved = root / "real.lock"
+    real_open = leji.ecosystem.open_verified_source
+    swapped: list[str] = []
+
+    def swap_then_open(abs_path, allow, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if not swapped and os.path.abspath(str(abs_path)) == os.path.abspath(str(lock)):
+            swapped.append(str(abs_path))
+            lock.rename(moved)
+            lock.symlink_to(moved)
+        return real_open(abs_path, allow, *args, **kwargs)
+
+    monkeypatch.setattr(leji.ecosystem, "open_verified_source", swap_then_open)
+    report = detect_ecosystem(str(root))
+
+    assert swapped, "the seam fired: the name was relinked to its own inode"
+    assert lock.is_symlink(), "the entry really is a link now"
+    assert lock.stat().st_ino == moved.stat().st_ino, "and it points at the judged inode"
+    assert report.reason == "refused-evidence"
+    assert report.all[0].evidence == ["package-lock.json"]
+    assert report.all[0].lock_evidenced is False, "the relinked name evidenced no manager"
+
+
+def test_a_manifest_this_run_cannot_open_is_unreadable_not_refused(tmp_path: Path) -> None:
+    """The other half of the verified-read composition: what the run could not COMPLETE
+    on an entry it never saw contradicted is not a refusal. A regular file of this
+    repository whose open is denied keeps the outcome it has always had — the manifest
+    is unreadable, so neither the lockfile nor the ecosystem default is consulted —
+    while a swap stays refused-evidence above. Mutation that reddens: collapse every
+    failure in `_verify` to refused, and this reports refused-evidence instead."""
+    root = Path(_plant(tmp_path, {"package.json": "{}", "package-lock.json": ""}, "denied"))
+    manifest = root / "package.json"
+    manifest.chmod(0o000)
+    try:
+        with open(manifest, "rb"):
+            pytest.skip("the mode is not enforced here (root, or a filesystem that ignores it)")
+    except PermissionError:
+        pass  # denied, which is the state under test
+    try:
+        report = detect_ecosystem(str(root))
+    finally:
+        manifest.chmod(0o644)
+
+    assert report.reason == "unreadable-manifest"
+    assert report.all[0].manager is None
+    assert report.all[0].evidence == []
 
 
 def test_unreadable_manifest(tmp_path: Path) -> None:

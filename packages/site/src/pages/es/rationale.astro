@@ -1,0 +1,138 @@
+---
+// Spanish translation of src/pages/rationale.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+// The Doc layout is composed here rather than imported so the page can declare its
+// own `lang`, and the prose is carried here rather than in a content collection: the
+// English page single-sources rationale/README.md, which stays the English original.
+import { createSatteriMarkdownProcessor } from '@astrojs/markdown-satteri';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import CircleChart from '../../components/CircleChart.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import { markdownRenderOptions } from '../../markdown-options';
+
+const source = '0ddffffc1603fd1aec577a54e9674ba6f9a226ac';
+const strings = translationStrings('es');
+
+// The h1 and the canonical note are rendered by the template, so the note sits
+// directly under the title; the body carries the rest.
+const body = `No normativo: el razonamiento detrás de la forma de la especificación.
+
+## La intención antes que las instrucciones
+
+Las instrucciones imperativas («haz esto, en este formato, para el archivo de este proveedor») deben volver a codificarse para cada host de agente, cada tarea y cada nueva incorporación. La intención duradera (qué significan las cosas, qué debe cumplirse y por qué) se escribe una sola vez, para que cualquier host y cualquier tarea puedan partir de ella.
+
+Por eso las categorías de la capa de contexto son ejes temáticos trazados desde el significado duradero (dominio, sistema, gobernanza, decisiones), no desde las tareas. Una versión futura podrá añadir sobres de tarea nacidos de la práctica real; la 1.0 estandariza deliberadamente la superficie más pequeña.
+
+## Un círculo, no un escalafón
+
+Hoy, casi todo el trabajo de contexto se escribe *para agentes*: las personas redactan instrucciones, los hosts de agente las cargan y el flujo avanza en un único sentido, de arriba abajo. Esto acelera el trabajo individual, pero deja intacto el problema de siempre: el conocimiento compartido entre personas se queda en sus cabezas y en hilos de chat, mientras cada host de agente recibe su propia copia de la verdad, que se va desviando poco a poco.
+
+Leji trata tres flujos como de primera clase alrededor de una capa de contexto: **persona-a-persona** (incorporación, revisión, zanjar debates), **persona-a-IA** (trabajo delegado a un agente) y **persona-a-IA-a-persona** (trabajo producido por un agente y revisado por personas).
+
+Todos leen esa única capa de contexto, y tanto las personas como los agentes proponen cambios. El acceso es igual, la autoridad no: toda modificación entra como propuesta, y una persona aprueba lo que pasa a considerarse cierto. El contenido que sirve a los tres flujos constituye por sí mismo un mecanismo de forzado: una página que solo leen los agentes puede deteriorarse sin que nadie lo note; si las personas también dependen de ella, se corrige desde ambos lados.
+
+## Intención y registros
+
+La documentación de un repositorio real contiene dos clases entrelazadas, cada una con un modelo de verdad distinto. La intención (glosarios, invariantes, convenciones, salvaguardas) debe *mantenerse* cierta: cuando cambia la realidad, se corrige el documento. Los registros (estados, evaluaciones, libros de asientos, informes, archivos históricos) *nacen* ciertos dentro de unos límites; un estado posterior los sustituye y la fecha determina su actualidad.
+
+Tratar los registros como intención crea promesas de revisión que nadie puede cumplir. Excluirlos deja buena parte del repositorio fuera de la gobernanza. Leji, en cambio, gobierna ambos, de forma diferenciada.
+
+Los registros se indexan, se revisan y tienen responsable igual que la intención, pero se enrutan como candidatos fechados y no como contexto requerido. Su contrato con el lector es distinto: evidencia fechada, nunca verdad vigente. Los horizontes de vigencia se aplican solo a la intención. Las cinco categorías siguen siendo ejes temáticos, mientras que la clase es ortogonal: la evaluación de un sistema trata *sobre* el sistema y es *cierta a la fecha que lleva*.
+
+La especificación nunca certifica qué registro es «el último», porque la 1.0 no declara ni series de registros ni su orden. Los lectores juzgan la actualidad a partir de las fechas que expone el índice. Los propios registros de decisión de la especificación, fechados, de solo anexión y nunca desactualizados, ejemplifican este patrón.
+
+## Por qué esto no es un wiki
+
+Los wikis se pudren porque nada los obliga a estar al día. La capa de contexto tiene tres mecanismos de forzado que a un wiki le faltan:
+
+- Los agentes la leen en cada tarea, así que un contexto equivocado produce resultados equivocados que alguien nota ese mismo día.
+- Los cambios pasan por la revisión de código, así que no hay un proceso aparte del que olvidarse.
+- La desviación mecánica (un índice desactualizado, un perfil roto) es una comprobación que falla, y que en \`governed\` se ejecuta en integración continua en cada cambio. La comprobación de solo anexión compara el registro de cambios del árbol de trabajo con el que hay en \`HEAD\`, así que un rebobinado que siga en el árbol de trabajo la hace fallar; un rebobinado que llega ya confirmado lo detecta la revisión del conjunto de cambios, no la comprobación.
+
+## Por qué los archivos de proveedor redirigen
+
+El contexto canónico en el formato de configuración de un proveedor acaba fragmentado y atado a ese host. Como los hosts de agente buscan sus propios puntos de entrada, Leji los usa como adaptadores: una línea que apunta al perfil de arranque. Una sola fuente de verdad sobrevive a cualquier host.
+
+## Por qué la federación compone en lugar de centralizar
+
+Centralizar el conocimiento de todos los equipos rompe el ciclo de responsabilidad que mantiene vigente el contexto. Los responsables corrigen su capa mientras la usan en cada tarea; un repositorio central separa el contenido de la responsabilidad y obliga a que las ediciones entre equipos pasen por guardianes.
+
+La federación mantiene juntas la responsabilidad y la legibilidad. La capa de contexto de cada equipo permanece en su repositorio, donde su círculo la lee y la aprueba. Una anfitriona monta a una hermana en una versión fijada para leerla y encaminar agentes hacia ella; no se copia ni se confirma contenido alguno dentro de la anfitriona.
+
+Quien es responsable de la hermana sigue aprobando los cambios, así que montar concede lectura, no autoridad. La mayoría de los equipos nunca necesitan \`federated\`; solo importa cuando más de un equipo ya posee una capa de contexto que merece la pena mantener entera.
+
+## Un equipo de una persona
+
+Nada en el círculo exige más de una persona. La misma persona puede proponer, delegar en un agente y aprobar. Incluso así, los agentes revisan y aconsejan mientras la persona es responsable y aprueba; el mapa \`agents\` del manifiesto no transfiere responsabilidad.
+
+Un equipo de una persona es el círculo más pequeño, no una forma distinta. El modelo escala de una persona a un equipo y a una organización de equipos sin añadir piezas.
+`;
+
+// The circle figure sits above its own heading, so the body is split there and both
+// halves render through the site pipeline, exactly as the English page does.
+const marker = '## Un círculo, no un escalafón';
+const idx = body.indexOf(marker);
+const before = idx >= 0 ? body.slice(0, idx) : body;
+const after = idx >= 0 ? body.slice(idx) : '';
+
+const processor = await createSatteriMarkdownProcessor(markdownRenderOptions);
+const beforeHtml = (await processor.render(before)).code;
+const afterHtml = after ? (await processor.render(after)).code : '';
+---
+
+<Base
+   lang="es"
+   title="Justificación · Leji"
+   description="Por qué Leji está construido así: intención duradera antes que instrucciones por proveedor, un círculo de personas y agentes en lugar de un escalafón, intención y registros, y por qué no es un wiki."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/rationale/" />
+         <main id="content" class="prose">
+            <PageHeader kind="background" />
+            <h1>Justificación</h1>
+            <TranslationNote strings={strings.note} href="/rationale/" />
+            <Fragment set:html={beforeHtml} />
+            <figure class="rationale-figure">
+               <CircleChart />
+               <figcaption class="figure-note">
+                  <span class="flows">persona-a-persona · persona-a-IA · persona-a-IA-a-persona</span>
+                  Todos leen. Cualquiera propone. Las personas aprueban. El contexto desactualizado nunca se trata en silencio
+                  como si estuviera vigente.
+               </figcaption>
+            </figure>
+            <Fragment set:html={afterHtml} />
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .rationale-figure {
+      margin: 1.5rem 0 2.4rem;
+   }
+   /* The figure's reading, as page text rather than baked into the SVG, so it
+      reflows, stays selectable, and is quotable by an answer engine. */
+   /* Reads as body copy, not as a caption: it is the figure's argument, and the
+      surrounding prose is where the reader already is. Inherits size, colour and
+      leading from the page. */
+   .figure-note {
+      max-width: var(--measure);
+      margin: 1rem 0 0;
+   }
+   .figure-note .flows {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--leji-link);
+      margin-bottom: 0.3rem;
+   }
+</style>

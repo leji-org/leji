@@ -182,6 +182,16 @@ def effective_index_path(manifest: Manifest) -> str:
     )
 
 
+def effective_viewer_title(manifest: Manifest) -> str:
+    """The display title every generated surface uses: viewer.title when the
+    manifest declares one, else the layer name. Present-or-name, never
+    truthy-or-name: the reference resolves it with `?? name`, which falls back only
+    on null/undefined, so a declared empty title renders empty rather than the
+    layer name, and the three SDKs must agree on the bytes that produces."""
+    title = (manifest.get("viewer") or {}).get("title")
+    return manifest["name"] if title is None else title
+
+
 def effective_changelog_path(manifest: Manifest) -> str:
     return (manifest.get("machine") or {}).get("changelogPath") or join_under_root(
         manifest["rootPath"], "context-changelog.json"

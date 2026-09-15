@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Iterator, NamedTuple, Optional
 
 from .findings import Finding
 from .frontmatter import parse_frontmatter
@@ -169,9 +169,35 @@ def _indent_of(line: str) -> int:
     return n
 
 
-def _escapable(text: str, i: int) -> bool:
-    """True when the character at ``i`` exists and is CommonMark-escapable."""
+def escapable(text: str, i: int) -> bool:
+    """True when the character at ``i`` exists and is CommonMark-escapable. Shared
+    with the link scan, which honors the same escapes this one does."""
     return i < len(text) and _ESCAPABLE.match(text, i) is not None
+
+
+def _fence_open(rest: str) -> Optional[re.Match[str]]:
+    """A fence opener on a line already stripped of its indent, or None."""
+    fence = _FENCE_OPEN.match(rest)
+    if fence is None or (fence.group(1)[0] != "~" and "`" in fence.group(2)):
+        return None
+    return fence
+
+
+def _fence_close_line(text: str, starts: list[int], li: int, fence: re.Match[str]) -> int:
+    """The last line of the fenced block opened at ``li``: the one carrying its
+    closer, or the document's last line when nothing closes it."""
+    close = li + 1
+    while close < len(starts):
+        candidate = _line_text_at(text, starts, close)
+        m = _FENCE_CLOSE.match(candidate[_indent_of(candidate) :])
+        if (
+            m is not None
+            and m.group(1)[0] == fence.group(1)[0]
+            and len(m.group(1)) >= len(fence.group(1))
+        ):
+            break
+        close += 1
+    return min(close, len(starts) - 1)
 
 
 def _block_regions(text: str, starts: list[int]) -> list[_Region]:
@@ -200,20 +226,9 @@ def _block_regions(text: str, starts: list[int]) -> list[_Region]:
         rest = line[indent:]
         at = starts[li] + indent
 
-        fence = _FENCE_OPEN.match(rest)
-        if fence is not None and (fence.group(1)[0] == "~" or "`" not in fence.group(2)):
-            close = li + 1
-            while close < len(starts):
-                candidate = _line_text_at(text, starts, close)
-                m = _FENCE_CLOSE.match(candidate[_indent_of(candidate) :])
-                if (
-                    m is not None
-                    and m.group(1)[0] == fence.group(1)[0]
-                    and len(m.group(1)) >= len(fence.group(1))
-                ):
-                    break
-                close += 1
-            last = min(close, len(starts) - 1)
+        fence = _fence_open(rest)
+        if fence is not None:
+            last = _fence_close_line(text, starts, li, fence)
             regions.append(_Region(start=starts[li], end=_line_end_of(text, starts, last)))
             li = last + 1
             continue
@@ -331,6 +346,82 @@ def _after_code_span(text: str, regions: list[_Region], i: int) -> int:
     return i + open_run
 
 
+def _excluded_regions(text: str, starts: list[int]) -> list[_Region]:
+    """The regions no scan of prose may read: the leading frontmatter block and every
+    fenced code block, by the same boundaries :func:`_block_regions` applies (fences
+    at up to three spaces of indent, CRLF terminators, an unclosed fence running to
+    the end of the document). The HTML forms are deliberately absent: a comment or an
+    HTML block is excluded from the RENDER lint because the profile excepts it, which
+    says nothing about the links a consumer reads out of one."""
+    regions: list[_Region] = []
+    n = len(text)
+    li = 0
+
+    fm = parse_frontmatter(text)
+    if len(fm.body) != n:
+        end = n - len(fm.body)
+        regions.append(_Region(start=0, end=end))
+        li = len(starts) if end >= n else _line_of(starts, end)
+
+    while li < len(starts):
+        line = _line_text_at(text, starts, li)
+        indent = _indent_of(line)
+        fence = None if indent >= 4 else _fence_open(line[indent:])
+        if fence is None:
+            li += 1
+            continue
+        last = _fence_close_line(text, starts, li, fence)
+        regions.append(_Region(start=starts[li], end=_line_end_of(text, starts, last)))
+        li = last + 1
+    return regions
+
+
+class ProseRegion(NamedTuple):
+    """One run of prose: a slice of the document with its position in it, so a scan
+    over the run reports absolute coordinates."""
+
+    #: The prose itself, a verbatim slice of the document.
+    text: str
+    #: The 1-based line ``text`` opens on.
+    line: int
+    #: The 0-based column ``text`` opens at, which is how a consumer tells a region
+    #: that opens a line from one resuming mid-line after a code span.
+    column: int
+
+
+def prose_regions(text: str) -> Iterator[ProseRegion]:
+    """The document minus everything a scan of prose must not read: the excluded
+    regions above, and every code span, walked by the same traversal the render
+    lint's inline pass uses (:func:`_after_code_span` — a backtick run closed by a
+    run of exactly the same length, an unclosed run consumed as the literal text it
+    is, neither crossing an excluded region). Regions are yielded in document order
+    and never overlap; an empty one is never yielded."""
+    starts = _line_starts_of(text)
+    excluded = _excluded_regions(text, starts)
+    at = 0
+    i = 0
+
+    def emit(end: int) -> Iterator[ProseRegion]:
+        if end > at:
+            line = _line_of(starts, at)
+            yield ProseRegion(text=text[at:end], line=line + 1, column=at - starts[line])
+
+    while i < len(text):
+        skip = _skip_region(excluded, i)
+        if skip != i:
+            yield from emit(i)
+            i = skip
+            at = i
+            continue
+        if text[i] == "`":
+            yield from emit(i)
+            i = _after_code_span(text, excluded, i)
+            at = i
+            continue
+        i += 1
+    yield from emit(len(text))
+
+
 def _next_math_delimiter(text: str, regions: list[_Region], start: int) -> int:
     """The next unescaped ``$$`` at or after ``start``, or -1. A delimiter is a
     closer only where a delimiter can be read: not inside a code span, not inside a
@@ -341,7 +432,7 @@ def _next_math_delimiter(text: str, regions: list[_Region], start: int) -> int:
     while j < len(text) - 1:
         if _skip_region(regions, j) != j:
             return -1
-        if text[j] == "\\" and _escapable(text, j + 1):
+        if text[j] == "\\" and escapable(text, j + 1):
             j += 2
             continue
         if text[j] == "`":
@@ -396,7 +487,7 @@ def scan_render_constructs(text: str) -> list[RenderHit]:
             i = skip
             continue
         c = text[i]
-        if c == "\\" and _escapable(text, i + 1):
+        if c == "\\" and escapable(text, i + 1):
             i += 2
             continue
         if c == "`":

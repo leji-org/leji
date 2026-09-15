@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import posixpath
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +15,7 @@ from .frontmatter import parse_frontmatter
 from .fsx import resolved_within_root, under_path
 from .gitutil import git_show_head, git_toplevel
 from .indexgen import check_index
+from .links import link_findings
 from .mounts import read_text_within
 from .layer import (
     ScannedProfile,
@@ -214,6 +217,42 @@ def _check_categories(root: str, manifest: Manifest, findings: list[Finding]) ->
                     rel,
                 )
             )
+
+
+def _governed_documents(root: str, manifest: Manifest) -> list[str]:
+    """The governed set the link gate walks: every markdown document this layer
+    answers for, deduplicated and in byte order of path. Composed here from the scans
+    that already define it — the boot profile, every indexed document under every
+    category, the profile set (``agentProfilesPath`` plus the profiles bound outside
+    it), and the decision records — rather than discovered by a walk of its own, so a
+    document is link-checked exactly when the layer claims it. The category index
+    files are not in it: an index is the selector, and what it selects is what the
+    layer governs."""
+    rel_paths: set[str] = {manifest["bootProfilePath"]}
+    for doc in scan_categories(root, manifest).docs:
+        rel_paths.add(doc.rel_path)
+    for profile in scan_profile_set(root, manifest):
+        rel_paths.add(profile.rel_path)
+    for record in scan_decision_records(root, manifest):
+        rel_paths.add(record.rel_path)
+    # Encoding to UTF-8 makes the sort key the one byte order every ordered canonical
+    # surface uses across the three SDKs.
+    return sorted(rel_paths, key=lambda rel: rel.encode("utf-8"))
+
+
+def _check_links(root: str, manifest: Manifest, findings: list[Finding]) -> None:
+    """The in-layer link gate: every governed document's markdown links resolve to
+    something the layer carries. Structural and always on — a dangling link is a
+    reference to context that is not there, which the ``--content`` lint's advisory
+    signals never are. A document that cannot be read here is one the structural pass
+    already reports as missing or escaping, so it contributes nothing twice."""
+    root_abs = str(Path(root).resolve())
+    layer_root_abs = os.path.abspath(os.path.join(root_abs, manifest["rootPath"]))
+    for rel_path in _governed_documents(root, manifest):
+        text = read_text_within(root_abs, Path(root) / rel_path)
+        if text is None:
+            continue
+        findings.extend(link_findings(root_abs, layer_root_abs, rel_path, text))
 
 
 def _check_vendor_adapters(root: str, manifest: Manifest, findings: list[Finding]) -> None:
@@ -668,6 +707,7 @@ def _check_profiles_and_decisions(root: str, manifest: Manifest, findings: list[
         findings.extend(d.findings)
         decision_ids.append(((d.frontmatter or {}).get("id"), d.rel_path))
     findings.extend(duplicate_id_findings(decision_ids, "decision record"))
+    _check_decision_numbers(decisions, findings)
     _check_supersession(decisions, findings)
 
     if not [d for d in decisions if not d.findings]:
@@ -680,6 +720,52 @@ def _check_profiles_and_decisions(root: str, manifest: Manifest, findings: list[
                 where,
             )
         )
+
+
+# Two spellings keep this identical to the Node and Go patterns. `[^\n]` rather than
+# `.`, because ECMAScript's dot also rejects CR and U+2028/U+2029 while Python's and
+# Go's reject only LF, and a file name may legally carry any of them. And fullmatch
+# rather than match, because Python's `$` also matches before a trailing newline, so
+# `^...$` here would accept a basename the other two reject.
+_DECISION_NUMBER_RE = re.compile(r"([0-9]+)-[^\n]+\.md")
+
+
+def _decision_number_key(rel_path: str) -> Optional[str]:
+    """The leading number of a decision-record file name, canonicalized: the digit
+    run before the first hyphen of `NNNN-slug.md`, without its leading zeros, so that
+    `0017-a.md` and `17-b.md` are the same decision number. Compared as a string, not
+    converted, so an arbitrarily long digit run stays exact in all three SDKs. A file
+    name that does not carry the convention has no number and is not checked."""
+    m = _DECISION_NUMBER_RE.fullmatch(posixpath.basename(rel_path))
+    if m is None:
+        return None
+    digits = m.group(1).lstrip("0")
+    return digits or "0"
+
+
+def _check_decision_numbers(decisions: list[ScannedProfile], findings: list[Finding]) -> None:
+    """Two decision records may not carry the same leading number. Ids are the
+    records' identity and are checked separately; the number is how people and indexes
+    cite a decision, so a renumbering or a copied record that leaves two `0017-` files
+    makes every reference to "0017" ambiguous. One finding per record after the first
+    in byte order of path, mirroring duplicate_id_findings."""
+    seen: dict[str, str] = {}
+    for d in decisions:
+        key = _decision_number_key(d.rel_path)
+        if key is None:
+            continue
+        first = seen.get(key)
+        if first is not None and first != d.rel_path:
+            findings.append(
+                Finding(
+                    "decision-number-duplicate",
+                    "error",
+                    f'decision number "{key}" already used by {first}',
+                    d.rel_path,
+                )
+            )
+        else:
+            seen[key] = d.rel_path
 
 
 def _check_supersession(decisions: list[ScannedProfile], findings: list[Finding]) -> None:
@@ -1141,6 +1227,7 @@ def validate_layer(root: str, content: bool = False) -> ValidateResult:
     _check_federation_mounts(root, manifest, findings)
     findings.extend(mount_surfacing_findings(root, manifest))
     _check_profiles_and_decisions(root, manifest, findings)
+    _check_links(root, manifest, findings)
 
     index_rel = effective_index_path(manifest)
     index_exists = (Path(root) / index_rel).is_file()

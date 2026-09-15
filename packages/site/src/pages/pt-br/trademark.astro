@@ -1,0 +1,194 @@
+---
+// Brazilian Portuguese translation of src/pages/trademark.astro. The English page is
+// the page of record; `source` is its git blob sha at the revision this translation
+// follows. The layout is `Doc.astro`'s, written out here because that layout takes
+// no `lang` and a translated page has to declare its own.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '80ab9afca319adfc14153a6a422f9b52ffc4016c';
+const strings = translationStrings('pt-br');
+---
+
+<Base
+   lang="pt-br"
+   title="Política de marca e de uso · Leji"
+   description="Como você pode usar o nome Leji: uso descritivo, redistribuição, bifurcações, uso funcional em arquivos e comandos, e o que o logotipo exige."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/trademark/" />
+         <main id="content" class="prose">
+            <PageHeader kind="governance" />
+            <h1>Política de marca e de uso</h1>
+            <TranslationNote strings={strings.note} href="/trademark/" />
+            <p>
+               Leji™ é uma marca da Contexing, LLC. Use-a como adjetivo para aquilo que ela identifica, como a
+               especificação Leji, os schemas Leji e as ferramentas Leji, não como nome do seu próprio produto.
+            </p>
+            <p>
+               Leji é uma especificação aberta, e é pelo nome que as pessoas encontram a versão autêntica. Esta política
+               explica o que você pode fazer com o nome sem pedir, o que exige uma identidade visual distinta e qual é a
+               única coisa que exige permissão por escrito. Ela cobre apenas o nome e o logotipo Leji. Ela não restringe
+               as licenças: a especificação é CC-BY-4.0, e os schemas, os SDKs e o ferramental são Apache-2.0. Veja{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/LICENSE.md" target="_blank" rel="noopener"
+                  >LICENSE.md</a
+               >.
+            </p>
+            <p>
+               A Contexing, LLC detém o nome e o logotipo Leji e faz a curadoria da especificação. Veja{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md" target="_blank" rel="noopener"
+                  >GOVERNANCE.md</a
+               >.
+            </p>
+
+            <h2>O que você pode fazer sem pedir</h2>
+            <ul>
+               <li>
+                  <strong>Dizer o que o seu produto faz.</strong> "Compatível com Leji", "implementa Leji 1.0", "suporta Leji"
+                  e descrições verdadeiras semelhantes não exigem permissão nem licença.
+               </li>
+               <li>
+                  <strong>Redistribuir a versão autêntica.</strong> Você pode redistribuir a especificação e as ferramentas
+                  de referência sem modificações, sob o mesmo nome e exatamente como publicadas. A listagem da redistribuição
+                  em um registro ou loja informa quem fez o novo empacotamento e não se apresenta como canal oficial de distribuição.
+               </li>
+               <li>
+                  <strong>Usar os nomes que a especificação exige.</strong> Nomes de arquivo, nomes de diretório, identificadores
+                  de schema, chaves de manifesto e identificadores de protocolo que a especificação define podem ser usados
+                  por qualquer pessoa que a implemente. Esse uso funcional não implica endosso e não exige permissão.
+               </li>
+               <li>
+                  <strong>Manter os comandos existentes funcionando.</strong> Uma bifurcação ou uma implementação independente
+                  pode distribuir um executável chamado{' '}
+                  <code>leji</code>, para que scripts, configurações de CI e documentação existentes continuem
+                  funcionando. Nas condições descritas em "O nome do comando", abaixo, tratamos isso como uso funcional
+                  de um identificador de interface e não invocamos a marca contra ele.
+               </li>
+               <li>
+                  <strong>Concorrer conosco.</strong> Produtos e serviços comerciais independentes construídos sobre Leji,
+                  inclusive os que concorrem diretamente com os produtos da curadora, são bem-vindos. Nenhuma permissão, licença
+                  ou notificação é exigida.
+               </li>
+            </ul>
+
+            <h2>O que exige identidade visual distinta</h2>
+            <p>
+               Uma bifurcação ou versão modificada da especificação ou das ferramentas recebe nome e identidade visual
+               próprios. Informe com veracidade do que ela deriva; não a apresente como o Leji canônico e não use o nome
+               de um jeito que sugira que a curadora a endossa, a certifica ou a mantém.
+            </p>
+
+            <h2>O nome do comando</h2>
+            <p>
+               O uso de <code>leji</code> como nome de comando de uma implementação compatível é considerado uso funcional
+               de um identificador de interface. Não invocaremos a marca Leji contra esse uso, desde que todas as condições
+               a seguir sejam cumpridas:
+            </p>
+            <ul>
+               <li>
+                  A saída de <code>--version</code> da implementação, a saída de <code>--help</code>, seu empacotamento
+                  e sua documentação exibem o nome próprio dela, claramente distinto de Leji e sem usar Leji como
+                  identificador dominante.
+               </li>
+               <li>
+                  Esses mesmos locais declaram do que ela deriva ou informam que ela implementa a especificação Leji de
+                  forma independente.
+               </li>
+               <li>
+                  Nenhum deles afirma ou sugere que ela é a distribuição Leji oficial, ou que a curadora a endossa, a
+                  certifica ou a mantém.
+               </li>
+            </ul>
+            <p>
+               Isso vale apenas enquanto todas as condições forem cumpridas. Qualquer uso que descumpra uma condição
+               está fora desta não invocação, sem limitar quaisquer direitos que a lei conceda a qualquer das partes.
+            </p>
+            <p>
+               Esta regra cobre apenas o nome de comando do executável. Não cobre nomes de pacote, nomes de repositório,
+               nomes de organização, nomes de domínio nem nomes de listagem em registros de pacote e lojas de
+               aplicativos. Esses elementos identificam a origem e, por isso, seguem a regra de identidade visual
+               distinta acima.
+            </p>
+
+            <h2>O logotipo</h2>
+            <p>
+               As permissões acima cobrem o <strong>nome</strong>. Elas não cobrem o logotipo. As licenças do
+               repositório não se estendem aos arquivos do logotipo, e a Contexing, LLC detém os direitos autorais
+               deles.
+            </p>
+            <p>
+               A Contexing, LLC concede a você permissão para reproduzir, distribuir e exibir os arquivos do logotipo
+               sem modificações, exclusivamente como parte integrante de builds não modificados do software e de
+               redistribuições fiéis e não modificadas dos artefatos oficiais. Usos que a lei permite, como a referência
+               nominativa e o uso editorial, também não exigem permissão. Usar o logotipo Leji como identidade visual
+               exige permissão prévia por escrito da Contexing, LLC. Peça em{' '}
+               <a href="mailto:hello@leji.org">hello@leji.org</a>.
+            </p>
+            <p>
+               Referências textuais verdadeiras nunca exigem o logotipo. Portanto, nada nesta política impede você de
+               descrever o que o seu produto faz.
+            </p>
+
+            <h2>A identidade Leji</h2>
+            <p>
+               A marca Leji, uma coluna jônica, e o verde Leji <code>#009F71</code> identificam a especificação e sua fonte
+               sob curadoria. Produtos construídos sobre Leji carregam identidade visual própria e distinta, e isso vale também
+               para os produtos da própria curadora: eles não usam o logotipo Leji nem a identidade Leji como sua apresentação
+               comercial.
+            </p>
+
+            <h2>Declarações de conformidade</h2>
+            <p>
+               A conformidade com Leji é <strong>autodeclarada</strong>. Uma equipe ou um produto declara o próprio
+               nível no manifesto, e as ferramentas podem conferir, de acordo com o checklist publicado, todos os
+               requisitos verificáveis por máquina e relatar o restante; o checklist indica quais itens são verificados
+               por máquina e quais são atestados por processo. Não existe programa de certificação, nem registro, nem
+               ponto único de aprovação nem taxa. Portanto, "conforme com Leji 1.0" é uma declaração de compatibilidade
+               feita sob sua responsabilidade, não um status concedido por terceiros.
+            </p>
+            <p>
+               Nomeie a versão que você está declarando, como em "conforme com Leji 1.0", para que a declaração possa
+               ser verificada. Uma declaração de conformidade que não seja verdadeira está fora da permissão de uso
+               descritivo acima.
+            </p>
+
+            <h2>O nome na especificação</h2>
+            <p>
+               Leji é o nome da especificação e de sua fonte. A especificação usa termos descritivos para os artefatos
+               que define, "camada de contexto", "manifesto de contexto", "índice de contexto", "changelog de contexto",
+               para que quem implementa possa descrever o que constrói sem precisar usar o nome Leji. A Contexing não
+               reivindica direitos de marca sobre esses termos descritivos isoladamente. Use os termos descritivos para
+               os artefatos, e Leji para a especificação e sua fonte sob curadoria.
+            </p>
+            <p>
+               Identificadores definidos pela especificação que contenham "leji", como nomes de arquivo, nomes de
+               diretório, identificadores de schema e chaves de manifesto, são uso funcional e não exigem permissão,
+               conforme "Usar os nomes que a especificação exige", acima. O nome do comando tem condições próprias, em
+               "O nome do comando".
+            </p>
+
+            <h2>Mudanças nesta política</h2>
+            <p>
+               Podemos revisar esta política, e as revisões passam a valer daquele momento em diante. Um uso que estava
+               em conformidade com a política quando começou permanece coberto para aquele uso, na forma em que foi
+               feito. O uso continuado e o uso novo depois de uma revisão seguem a política então em vigor.
+            </p>
+
+            <h2>Dúvidas</h2>
+            <p>
+               Entre em contato pelo e-mail <a href="mailto:hello@leji.org">hello@leji.org</a>. Se o seu uso for
+               verdadeiro e não apresentar o seu produto como o Leji canônico, a resposta costuma ser sim, e esta página
+               existe para lhe poupar o e-mail.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

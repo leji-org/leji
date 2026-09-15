@@ -15,12 +15,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .fsx import resolved_within_root
+from .fsx import open_verified_source, read_all, resolved_within_root
 
 # The npm package name. Its presence in package.json's dependency maps is what
 # ``directDeclared`` reports for a Node repository.
@@ -79,7 +80,7 @@ MANAGER_COMMANDS: dict[str, dict[str, Optional[list[str]]]] = {
     "go": {
         "add": ["go", "get", "-tool", f"{GO_TOOL_PATH}@latest"],
         "runner": ["go", "tool", "leji"],
-        # The same command F10's CI table installs a Go repository's tools with.
+        # The same command the generated CI job installs a Go repository's tools with.
         "install": ["go", "mod", "download"],
     },
     "go-legacy": {"add": None, "runner": ["leji"], "install": None},
@@ -259,9 +260,9 @@ def _line_refused(files: list[str]) -> str:
     return f"Ecosystem: {_join_and(files)}; not a regular file inside this repository"
 
 
-# The consent path (plan section 3): the prompt, and every outcome of running the
-# manager's own add command. leji writes no manifest byte itself, so these are the
-# only words it owns once the user says yes.
+# The consent path: the prompt, and every outcome of running the manager's own add
+# command. leji writes no manifest byte itself, so these are the only words it owns
+# once the user says yes.
 
 
 def consent_disclosure(binary: str) -> str:
@@ -315,22 +316,91 @@ ENTRY_ELIGIBLE = "eligible"
 ENTRY_REFUSED = "refused"
 
 
+@dataclass
+class _Verified:
+    """One probed name's verdict, carrying its bytes when the caller asked for them:
+    read from the descriptor the verdict was proved on, never re-opened by name."""
+
+    kind: str
+    text: Optional[str] = None
+
+
+def _verify(root_abs: str, name: str, want_text: bool) -> _Verified:
+    """Judge one probed name on the ENTRY, then prove the judgment on a DESCRIPTOR.
+
+    The entry decides its own kind first, with ``lstat``: a link is refused rather
+    than followed, whatever it resolves to, because evidence reached through a link
+    is not this repository's evidence. That up-front ``lstat`` is the cheap refusal,
+    and on its own it leaves the entry free to become a link before the open, which
+    the open would then resolve and verify perfectly well — no swap back needed, and
+    the name would have evidenced a manager it never stood for. So the name is opened
+    through :func:`open_verified_source`, which resolves, opens, and proves the
+    descriptor is the file it judged, and the descriptor's own ``fstat`` must then
+    report the same regular file a FRESH ``lstat`` of the NAME does. A symlink's inode
+    is never the inode of the file it points at, so an entry that is a link at that
+    instant cannot pass, and neither can one that has become a different file —
+    including the name renamed away and linked back to its own inode, which every
+    comparison against the FIRST ``lstat`` accepts.
+
+    ``want_text`` takes the bytes from that same descriptor, so what decides is what
+    was judged. The descriptor is closed on every path: this asks a question, it does
+    not hand a source out.
+
+    The two failure classes are kept apart, and the three SDKs answer alike. What the
+    run can SEE contradicted — the identity or kind differs, the verified open handed
+    back no descriptor, nothing stands at the name any more — is ``refused``, exactly
+    as a link or a directory is. What it merely could not COMPLETE on an entry still
+    standing and never contradicted — the open denied, an ``fstat`` or read failure, a
+    body that is not UTF-8 — leaves the entry eligible and carries no bytes, which is
+    the unreadable outcome this scan has always reported for it. What remains is the
+    recorded check-before-act window (``docs/practice/trust-boundary.md``), which every
+    verified fact on this path shares."""
+    abs_path = os.path.join(root_abs, name)
+    try:
+        entry = os.lstat(abs_path)
+    except OSError:
+        return _Verified(ENTRY_ABSENT)
+    if not stat.S_ISREG(entry.st_mode):
+        return _Verified(ENTRY_REFUSED)
+    if not resolved_within_root(root_abs, Path(abs_path)):
+        return _Verified(ENTRY_REFUSED)
+    fd: Optional[int] = None
+    try:
+        source = open_verified_source(
+            abs_path, lambda real: resolved_within_root(root_abs, Path(real))
+        )
+        fd = source.fd
+        if fd is None:
+            return _Verified(ENTRY_REFUSED)
+        opened = os.fstat(fd)
+        try:
+            standing = os.lstat(abs_path)
+        except FileNotFoundError:
+            return _Verified(ENTRY_REFUSED)  # nothing stands at the name now
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (
+            standing.st_dev,
+            standing.st_ino,
+        ):
+            return _Verified(ENTRY_REFUSED)
+        return _Verified(ENTRY_ELIGIBLE, read_all(fd).decode("utf-8") if want_text else None)
+    except (OSError, UnicodeDecodeError):
+        return _Verified(ENTRY_ELIGIBLE)  # standing and uncontradicted, merely unreadable
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass  # the answer is already decided; closing cannot change it
+
+
 def classify_entry(root_abs: str, name: str) -> str:
     """What stands at one probed name directly under the root. A gated file counts
     only when lstat says regular file AND its real path lies inside the real root:
     a symlink, a dangling link, a directory, a socket or a FIFO is refused rather
     than read, so no manifest or lockfile can redirect the answer out of the
-    repository the user pointed at."""
-    abs_path = os.path.join(root_abs, name)
-    try:
-        st = os.lstat(abs_path)
-    except OSError:
-        return ENTRY_ABSENT
-    import stat as stat_mod
-
-    if not stat_mod.S_ISREG(st.st_mode):
-        return ENTRY_REFUSED
-    return ENTRY_ELIGIBLE if resolved_within_root(root_abs, Path(abs_path)) else ENTRY_REFUSED
+    repository the user pointed at — and the entry is proved on a descriptor
+    (:func:`_verify`), so the name that was judged is the name that answers."""
+    return _verify(root_abs, name, False).kind
 
 
 class _RootScan:
@@ -359,14 +429,13 @@ class _RootScan:
     def read(self, name: str) -> Optional[str]:
         """The bytes of one probed name, or None. Structurally gated: a name that is
         not an eligible regular file inside the real root is never opened, so no read
-        can bypass the eligibility rule by being spelled at a new call site."""
+        can bypass the eligibility rule by being spelled at a new call site — and the
+        name is judged ONCE MORE immediately before its bytes are taken, so they come
+        from the descriptor this run proved rather than from a name a swap could have
+        retargeted since the scan classified it."""
         if self.kind(name) != ENTRY_ELIGIBLE:
             return None
-        try:
-            with open(os.path.join(self.root_abs, name), "r", encoding="utf-8") as handle:
-                return handle.read()
-        except (OSError, UnicodeDecodeError):
-            return None
+        return _verify(self.root_abs, name, True).text
 
     def matching(self, pattern: re.Pattern[str]) -> list[str]:
         """Every root entry matching ``pattern``, sorted BYTEWISE (never by locale:

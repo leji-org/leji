@@ -27,7 +27,7 @@ leji agent --name <n>   # bind an additional named agent into the layer
 leji mounts hydrate     # materialize declared federation mounts into the resolver cache
 leji mounts status      # each mount's availability, integrity, and pin ancestry
 leji mounts locate      # resolver state for one mount: projection path, pin, verification
-leji mounts update-pin  # move one mount's declared pin, verified against the source
+leji mounts update-pin  # move one mount's pin, checked against the local witness (--fetch: the source)
 leji changelog compact  # fold the oldest changelog entries into one compaction entry
 ```
 
@@ -40,12 +40,13 @@ set `LEJI_NO_LOCAL` to any value to run this one. Yarn Plug'n'Play installs no
 `node_modules`, so there is no installed copy to run and this one answers.
 
 Behaviorally identical to the `leji` package on PyPI and the Go SDK: same
-commands, same flags, same findings, same exit codes (0 clean, 1 findings, 2
-usage error); the one runtime-specific behavior is the hand-off above, which the
-Node and Python CLIs perform and the Go CLI does not (there, run the pinned copy
-with `go tool leji`). All three implementations are tested against one shared fixture
-suite. Install whichever matches your toolchain; agents and CI see the same
-tool either way.
+commands, same flags, same findings, same exit codes (0 clean, warnings
+included; 1 a check that did not pass, with or without a finding; 2 a usage
+error or an internal failure); the one runtime-specific behavior is the
+hand-off above, which the Node and Python CLIs perform and the Go CLI does not
+(there, run the pinned copy with `go tool leji`). All three implementations are
+tested against one shared fixture suite. Install whichever matches your
+toolchain; agents and CI see the same tool either way.
 
 Supports spec line **1.0**. Schemas and templates for that line ship inside
 the package; no network access is needed.
@@ -60,15 +61,25 @@ const { findings } = validateLayer('.');
 
 ## Generated files
 
-The CLI keeps everything it generates under one `.leji/` directory at the
-repository root, in four roles: `mounts/` (materialized federation mounts),
+The CLI keeps its disposable working artifacts under one `.leji/` directory at
+the repository root, in four roles: `mounts/` (materialized federation mounts),
 `viewer/` (generated viewer chrome), `dist/` (exported viewer builds), and
 `work/` (the transient onboarding workspace). All of it is machine-local, and
-none of it is committed. The first time a command creates one of those roles,
-the CLI writes `.leji/.gitignore` containing `*`, so the directory ignores
-itself; an existing `.leji/.gitignore` is left as it is, with a notice on
-stderr. `leji init` and `leji adopt` also add a bare `.leji/` line to the
-repository's root `.gitignore`.
+none of it is committed. What the CLI generates for you to keep is not in
+there: the context index, the changelog, the badge, and the CI workflow land in
+the tree and are committed like everything else. The first time a command
+creates one of those roles, the CLI writes `.leji/.gitignore` containing `*`,
+so the directory ignores itself; an existing `.leji/.gitignore` is left as it
+is, with a notice on stderr. `leji init` and `leji adopt` also add a bare
+`.leji/` line to the repository's root `.gitignore`.
+
+A layer that declares a decisions category also gets a generated Decisions index
+page, built from the decision records' own frontmatter (number, title, status,
+date, and supersession), linked from the sidebar and carried into `leji export`.
+
+The generated sidebar lists a group's entries in the order its index file
+declares them, so the curated order an author writes is the order a reader sees;
+a directory entry's documents fill that entry's one position in path order.
 
 `.leji/mounts.local.json` is a per-machine hints file: it points the resolver
 at local checkouts of the context layers a federation mounts. The CLI reads it

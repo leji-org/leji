@@ -400,11 +400,12 @@ func newHandler(rootAbs, base, contentAbs, viewerAbs string, logf func(string), 
 				}
 			}
 		}
-		// The generated Manifest page lives in the viewer dir (gitignored chrome) but
-		// is linked from the sidebar and fetched under the content root, like
-		// _sidebar.md. Reserved underscore name; served from the last generation.
-		if rel == "content/_manifest.md" {
-			serveFrom(w, rootAbs, viewerAbs, "_manifest.md", false)
+		// The generated Manifest and Decisions pages live in the viewer dir
+		// (gitignored chrome) but are linked from the sidebar and fetched under the
+		// content root, like _sidebar.md. Reserved underscore names; served from the
+		// last generation, so a layer that generated no Decisions page 404s here.
+		if rel == "content/_manifest.md" || rel == "content/"+viewer.DecisionsRel {
+			serveFrom(w, rootAbs, viewerAbs, rel[len("content/"):], false)
 			return
 		}
 		// The overview homepage is served RENDERED: the source bytes with the layer map

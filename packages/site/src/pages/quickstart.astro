@@ -43,8 +43,8 @@ const apiCode = `import { validateLayer, writeIndex, conformanceReport } from '@
 
 const { findings } = validateLayer('.');`;
 
-const mcpCode = `# Claude Code (available in every project)
-claude mcp add leji --scope user -- npx -y @leji-org/mcp
+const mcpCode = `# Claude Code (this project)
+claude mcp add leji --scope project -- npx -y @leji-org/mcp
 
 # Codex
 codex mcp add leji -- npx -y @leji-org/mcp`;
@@ -102,17 +102,12 @@ const sdkLd = {
             <section class="gs-hero">
                <PageHeader kind="guide" />
                <h1>Build a context layer, check it conforms.</h1>
-               {
-                  /* The steps below already name what the CLI does. The only thing this
-                   line can add is what they cannot show: how long, and how little it needs.
-                   "Offline" has to stay literally true, so every network act is named rather
-                   than glossed: the optional declaration step at step 02 runs YOUR package
-                   manager, and the federation fetches contact the source you declared. */
-               }
                <p class="lede">
                   Five commands, install to conformance. Everything leji does ships in the package and runs offline;
-                  what reaches the network, you invoke yourself. The dependency step at <code>leji init</code> runs your own
-                  package manager when you say yes, and the federation fetches contact the repository you named:{' '}
+                  what reaches the network, you invoke yourself. The dependency step in <code>leji init</code> and <code
+                     >leji adopt</code
+                  > runs your own package manager when you say yes, and the federation fetches contact the repository you
+                  named:{' '}
                   <code>leji mounts hydrate --fetch</code>, <code>leji mounts update-pin --fetch</code>, and{' '}
                   <code>leji conformance --federation=verify</code>.
                </p>
@@ -130,15 +125,15 @@ const sdkLd = {
                      </p>
                      <p>
                         Declaring it as a dev dependency is what makes CI, the pre-commit hook and every contributor run
-                        one pinned version. You do not have to work out the command:
+                        one pinned version. You do not have to work out the command:{' '}
                         <code>leji init</code> and <code>leji adopt</code> detect the package manager this repository actually
-                        uses and offer to run its own add command for you, only on your explicit yes:
-                        <code>npm</code>, <code>pnpm</code>, <code>yarn</code> and <code>bun</code>;
-                        <code>uv</code>, <code>poetry</code>, <code>pdm</code> and <code>pipenv</code>; and
-                        <code>go get -tool</code> on Go 1.24 or newer. With pip, or Go before 1.24, leji prints the line to
-                        add instead of running anything. A global install stays out of the way: inside a repository that pins
-                        its own copy, the Node and Python CLIs run that copy for every invocation (<a
-                           href="/cli/#pinned-cli">the CLI a repository pins</a
+                        uses and offer to run its own add command for you, only on your explicit yes:{' '}
+                        <code>npm</code>, <code>pnpm</code>, <code>yarn</code> and <code>bun</code>;{' '}
+                        <code>uv</code>, <code>poetry</code>, <code>pdm</code> and <code>pipenv</code>; and{' '}
+                        <code>go get -tool</code>, which needs Go 1.24 or newer, while building the Go CLI itself needs
+                        Go 1.26.6 or newer. With pip, leji prints the line to add instead of running anything. A global
+                        install stays out of the way: inside a repository that pins its own copy, the Node and Python
+                        CLIs run that copy for every invocation (<a href="/cli/#pinned-cli">the CLI a repository pins</a
                         >).
                      </p>
                   </div>
@@ -150,7 +145,11 @@ const sdkLd = {
                      <h2><span class="step-num">02</span>Bootstrap a new context layer, or adopt an existing repo</h2>
                      <p>
                         You get a <code>leji.json</code> manifest at the repository root, a boot profile, seeded category
-                        documents, a first decision record, and an onboarding brief. None of it requires an agent.
+                        documents, a first decision record, and an onboarding brief. Two files outside the context root come
+                        with them: a pointer-only <code>AGENTS.md</code> when the repository has none (<code
+                           >--no-agents</code
+                        > skips it), and a <code>.gitignore</code> line at the root for <code>.leji/</code>, the
+                        workspace the brief lives in. None of it requires an agent.
                      </p>
                      <p>
                         The scaffold starts as placeholder. Accept the offer and the agent reads your repository,
@@ -160,12 +159,15 @@ const sdkLd = {
                      <p>
                         Working alone? <code>--mode solo</code> seeds identity and writing-style starters and points the brief
                         at an owner interview; answers can be typed, attached, or dropped in a folder. Only the synthesis
-                        you approve becomes context, and your raw files never enter git: <code>init</code> and{' '}
-                        <code>adopt</code> refuse to run at all while anything under the repository-root{' '}
-                        <code>.leji/</code> is tracked, and the agent deletes the artifacts once the context layer is populated.
+                        you approve becomes context, and the raw material stays in the gitignored workspace at the repository-root{
+                           ' '
+                        }
+                        <code>.leji/</code>: <code>init</code> and <code>adopt</code> write that ignore rule, and both refuse
+                        to run at all while anything under it is tracked. The agent deletes the artifacts once the context
+                        layer is populated.
                      </p>
                      <aside class="map-note">
-                        <strong>Already have a <code>docs/</code> tree?</strong>
+                        <strong>Already have a <code>docs/</code> tree?</strong>{' '}
                         <code>adopt</code> scaffolds alongside it and moves nothing. Your existing entrypoint is left untouched,
                         so until <code>--wire-adapters</code> runs you have an adoption draft rather than a conformant layer.
                      </aside>
@@ -190,7 +192,9 @@ const sdkLd = {
                      <p class="fine">
                         After a plain <code>adopt</code> over an existing <code>CLAUDE.md</code> or <code
                            >AGENTS.md</code
-                        >, expect one failure, <code>vendor-adapter-redirect</code>, until <code>--wire-adapters</code> runs.
+                        >, expect a <code>vendor-adapter-redirect</code> failure for each of them until <code
+                           >--wire-adapters</code
+                        > runs.
                      </p>
                   </div>
                   <div class="step-code"><Code code={validateCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
@@ -232,7 +236,9 @@ const sdkLd = {
                   </p>
                   <Code code={ciCode} lang="bash" theme={lejiSyntaxTheme} wrap />
                   <p class="fine">
-                     Exit codes are CI-native: <code>0</code> clean, <code>1</code> findings, <code>2</code> usage error.
+                     Exit codes are CI-native: <code>0</code> clean, warnings allowed; <code>1</code> a check that did not
+                     pass, whether or not it reported a finding; <code>2</code> a usage error or an internal failure, such
+                     as a refusal to overwrite.
                   </p>
                </div>
                <div class="duo-cell">
@@ -258,13 +264,14 @@ const sdkLd = {
                <Code code={mcpCode} lang="bash" theme={lejiSyntaxTheme} wrap />
                <p class="fine">
                   <code>init</code> and <code>adopt</code> offer to register it for you: project-scoped for Claude Code, user-level
-                  for Codex. The commands above are for anyone who skipped that prompt. Any MCP client works; the <a
-                     href="/mcp/">MCP server</a
-                  > page has the full tool list.
+                  for Codex. The commands above are for anyone who skipped that prompt, and swapping <code
+                     >--scope project</code
+                  > for <code>--scope user</code> registers it once for you personally rather than for this repository. Any
+                  MCP client works; the <a href="/mcp/">MCP server</a> page has the full tool list.
                </p>
             </section>
 
-            <section class="shapes" aria-label="Adoption guides by situation">
+            <section class="shapes" aria-label="Adoption shapes by situation">
                <h2>Then adopt for your situation</h2>
                <table class="shape-table">
                   <tbody>
@@ -294,7 +301,7 @@ const sdkLd = {
                <div class="peek-text">
                   <h2>From a script</h2>
                   <p>
-                     Every command is also a library call, for hooks, bots and build steps. Source at <a
+                     Most commands are also library calls, for hooks, bots and build steps. Source at <a
                         href="https://github.com/leji-org/leji"
                         target="_blank"
                         rel="noopener">leji-org/leji</a

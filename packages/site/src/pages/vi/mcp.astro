@@ -1,0 +1,253 @@
+---
+// Vietnamese translation of src/pages/mcp.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import CopyableCode from '../../components/CopyableCode.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '0dbbe32b2b9f192f8f0bfa1241ad0ba3b6341a52';
+const strings = translationStrings('vi');
+
+const config = `{
+  "mcpServers": {
+    "leji": { "command": "npx", "args": ["-y", "@leji-org/mcp"] }
+  }
+}`;
+
+const claudeAddProject = 'claude mcp add leji --scope project -- npx -y @leji-org/mcp';
+const claudeAddUser = 'claude mcp add leji --scope user -- npx -y @leji-org/mcp';
+const codexAdd = 'codex mcp add leji -- npx -y @leji-org/mcp';
+
+// Tool and resource identifiers stay as the server publishes them; only the summary
+// beside each one is prose.
+const resources = [
+   ['leji://spec/full', 'Toàn bộ bản đặc tả trong một tài liệu duy nhất.'],
+   ['leji://spec/{id}', 'Một tài liệu đặc tả, ví dụ leji://spec/conformance.'],
+   ['leji://schema/{name}', 'Một JSON Schema, ví dụ leji://schema/context-manifest.'],
+   ['leji://cli/help', 'Tài liệu tra cứu câu lệnh và tuỳ chọn của CLI leji.'],
+];
+
+const tools = [
+   ['search_spec', 'Các mục trong bản đặc tả khớp với một truy vấn.'],
+   ['fetch_spec_doc', 'Một tài liệu đặc tả (hoặc toàn bộ bản đặc tả).'],
+   ['fetch_schema', 'Một JSON Schema.'],
+   ['validate_manifest', 'Kiểm một leji.json được truyền vào trực tiếp.'],
+   ['validate_layer', 'Kiểm lớp ngữ cảnh tại một đường dẫn.'],
+   ['score_conformance', 'Mức tuân thủ đã tuyên bố so với mức đã xác minh.'],
+   ['explain_conformance', 'Những gì đã được xác minh, và mức kế tiếp cần thêm gì.'],
+];
+---
+
+<Base
+   lang="vi"
+   title="MCP server · Leji"
+   description="Dùng công cụ Leji ngay từ AI agent của bạn: một MCP server cục bộ, chỉ đọc, phục vụ bản đặc tả cùng các schema và kiểm một lớp ngữ cảnh nằm trên đĩa."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/mcp/" />
+         <main id="content" class="prose">
+            <PageHeader kind="reference" />
+            <h1>MCP server</h1>
+            <TranslationNote strings={strings.note} href="/mcp/" />
+            <p class="sp-lede">
+               Công cụ Leji có hai cách sử dụng. <a href="/vi/cli/">CLI</a> dành cho bạn và CI; còn server Model Context Protocol
+               (MCP) thì dành cho agent của bạn.
+            </p>
+            <p>
+               <code>@leji-org/mcp</code> là một server <a
+                  href="https://modelcontextprotocol.io"
+                  target="_blank"
+                  rel="noopener">MCP</a
+               > cục bộ được xây quanh SDK tham chiếu. Agent có thể đọc bản đặc tả và các schema, kiểm một lớp ngữ cảnh trên
+               đĩa, và chấm mức tuân thủ của nó, mà không phải tải gì từ trang web và không phải gọi ra shell của CLI.
+            </p>
+            <p>
+               Server chạy cục bộ qua stdio, không gọi mạng trong lúc hoạt động dù lần cài <code>npx</code> đầu tiên có tải
+               gói về, và chỉ cung cấp các công cụ chỉ đọc.
+            </p>
+
+            <h2>Thêm nó vào client của bạn</h2>
+            <p>
+               Cấu hình một lần, các công cụ <code>leji</code> sẽ xuất hiện trong mọi phiên thuộc phạm vi đã đăng ký, không
+               cần thiết lập thêm: phạm vi người dùng áp dụng cho mọi dự án, còn phạm vi dự án chỉ áp dụng cho kho mã nguồn
+               đó. Client sẽ khởi chạy{' '}
+               <code>leji-mcp</code> khi cần.
+            </p>
+            <p>
+               Nếu bạn đang áp dụng bằng CLI và có Claude Code hoặc Codex trên <code>PATH</code>, thì <code
+                  >leji init</code
+               >{' '}
+               và <code>leji adopt</code> sẽ đề nghị đăng ký sẵn server này cho host đó, trước khi bàn giao cho agent của
+               bạn.
+            </p>
+            <p>
+               Lời đề nghị đó là tương tác, nên một lần chạy có <code>--yes</code> sẽ bỏ qua nó. Phần dưới đây dành cho ai
+               đã bỏ qua lời nhắc, dùng một client khác, hoặc muốn một phạm vi khác.
+            </p>
+
+            <h3>Claude Code</h3>
+            <CopyableCode code={claudeAddProject} lang="bash" label="Sao chép câu lệnh" />
+            <p>
+               <code>--scope project</code> ghi tệp <code>.mcp.json</code> dùng chung ở gốc kho mã nguồn; hãy commit tệp này
+               để mọi người clone kho mã nguồn đều được mời dùng server. Nếu chỉ muốn dùng riêng trên mọi dự án:
+            </p>
+            <CopyableCode code={claudeAddUser} lang="bash" label="Sao chép câu lệnh" />
+            <p>
+               Bỏ qua <code>--scope</code> thì server được đăng ký riêng tư, chỉ cho dự án này. Tài liệu đầy đủ:{' '}
+               <a href="https://docs.claude.com/en/docs/claude-code/mcp" target="_blank" rel="noopener"
+                  >tài liệu MCP của Claude Code</a
+               >.
+            </p>
+
+            <h3>Codex</h3>
+            <CopyableCode code={codexAdd} lang="bash" label="Sao chép câu lệnh" />
+            <p>
+               Hoặc thêm thẳng một bảng <code>[mcp_servers.leji]</code> vào <code>~/.codex/config.toml</code>. Tài liệu
+               đầy đủ:{' '}
+               <a href="https://developers.openai.com/codex/mcp" target="_blank" rel="noopener"
+                  >tài liệu MCP của Codex</a
+               >.
+            </p>
+
+            <h3>Các client khác</h3>
+            <p>Claude Desktop, Cursor, Windsurf, và mọi MCP client khác đều nhận cấu hình chuẩn:</p>
+            <CopyableCode code={config} lang="json" label="Sao chép cấu hình MCP" />
+
+            <p>
+               Cần <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 22 trở lên (<code>npx</code> đi
+               kèm Node). Lần chạy đầu tiên tải gói về; những lần sau dùng bộ nhớ đệm. Hãy trỏ từng công cụ vào đúng gốc kho
+               mã nguồn có tệp <code>leji.json</code> của bạn.
+            </p>
+
+            <h2>Công cụ</h2>
+            <p>
+               Tất cả đều chỉ đọc. Không công cụ nào do server cung cấp có thể ghi hoặc thay đổi lớp ngữ cảnh của bạn.
+            </p>
+            <table class="mcp-table">
+               <caption class="vh">Các công cụ MCP do server cung cấp</caption>
+               <thead>
+                  <tr><th scope="col">Công cụ</th><th scope="col">Nó trả về gì</th></tr>
+               </thead>
+               <tbody>
+                  {
+                     tools.map(([name, summary]) => (
+                        <tr>
+                           <th scope="row">
+                              <code>{name}</code>
+                           </th>
+                           <td>{summary}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+
+            <h2>Tài nguyên</h2>
+            <table class="mcp-table">
+               <caption class="vh">Các tài nguyên MCP do server cung cấp</caption>
+               <thead>
+                  <tr><th scope="col">URI</th><th scope="col">Nó phục vụ gì</th></tr>
+               </thead>
+               <tbody>
+                  {
+                     resources.map(([uri, summary]) => (
+                        <tr>
+                           <th scope="row">
+                              <code>{uri}</code>
+                           </th>
+                           <td>{summary}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+
+            <h2>Vì sao cần một server, mà không chỉ dùng CLI?</h2>
+            <p>
+               CLI vốn đã kiểm và chấm điểm một lớp ngữ cảnh, và server thì làm được cả hai việc đó. Nó còn làm điều mà
+               CLI không làm: tìm kiếm và cung cấp bản đặc tả cùng các schema. Đây cũng là một giao diện riêng mà agent
+               có thể tự khám phá:
+            </p>
+            <ul>
+               <li>
+                  <strong>Nó tự giới thiệu.</strong> Cấu hình một lần là nó xuất hiện trong danh sách công cụ của agent ở
+                  mọi phiên, kèm mô tả chính xác nó làm gì. Không ai phải nói cho agent biết rằng Leji tồn tại hay CLI nằm
+                  ở đâu.
+               </li>
+               <li>
+                  <strong>Nó hoạt động được ở nơi shell không thể.</strong> Nhiều môi trường agent không thể hoặc không cho
+                  phép chạy câu lệnh tuỳ ý. Một server chỉ đọc, không gọi mạng lúc chạy, có thể dùng được ở những nơi mà <code
+                     >leji validate</code
+                  > thì không.
+               </li>
+               <li>
+                  <strong>Nó phục vụ thẳng bản đặc tả và các schema.</strong> Agent của bạn đọc chúng như những tài nguyên,
+                  không cần tải từ web, và trích dẫn chúng ngay trong lúc làm việc.
+               </li>
+            </ul>
+            <p>
+               Việc tiêu thụ một lớp ngữ cảnh thì không cần tới server: <a href="/vi/spec/boot-profile/">boot profile</a
+               > của một kho mã nguồn tuân thủ vốn đã giúp agent bắt đầu. Server dành cho nửa còn lại: tìm hiểu Leji và kiểm
+               một lớp ngữ cảnh theo nó.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .mcp-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.8rem 0 0;
+   }
+   .mcp-table caption.vh {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+   }
+   .mcp-table th {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: top;
+      text-align: left;
+      font-weight: 400;
+      color: var(--leji-text-body);
+      white-space: nowrap;
+   }
+   .mcp-table thead th {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+   }
+   .mcp-table th code {
+      color: var(--leji-text);
+      font-size: 0.85em;
+   }
+   .mcp-table td {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: top;
+      color: var(--leji-text-body);
+   }
+   .mcp-table td:first-child {
+      white-space: nowrap;
+   }
+   .mcp-table td code {
+      color: var(--leji-text);
+      font-size: 0.85em;
+   }
+</style>

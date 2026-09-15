@@ -62,6 +62,10 @@ interface Selector {
    indexRel: string;
    isFileSelector: boolean;
    depth: number;
+   /** 0-based position of the entry within its index file's authored order (the
+    * `leji-index` blocks concatenated in document order). Curation the viewer
+    * renders; resolution never reads it. */
+   pos: number;
    /** Markdown paths this selector resolves to. */
    covered: string[];
 }
@@ -156,7 +160,9 @@ function collectSelectors(
          for (const err of parsed.errors) {
             findings.push(finding('index-file-parse', 'error', err, indexRel));
          }
-         for (const entry of parsed.entries) {
+         // The entry's own index carries its authored position, so an entry that
+         // fails to expand still spends its place and the others keep theirs.
+         for (const [pos, entry] of parsed.entries.entries()) {
             const expanded = expandEntry(root, indexRel, entry.path, findings);
             if (!expanded) continue;
             selectors.push({
@@ -166,6 +172,7 @@ function collectSelectors(
                indexRel,
                isFileSelector: expanded.isFileSelector,
                depth: entry.path.replace(/\/+$/, '').split('/').length,
+               pos,
                covered: expanded.covered,
             });
             for (const rel of expanded.skippedReadmes) skippedReadmes.push({ indexRel, path: rel });
@@ -195,12 +202,17 @@ export function resolveCategoryPaths(
 }
 
 /** A document's resolved assignment: its single category, the winning
- * selector's kind (before any frontmatter override), and the index file that
- * declared the winning selector (the viewer groups by it). */
+ * selector's kind (before any frontmatter override), the index file that
+ * declared the winning selector (the viewer groups by it), and that selector's
+ * declared position (the viewer orders by it). */
 export interface Assignment {
    category: CategoryId;
    kind: DocKind;
    indexRel: string;
+   /** The winning selector's `pos`: where the entry that won this document sits
+    * in its index file's authored order. Every document a directory entry
+    * expands to shares that entry's single position. */
+   order: number;
 }
 
 /**
@@ -238,7 +250,7 @@ export function resolveCategoryAssignments(
 
    const assignments = new Map<string, Assignment>();
    const winners = new Set<Selector>();
-   for (const [relPath, cands] of [...byDoc.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
+   for (const [relPath, cands] of [...byDoc.entries()].sort(([a], [b]) => byteCompare(a, b))) {
       const top = Math.max(...cands.map(rank));
       const best = cands.filter((s) => rank(s) === top);
       const first = best[0];
@@ -257,7 +269,12 @@ export function resolveCategoryAssignments(
          continue;
       }
       for (const s of best) winners.add(s);
-      assignments.set(relPath, { category: first.category, kind: first.kind, indexRel: first.indexRel });
+      assignments.set(relPath, {
+         category: first.category,
+         kind: first.kind,
+         indexRel: first.indexRel,
+         order: first.pos,
+      });
    }
 
    // A selector that covered documents but won none is fully shadowed by
@@ -289,7 +306,7 @@ const DOC_KINDS: readonly DocKind[] = ['intent', 'record'];
 export function scanCategories(root: string, manifest: Manifest): CategoryScan {
    const { assignments, findings } = resolveCategoryAssignments(root, manifest);
    const docs: ScannedDoc[] = [];
-   for (const [relPath, a] of [...assignments.entries()].sort(([x], [y]) => (x < y ? -1 : 1))) {
+   for (const [relPath, a] of [...assignments.entries()].sort(([x], [y]) => byteCompare(x, y))) {
       const text = readText(path.join(root, relPath));
       const fm = parseFrontmatter(text);
       // Decision-category documents are inherently records; their (closed)
@@ -623,7 +640,7 @@ export function scanDecisionRecords(root: string, manifest: Manifest): ScannedPr
    for (const rel of walkMd(root, effectiveDecisionRecordsPath(manifest))) relPaths.add(rel);
    for (const rel of resolveCategoryPaths(root, manifest, 'decisions').paths) relPaths.add(rel);
    const out: ScannedProfile[] = [];
-   for (const relPath of [...relPaths].sort()) {
+   for (const relPath of [...relPaths].sort((a, b) => byteCompare(a, b))) {
       if (path.posix.basename(relPath).toLowerCase() === 'readme.md') continue;
       const text = readText(path.join(root, relPath));
       const fm = parseFrontmatter(text);

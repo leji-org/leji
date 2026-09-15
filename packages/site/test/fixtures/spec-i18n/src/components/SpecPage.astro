@@ -1,0 +1,41 @@
+---
+// What one locale's specification route renders: the banner, then either the one
+// document or the whole specification in reading order. This is the shape a locale's
+// route file composes; the fixture holds it once so its three routes stay identical.
+import { buildSpecI18nFull, parseSpecI18nId, renderSpecI18nEntry, type SpecI18nPageProps } from '@site/spec-i18n';
+import { specDocTitle, specPath } from '@site/data/spec-docs';
+import SpecTranslationBanner from '@site/components/SpecTranslationBanner.astro';
+import Page from '../layouts/Page.astro';
+import { NOTE, SPEC_BANNER } from '../strings';
+
+const { locale, entry, entries } = Astro.props as SpecI18nPageProps;
+
+const doc = entry ? parseSpecI18nId(entry.id).doc : null;
+const sections = entries ? await buildSpecI18nFull(locale, entries) : null;
+const Content = entry ? (await renderSpecI18nEntry(entry)).Content : null;
+---
+
+<Page lang={locale} title={doc ? specDocTitle(doc) : 'The Leji Specification (one page)'}>
+   {
+      entries && sections ? (
+         <main>
+            <SpecTranslationBanner strings={SPEC_BANNER} note={NOTE} href="/spec/full/" />
+            <h1>The Leji Specification</h1>
+            {sections.map((section) => (
+               <section class="spec-section" id={`sec-${section.id}`}>
+                  <Fragment set:html={section.html} />
+               </section>
+            ))}
+         </main>
+      ) : (
+         entry &&
+         doc &&
+         Content && (
+            <main>
+               <SpecTranslationBanner strings={SPEC_BANNER} note={NOTE} href={specPath(doc)} />
+               <Content />
+            </main>
+         )
+      )
+   }
+</Page>

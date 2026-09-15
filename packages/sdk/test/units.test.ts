@@ -15,6 +15,7 @@ import {
    buildLayerMap,
    buildSidebar,
    buildManifestPage,
+   buildViewer,
    ciProviderFromRemote,
    ensureCiWorkflow,
    ensureLocalHook,
@@ -46,9 +47,9 @@ import {
 import { finding, hasErrors, summarize } from '../dist/lib/findings.js';
 import { joinUnderRoot, walkMd, underPath } from '../dist/lib/fsx.js';
 import { templatesDir } from '../dist/lib/schemas.js';
-import { excludedFromCategories, scanAgentProfiles, scanCategories } from '../dist/lib/layer.js';
+import { excludedFromCategories, scanAgentProfiles, scanCategories, scanDecisionRecords } from '../dist/lib/layer.js';
 import { route } from '../dist/lib/route.js';
-import { mermaidTextColor } from '../dist/commands/viewer.js';
+import { buildDecisionsPage, buildSidebarGroups, mermaidTextColor } from '../dist/commands/viewer.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const exampleDir = path.join(repoRoot, 'examples', 'monorepo');
@@ -1070,6 +1071,232 @@ test('buildManifestPage: escapes hostile strings, covers drift states, byte-orde
    assert.ok(noMounts.includes('No federated mounts are declared'), 'empty mounts handled, not an error');
 });
 
+test('buildDecisionsPage: file-name order, presentation numbers, supersession links, degraded rows, escaping', () => {
+   const manifest = {
+      leji: '1.0',
+      name: 'demo | layer',
+      rootPath: 'docs/',
+      bootProfilePath: 'docs/boot-profile.md',
+      categories: { decisions: { indexes: ['docs/context/decisions.md'] } },
+   } as unknown as Parameters<typeof buildDecisionsPage>[0];
+   const rec = (relPath: string, frontmatter: Record<string, unknown> | null) => ({
+      relPath,
+      frontmatter,
+      body: '',
+      findings: [],
+   });
+   // Deliberately out of order, so the page's own sort is what the assertions read.
+   const records = [
+      rec('docs/decisions/0017-later.md', { id: 'later', title: 'Later', status: 'accepted', date: '2026-07-01' }),
+      rec('outside/0003-elsewhere.md', {
+         id: 'elsewhere',
+         title: 'Elsewhere',
+         status: 'accepted',
+         date: '2026-03-01',
+      }),
+      rec('docs/decisions/0006-gap.md', {
+         id: 'gap',
+         title: 'Gap `tick` | pipe [b] <i>',
+         status: 'superseded',
+         date: '2026-06-01',
+         supersededBy: 'later',
+      }),
+      rec('docs/decisions/no-number.md', {
+         id: 'no-number',
+         title: 'No number',
+         status: 'proposed',
+         date: '2026-04-01',
+      }),
+      rec('docs/decisions/0002-dangling.md', {
+         id: 'dangling',
+         title: 'Dangling',
+         status: 'superseded',
+         date: '2026-05-01',
+         supersededBy: 'nobody',
+      }),
+      rec('docs/decisions/0009-mangled.md', null),
+   ] as unknown as Parameters<typeof buildDecisionsPage>[1];
+   const page = buildDecisionsPage(manifest, records);
+
+   assert.ok(page.startsWith('# demo \\| layer: Decisions\n'), 'titled from the layer, escaped');
+   assert.ok(page.includes("Generated from the decision records' frontmatter"), 'the page says where it comes from');
+   assert.ok(
+      page.includes('| Number | Decision | Status | Date | Supersedes | Superseded by |'),
+      'the declared columns',
+   );
+   // Byte order by file name, which is the numbering series: `outside/` sorts after
+   // every `docs/` record whatever number its own file name carries.
+   const at = (needle: string): number => {
+      const i = page.indexOf(needle);
+      assert.notEqual(i, -1, `row present: ${needle}`);
+      return i;
+   };
+   assert.ok(
+      at('| 0002 |') < at('| 0006 |') && at('| 0006 |') < at('| 0009 |') && at('| 0009 |') < at('| 0017 |'),
+      'rows follow the file name in byte order',
+   );
+   assert.ok(at('| 0017 |') < at('| 0003 |'), 'an out-of-root record sorts by its path, not its number');
+   // Presentation, not identity: `decisionNumberKey` would render these 2, 6, 9, 17.
+   assert.ok(!/\| (2|6|9|17) \|/.test(page), 'the leading zeros are kept exactly as the file name writes them');
+   assert.ok(
+      page.includes('|  | [No number](/decisions/no-number.md) | proposed | 2026-04-01 |  |  |'),
+      'a file name without the number convention leaves the column blank',
+   );
+   // Supersession: linked when the id names a record on this page, plain otherwise.
+   assert.ok(page.includes('[later](/decisions/0017-later.md)'), 'a resolving pointer links to the record');
+   assert.ok(page.includes('| nobody |'), 'a pointer at no record shows as text');
+   assert.ok(!page.includes('[nobody]('), 'and is never linked to a route that would 404');
+   assert.ok(
+      page.includes('| 0009 | [0009-mangled.md](/decisions/0009-mangled.md) |  |  |  |  |'),
+      'unreadable frontmatter: the file name, then blank cells',
+   );
+   assert.ok(
+      page.includes('[Gap \\`tick\\` \\| pipe \\[b\\] &lt;i&gt;](/decisions/0006-gap.md)'),
+      'a title cannot break the row, close the link, or land as live HTML',
+   );
+   assert.ok(page.includes('| 0003 | Elsewhere | accepted |'), 'an unservable record is named, not linked');
+   assert.ok(!page.includes('](/0003-elsewhere.md)'), 'nothing links outside the context root');
+   assert.equal(page.endsWith('|\n'), true, 'trailing newline after the last row');
+});
+
+test('viewer: a layer with no decisions category gets no decisions page, entry, or export copy', () => {
+   const dir = copyExample();
+   const { manifest } = loadManifest(dir);
+   delete manifest!.categories.decisions;
+   const result = generateViewer(dir, manifest!);
+   assert.ok(!result.written.includes('.leji/viewer/_decisions.md'), 'no page is written');
+   assert.ok(!fs.existsSync(path.join(dir, '.leji', 'viewer', '_decisions.md')));
+   const sidebar = fs.readFileSync(path.join(dir, '.leji', 'viewer', '_sidebar.md'), 'utf8');
+   assert.ok(!sidebar.includes('/_decisions.md'), 'and no sidebar entry links one');
+   // The export's copy is conditional on the same predicate: an unconditional one
+   // would refuse the missing chrome file and fail the whole build.
+   const built = buildViewer(dir, manifest!);
+   assert.ok(built.wrote, 'the export still runs');
+   assert.ok(!fs.existsSync(path.join(dir, built.out, 'content', '_decisions.md')), 'and carries no decisions page');
+});
+
+test('buildDecisionsPage: a hostile file name cannot break out of a link destination', () => {
+   const manifest = {
+      leji: '1.0',
+      name: 'fixture',
+      rootPath: 'docs/',
+      bootProfilePath: 'docs/boot-profile.md',
+      categories: { decisions: { indexes: ['docs/context/decisions.md'] } },
+   } as unknown as Parameters<typeof buildDecisionsPage>[0];
+   // A newline is a legal POSIX file-name byte, and a bare CommonMark destination
+   // ends at one, so an unencoded name closes the link and injects everything after
+   // it into the page as markdown. The page takes its records as data, so the vector
+   // needs no fixture on disk: it goes straight through the seam that renders it.
+   const hostile = 'docs/decisions/0001-a.md)\n| 9999 | [pwned](/evil.md) | forged | row |  |  |\n[x](y.md';
+   const records = [
+      {
+         relPath: hostile,
+         frontmatter: { id: 'a', title: 'A', status: 'accepted', date: '2026-01-01' },
+         body: '',
+         findings: [],
+      },
+   ] as unknown as Parameters<typeof buildDecisionsPage>[1];
+   const page = buildDecisionsPage(manifest, records);
+
+   const rows = page
+      .split('\n')
+      .filter((l) => l.startsWith('| ') && !l.startsWith('| Number') && !l.startsWith('| ---'));
+   assert.equal(rows.length, 1, 'one record renders exactly one row, whatever its file name says');
+   assert.ok(!page.includes('| 9999 |'), 'the forged row never becomes a row');
+   assert.ok(!page.includes('[pwned]('), 'and the forged link never becomes a link');
+   // Percent-encoded rather than escaped: a backslash does not help, because it is
+   // the character itself that ends the destination.
+   assert.ok(page.includes('%0A'), 'the newline is percent-encoded into the destination');
+   assert.ok(page.includes('%20'), 'so is the space, which ends a bare destination too');
+});
+
+test('buildDecisionsPage: plain cells stay plain, so a bracketed value never becomes a link', () => {
+   const manifest = {
+      leji: '1.0',
+      name: '[layer](/evil.md)',
+      rootPath: 'docs/',
+      bootProfilePath: 'docs/boot-profile.md',
+      categories: { decisions: { indexes: ['docs/context/decisions.md'] } },
+   } as unknown as Parameters<typeof buildDecisionsPage>[0];
+   const records = [
+      {
+         relPath: 'docs/decisions/0001-a.md',
+         frontmatter: {
+            id: 'a',
+            title: 'A',
+            // Status is plain text by design, so it must not be able to render
+            // as anything else; the date cell takes the same escape.
+            status: '[accepted](/evil.md)',
+            date: '[2026-01-01](/evil.md)',
+            supersededBy: '[gone](/evil.md)',
+         },
+         body: '',
+         findings: [],
+      },
+      {
+         // Outside rootPath: named, never linked. Its own title must not smuggle a
+         // link back in through the very cell that exists to keep it unlinked.
+         relPath: 'elsewhere/0002-b.md',
+         frontmatter: { id: 'b', title: '[B](/evil.md)', status: 'accepted', date: '2026-01-02' },
+         body: '',
+         findings: [],
+      },
+   ] as unknown as Parameters<typeof buildDecisionsPage>[1];
+   const page = buildDecisionsPage(manifest, records);
+
+   // The escaped forms below still CONTAIN the substring `](/evil.md)`; what makes
+   // them inert is the backslash on the opening bracket. So the blanket assertion
+   // is about an ACTIVE link: an unescaped `[` that reaches `](/evil.md)`.
+   assert.ok(
+      !/(^|[^\\])\[[^\]]*\]\(\/evil\.md\)/.test(page),
+      'no interpolated value anywhere on the page renders as an active link',
+   );
+   assert.ok(page.includes('\\[accepted\\](/evil.md)'), 'a bracketed status is shown inert, not rendered');
+   assert.ok(page.includes('\\[2026-01-01\\](/evil.md)'), 'the date cell takes the same escape');
+   assert.ok(page.includes('\\[gone\\](/evil.md)'), 'an unresolved supersession id is shown inert');
+   assert.ok(page.includes('\\[B\\](/evil.md)'), 'an out-of-root title is named inert, never linked');
+   assert.ok(page.startsWith('# \\[layer\\](/evil.md): Decisions'), 'the heading is inert too');
+});
+
+test('buildDecisionsPage: the first listed record reserves its id even when it is unlinkable', () => {
+   const manifest = {
+      leji: '1.0',
+      name: 'fixture',
+      rootPath: 'docs/',
+      bootProfilePath: 'docs/boot-profile.md',
+      categories: { decisions: { indexes: ['docs/context/decisions.md'] } },
+   } as unknown as Parameters<typeof buildDecisionsPage>[0];
+   // Two records share an id (a validation error this page does not adjudicate) and
+   // the FIRST in byte order is outside rootPath, so it has no route. Reserving on
+   // route rather than on listing would skip it and hand the link to the second.
+   const records = [
+      {
+         relPath: 'docs/decisions/0002-in-root.md',
+         frontmatter: { id: 'dup', title: 'In root', status: 'accepted', date: '2026-01-02' },
+         body: '',
+         findings: [],
+      },
+      {
+         relPath: 'docs/decisions/0003-pointer.md',
+         frontmatter: { id: 'ptr', title: 'Pointer', status: 'superseded', date: '2026-01-03', supersededBy: 'dup' },
+         body: '',
+         findings: [],
+      },
+      {
+         relPath: 'archive/0001-out-of-root.md',
+         frontmatter: { id: 'dup', title: 'Out of root', status: 'accepted', date: '2026-01-01' },
+         body: '',
+         findings: [],
+      },
+   ] as unknown as Parameters<typeof buildDecisionsPage>[1];
+   const page = buildDecisionsPage(manifest, records);
+
+   // 'archive/…' sorts before 'docs/…' in byte order, so the unlinkable one is first.
+   assert.ok(page.indexOf('Out of root') < page.indexOf('In root'), 'the out-of-root record is the first listed');
+   assert.ok(!page.includes('[dup](/decisions/0002-in-root.md)'), 'the later duplicate never takes the reserved id');
+   assert.ok(page.includes('| dup |'), 'the pointer renders as plain text, the reservation carrying no route');
+});
+
 test('viewer: generates viewer + sidebar that reflect the layer', () => {
    const dir = copyExample();
    const { manifest } = loadManifest(dir);
@@ -1107,6 +1334,7 @@ test('viewer: generates viewer + sidebar that reflect the layer', () => {
       '.leji/viewer/assets/zoom-image.min.js',
       'docs/overview.md',
       '.leji/viewer/_manifest.md',
+      '.leji/viewer/_decisions.md',
    ]);
    const viewer = path.join(dir, '.leji', 'viewer');
    // The Manifest page is generated chrome in the viewer dir (reserved underscore
@@ -1182,6 +1410,7 @@ test('viewer: generates viewer + sidebar that reflect the layer', () => {
          '- **⚙️ System**',
          '  - [Invariants](/system/invariants.md)',
          '- **🧭 Decisions**',
+         '  - [Decisions index](/_decisions.md)',
          '  - [Adopt the Leji context layer](/decisions/0001-adopt-leji.md)',
          '',
       ].join('\n'),
@@ -2018,7 +2247,7 @@ test('check-before-act: an overview.md swapped between the authorization and the
    // resolver performs the swap inline, so the window is exercised on every run (the
    // idiom the export canaries use).
    //
-   // Mutation that reddens: give the route back its pre-review shape, a `realpathSync`
+   // Mutation that reddens: give the route back its unguarded shape, a `realpathSync`
    // that authorizes the path followed by a read that resolves the path again
    // (`verifiedTargetRead`), and the swapped-in file's bytes are served with a 200.
    const dir = fs.realpathSync(copyExample());
@@ -2175,6 +2404,21 @@ test('viewer: a sidebar destination is escaped, app-root absolute, and idempoten
       ['a(b).md', '/a\\(b\\).md'],
       ['(x).md', '/\\(x\\).md'],
       ['a\\b.md', '/a\\\\b.md'],
+      // A bare CommonMark destination may hold neither an ASCII control character
+      // nor a space: either ENDS it, so an unencoded one in a file name (both are
+      // legal POSIX bytes) puts everything after it into the page as markdown.
+      // Percent-encoded, uppercase hex, two digits, and they still route.
+      ['with space.md', '/with%20space.md'],
+      ['a\nb.md', '/a%0Ab.md'],
+      ['a\rb.md', '/a%0Db.md'],
+      ['a\tb.md', '/a%09b.md'],
+      ['a\u0000b.md', '/a%00b.md'],
+      ['a\u007Fb.md', '/a%7Fb.md'],
+      // The two neutralizations compose: the space is encoded, the paren escaped.
+      ['a (b).md', '/a%20\\(b\\).md'],
+      // Injection vector in full: the newline cannot close the destination, so the
+      // forged row never becomes a row.
+      ['x.md)\n| forged | row |\n[y](z.md', '/x.md\\)%0A|%20forged%20|%20row%20|%0A[y]\\(z.md'],
    ];
    for (const [input, want] of vectors) {
       const sidebar = buildSidebar(manifest, [], [], [{ rel: input, title: 'x' }]);
@@ -2187,7 +2431,7 @@ test('viewer: a document is served byte-identical, whatever link classes its bod
    // One instance of every link class a real document mixes. Routing is config plus
    // the generated sidebar, never a transform over the author's markdown, so the
    // served bytes are the file's. How an image path resolves under relativePath is
-   // a separate item and is deliberately not asserted here.
+   // out of scope here and is deliberately not asserted.
    const body = [
       '# Links',
       '',
@@ -2363,13 +2607,13 @@ test('viewer: the boot asset rewrites exactly the document-relative image srcs',
       ['blob:http://x/y', 'notes/deep', null],
       // Traversal out of the content mount is refused, never clamped.
       ['../../../../etc/x.svg', 'notes/deep', null],
-      // Containment vectors from the independent review: the disguises that pass a
-      // literal prefix check but not the server's own canonicalization — encoded
-      // traversal, malformed encoding, and a scheme hidden behind whitespace (the
-      // entry preprocessing makes classification see what the URL parser sees —
-      // edge trim plus tab/LF/CR removed anywhere — so both the padded scheme and
-      // one split by an interior tab, LF, or CR are caught as schemes, including
-      // when they name the synthetic origin the resolution base uses). Legitimate
+      // Containment vectors: the disguises that pass a literal prefix check but
+      // not the server's own canonicalization — encoded traversal, malformed
+      // encoding, and a scheme hidden behind whitespace (the entry preprocessing
+      // makes classification see what the URL parser sees — edge trim plus
+      // tab/LF/CR removed anywhere — so both the padded scheme and one split by
+      // an interior tab, LF, or CR are caught as schemes, including when they
+      // name the synthetic origin the resolution base uses). Legitimate
       // encoding still rewrites, the emitted src keeps its encoded form, and a
       // padded relative path still resolves.
       ['..%2f..%2f..%2fassets/viewer-boot.js', 'notes/deep', null],
@@ -2654,6 +2898,107 @@ test('viewer: buildSidebar skips an out-of-root boot profile and renders plain e
    assert.ok(sidebar.includes('  - [Glossary](/domain/glossary.md)'), 'entries render as plain links');
    assert.ok(!sidebar.includes('lj-rec'), 'no record badges in the sidebar: kind and date are page-chip metadata now');
    assert.ok(!sidebar.includes('Empty group'), 'empty groups are skipped');
+});
+
+/** A fixture layer's spine groups, built the way a generation pass builds them:
+ * every governed document handed over as an index entry. Read-only, so the
+ * fixture stays pristine. */
+function fixtureSidebarGroups(name: string) {
+   const dir = path.join(repoRoot, 'fixtures', name);
+   const { manifest } = loadManifest(dir);
+   assert.ok(manifest, `${name} manifest must load`);
+   const entries = scanCategories(dir, manifest!).docs.map((d) => ({ path: d.relPath, title: d.relPath }));
+   return { manifest: manifest!, groups: buildSidebarGroups(dir, manifest!, entries) };
+}
+
+test('sidebar order: members follow the index file, a directory entry expanding by path inside its one position', () => {
+   const { groups } = fixtureSidebarGroups('valid-sidebar-order');
+   const domain = groups.find((g) => g.label === 'Domain context');
+   assert.ok(domain, 'the domain index file contributes a group');
+   // docs/context/domain.md declares zebra.md, then docs/domain/nested/, then
+   // apple.md. The directory entry holds one position and the two documents it
+   // expands to fill that position in path byte order.
+   assert.deepEqual(
+      domain!.entries.map((e) => e.rel),
+      ['domain/zebra.md', 'domain/nested/alpha.md', 'domain/nested/beta.md', 'domain/apple.md'],
+   );
+});
+
+test('sidebar order: same-labeled groups append whole contributions, canonically earlier category first', () => {
+   const { groups } = fixtureSidebarGroups('valid-sidebar-order');
+   const shared = groups.find((g) => g.label === 'Shared context');
+   assert.ok(shared, 'two index files sharing an H1 label merge into one group');
+   // The system index (canonically the earlier category) declares rules, limits
+   // and naming at positions 0, 1 and 2; the governance index declares approvals
+   // at position 0. Positions are numbered per index file, so approvals still
+   // renders last: contributions concatenate and nothing sorts across them.
+   assert.deepEqual(
+      shared!.entries.map((e) => e.rel),
+      ['shared/rules.md', 'shared/limits.md', 'shared/naming.md', 'shared/approvals.md'],
+   );
+});
+
+test('sidebar order: a subgroup sits at its first member place; the browse zone stays alphabetical', () => {
+   const { manifest, groups } = fixtureSidebarGroups('valid-sidebar-order');
+   const sidebar = buildSidebar(manifest, groups, [
+      { rel: 'zeta.md', title: 'Zeta' },
+      { rel: 'alpha.md', title: 'Alpha' },
+   ]);
+   assert.ok(
+      sidebar.includes(
+         [
+            '- **Domain context**',
+            '  - [Zebra](/domain/zebra.md)',
+            '  - **Nested**',
+            '    - [Alpha](/domain/nested/alpha.md)',
+            '    - [Beta](/domain/nested/beta.md)',
+            '  - [Apple](/domain/apple.md)',
+         ].join('\n'),
+      ),
+      'the nested directory renders between the two files, where its first member was declared',
+   );
+   // The reference tree is nobody's curated order, so it keeps sorting by name:
+   // fed zeta before alpha, it still renders alpha first.
+   assert.ok(
+      sidebar.includes(['- **Reference**', '  - [Alpha](/alpha.md)', '  - [Zeta](/zeta.md)'].join('\n')),
+      'the browse zone is untouched by the curated ordering',
+   );
+});
+
+test('sidebar order: a hoisted directory member keeps its declared place among root-level members', () => {
+   const { manifest, groups } = fixtureSidebarGroups('valid-sidebar-order');
+   const sidebar = buildSidebar(manifest, groups);
+   // docs/context/practice.md is labeled "Business" and declares
+   // docs/business/pricing.md, then the root-level docs/middle.md, then
+   // docs/business/accounts.md. The label hoists the business/ level away, so its
+   // two documents become siblings of middle.md and hold the places the index gave
+   // them around it. Merging that level in after the fact and sorting by name
+   // would render Accounts, Middle, Pricing: the exact reversal.
+   assert.ok(
+      sidebar.includes(
+         [
+            '- **Business**',
+            '  - [Pricing](/business/pricing.md)',
+            '  - [Middle](/middle.md)',
+            '  - [Accounts](/business/accounts.md)',
+         ].join('\n'),
+      ),
+      'the hoisted members interleave with the root-level one at their declared positions',
+   );
+});
+
+test('sidebar order: a document takes the position of the selector that won it', () => {
+   const { groups } = fixtureSidebarGroups('valid-records');
+   const domain = groups.find((g) => g.label === 'Domain context');
+   assert.ok(domain, 'the domain index file contributes a group');
+   // valid-records declares docs/domain/ (position 0), docs/records/ (position 1)
+   // and then docs/records/escalation-policy.md (position 2) to override that
+   // file's kind. The file selector wins the document, so its position is the
+   // file selector's and the override renders after the directory it carved out of.
+   assert.deepEqual(
+      domain!.entries.map((e) => e.rel),
+      ['domain/overview.md', 'records/2026-07-03-status.md', 'records/ledger.md', 'records/escalation-policy.md'],
+   );
 });
 
 test('changelog: a declared changelog that does not exist is changelog-required', () => {
@@ -3011,6 +3356,75 @@ test('records: freshness skips records; the index carries kind and record dates'
    assert.equal(entries.get('docs/records/ledger.md')?.kind, 'record');
    assert.equal(entries.get('docs/records/ledger.md')?.date, undefined);
    assert.equal(entries.get('docs/records/escalation-policy.md')?.kind, 'intent');
+});
+
+// Two file names differing only in one character: U+E000 is EE 80 80 in UTF-8 and
+// U+10000 is F0 90 80 80, so bytes put U+E000 first, while UTF-16 code units put the
+// astral name first, because its lead surrogate D800 sorts below E000. Both scans are
+// shared primitives whose order reaches generated output (the index and the sidebar,
+// the Agents group straight off the profile scan's walk), so byte order is the
+// contract and all three SDKs return the same sequence.
+test('records: the layer scans return paths in byte order, never UTF-16 code-unit order', () => {
+   const dir = tmpdir('leji-byteorder-');
+   const pua = 'docs/decisions/2-\u{E000}.md';
+   const astral = 'docs/decisions/2-\u{10000}.md';
+   const puaProfile = 'docs/agents/role-\u{E000}.md';
+   const astralProfile = 'docs/agents/role-\u{10000}.md';
+   assert.deepEqual([pua, astral].sort(), [astral, pua], 'UTF-16 code units order the astral name first');
+
+   fs.mkdirSync(path.join(dir, 'docs', 'decisions'), { recursive: true });
+   fs.mkdirSync(path.join(dir, 'docs', 'agents'), { recursive: true });
+   fs.mkdirSync(path.join(dir, 'docs', 'context'), { recursive: true });
+   fs.writeFileSync(path.join(dir, 'docs', 'boot-profile.md'), '# Boot\n');
+   fs.writeFileSync(
+      path.join(dir, 'docs', 'context', 'decisions.md'),
+      '# Decisions\n\n```leji-index\n- path: docs/decisions/\n```\n',
+   );
+   for (const rel of [pua, astral]) {
+      fs.writeFileSync(path.join(dir, rel), '---\nid: d\ntitle: D\nstatus: accepted\ndate: 2026-09-14\n---\n\n# D\n');
+   }
+   for (const rel of [puaProfile, astralProfile]) {
+      fs.writeFileSync(
+         path.join(dir, rel),
+         '---\nid: r\nname: R\nrole: r\nfreshness:\n  reviewAfter: 2020-01-01\n---\n\n# R\n',
+      );
+   }
+   fs.writeFileSync(
+      path.join(dir, 'leji.json'),
+      JSON.stringify(
+         {
+            leji: '1.0',
+            name: 'byte-order',
+            rootPath: 'docs/',
+            bootProfilePath: 'docs/boot-profile.md',
+            categories: { decisions: { indexes: ['docs/context/decisions.md'] } },
+            owners: { primary: { name: 'Test' } },
+         },
+         null,
+         2,
+      ),
+   );
+
+   const { manifest } = loadManifest(dir);
+   assert.deepEqual(
+      scanDecisionRecords(dir, manifest!).map((r) => r.relPath),
+      [pua, astral],
+      'the U+E000 record comes first, as it does in the Python and Go scans',
+   );
+   // scanAgentProfiles hands walkMd's order straight to the viewer's Agents group.
+   assert.deepEqual(
+      scanAgentProfiles(dir, manifest!).map((p) => p.relPath),
+      [puaProfile, astralProfile],
+      'the profile walk is byte-ordered too',
+   );
+   // Both profiles share one expired horizon, so the freshness report is decided
+   // entirely by its path tiebreak, the same byte order Python's tuple key and Go's
+   // comparator give.
+   assert.deepEqual(
+      freshnessReport(dir, manifest!).expired.map((i) => i.path),
+      [puaProfile, astralProfile],
+      'the freshness date tiebreak is byte order',
+   );
 });
 
 test('records: a fully displaced broad selector is reported as shadowed by status', () => {

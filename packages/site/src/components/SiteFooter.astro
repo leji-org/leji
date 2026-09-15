@@ -1,29 +1,39 @@
 ---
 import LejiLogo from './LejiLogo.astro';
+import { footerStrings, navStrings } from '../data/i18n';
+import { localeOf, localizedHref } from '../i18n';
+
+// The footer closes every page in every language and takes no props for it, so the
+// language it renders in is read from the page's own URL, exactly as the header does.
+// The logo, Trust and Trademark are pages of this site, so each one points at the
+// locale's own page where it exists and at the English page where it does not.
+const locale = localeOf(Astro.url.pathname);
+const footer = footerStrings(locale);
+const href = (route: string) => localizedHref(route, locale);
 ---
 
 <footer class="site-footer">
    <div class="wrap">
       <div class="footer-entry">
-         <a class="footer-brand" href="/" aria-label="Leji home"><LejiLogo height={30} /></a>
-         <span class="footer-phon">/LEH-jee/&ensp;·&ensp;Open specification & tooling</span>
+         <a class="footer-brand" href={href('/')} aria-label={navStrings(locale).home}><LejiLogo height={30} /></a>
+         <span class="footer-phon">/LEH-jee/&ensp;·&ensp;{footer.tagline}</span>
       </div>
-      <p class="footer-meaning">The open specification for the shared context layer of AI-native teams.</p>
+      <p class="footer-meaning">{footer.description}</p>
       <div class="footer-meta">
          <span
-            >Created by <a href="https://vuongnguyen.com" target="_blank" rel="noopener">Vuong Nguyen</a> · <span
-               class="meta-verbose">Stewarded by{' '}</span
+            >{footer.createdBy}{' '}<a href="https://vuongnguyen.com" target="_blank" rel="noopener">Vuong Nguyen</a> · <span
+               class="meta-verbose">{footer.stewardedBy}{' '}</span
             ><a href="https://contexing.com" target="_blank" rel="noopener">Contexing</a> · <a
                href="mailto:hello@leji.org">hello@leji.org</a
             ></span
          >
          <span
-            >Apache-2.0<span class="meta-verbose"> (code, schemas)</span> · CC-BY-4.0<span class="meta-verbose">
-               {' '}(spec prose)</span
-            > · <a href="/trust/">Trust</a> · <a href="/trademark/">Trademark</a> · <a
+            >Apache-2.0<span class="meta-verbose"> {footer.codeSchemas}</span> · CC-BY-4.0<span class="meta-verbose">
+               {' '}{footer.specProse}</span
+            > · <a href={href('/trust/')}>{footer.trust}</a> · <a href={href('/trademark/')}>{footer.trademark}</a> · <a
                href="https://github.com/leji-org/leji/blob/main/SECURITY.md"
                target="_blank"
-               rel="noopener">Security</a
+               rel="noopener">{footer.security}</a
             ></span
          >
       </div>

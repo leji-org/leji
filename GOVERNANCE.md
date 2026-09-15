@@ -4,7 +4,7 @@ Leji is an open specification. Its goal is to be an open, vendor-agnostic standa
 
 ## Stewardship
 
-Leji was created by Vuong Nguyen. Contexing, LLC is the steward: it maintains the specification, the schemas, the reference tooling, and this repository, and it reviews proposals. Contexing also builds and sells commercial products on Leji; the independence commitments below are what keep the standard independent of those products.
+Leji was created by Vuong Nguyen. Contexing, LLC is the steward: it maintains the specification, the schemas, the reference tooling, and this repository, and it reviews proposals. Contexing is also developing commercial products on Leji; the independence commitments below are what keep the standard independent of those products.
 
 The steward role exists to keep the standard coherent, not to control who uses it. What protects adopters is not trust in the steward's intentions: the complete specification and tooling are openly licensed, run without any steward service, require no steward endpoint, permit competing implementations and commercial services, and can be forked.
 

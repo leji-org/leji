@@ -14,6 +14,7 @@ import {
    scanDecisionRecords,
    scanProfileSet,
 } from '../lib/layer.js';
+import { linkFindings } from '../lib/links.js';
 import {
    type Manifest,
    CATEGORY_IDS,
@@ -28,6 +29,7 @@ import {
 import { parseMountBlocks, valueRepresentationError } from '../lib/mountblock.js';
 import { cacheKeyFor, normalizeSource, validTrackingRef } from '../lib/mounts.js';
 import { SUPPORTED_LINES, schemaErrors } from '../lib/schemas.js';
+import { byteCompare } from '../lib/text.js';
 import { checkIndex, stableStringify } from './indexgen.js';
 
 /** Vendor entrypoint files checked for the redirect rule even when undeclared. */
@@ -203,6 +205,40 @@ function checkCategories(root: string, manifest: Manifest, findings: Finding[]):
             finding('paths-outside-root', 'warning', `machine.${key} falls outside rootPath ${manifest.rootPath}`, rel),
          );
       }
+   }
+}
+
+/**
+ * The governed set the link gate walks: every markdown document this layer answers
+ * for, deduplicated and in byte order of path. Composed here from the scans that
+ * already define it — the boot profile, every indexed document under every category,
+ * the profile set (`agentProfilesPath` plus the profiles bound outside it), and the
+ * decision records — rather than discovered by a walk of its own, so a document is
+ * link-checked exactly when the layer claims it. The category index files are not in
+ * it: an index is the selector, and what it selects is what the layer governs.
+ */
+function governedDocuments(root: string, manifest: Manifest): string[] {
+   const relPaths = new Set<string>([manifest.bootProfilePath]);
+   for (const doc of scanCategories(root, manifest).docs) relPaths.add(doc.relPath);
+   for (const profile of scanProfileSet(root, manifest)) relPaths.add(profile.relPath);
+   for (const record of scanDecisionRecords(root, manifest)) relPaths.add(record.relPath);
+   return [...relPaths].sort(byteCompare);
+}
+
+/**
+ * The in-layer link gate: every governed document's markdown links resolve to
+ * something the layer carries. Structural and always on — a dangling link is a
+ * reference to context that is not there, which the `--content` lint's advisory
+ * signals never are. A document that cannot be read here is one the structural pass
+ * already reports as missing or escaping, so it contributes nothing twice.
+ */
+function checkLinks(root: string, manifest: Manifest, findings: Finding[]): void {
+   const rootAbs = path.resolve(root);
+   const layerRootAbs = path.resolve(rootAbs, manifest.rootPath);
+   for (const relPath of governedDocuments(root, manifest)) {
+      const text = readTextWithin(rootAbs, path.join(root, relPath));
+      if (text === null) continue;
+      findings.push(...linkFindings(rootAbs, layerRootAbs, relPath, text));
    }
 }
 
@@ -646,6 +682,7 @@ function checkProfilesAndDecisions(root: string, manifest: Manifest, findings: F
       decisionIds.push({ id: d.frontmatter?.id, relPath: d.relPath });
    }
    findings.push(...duplicateIdFindings(decisionIds, 'decision record'));
+   checkDecisionNumbers(decisions, findings);
    checkSupersession(decisions, findings);
 
    if (decisions.filter((d) => d.findings.length === 0).length === 0) {
@@ -658,6 +695,53 @@ function checkProfilesAndDecisions(root: string, manifest: Manifest, findings: F
             where,
          ),
       );
+   }
+}
+
+/** `[^\n]` rather than `.`: ECMAScript's dot also rejects CR and U+2028/U+2029,
+ * which Python's and Go's do not, and a file name may legally carry any of them. */
+const DECISION_NUMBER_RE = /^([0-9]+)-[^\n]+\.md$/;
+
+/** The leading number of a decision-record file name, canonicalized: the digit run
+ * before the first hyphen of `NNNN-slug.md`, without its leading zeros, so that
+ * `0017-a.md` and `17-b.md` are the same decision number. Compared as a string, not
+ * converted, so an arbitrarily long digit run stays exact in all three SDKs. A file
+ * name that does not carry the convention has no number and is not checked.
+ * Exported for the unit tests; not part of the package's public surface. */
+export function decisionNumberKey(relPath: string): string | null {
+   const m = DECISION_NUMBER_RE.exec(path.posix.basename(relPath));
+   if (m === null) return null;
+   const digits = m[1].replace(/^0+/, '');
+   return digits === '' ? '0' : digits;
+}
+
+/**
+ * Two decision records may not carry the same leading number. Ids are the records'
+ * identity and are checked separately; the number is how people and indexes cite a
+ * decision, so a renumbering or a copied record that leaves two `0017-` files makes
+ * every reference to "0017" ambiguous. One finding per record after the first in
+ * byte order of path, mirroring `duplicateIdFindings`.
+ *
+ * Byte order decides which of `2-U+E000.md` and `2-U+10000.md` comes first, and the
+ * three SDKs' scans sort that way, so the rule's order and the scan's agree. The sort
+ * here states the rule's own contract rather than inheriting one, which is what keeps
+ * it right if it is ever handed records from somewhere else.
+ * Exported for the unit tests; not part of the package's public surface.
+ */
+export function checkDecisionNumbers(decisions: ScannedProfile[], findings: Finding[]): void {
+   const seen = new Map<string, string>();
+   const ordered = [...decisions].sort((a, b) => byteCompare(a.relPath, b.relPath));
+   for (const { relPath } of ordered) {
+      const key = decisionNumberKey(relPath);
+      if (key === null) continue;
+      const first = seen.get(key);
+      if (first !== undefined && first !== relPath) {
+         findings.push(
+            finding('decision-number-duplicate', 'error', `decision number "${key}" already used by ${first}`, relPath),
+         );
+      } else {
+         seen.set(key, relPath);
+      }
    }
 }
 
@@ -1082,6 +1166,7 @@ export function validateLayer(root: string, opts: { content?: boolean } = {}): V
    checkFederationMounts(root, manifest, findings);
    findings.push(...mountSurfacingFindings(root, manifest));
    checkProfilesAndDecisions(root, manifest, findings);
+   checkLinks(root, manifest, findings);
 
    const indexRel = effectiveIndexPath(manifest);
    const indexExists = isFile(path.join(root, indexRel));

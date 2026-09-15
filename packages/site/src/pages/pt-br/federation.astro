@@ -1,0 +1,200 @@
+---
+// Brazilian Portuguese translation of src/pages/federation.astro. The English page is
+// the page of record; `source` is its git blob sha at the revision this translation
+// follows. The layout is `Doc.astro`'s, written out here because that layout takes
+// no `lang` and a translated page has to declare its own.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+
+const source = '0448756deaad3c402173b30bac77dc310e71a6d8';
+const strings = translationStrings('pt-br');
+
+// Commands and code stay in the source language: they are typed, not read.
+const mounts = `"federation": {
+   "mounts": [
+      {
+         "name": "product-context",
+         "source": "https://github.com/acme/product-context",
+         "pin": "7d3f2a19c4e8b6a0d5f1c2e9b8a7f6d5c4b3a2e1", // id completo do commit: a versão de referência
+         "trackingRef": "refs/heads/main",                    // a desatualização é avaliada em relação a esta ref
+         "owner": { "name": "Product team", "contact": "product@acme.example" },
+         "role": "product-side context, owned by the product team",
+         // roteamento: quando este mount é relevante para uma tarefa
+         "categories": ["domain", "decisions"],
+         "requiredWhen": ["a task changes how a plan or entitlement is represented"]
+      }
+   ]
+}`;
+
+const commands = `leji mounts hydrate --fetch      # materializa a projeção de cada camada irmã em seu pin
+leji mounts status               # disponibilidade, integridade e atraso de cada pin
+leji mounts update-pin <name>    # avança um pin até o commit testemunhado
+leji mounts locate <name>        # onde um leitor deve ler a camada irmã`;
+---
+
+<Base
+   lang="pt-br"
+   title="Federação · Leji"
+   description="Combine camadas de contexto Leji de donos diferentes como mounts irmãos fixados, enquanto cada equipe preserva seu repositório, sua propriedade e seu fluxo de revisão."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/federation/" />
+         <main id="content" class="prose">
+            <PageHeader kind="guide" />
+            <h1>Federação</h1>
+            <TranslationNote strings={strings.note} href="/federation/" />
+            <p class="sp-lede">
+               A federação permite que as equipes consultem, em conjunto, camadas de contexto de donos diferentes sem
+               fundi-las nem transferir a responsabilidade de mantê-las atuais.
+            </p>
+
+            <h2>Por que compor em vez de centralizar</h2>
+            <p>
+               Uma camada de contexto se mantém atual porque seus donos a consultam e corrigem durante o trabalho.
+               Centralizar o conteúdo de outra equipe afasta esse conteúdo das pessoas responsáveis por ele. A federação
+               preserva o repositório, o dono e o fluxo de revisão de cada camada. A <a href="/pt-br/rationale/"
+                  >justificativa</a
+               > defende esse argumento por completo.
+            </p>
+
+            <h2>O que é um mount irmão</h2>
+            <p>
+               Uma irmã é a camada de contexto de outra equipe, declarada pela hospedeira em <code
+                  >federation.mounts</code
+               >. A declaração fixa o commit completo e imutável que será lido pela hospedeira, além de registrar a
+               propriedade e o roteamento de tarefas. As ferramentas carregam em um cache ignorado a projeção da camada
+               irmã definida pelo manifesto dela naquele pin. O conteúdo da irmã nunca é copiado para a hospedeira.
+            </p>
+            <p>
+               A projeção é a união do que o próprio manifesto da irmã torna legível no pin: seu <code>leji.json</code>,
+               sua raiz do contexto, seu perfil de boot, seus arquivos de índice de categoria, os perfis que suas
+               associações de <code>agents</code> nomeiam, suas árvores de perfis de agente e de registros de decisão, seu
+               índice e changelog de máquina, e todo caminho governado que o índice gerado dela lista, onde quer que essas
+               coisas estejam.
+            </p>
+            <p>
+               Em geral, uma irmã fica dentro de um repositório de produto maior. Essa fronteira impede que um mount
+               incorpore o produto como dependência apenas para ler o contexto dele.
+            </p>
+            <p>
+               Um mount é uma referência, não uma bifurcação nem uma concessão de acesso. A irmã continua autoritativa e
+               o controle de versão dela continua determinando quem pode lê-la. O mount apenas torna a relação e a
+               revisão escolhida visíveis para quem já tem acesso.
+            </p>
+            <div class="federation-code"><Code code={mounts} lang="jsonc" theme={lejiSyntaxTheme} wrap /></div>
+            <p>
+               As atualizações de pin são mudanças revisadas no <code>leji.json</code>. A hospedeira declara a relação;
+               a irmã mantém repositório, dono, processo de revisão e aprovação, changelog e declaração de conformidade
+               próprios.
+            </p>
+
+            <h2>Trabalhando com os mounts</h2>
+            <div class="federation-code"><Code code={commands} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+            <p>
+               Use <code>hydrate --fetch</code> para materializar cada projeção no seu pin, com uma busca de rede explícita.
+               Use{' '}
+               <code>status</code> para inspecionar disponibilidade, integridade e desatualização de pin. Use <code
+                  >locate</code
+               > para obter o caminho gerenciado pelo resolvedor onde um leitor deve abrir uma irmã.
+            </p>
+            <p>
+               Para manter um mount atualizado, repita este ciclo: use <code>hydrate --fetch</code> para consultar as origens,{
+                  ' '
+               }
+               <code>status</code> para ver quanto cada pin ficou para trás e <code>update-pin</code> para avançar um pin
+               até o commit que o resolvedor testemunhou, e então <code>hydrate</code> de novo para materializar a projeção
+               no novo pin. Avançar o pin e materializá-lo são ações separadas. Assim, a reescrita aparece como um diff que
+               pode ser revisado antes de qualquer mudança no conteúdo em uso.
+            </p>
+            <p>
+               <code>update-pin</code> é offline por padrão: ele promove a última referência observada de fato por uma execução
+               e deixa isso explícito na saída, sem sugerir que ela esteja atualizada. Acrescente <code>--fetch</code> para
+               consultar a origem declarada durante a execução, o que entra em contato com aquela origem e com nada mais;
+               se qualquer parte disso falhar, a execução se recusa e deixa o{' '}
+               <code>leji.json</code> intocado. O pin só anda para a frente. Um alvo que não seja descendente do pin atual
+               é recusado, a menos que você o nomeie explicitamente com <code>--to &lt;oid&gt;</code> e acrescente{' '}
+               <code>--allow-non-fast-forward</code>. Um branch upstream que foi reescrito é o motivo habitual para
+               recorrer a esse par; um retorno deliberado a um commit anterior também precisa dele, porque a verificação
+               é de ascendência, e não de saber se o histórico foi reescrito. Essa combinação gera um aviso toda vez, e
+               é registrada na saída JSON, porque move um pin para um commit que não pode ser alcançado a partir do
+               atual. Use <code>--dry-run</code> para ver a comparação e a reescrita sem reescrever o manifesto; combinada
+               com <code>--fetch</code>, ela ainda executa as operações de armazenamento e de rede daquela flag, então
+               os objetos e refs buscados de fato chegam ao armazenamento gerenciado.
+            </p>
+            <p>
+               Apenas os bytes do próprio pin são reescritos. Assim, a ordem dos campos, a formatação e quaisquer chaves
+               que o schema não modele sobrevivem à edição inalteradas. A entrada de cache do pin antigo fica onde está:
+               ela é endereçada por conteúdo, então simplesmente deixa de ser referenciada. Não existe comando de
+               limpeza; remova manualmente as entradas antigas em <code>.leji/mounts/</code> quando quiser recuperar o espaço.
+            </p>
+            <p>
+               A hidratação não publica projeção parcial. O cache fica sob <code>.leji/mounts/</code>, que o <code
+                  >init</code
+               > adiciona ao <code>.gitignore</code> da raiz. Trate esse caminho como detalhe de implementação: <code
+                  >locate</code
+               > informa onde ler uma irmã, e fixar um caminho de cache no código quebra quando a publicação muda.
+            </p>
+            <p>
+               O visualizador mostra o mesmo estado sem exigir o terminal. <code>leji viewer</code> gera uma página de Manifesto
+               que exibe o grafo da hospedeira e de suas irmãs, seguido de uma linha por mount: disponibilidade, desvio, dono,
+               pin e origem. Gere-a de novo depois de hidratar.
+            </p>
+
+            <h2>Declarando <code>federated</code></h2>
+            <p>
+               Um mount não hidratado é um aviso, nunca uma falha de build. O CI pode ativar a imposição de
+               disponibilidade com <code>leji validate --federation=available|required</code>. A validação comum não
+               busca nem exige todo mount.
+            </p>
+            <p>
+               Disponibilidade local não é conformidade. O pin precisa ser alcançável a partir de uma ref anunciada de <code
+                  >source</code
+               >, o que exige rede. Rode <code>leji conformance --federation=verify</code> para essa verificação. Se a verificação
+               não conseguir alcançar a origem, ela reporta <code>unknown</code>; <code>unknown</code> nunca concede o nível.
+            </p>
+            <p>
+               Essa verificação é necessária, mas não suficiente. <code>federated</code> também exige que esta camada de contexto
+               seja ela própria consumida por outro repositório como um mount fixado, que o relato de pin desatualizado esteja
+               em funcionamento, e que o perfil de boot e o índice gerado exponham toda irmã.
+            </p>
+            <p>
+               Os dois primeiros requisitos são atestados por processo, por isso <code>verifiedLevel</code> nunca os declara
+               em seu nome. A materialização em uma máquina não conta para a conformidade.
+            </p>
+
+            <h2>Escolha primeiro o padrão de distribuição</h2>
+            <p>
+               Um submódulo git somente documentação permite que muitos repositórios consumam uma camada de contexto. A
+               federação conecta várias equipes que já possuem uma camada cada. Esses padrões respondem a perguntas
+               diferentes, então a federação não substitui o submódulo. O <a href="/pt-br/adoption/#where-it-lives"
+                  >guia de adoção</a
+               > mantém o procedimento completo do submódulo.
+            </p>
+            <p>
+               Leia <a href="/pt-br/spec/distribution/">distribuição</a> para a definição normativa da projeção, os limites
+               de falha e as regras completas de federação.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .federation-code :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+   }
+</style>

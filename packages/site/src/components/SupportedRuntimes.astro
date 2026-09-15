@@ -1,10 +1,16 @@
 ---
 // Supported-runtimes line, shared by Quickstart and CLI. Set lives in ../data/runtimes.
+// It takes no props for its language, so the label is read from the page's own URL, the
+// way the header and the footer read theirs.
 import { runtimes } from '../data/runtimes';
+import { chromeStrings } from '../data/i18n';
+import { localeOf } from '../i18n';
+
+const chrome = chromeStrings(localeOf(Astro.url.pathname));
 ---
 
 <div class="lang-row">
-   <span class="lang-label">Supported runtimes</span>
+   <span class="lang-label">{chrome.supportedRuntimes}</span>
    <span class="langs">
       {
          runtimes.map((r) => (

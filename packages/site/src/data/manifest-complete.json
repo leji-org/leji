@@ -97,7 +97,8 @@
       "docs/TODO.md"
     ],
     "theme": {
-      "primary": "#009F71"
+      "primary": "#009F71",
+      "link": "#007D59"
     }
   }
 }

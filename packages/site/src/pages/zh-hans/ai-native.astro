@@ -1,0 +1,140 @@
+---
+// Simplified Chinese translation of src/pages/ai-native.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation follows,
+// and it is what the drift gate compares against the current blob.
+//
+// The vocabulary and FAQ structured data on the English page is not repeated here: the
+// site's JSON-LD keeps English as its canonical language, so one graph defines the terms.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '521aed1784f59b213d781aaa912fdc8ea02a2a86';
+const strings = translationStrings('zh-hans');
+---
+
+<Base
+   lang="zh-hans"
+   title="什么是 AI 原生团队？ · Leji"
+   description="AI 原生团队，是人和 AI 智能体从同一个共享的、纳入版本管理、受治理的上下文层出发工作的团队。Leji 就是描述它的开放规范。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/ai-native/" />
+         <main id="content" class="prose">
+            <PageHeader kind="background" />
+            <h1 id="ai-native-team">什么是 AI 原生团队？</h1>
+            <TranslationNote strings={strings.note} href="/ai-native/" />
+
+            <p class="sp-lede">
+               AI 原生团队中的人和 AI 智能体，都以同一个<strong>共享上下文层</strong
+               >为工作起点。它归属于代码仓库，记录团队的思考方式，纳入版本管理，任何改动都要经过评审。
+            </p>
+
+            <p>
+               上下文层包含团队的领域语言、必须满足的约束、系统背后的决策、团队遵循的约定，以及智能体运行时所受的护栏。人和智能体执行每项任务时都会读取它；它的每一次变更，也都要经过同一道评审关卡。<a
+                  href="/zh-hans/spec/">Leji</a
+               > 就是描述上下文层的开放规范。
+            </p>
+
+            <h2>不止于提示词和采用工具</h2>
+            <p>
+               AI
+               工具可以加快任务进度，但零散的提示词、为不同工具分别编写的指令，以及只存在于个人记忆中的知识，都不会从根本上改变团队的运作方式。AI
+               原生团队则共享同一个<a href="/zh-hans/spec/context-layer/">上下文层</a>，并将其纳入版本管理和治理。
+            </p>
+
+            <h2>意图重于指令</h2>
+            <p>
+               共享上下文记录的是持久的意图：事物意味着什么、必须满足哪些约束，以及为何如此。人和智能体结合这些意图与当前任务来推导行动，而这些含义与约束不会因厂商更迭而失效。<a
+                  href="/zh-hans/rationale/">设计理由</a
+               >讲了为什么。
+            </p>
+
+            <h2 id="a-circle-not-a-tier">是圆环，不是层级</h2>
+            <p>
+               上下文在人对人、人对 AI、人对 AI
+               再对人这三种工作之间绕成一个圆环流动。凡能访问的人都读它，任何人都可以提议变更，由人来批准。访问权由版本控制系统授予；受限的上下文，属于一个单独设定访问控制的上下文层。
+            </p>
+
+            <h2 id="mechanism-over-goodwill">机制重于善意</h2>
+            <p>
+               现实不断变化，共享上下文也会随之失效。评审关卡、自动化漂移检查和复核期限，让维护不再只靠个人自觉。<a
+                  href="/zh-hans/spec/governance/">治理规则</a
+               >将这些约束落实为机制，并标记出已经过时的上下文。
+            </p>
+
+            <h2 id="ai-native-workflow">一次 AI 原生的工作流</h2>
+            <p>
+               工程师和智能体为一项任务加载上下文层，从同一套语言、同一组约束、同一批决策出发。智能体在需要的地方提议代码与上下文的变更；由人经过同一道关卡评审两者，于是维护上下文成了工作本身的一部分。
+            </p>
+
+            <h2>Leji 如何让它可检查</h2>
+            <p>
+               自称 AI 原生很容易，验证起来却很难。Leji 让上下文层变得可检查：由 <code>leji.json</code> 清单声明一致性，再由<a
+                  href="/zh-hans/quickstart/">参考 CLI</a
+               >接入这个仓库、对照已发布的 schema 校验各项产物，并为一致性打分。
+            </p>
+            <p>
+               四个<a href="/zh-hans/spec/conformance/">一致性级别</a>（<code>core</code>、<code>indexed</code>、<code
+                  >governed</code
+               > 和 <code>federated</code
+               >）各自对应一组层层累加的要求，一个上下文层要么已经具备，要么没有。它们不是成熟度评分：多数团队应该做到
+               <code>governed</code> 就停下。
+            </p>
+            <p>
+               <code>federated</code> 这一级，面向的是已经有不止一个团队各自拥有值得完整保留的上下文层的组织；同级层始终是各自独立、归属分明的来源，由宿主层按固定版本挂载。
+            </p>
+            <p>
+               CLI
+               检查机器能够验证的部分，如实报告其余部分，再由团队自行声明。这样，一致性声明便有据可查，而不是一句空泛的断言。
+            </p>
+
+            <h2>常见问题</h2>
+
+            <details class="fold">
+               <summary><h3>AI 原生是不是就是用 AI 编程工具？</h3></summary>
+               <p>
+                  不是。用 AI 工具会加快个人的任务。而成为 AI
+                  原生改变的是团队的运作方式：运作所依赖的上下文是共享的、纳入版本管理的、受治理的，因此人和智能体读的是同一个来源。采用工具是路上的一步，不是终点。
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary><h3>AI 原生需要特定的厂商或工具吗？</h3></summary>
+               <p>
+                  不需要。上下文层与工具无关。Leji
+                  标准化的是形态与治理，不是内容；而且一致性从不要求任何特定的商业产品或服务，包括受托方自己的产品与服务。厂商入口文件只是重定向到那唯一的上下文层。
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary><h3>Leji 和上下文层有什么区别？</h3></summary>
+               <p>
+                  Leji 是那份开放规范。上下文层是一个团队依照它构建并拥有的东西。Leji 标准化的是形态与治理，不是内容。
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary><h3>AI 原生团队怎么让上下文层不至于过期？</h3></summary>
+               <p>
+                  对上下文层的变更走与代码相同的评审关卡，复核期限会标记出已经老化的上下文，而工具绝不会悄悄把过期的上下文当作当前有效。AI
+                  原生团队在做事的过程中就更新上下文层，因此陈旧会尽早浮现，而不是无声地累积。
+               </p>
+            </details>
+
+            <p class="next-step">
+               下一步：<a href="/zh-hans/spec/">阅读规范</a>，或者<a href="/zh-hans/quickstart/"
+                  >构建一个上下文层，再检查它是否一致</a
+               >。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

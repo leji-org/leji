@@ -1,0 +1,145 @@
+---
+// Japanese translation of src/pages/trust.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '5dbd0f0ebf13d599ab3f4e97d7b27a0b859d951c';
+const strings = translationStrings('ja');
+---
+
+<Base
+   lang="ja"
+   title="信頼 · Leji"
+   description="Leji のスチュワード、スチュワードの商用製品と仕様の関係、1.0 仕様系列の保証、スチュワードが不在になった場合の扱い、脆弱性の報告方法について説明します。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/trust/" />
+         <main id="content" class="prose">
+            <PageHeader kind="governance" />
+            <h1>信頼</h1>
+            <TranslationNote strings={strings.note} href="/trust/" />
+            <p>
+               Leji
+               は、求められる信頼をできるだけ小さくするよう設計されています。仕様、スキーマ、ツール、フィクスチャはすべて公開され、寛容なライセンスのもと、自分のマシン上で実行できます。Leji
+               には明示された法人スチュワード（仕様の管理主体）がいますが、利用者を守るのは、その善意への信頼ではありません。ここにあるものはすべて公開ライセンスで提供され、スチュワードのサービスやエンドポイントがなくても動作します。競合する実装や商用サービスも認められ、フォークも可能です。
+            </p>
+
+            <h2>誰が保守しているのか</h2>
+            <p>
+               Leji は <a href="https://vuongnguyen.com" target="_blank" rel="noopener">Vuong Nguyen</a> が作り、<a
+                  href="https://contexing.com"
+                  target="_blank"
+                  rel="noopener">Contexing, LLC</a
+               > がスチュワードを務めています。<a
+                  href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md"
+                  target="_blank"
+                  rel="noopener">GOVERNANCE.md</a
+               >{' '}
+               には、意思決定の方法、メンテナーシップの引き継ぎ方、その際に移管される資産が記されています。Leji という名前は
+               Contexing が保持しています。仕様、スキーマ、ツールは寛容なライセンスの下にあり、別の名前であれば誰でもフォークできます。
+            </p>
+
+            <h2>商用製品</h2>
+            <p>
+               Leji のスチュワードである Contexing, LLC は、git の中で仕事をしないメンバーがいるチームのために、leji.ai
+               でホストされる Leji ビューアー LejiAI
+               を開発しています。利用は任意です。どの適合レベルでも必須ではなく、仕様のどの部分もこれに依存しません。リファレンスのツールは引き続き、ローカルかつオフラインで、アカウントなしに利用できます。ホスト版ビューアーが加えるのは、フォーマット上の新しい能力ではなく、認証、ユーザー単位のアクセス制御、運用管理されたホスティングといったインフラです。Leji
+               を基盤とする独立した商用製品は、私たちと競合するものも含め、許可なく提供できます。
+            </p>
+            <p>
+               スチュワードが作成した提案のうち、自社製品が依存する領域に関わるものには、その旨を明記し、公開の場で通常より長いコメント期間を設けます。「適合性における優位はない」という点を、私たちの主張にとどめず、誰もが検証できるようにするためです。<a
+                  href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md"
+                  target="_blank"
+                  rel="noopener">GOVERNANCE.md</a
+               >
+               を参照してください。
+            </p>
+
+            <h2>バージョニングの約束</h2>
+            <p>
+               仕様とスキーマは 1.0 系列にあり、<strong
+                  >1.3.0 のリファレンスツールのリリースをもって GA で凍結されました</strong
+               >（リポジトリの決定記録に記載）。この系列では、スキーマの変更は追加に限られます。互換性のない変更は必ず新しい系列として公開され、既存系列をそのまま置き換えることはありません。リファレンスのツールには別のバージョンが付けられ、対応する仕様系列が宣言されます。規則の全文は<a
+                  href="/ja/spec/versioning/">バージョニング</a
+               >にあります。
+            </p>
+
+            <h2>言語</h2>
+            <p>
+               leji.org は英語で書かれています。<a href="/ja/translation/">翻訳されたページにはその旨が記されており</a
+               >、修正の提案も歓迎しています。
+            </p>
+
+            <h2>スチュワードが消えたとき</h2>
+            <p>
+               スチュワードなしで続けるために必要なものは、すでにすべて公開され、そのためのライセンスが付いています。仕様（CC-BY-4.0）、スキーマとすべてのリファレンスツール（Apache-2.0）、そして
+               3 つの SDK
+               のテストに使われる共有フィクスチャ一式です。検証、スキャフォールド、適合性の判定はオフラインで動作し、外部へ何も送信しません。フォークにも独立実装にも許可は不要で、失われる機能もありません。
+            </p>
+            <p>
+               ライセンスの対象外となるのは、名称とロゴです。どちらも商標であり、独自の利用条件があります。ロゴのアセットファイルも、上記のライセンスの対象外です。フォークでは、ライセンスで認められたもの、すなわち完全な仕様、スキーマ、SDK、CLI、フィクスチャ一式をそのまま利用でき、許可も必要ありません。一方で、別の名称と独自のインフラは必要です。ドメイン、パッケージ登録、署名鍵は、ライセンス対象の成果物ではなく、運用資産だからです。フォークで使用できる名称と使用できない名称は<a
+                  href="/ja/trademark/">商標および利用ポリシー</a
+               >に書かれています。
+            </p>
+
+            <h2>独立した実装</h2>
+            <p>
+               リファレンスの SDK は 3
+               つの独立したコードベース（TypeScript、Python、Go）で構成され、ひとつの共有フィクスチャ一式によって同一の振る舞いが保たれています。外部の実装も、同じ一式を使って検証できます。適合性は公開チェックリストに基づく自己申告であり、認証プログラムも商用のゲートもありません。<a
+                  href="/ja/spec/conformance/">どのレベルにも、公開された仕様とリファレンスのツールだけで到達できます</a
+               >。
+            </p>
+
+            <h2>セキュリティ</h2>
+            <p>
+               リファレンスのツールは自分のマシン上で動作します。テレメトリもアカウントもなく、マシンの外部に依存するものはありません。検証、スキャフォールド、適合性の判定は完全にオフラインで動作し、スキーマとテンプレートは各パッケージに同梱されています。Leji
+               自身の検証とスキャフォールドのロジックがネットワークへリクエストを送ることもありません。Leji
+               のスチュワードである Contexing, LLC は leji.ai
+               でホスト型サービスを開発していますが、リファレンスのツールがそこへ接続することはありません。
+            </p>
+            <p>
+               自分で意図して呼び出すフェデレーションのコマンド（<code>leji mounts hydrate --fetch</code>、<code
+                  >leji mounts update-pin --fetch</code
+               >、<code>leji conformance --federation=verify</code
+               >）が接続するのは、明示的に指定したリポジトリだけです。<code>leji start</code> と任意のオンボーディングの引き渡しは、手元にあるコーディングエージェントを起動するだけです。ネットワーク上の振る舞いは、そのエージェント自体に依存します。
+            </p>
+            <p>
+               このウェブサイトは、ツールとは別に運用されています。スチュワードがデプロイしている leji.org
+               は、集計されたトラフィックの分析に <a href="https://usefathom.com" target="_blank" rel="noopener"
+                  >Fathom</a
+               > を使用しています。サイトのソースには分析ツールは含まれておらず、デプロイごとに独自に追加されます。脆弱性の報告は{
+                  ' '
+               }
+               <a href="https://github.com/leji-org/leji/security/advisories/new" target="_blank" rel="noopener"
+                  >GitHub の非公開脆弱性報告</a
+               >か <a href="mailto:security@leji.org">security@leji.org</a> へお願いします。手順は{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/SECURITY.md" target="_blank" rel="noopener"
+                  >SECURITY.md</a
+               > にあります。
+            </p>
+
+            <h2>変更の記録</h2>
+            <p>
+               このリポジトリでも、仕様が導入者に求めるものと同じコンテキストレイヤー管理を実践しています。具体的には、レビュー済みの変更履歴、生成されたインデックス、決定記録です。プレビューから
+               GA への移行や、<a
+                  href="https://github.com/leji-org/leji/blob/main/docs/decisions/0007-commercial-hosted-viewer.md"
+                  target="_blank"
+                  rel="noopener">商用のホスト型ビューアーを作るという決定</a
+               >も含まれます。リリースは{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/CHANGELOG.md" target="_blank" rel="noopener"
+                  >CHANGELOG.md</a
+               > に、機械可読な写しとともに記録されています。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

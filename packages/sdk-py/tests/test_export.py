@@ -90,6 +90,9 @@ EXPORT_IMPORTS = {
     "tempfile",
     "typing",
     "unicodedata",
+    # URL string handling only (splitting a file:// URL, percent-decoding); the module
+    # that fetches one is urllib.request, which nothing here imports.
+    "urllib.parse",
     # The package's two declared dependencies: schema validation and the frontmatter
     # parser. Neither is a network client.
     "jsonschema.exceptions",
@@ -306,9 +309,9 @@ def test_strict_is_scoped_to_the_lint_class_and_leaves_the_target_untouched(
         "an ordinary warning is not promoted by --strict"
     )
     assert capsys.readouterr().out == plain, "the same findings, and still written"
-    # The class the gate does promote is the rendering lint's, so F4's findings fail a
-    # strict run. What that promotion DOES is pinned behaviorally by the test below;
-    # this only names the class the gate is scoped to.
+    # The class the gate does promote is the rendering lint's, so those findings
+    # fail a strict run. What that promotion DOES is pinned behaviorally by the
+    # test below; this only names the class the gate is scoped to.
     assert "render-unsupported" in STRICT_LINT_RULES, "the lint class is what --strict promotes"
 
     dist_dir = directory / ".leji" / "dist"
@@ -525,3 +528,19 @@ def test_exported_markerless_overview_keeps_its_raw_bytes(tmp_path: Path, capsys
     assert (directory / ".leji" / "dist" / "content" / "overview.md").read_bytes() == source, (
         "a markerless page exports as its raw bytes"
     )
+
+
+def test_export_carries_no_decisions_page_without_the_category(tmp_path: Path) -> None:
+    """A layer with no decisions category generates no decisions page, so the
+    export's copy is conditional on the same predicate. An unconditional copy would
+    refuse the missing chrome file and fail the whole build. Mirrors the Node test."""
+    from leji.export_cmd import build_viewer
+
+    layer = _copy(EXAMPLE, tmp_path / "layer")
+    manifest = load_manifest(str(layer)).manifest
+    assert manifest is not None
+    del manifest["categories"]["decisions"]
+    result = build_viewer(str(layer), manifest)
+    assert result.wrote
+    assert not (layer / ".leji" / "viewer" / "_decisions.md").exists()
+    assert not (layer / result.out / "content" / "_decisions.md").exists()

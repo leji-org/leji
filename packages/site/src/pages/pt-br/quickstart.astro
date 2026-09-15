@@ -1,0 +1,538 @@
+---
+// Brazilian Portuguese translation of src/pages/quickstart.astro. The English page is
+// the page of record; `source` is its git blob sha at the revision this translation
+// follows, and it is what the drift gate compares against the current blob.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import SupportedRuntimes from '../../components/SupportedRuntimes.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import InstallTabs from '../../components/InstallTabs.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+
+const source = '1d85a2ee9d95b8dcb58708c54e093711d2d5ff27';
+const strings = translationStrings('pt-br');
+
+// Commands and code stay in the source language: they are typed, not read.
+const initCode = `leji adopt --dry-run    # o plano exato de escrita; nada é gravado
+leji adopt              # adota um repositório existente (leji init para um novo)
+                        # depois, oferece-se para abrir o Claude Code ou o Codex
+
+leji adopt --wire-adapters  # adota sobre um CLAUDE.md / AGENTS.md existente
+
+npm create leji         # ou faz tudo isso em uma etapa, sem instalar nada:
+                        # lê o diretório e escolhe adopt ou init`;
+
+const validateCode = `leji validate           # schemas + regras de lint
+leji validate --content # + avisos de texto de espaço reservado / conteúdo raso
+leji index              # gera o índice`;
+
+const conformanceCode = `leji conformance        # pontua a declaração`;
+
+const viewCode = `leji view               # abre o visualizador legível por humanos no navegador
+leji viewer build       # exporta uma pasta estática para hospedagem com autenticação interna`;
+
+const ciCode = `leji ci                 # gera o workflow
+leji ci --hooks         # as mesmas verificações em um hook local de pre-commit
+
+# o que o job gerado executa:
+leji validate           # schemas + regras de lint
+leji index --check      # falha se o índice estiver desatualizado
+
+# adicione em indexed e acima:
+leji changelog check    # somente acréscimo`;
+
+const startCode = 'leji start              # ou --agent claude-code | codex para fixar um deles';
+
+const apiCode = `import { validateLayer, writeIndex, conformanceReport } from '@leji-org/leji';
+
+const { findings } = validateLayer('.');`;
+
+const mcpCode = `# Claude Code (este projeto)
+claude mcp add leji --scope project -- npx -y @leji-org/mcp
+
+# Codex
+codex mcp add leji -- npx -y @leji-org/mcp`;
+---
+
+<Base
+   lang="pt-br"
+   title="Início rápido · Leji"
+   description="Início rápido: instale a CLI do Leji, crie ou mapeie uma camada de contexto, valide-a e avalie-a em relação ao nível declarado."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/quickstart/" />
+         <main id="content" class="adopt-main measured">
+            <section class="gs-hero">
+               <PageHeader kind="guide" />
+               <h1>Construa uma camada de contexto e verifique se ela está conforme.</h1>
+               <TranslationNote strings={strings.note} href="/quickstart/" />
+               <p class="lede">
+                  Cinco comandos levam você da instalação à conformidade. Tudo o que o leji faz está incluído no pacote
+                  e roda offline; você mesmo inicia qualquer operação que acesse a rede. A etapa de dependência em <code
+                     >leji init</code
+                  > e <code>leji adopt</code> executa o seu próprio gerenciador de pacotes após a sua confirmação, e as buscas
+                  de federação entram em contato com o repositório que você nomeou:{' '}
+                  <code>leji mounts hydrate --fetch</code>, <code>leji mounts update-pin --fetch</code> e{' '}
+                  <code>leji conformance --federation=verify</code>.
+               </p>
+            </section>
+
+            <SupportedRuntimes />
+
+            <section class="steps" aria-label="Etapas do início rápido">
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">01</span>Instale as ferramentas</h2>
+                     <p>
+                        As três implementações passam pelo mesmo conjunto de fixtures. Por isso, as flags, a saída JSON
+                        e os códigos de saída são idênticos, independentemente daquela que o seu CI instalar.
+                     </p>
+                     <p>
+                        Declarar a CLI como dependência de desenvolvimento garante que o CI, o hook de pre-commit e
+                        todas as pessoas que contribuem executem a mesma versão fixada. Você não precisa descobrir qual
+                        comando usar:{' '}
+                        <code>leji init</code> e <code>leji adopt</code> detectam o gerenciador de pacotes que este repositório
+                        realmente usa e se oferecem para executar o comando de adição correspondente, sempre com a sua confirmação
+                        explícita:{' '}
+                        <code>npm</code>, <code>pnpm</code>, <code>yarn</code> e <code>bun</code>;{' '}
+                        <code>uv</code>, <code>poetry</code>, <code>pdm</code> e <code>pipenv</code>; e{' '}
+                        <code>go get -tool</code>, que precisa de Go 1.24 ou mais novo, enquanto construir a própria CLI
+                        Go precisa de Go 1.26.6 ou mais novo. Com pip, leji exibe a linha que deve ser acrescentada, sem
+                        executar nada. Uma instalação global não interfere: dentro de um repositório que fixa a própria
+                        cópia, as CLIs Node e Python usam essa cópia em todas as invocações (<a
+                           href="/pt-br/cli/#pinned-cli">a CLI que um repositório fixa</a
+                        >).
+                     </p>
+                  </div>
+                  <div class="step-install"><InstallTabs /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2>
+                        <span class="step-num">02</span>Crie uma camada de contexto nova, ou adote um repositório
+                        existente
+                     </h2>
+                     <p>
+                        Você recebe um manifesto <code>leji.json</code> na raiz do repositório, um perfil de boot, documentos
+                        iniciais de categoria, um primeiro registro de decisão e um roteiro de integração. Também são criados
+                        dois arquivos fora da raiz do contexto: um <code>AGENTS.md</code> contendo apenas o ponteiro, quando
+                        o repositório ainda não tiver esse arquivo (<code>--no-agents</code> ignora essa criação), e uma entrada
+                        no <code>.gitignore</code> da raiz para{' '}
+                        <code>.leji/</code>, o espaço de trabalho onde fica o roteiro. Nada disso exige um agente.
+                     </p>
+                     <p>
+                        A estrutura inicial começa com textos de espaço reservado. Se você aceitar a oferta, o agente lê
+                        o repositório, propõe um mapeamento para sua aprovação e depois apaga o roteiro. Se recusar,
+                        você recebe o comando para executar mais tarde; <code>--yes</code> pula essa etapa para que o CI prossiga
+                        sem supervisão.
+                     </p>
+                     <p>
+                        Trabalhando sozinho? <code>--mode solo</code> semeia pontos de partida de identidade e de estilo de
+                        escrita e direciona o roteiro para uma entrevista com o dono; as respostas podem ser digitadas, anexadas
+                        ou colocadas em uma pasta. Somente a síntese aprovada por você se torna contexto, e o material bruto
+                        fica no espaço de trabalho ignorado pelo git em <code>.leji/</code>, na raiz do repositório:{
+                           ' '
+                        }
+                        <code>init</code> e <code>adopt</code> criam essa entrada no <code>.gitignore</code>, e ambos se
+                        recusam a rodar enquanto qualquer coisa sob ele estiver rastreada. O agente apaga os artefatos
+                        assim que a camada de contexto estiver preenchida.
+                     </p>
+                     <aside class="map-note">
+                        <strong>Já tem uma árvore <code>docs/</code>?</strong>{' '}
+                        <code>adopt</code> gera a estrutura ao lado dela, sem mover nada. O ponto de entrada existente permanece
+                        intacto. Portanto, até executar <code>--wire-adapters</code>, você terá um rascunho de adoção,
+                        não uma camada conforme.
+                     </aside>
+                  </div>
+                  <div class="step-code"><Code code={initCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">03</span>Valide</h2>
+                     <ul class="checks">
+                        <li>
+                           <strong>Verificado por schema:</strong> o manifesto, o índice, o changelog e o frontmatter de perfil
+                           de agente e de registro de decisão.
+                        </li>
+                        <li>
+                           <strong>Estrutura e lint:</strong> perfis de boot, arquivos de índice e documentos comuns não usam
+                           schema. Os arquivos declarados precisam existir, e o changelog é somente acréscimo em relação ao{
+                              ' '
+                           }
+                           <code>HEAD</code>. A partir de <code>indexed</code>, um índice desatualizado causa uma falha.
+                        </li>
+                     </ul>
+                     <p class="fine">
+                        Depois de um <code>adopt</code> simples sobre um <code>CLAUDE.md</code> ou <code>AGENTS.md</code
+                        > existente, espere uma falha <code>vendor-adapter-redirect</code> para cada um deles até que <code
+                           >--wire-adapters</code
+                        > rode.
+                     </p>
+                  </div>
+                  <div class="step-code"><Code code={validateCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">04</span>Declare um nível e depois verifique-o</h2>
+                     <p>
+                        A adoção parcial é intencional: comece em <code>core</code>, e cada nível contém o anterior. O
+                        manifesto declara o nível;{' '}
+                        <code>leji conformance</code> avalia a camada de contexto de acordo com esse nível.
+                     </p>
+                     <p class="ladder-line">
+                        <code>core</code> → <code>indexed</code> → <code>governed</code> → <code>federated</code>
+                     </p>
+                     <p class="ladder-more">
+                        <a href="/pt-br/spec/conformance/">O que cada nível exige de você</a>
+                     </p>
+                  </div>
+                  <div class="step-code"><Code code={conformanceCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">05</span>Veja a sua camada de contexto</h2>
+                     <p>A mesma camada que os seus agentes leem, apresentada para pessoas.</p>
+                  </div>
+                  <div class="step-code"><Code code={viewCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+            </section>
+
+            <section class="duo">
+               <div class="duo-cell">
+                  <h2>Mantenha tudo honesto no CI</h2>
+                  <p>
+                     O provedor é identificado pelo remote <code>origin</code>. Se o remote não indicar nenhum, o GitHub
+                     é usado como alternativa.
+                  </p>
+                  <Code code={ciCode} lang="bash" theme={lejiSyntaxTheme} wrap />
+                  <p class="fine">
+                     Os códigos de saída são nativos de CI: <code>0</code> limpo, com avisos permitidos; <code>1</code> uma
+                     verificação que não passou, tendo ela reportado um achado ou não; <code>2</code> um erro de uso ou uma
+                     falha interna, como a recusa em sobrescrever.
+                  </p>
+               </div>
+               <div class="duo-cell">
+                  <h2>Entre na camada de contexto</h2>
+                  <p>A camada se torna o primeiro contexto do agente, sem a intermediação de arquivos de fornecedor.</p>
+                  <Code code={startCode} lang="bash" theme={lejiSyntaxTheme} wrap />
+                  <p class="fine">
+                     Se houver vários hosts detectados, ele pergunta qual usar. Se não houver nenhum, ou se a execução
+                     ocorrer por script ou no CI, ele exibe o comando a ser executado em vez de tentar adivinhar. O{' '}
+                     <a href="/pt-br/adoption/#put-it-to-work">guia de adoção</a> cobre as flags de repasse para o host e
+                     a tabela de alternativas de arquivo de fornecedor.
+                  </p>
+               </div>
+            </section>
+
+            <section class="mcp-block">
+               <h2>Dê ao seu agente as ferramentas, não só o contexto</h2>
+               <p>
+                  Entrar na camada de contexto fornece o contexto ao seu agente. O <a href="/pt-br/mcp/">servidor MCP</a
+                  > fornece as ferramentas: um servidor local, somente leitura, que executa validação e conformidade na camada
+                  de contexto em disco, para que o agente não precise de um shell. Ele lê e relata, mas nunca escreve.
+               </p>
+               <Code code={mcpCode} lang="bash" theme={lejiSyntaxTheme} wrap />
+               <p class="fine">
+                  <code>init</code> e <code>adopt</code> se oferecem para registrá-lo: com escopo de projeto no Claude Code,
+                  com escopo de usuário no Codex. Os comandos acima são para quem pulou aquele prompt, e trocar <code
+                     >--scope project</code
+                  > por <code>--scope user</code> faz um registro único para o seu usuário, em vez de limitá-lo a este repositório.
+                  Qualquer cliente MCP funciona; a página do <a href="/pt-br/mcp/">servidor MCP</a> tem a lista completa de
+                  ferramentas.
+               </p>
+            </section>
+
+            <section class="shapes" aria-label="Formatos de adoção por situação">
+               <h2>Depois, escolha a forma de adoção adequada à sua situação</h2>
+               <table class="shape-table">
+                  <tbody>
+                     <tr>
+                        <th scope="row"><a href="/pt-br/adoption/#where-it-lives">Monorepo</a></th>
+                        <td>Um repositório, uma camada de contexto, inicializada uma vez na raiz do repositório.</td>
+                     </tr>
+                     <tr>
+                        <th scope="row"
+                           ><a href="/pt-br/adoption/#where-it-lives">Muitos repositórios, uma camada</a></th
+                        >
+                        <td>
+                           Um repositório de contexto dedicado, montado como somente documentação em cada repositório
+                           consumidor, fixado por repositório.
+                        </td>
+                     </tr>
+                     <tr>
+                        <th scope="row"><a href="/pt-br/federation/">Várias camadas com donos</a></th>
+                        <td
+                           >Equipes que já possuem uma camada de contexto cada. Monte cada uma como irmã; a propriedade
+                           e o fluxo de trabalho ficam como estão.</td
+                        >
+                     </tr>
+                  </tbody>
+               </table>
+            </section>
+
+            <section class="api-peek">
+               <div class="peek-text">
+                  <h2>A partir de um script</h2>
+                  <p>
+                     A maioria dos comandos também está disponível como chamada de biblioteca para hooks, bots e etapas
+                     de build. O código-fonte está em <a
+                        href="https://github.com/leji-org/leji"
+                        target="_blank"
+                        rel="noopener">leji-org/leji</a
+                     >, Apache-2.0.
+                  </p>
+               </div>
+               <div class="peek-code"><Code code={apiCode} lang="js" theme={lejiSyntaxTheme} wrap /></div>
+            </section>
+
+            <p class="next-step">
+               Próximo: o <a href="/pt-br/adoption/">guia de adoção</a> para um repositório existente, ou{' '}
+               <a href="/pt-br/federation/">federação</a> quando várias equipes são donas de uma camada de contexto cada.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .gs-hero {
+      /* No top padding: .doc-shell already sets the 2.5rem above the first line,
+         and every Doc page starts its h1 there. */
+      padding: 0 0 1rem;
+      max-width: 760px;
+   }
+   /* h1 comes from the shared .measured/.prose display scale in global.css. */
+   .lede {
+      font-size: var(--text-lede);
+      line-height: 1.7;
+      color: var(--leji-text-body);
+      max-width: var(--measure-fine);
+      margin: 0;
+   }
+
+   h2 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 1.6rem;
+      line-height: 1.25;
+      color: var(--leji-text);
+      margin: 0 0 0.6rem;
+   }
+
+   .steps {
+      margin-top: 2.5rem;
+      display: grid;
+      gap: 2.8rem;
+      padding: 1.6rem 0 0.4rem;
+   }
+   .step {
+      display: grid;
+      gap: 0.9rem;
+   }
+   .step-text p {
+      color: var(--leji-text-body);
+      margin: 0.4rem 0 0;
+   }
+   .step-text code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+   .map-note {
+      margin-top: 1.1rem;
+      padding: 0.9rem 1.2rem;
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
+      border-radius: 0 8px 8px 0;
+      font-size: 0.92rem;
+      color: var(--leji-text-body);
+   }
+   .map-note strong {
+      color: var(--leji-text);
+   }
+   .checks {
+      margin: 0.6rem 0 1rem;
+      padding-left: 1.1rem;
+      color: var(--leji-text-body);
+   }
+   .checks li {
+      margin: 0.4rem 0;
+   }
+   .checks strong {
+      color: var(--leji-text);
+      font-weight: 600;
+   }
+   .ladder-line {
+      font-size: 0.92rem;
+   }
+   .step-text .ladder-more {
+      margin-top: 1.15rem;
+   }
+   .ladder-more a {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+      text-decoration: none;
+      border-bottom: 1px solid var(--leji-brand);
+      padding-bottom: 2px;
+      white-space: nowrap;
+   }
+   .ladder-more a:hover {
+      color: var(--leji-text);
+      border-color: var(--leji-text);
+   }
+
+   /* CI + invocation */
+   .duo {
+      margin-top: 4rem;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2.8rem;
+   }
+   .duo-cell h2 {
+      font-size: 1.35rem;
+   }
+   .duo-cell p {
+      color: var(--leji-text-body);
+      margin: 0 0 1.1rem;
+   }
+   .duo-cell .fine {
+      margin: 1rem 0 0;
+   }
+   .duo-cell .fine a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   .duo-cell code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+
+   /* by situation */
+   .shapes {
+      margin-top: 4rem;
+   }
+   .shape-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.4rem 0 0;
+   }
+   .shape-table th,
+   .shape-table td {
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: baseline;
+      text-align: left;
+      padding: 0.85rem 0 0.85rem 0;
+   }
+   .shape-table th {
+      white-space: nowrap;
+      padding-right: 2.2rem;
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.08rem;
+   }
+   .shape-table th a {
+      color: var(--leji-text);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+      transition: color 0.15s;
+   }
+   .shape-table th a:hover {
+      color: var(--leji-link);
+   }
+   .shape-table td {
+      font-size: 0.95rem;
+      color: var(--leji-text-body);
+      line-height: 1.55;
+   }
+
+   /* library surface */
+   .api-peek {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.4rem;
+      padding: 4rem 0 4.5rem;
+   }
+   .peek-text p {
+      color: var(--leji-text-body);
+   }
+   .peek-text a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   .peek-text code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+
+   .step-code {
+      margin-top: 0;
+   }
+
+   .step-install {
+      background: var(--leji-deep);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      overflow: hidden;
+   }
+
+   .mcp-block {
+      margin-top: 4rem;
+   }
+   .mcp-block p {
+      color: var(--leji-text-body);
+      margin: 0 0 1.1rem;
+   }
+   .mcp-block code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+   .mcp-block .fine {
+      margin: 1rem 0 0;
+   }
+   .mcp-block .fine a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+
+   .step-code :global(.astro-code),
+   .duo-cell :global(.astro-code),
+   .peek-code :global(.astro-code),
+   .mcp-block :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 12px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.65;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      margin: 0;
+   }
+</style>

@@ -3,8 +3,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { APIRoute } from 'astro';
+import { REPO_ROOT } from '../../../repo-root';
 
-const SCHEMA_DIR = path.resolve(process.cwd(), '../../schemas');
+const SCHEMA_DIR = path.join(REPO_ROOT, 'schemas');
 
 export function getStaticPaths() {
    return fs

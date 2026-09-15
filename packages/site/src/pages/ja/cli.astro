@@ -1,0 +1,367 @@
+---
+// Japanese translation of src/pages/cli.astro. The English page is the page of record;
+// `source` is its git blob sha at the revision this translation follows.
+//
+// Command names, summaries, options, usage and examples are generated from the SDK's
+// own CLI specification and are what `leji --help` prints, so they stay exactly as the
+// tool prints them. Only the page's own prose is in the reader's language.
+import fs from 'node:fs';
+import path from 'node:path';
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import SupportedRuntimes from '../../components/SupportedRuntimes.astro';
+import InstallTabs from '../../components/InstallTabs.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+import { REPO_ROOT } from '../../repo-root';
+
+const source = '4a8cea18d2fca31998acdd903c36ec75408b4890';
+const strings = translationStrings('ja');
+
+// Single-sourced from the SDK's CLI spec; `leji --help` renders from the same
+// file, so this page and the tool cannot disagree.
+const cli = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'packages', 'sdk', 'cli.json'), 'utf-8'));
+const slug = (name: string) => name.replace(/\s+/g, '-');
+
+// Split inline `code` spans on backticks (odd segments are code). Segments stay
+// escaped text children, never set:html.
+const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i % 2 === 1 }));
+---
+
+<Base
+   lang="ja"
+   title="CLI リファレンス · Leji"
+   description="leji コマンドの完全なリファレンス。CLI 自身の仕様から生成されており、各コマンドのフラグ、終了コード、例を掲載しています。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/cli/" />
+         <main id="content" class="prose">
+            <PageHeader kind="reference" />
+            <h1>CLI リファレンス</h1>
+            <TranslationNote strings={strings.note} href="/cli/" />
+            <p class="sp-lede">{cli.summary}</p>
+            <p>
+               ツールチェーンや CI で使用している、いずれのランタイムにもインストールできます。3
+               つのランタイムでコマンド体系は共通です。すべてのコマンドは、既存レイヤーを指定する <code
+                  >--root &lt;dir&gt;</code
+               >
+               を受け取ります。レイヤーを作成する <code>init</code> と <code>adopt</code> では、対象を <code
+                  >--dir &lt;path&gt;</code
+               > で指定します。報告系コマンドでは、機械可読な <code>--json</code>
+               形式でも出力できます。このリファレンスと <code>leji --help</code>
+               は、同じ仕様から生成されています。エージェント経由で作業する場合、同じ検証と適合性の判定を<a
+                  href="/ja/mcp/">MCP ツール</a
+               >として利用できます。
+            </p>
+
+            <div class="runtimes-block">
+               <SupportedRuntimes />
+            </div>
+
+            <div class="cli-install">
+               <p class="cli-install-label">インストール</p>
+               <div class="cli-install-tabs"><InstallTabs /></div>
+               <p class="cli-install-next">
+                  Leji は初めてですか。<a href="/ja/quickstart/">クイックスタート</a
+                  >では、インストールから最初のコンテキストレイヤーのスキャフォールドまたは導入までを案内します。
+               </p>
+            </div>
+
+            <div class="cli-code"><Code code={cli.usage} lang="bash" theme={lejiSyntaxTheme} /></div>
+
+            <aside class="cli-onboarding">
+               <h2>エージェントのオンボーディング</h2>
+               <p>
+                  リポジトリにコンテキストレイヤーを導入します。{' '}
+                  <a href="#adopt"><code>leji adopt</code></a>
+                  は既存リポジトリにコンテキストレイヤーをスキャフォールドし、既存ファイルはそのまま残します（<code
+                     >--wire-adapters</code
+                  > を付けると、既存の <code>CLAUDE.md</code> や
+                  <code>AGENTS.md</code> のエントリポイントを、1 行でブートプロファイルへ誘導するファイルに置き換えます）。<a
+                     href="#init"><code>leji init</code></a
+                  >
+                  は、エージェントが記入するオンボーディングブリーフとともに、新しいレイヤーをスキャフォールドします。<a
+                     href="#detect"><code>leji detect</code></a
+                  > はインストール済みのホストを検出し、<a href="#start"><code>leji start</code></a>
+                  はそのうち 1 つをコンテキストレイヤー内で起動します。<code>init</code> や <code>adopt</code> は <code
+                     >--dry-run</code
+                  > で事前に結果を確認できます。
+               </p>
+            </aside>
+
+            {
+               cli.groups.map((g: any) => (
+                  <Fragment>
+                     <h2>{g.title}</h2>
+                     <table class="cli-table cmd-table">
+                        <tbody>
+                           {cli.commands
+                              .filter((c: any) => c.group === g.id)
+                              .map((c: any) => (
+                                 <tr>
+                                    <td>
+                                       <a href={`#${slug(c.name)}`}>
+                                          <code>{c.name}</code>
+                                       </a>
+                                    </td>
+                                    <td>
+                                       {c.aliasOf
+                                          ? [
+                                               <a href={`#${slug(c.aliasOf)}`}>
+                                                  <code>{c.aliasOf}</code>
+                                               </a>,
+                                               ' のエイリアス',
+                                            ]
+                                          : segments(c.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}
+                                    </td>
+                                 </tr>
+                              ))}
+                        </tbody>
+                     </table>
+                  </Fragment>
+               ))
+            }
+
+            <h2>終了コード</h2>
+            <table class="cli-table">
+               <thead>
+                  <tr><th>コード</th><th>意味</th></tr>
+               </thead>
+               <tbody>
+                  {
+                     cli.exitCodes.map((e: any) => (
+                        <tr>
+                           <td>
+                              <code>{e.code}</code>
+                           </td>
+                           <td>{segments(e.meaning).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+
+            <h2>グローバルオプション</h2>
+            <table class="cli-table">
+               <tbody>
+                  {
+                     cli.globalOptions.map((o: any) => (
+                        <tr>
+                           <td>
+                              <code>{o.flags}</code>
+                           </td>
+                           <td>{segments(o.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+            <p>
+               インストール済みのパッケージからではなく Leji リポジトリのソースチェックアウトから実行した場合、CLI
+               は表示バージョンにビルド情報を付けます。チェックアウトの短縮リビジョンを含む <code>+dev.</code> 接尾辞、またはリビジョンを読み取れない場合は{
+                  ' '
+               }
+               <code>+dev</code>
+               だけを付けます。インストール版では、バージョン番号だけが表示されます。
+            </p>
+
+            <h2 id="pinned-cli">リポジトリがピン留めする CLI</h2>
+            <p>
+               Leji CLI
+               を直接宣言し、レイヤーの最低要件を満たすバージョンがインストールされているリポジトリでは、インストール済みの
+               <code>leji</code> が、<code>--version</code> と <code>--help</code>
+               を含むすべての呼び出しで、そのバージョンを実行します。Node は <code>node_modules</code> 配下から、Python はリポジトリ内のプロジェクト環境（<code
+                  >.venv</code
+               >、または uv の <code>UV_PROJECT_ENVIRONMENT</code>）から検出します。これにより、<code>leji</code> を実行する人、git
+               フック、CI、どのチームメイトも、各自のグローバル環境に何がインストールされているかにかかわらず、同じバージョンのツールを実行できます。それ以外の場所では、従来どおりグローバルの
+               CLI が動作します。
+            </p>
+            <p>
+               グローバル版を実行するには、<code>LEJI_NO_LOCAL</code> に任意の値を設定してください。Go の CLI は引き渡しを行いません。Go
+               リポジトリでは、宣言されたバージョンが実行ファイルとしてインストールされるのではなく、必要に応じてツールチェーンによってビルドされるためです。ピン留めされたバージョンは
+               <code>go tool leji</code> で実行してください。Python の CLI を更新した場合、既存のコンソールスクリプトがリポジトリ内のピン留めされたバージョンへ引き渡すようになるのは、再インストールによってエントリポイントが再作成された後です。
+            </p>
+
+            {
+               cli.commands.map((c: any) => (
+                  <section class="cmd">
+                     <h2 id={slug(c.name)}>
+                        <code>leji {c.name}</code>
+                     </h2>
+                     <p>{segments(c.description).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</p>
+                     {c.details?.length > 0 && (
+                        <ul class="cmd-details">
+                           {c.details.map((d: string) => (
+                              <li>{segments(d).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</li>
+                           ))}
+                        </ul>
+                     )}
+                     <div class="cli-code">
+                        <Code code={c.usage} lang="bash" theme={lejiSyntaxTheme} />
+                     </div>
+                     {c.options.length > 0 && (
+                        <table class="cli-table">
+                           <tbody>
+                              {c.options.map((o: any) => (
+                                 <tr>
+                                    <td>
+                                       <code>{o.flags}</code>
+                                    </td>
+                                    <td>{segments(o.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
+                                 </tr>
+                              ))}
+                           </tbody>
+                        </table>
+                     )}
+                     <p class="ex-label">例</p>
+                     <div class="cli-code">
+                        <Code code={c.examples.join('\n')} lang="bash" theme={lejiSyntaxTheme} />
+                     </div>
+                  </section>
+               ))
+            }
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .cli-onboarding {
+      margin: 1.8rem 0 0.6rem;
+      padding: 1.1rem 1.3rem;
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
+      border-radius: 0 8px 8px 0;
+   }
+   .cli-onboarding h2 {
+      margin: 0 0 0.4rem;
+      font-size: 1.1rem;
+   }
+   .cli-onboarding p {
+      margin: 0;
+      color: var(--leji-text-body);
+   }
+
+   /* command names styled like the schema links */
+   .cmd-table td a code {
+      color: var(--leji-link);
+   }
+   .cmd-table td a:hover code {
+      background: rgba(0, 159, 113, 0.14);
+   }
+
+   .runtimes-block {
+      margin-bottom: 1.2rem;
+   }
+
+   /* dark wrapper because InstallTabs is styled for a dark background */
+   .cli-install {
+      margin: 0 0 1.8rem;
+   }
+   .cli-install-label {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-text-body);
+      margin: 0 0 0.6rem;
+   }
+   .cli-install-tabs {
+      background: var(--leji-deep);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      overflow: hidden;
+   }
+   .cli-install-next {
+      margin: 0.9rem 0 0;
+      color: var(--leji-text-body);
+   }
+
+   .cli-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.8rem 0 0;
+   }
+   .cli-table th {
+      text-align: left;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-text-body);
+      padding: 0.4rem 0.9rem 0.4rem 0;
+      border-bottom: 1px solid var(--leji-border);
+   }
+   .cli-table td {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: top;
+      color: var(--leji-text-body);
+   }
+   .cli-table td:first-child {
+      white-space: nowrap;
+   }
+   .cli-table td code {
+      color: var(--leji-text);
+      font-size: 0.85em;
+   }
+
+   .cmd {
+      margin-top: 2.6rem;
+      padding-top: 0.4rem;
+   }
+   .cmd h2 {
+      scroll-margin-top: calc(var(--header-h) + 1.5rem);
+   }
+   .cmd h2 code {
+      color: var(--leji-text);
+      background: none;
+      padding: 0;
+   }
+   .cmd-details {
+      margin: 0.9rem 0 0;
+      padding: 0;
+      list-style: none;
+   }
+   .cmd-details li {
+      position: relative;
+      padding-left: 1.1rem;
+      margin: 0.5rem 0;
+      color: var(--leji-text-body);
+      line-height: 1.6;
+   }
+   .cmd-details li::before {
+      content: '';
+      position: absolute;
+      left: 0.1rem;
+      top: 0.62em;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--leji-brand);
+   }
+   .ex-label {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-text-body);
+      margin: 1.1rem 0 0;
+   }
+   .cli-code :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+      margin-top: 0.6rem;
+   }
+</style>

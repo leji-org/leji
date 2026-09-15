@@ -118,9 +118,9 @@
         "Reuses an existing `docs/` root, migrates any vendor entrypoints (`CLAUDE.md`, `AGENTS.md`, and so on) into the context layer without modifying the originals, and seeds the scaffold.",
         "Writes a generated index, so the adopted context layer is ready for the CI job `leji ci` writes. The index is a requirement of `indexed`, not of `core`; a hand-authored core context layer without one still conforms.",
         "`--wire-adapters` converts those entrypoints to one-line redirects, after migrating their content.",
-        "When no `AGENTS.md` exists, writes a pointer-only one (the portable entrypoint many agent hosts read) redirecting to the boot profile; `--no-agents` skips it, and an existing file is never touched.",
+        "When no `AGENTS.md` exists, writes a pointer-only one (the portable entrypoint many agent hosts read) redirecting to the boot profile; `--no-agents` skips it, and an existing file is never touched unless `--wire-adapters` is requested, which converts it with the other entrypoints.",
         "`--mode solo` (a team of one) also seeds identity and writing-style starters and points the onboarding brief at the owner interview; existing files are never overwritten.",
-        "Refuses when a `leji.json` exists, `--dry-run` included: a repository that already has a context layer has nothing to adopt. Also refuses when the git tree has uncommitted changes, which `--dry-run` is exempt from because it writes nothing.",
+        "Refuses when a `leji.json` exists, `--dry-run` included: a repository that already has a context layer has nothing to adopt. `--wire-adapters` is the exception, because an existing context layer is exactly what it finishes. Also refuses when the git tree has uncommitted changes, which `--dry-run` is exempt from because it writes nothing, and `--wire-adapters` because the adopt run it finishes is what left the tree dirty.",
         "Reports the repository's dependency ecosystem (its package manager, from the manifest and lockfiles present) and how to declare the Leji CLI as a dev dependency there, so a clean install brings `leji`; on a real terminal it offers to run that manager's own add command, and only on your explicit yes. `--yes`, a non-TTY and `--json` print the command instead of running it, and leji never edits a manifest or lockfile itself.",
         "Also backs `npm create leji` on a repository that already carries docs or an agent entrypoint."
       ],
@@ -166,7 +166,7 @@
       "group": "start",
       "summary": "Open a coding agent in this context layer, booted from the boot profile.",
       "usage": "leji start [--agent <name>] [--root <dir>] [--json] [-- <host flags…>]",
-      "description": "Detects an installed agent (or use --agent), launches it from the context root, and points it at the boot profile so it loads the team's context first. The agent-facing counterpart to `leji view`. Several detected agents prompt for which; with none detected or in a non-interactive shell, it prints the command to run. Everything after a literal -- passes verbatim to the launched host binary, before the boot prompt. Host-specific flags ride with a pinned host: `leji start --agent claude-code -- --chrome`, never bare `-- --chrome`, which could hand the flag to whichever host gets picked.",
+      "description": "Detects an installed agent (or use --agent), launches it from the repository root, and points it at the boot profile so it loads the team's context first. The agent-facing counterpart to `leji view`. Several detected agents prompt for which; with none detected or in a non-interactive shell, it prints the command to run. Everything after a literal -- passes verbatim to the launched host binary, before the boot prompt. Host-specific flags ride with a pinned host: `leji start --agent claude-code -- --chrome`, never bare `-- --chrome`, which could hand the flag to whichever host gets picked.",
       "details": [
         "Before the agent starts, prints a Setup block for this clone: whether the Leji CLI this repository declares resolves here and meets the minimum version for the layer's spec line, whether the MCP server is registered for the selected host, whether the shared `.mcp.json` is committed, and whether the pre-commit hook is installed.",
         "Each row is personal or shared. Personal state (your host's MCP registration, this clone's `.git` hook) is offered on a real terminal and printed as an exact command otherwise; shared state (the dependency declaration, a committed `.mcp.json`, a hooks directory inside the working tree) is only ever reported, with the command a maintainer runs and commits. A gap never blocks entry: the agent still boots.",
@@ -272,7 +272,7 @@
       "group": "everyday",
       "summary": "Validate the context layer: manifest, artifacts, frontmatter, and lint rules.",
       "usage": "leji validate [--content] [--federation <available|required> [--paths <a,b,...>]] [--root <dir>] [--json]",
-      "description": "Loads leji.json and checks it against the schemas and the lint rules: declared files exist, categories are populated, vendor entrypoints redirect to the boot profile, frontmatter is valid, and (per the claimed conformance level) the index is current and the changelog is append-only. One of the two gates the generated CI runs, beside `leji index --check`. With --content it also runs a warning-only content lint (placeholder text, generic boot identity, thin categories) that never errors and never affects a conformance level.",
+      "description": "Loads leji.json and checks it against the schemas and the lint rules: declared files exist, categories are populated, vendor entrypoints redirect to the boot profile, frontmatter is valid, every markdown link in a governed document resolves inside the layer, and (per the claimed conformance level) the index is current and the changelog is append-only. One of the two gates the generated CI runs, beside `leji index --check`. With --content it also runs a warning-only content lint (placeholder text, generic boot identity, thin categories) that never errors and never affects a conformance level.",
       "options": [
         {
           "flags": "--content",
@@ -471,7 +471,7 @@
       "group": "federation",
       "summary": "Materialize declared federation mounts into the resolver cache.",
       "usage": "leji mounts hydrate [--fetch] [--root <dir>] [--json]",
-      "description": "For each declared federation mount, resolves the pinned commit from a local object store (an explicit hint in .leji/mounts.local.json, the resolver-managed store, or a unique matching submodule's object database) and extracts the sibling's layer projection into the gitignored cache under .leji/mounts/. The projection is the deduplicated union of everything the sibling's own manifest makes readable at the pin: the root leji.json, the tree under its declared context root, its boot profile, its machine index and changelog files when present, its agent-profiles and decision-records trees when present, every agent profile its agents map binds, every category index file, and every governed path its pinned generated index lists, wherever those live. The failure boundary follows the same line: a referenced or schema-required file absent at the pin (the boot profile, a category index, a bound agent profile, an indexed governed path) fails the projection naming the declaring artifact and the missing path, while an absent directory or an absent machine artifact contributes nothing and fails nothing. The only mutating mounts command, and offline by default: --fetch establishes the resolver-managed store for every declared mount, including one a hint already resolves, fetching the pin from the declared source, retaining it under refs/leji-pin/v1/, and refreshing the managed witness under refs/leji-witness/v1/ (the only writer of that namespace, since `mounts status` never fetches). Best-effort: an unavailable mount is reported and skipped (degraded knowledge, never a failed run); the exit code reflects declaration, safety, or projection errors only.",
+      "description": "For each declared federation mount, resolves the pinned commit from a local object store (an explicit hint in .leji/mounts.local.json, the resolver-managed store, or a unique matching submodule's object database) and extracts the sibling's layer projection into the gitignored cache under .leji/mounts/. The projection is the deduplicated union of everything the sibling's own manifest makes readable at the pin: the root leji.json, the tree under its declared context root, its boot profile, its machine index and changelog files when present, its agent-profiles and decision-records trees when present, every agent profile its agents map binds, every category index file, and every governed path its pinned generated index lists, wherever those live. The failure boundary follows the same line: a referenced or schema-required file absent at the pin (the boot profile, a category index, a bound agent profile, an indexed governed path) fails the projection naming the declaring artifact and the missing path, while an absent directory or an absent machine artifact contributes nothing and fails nothing. Offline by default: --fetch establishes the resolver-managed store for every declared mount, including one a hint already resolves, fetching the pin from the declared source, retaining it under refs/leji-pin/v1/, and refreshing the managed witness under refs/leji-witness/v1/ (`mounts status` never fetches, so it refreshes no witness of its own). Best-effort: an unavailable mount is reported and skipped (degraded knowledge, never a failed run); the exit code reflects declaration, safety, or projection errors only.",
       "options": [
         {
           "flags": "--fetch",
@@ -607,7 +607,7 @@
         },
         {
           "flags": "--strict",
-          "summary": "Fail the export on any lint finding and write nothing, leaving an existing export untouched. Without it, lint findings are reported as warnings and the export is still written."
+          "summary": "Fail the export on any lint finding and leave the export destination untouched (the viewer chrome is regenerated before the lint runs). Without it, lint findings are reported as warnings and the export is still written."
         }
       ],
       "examples": [
@@ -630,7 +630,7 @@
         },
         {
           "flags": "--strict",
-          "summary": "Fail the export on any lint finding and write nothing, leaving an existing export untouched. Without it, lint findings are reported as warnings and the export is still written."
+          "summary": "Fail the export on any lint finding and leave the export destination untouched (the viewer chrome is regenerated before the lint runs). Without it, lint findings are reported as warnings and the export is still written."
         }
       ],
       "examples": [

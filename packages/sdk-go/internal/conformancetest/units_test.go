@@ -275,6 +275,7 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 		".leji/viewer/assets/zoom-image.min.js",
 		"docs/overview.md",
 		".leji/viewer/_manifest.md",
+		".leji/viewer/_decisions.md",
 	}
 	if len(result.Written) != len(wantWritten) {
 		t.Fatalf("unexpected written: %v", result.Written)
@@ -342,7 +343,7 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 		"- **🤖 Agents**\n  - [Agent Core](/agents/core.md)\n  - [Thought Partner (Codex)](/agents/thought-partner.md)\n" +
 		"- **📖 Domain**\n  - [Glossary](/domain/glossary.md)\n" +
 		"- **⚙️ System**\n  - [Invariants](/system/invariants.md)\n" +
-		"- **🧭 Decisions**\n  - [Adopt the Leji context layer](/decisions/0001-adopt-leji.md)\n"
+		"- **🧭 Decisions**\n  - [Decisions index](/_decisions.md)\n  - [Adopt the Leji context layer](/decisions/0001-adopt-leji.md)\n"
 	if string(sidebar) != want {
 		t.Fatalf("sidebar mismatch:\n got=%q\nwant=%q", sidebar, want)
 	}
@@ -359,10 +360,11 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 func TestViewerBrandConfig(t *testing.T) {
 	dir := copyTree(t, exampleDir(t))
 	m := loadM(t, dir)
+	brandTitle := "Acme Billing"
 	m.Viewer = &manifest.Viewer{
 		Logo:    "assets/brand.svg",
 		Theme:   &manifest.Theme{Primary: "#FF6600"},
-		Title:   "Acme Billing",
+		Title:   &brandTitle,
 		Favicon: "assets/icon.svg",
 		Pins:    []manifest.ViewerPin{{Path: "docs/domain/glossary.md"}, {Path: "docs/nope.md"}},
 	}
@@ -762,4 +764,172 @@ func compactChangelog(t *testing.T, root string, m *manifest.Manifest, opts chan
 		t.Fatalf("CompactChangelog(%s): %v", root, err)
 	}
 	return res
+}
+
+// fixtureSidebarGroups builds a fixture layer's spine groups the way a
+// generation pass builds them: every governed document handed over as an index
+// entry. Read-only, so the fixture stays pristine.
+func fixtureSidebarGroups(t *testing.T, name string) (*manifest.Manifest, []viewer.SidebarGroup) {
+	t.Helper()
+	dir := filepath.Join(repoRoot(t), "fixtures", name)
+	m := loadM(t, dir)
+	var entries []indexgen.IndexEntry
+	for _, d := range layer.ScanCategories(dir, m).Docs {
+		entries = append(entries, indexgen.IndexEntry{Path: d.RelPath, Title: d.RelPath})
+	}
+	return m, viewer.BuildSidebarGroups(dir, m, entries)
+}
+
+func groupRels(t *testing.T, groups []viewer.SidebarGroup, label string) []string {
+	t.Helper()
+	for _, g := range groups {
+		if g.Label == label {
+			rels := make([]string, 0, len(g.Entries))
+			for _, e := range g.Entries {
+				rels = append(rels, e.Rel)
+			}
+			return rels
+		}
+	}
+	t.Fatalf("no group labeled %q", label)
+	return nil
+}
+
+func TestSidebarOrderFollowsTheIndexFile(t *testing.T) {
+	_, groups := fixtureSidebarGroups(t, "valid-sidebar-order")
+	// docs/context/domain.md declares zebra.md, then docs/domain/nested/, then
+	// apple.md. The directory entry holds one position and the two documents it
+	// expands to fill that position in path byte order.
+	want := []string{"domain/zebra.md", "domain/nested/alpha.md", "domain/nested/beta.md", "domain/apple.md"}
+	if got := groupRels(t, groups, "Domain context"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("declared order: got %v, want %v", got, want)
+	}
+}
+
+func TestSidebarOrderMergesWholeContributions(t *testing.T) {
+	_, groups := fixtureSidebarGroups(t, "valid-sidebar-order")
+	// The system index (canonically the earlier category) declares rules, limits
+	// and naming at positions 0, 1 and 2; the governance index declares approvals
+	// at position 0. Positions are numbered per index file, so approvals still
+	// renders last: contributions concatenate and nothing sorts across them.
+	want := []string{"shared/rules.md", "shared/limits.md", "shared/naming.md", "shared/approvals.md"}
+	if got := groupRels(t, groups, "Shared context"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("cross-category merge: got %v, want %v", got, want)
+	}
+}
+
+func TestSidebarOrderSubgroupAtFirstMemberAndBrowseZoneAlphabetical(t *testing.T) {
+	m, groups := fixtureSidebarGroups(t, "valid-sidebar-order")
+	sidebar := viewer.BuildSidebar(m, groups, []viewer.TreeNode{
+		{Rel: "zeta.md", Title: "Zeta"},
+		{Rel: "alpha.md", Title: "Alpha"},
+	}, nil, false)
+	want := strings.Join([]string{
+		"- **Domain context**",
+		"  - [Zebra](/domain/zebra.md)",
+		"  - **Nested**",
+		"    - [Alpha](/domain/nested/alpha.md)",
+		"    - [Beta](/domain/nested/beta.md)",
+		"  - [Apple](/domain/apple.md)",
+	}, "\n")
+	if !strings.Contains(sidebar, want) {
+		t.Fatalf("expected the nested directory between the two files, where its first member was declared, got: %q", sidebar)
+	}
+	// The reference tree is nobody's curated order, so it keeps sorting by name:
+	// fed zeta before alpha, it still renders alpha first.
+	browse := strings.Join([]string{"- **Reference**", "  - [Alpha](/alpha.md)", "  - [Zeta](/zeta.md)"}, "\n")
+	if !strings.Contains(sidebar, browse) {
+		t.Fatalf("expected the browse zone untouched by the curated ordering, got: %q", sidebar)
+	}
+}
+
+func TestSidebarOrderHoistedDirectoryKeepsItsDeclaredPlace(t *testing.T) {
+	m, groups := fixtureSidebarGroups(t, "valid-sidebar-order")
+	sidebar := viewer.BuildSidebar(m, groups, nil, nil, false)
+	// docs/context/practice.md is labeled "Business" and declares
+	// docs/business/pricing.md, then the root-level docs/middle.md, then
+	// docs/business/accounts.md. The label hoists the business/ level away, so its
+	// two documents become siblings of middle.md and hold the places the index gave
+	// them around it. Merging that level in after the fact and sorting by name
+	// would render Accounts, Middle, Pricing: the exact reversal.
+	want := strings.Join([]string{
+		"- **Business**",
+		"  - [Pricing](/business/pricing.md)",
+		"  - [Middle](/middle.md)",
+		"  - [Accounts](/business/accounts.md)",
+	}, "\n")
+	if !strings.Contains(sidebar, want) {
+		t.Fatalf("expected the hoisted members to interleave with the root-level one at their declared positions, got: %q", sidebar)
+	}
+}
+
+func TestSidebarOrderTakesTheWinningSelectorPosition(t *testing.T) {
+	_, groups := fixtureSidebarGroups(t, "valid-records")
+	// valid-records declares docs/domain/ (position 0), docs/records/ (position 1)
+	// and then docs/records/escalation-policy.md (position 2) to override that
+	// file's kind. The file selector wins the document, so its position is the
+	// file selector's and the override renders after the directory it carved out of.
+	want := []string{
+		"domain/overview.md",
+		"records/2026-07-03-status.md",
+		"records/ledger.md",
+		"records/escalation-policy.md",
+	}
+	if got := groupRels(t, groups, "Domain context"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("winning-selector position: got %v, want %v", got, want)
+	}
+}
+
+func TestAssignmentOrderSpendsFailedExpansionsAndCompactsBadLines(t *testing.T) {
+	// The convention _sidebar.md parity cannot observe, pinned directly: positions
+	// enumerate PARSED entries, so a malformed, invalid or duplicate line spends no
+	// place, while an entry that parsed and then failed to expand does spend its
+	// own. The index below parses to four entries, and good3 lands at 3 rather than
+	// at its sixth line: the three rejected lines cost nothing, the missing file costs one.
+	dir := t.TempDir()
+	writeFixtureFile(t, dir, "leji.json", `{"leji":"1.0","name":"fixture","rootPath":"docs/","bootProfilePath":"docs/boot-profile.md","categories":{"domain":{"indexes":["docs/context/domain.md"]}},"owners":{"primary":{"name":"Fixture Owner"}}}`)
+	writeFixtureFile(t, dir, "docs/boot-profile.md", "# Boot Profile\n\n## Identity\n\nA fixture.\n")
+	for _, n := range []string{"good1", "good2", "good3"} {
+		writeFixtureFile(t, dir, "docs/domain/"+n+".md", "# "+n+"\n\nbody\n")
+	}
+	writeFixtureFile(t, dir, "docs/context/domain.md", strings.Join([]string{
+		"# Domain context",
+		"",
+		"```leji-index",
+		"- path: docs/domain/good1.md",   // parsed, expands         -> pos 0
+		"- path: docs/domain/missing.md", // parsed, expansion fails -> spends pos 1
+		"- path: docs/domain/good2.md",   // parsed, expands         -> pos 2
+		"- path: docs/domain/good1.md",   // duplicate: no entry, spends nothing
+		"- path: ",                       // no path: no entry, spends nothing
+		"not an entry line",              // malformed: no entry, spends nothing
+		"- path: docs/domain/good3.md",   // parsed, expands         -> pos 3
+		"```",
+		"",
+	}, "\n"))
+	m := loadM(t, dir)
+	res := layer.ResolveCategoryAssignments(dir, m, false)
+	for path, wantOrder := range map[string]int{
+		"docs/domain/good1.md": 0,
+		"docs/domain/good2.md": 2,
+		"docs/domain/good3.md": 3,
+	} {
+		a, ok := res.Assignments[path]
+		if !ok {
+			t.Fatalf("%s is not governed", path)
+		}
+		if a.Order != wantOrder {
+			t.Fatalf("%s: Order = %d, want %d", path, a.Order, wantOrder)
+		}
+	}
+}
+
+func writeFixtureFile(t *testing.T, dir, rel, content string) {
+	t.Helper()
+	abs := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", abs, err)
+	}
+	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", abs, err)
+	}
 }

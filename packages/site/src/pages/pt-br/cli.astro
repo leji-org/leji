@@ -1,0 +1,362 @@
+---
+// Brazilian Portuguese translation of src/pages/cli.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation
+// follows. The layout is `Doc.astro`'s, written out here because that layout takes
+// no `lang` and a translated page has to declare its own.
+//
+// Everything generated from `cli.json` stays in the source language: it is the text
+// `leji --help` prints, so translating it here would make the page disagree with the
+// tool. Only the page's own prose is translated.
+import fs from 'node:fs';
+import path from 'node:path';
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import SupportedRuntimes from '../../components/SupportedRuntimes.astro';
+import InstallTabs from '../../components/InstallTabs.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+import { REPO_ROOT } from '../../repo-root';
+
+const source = '4a8cea18d2fca31998acdd903c36ec75408b4890';
+const strings = translationStrings('pt-br');
+
+// Single-sourced from the SDK's CLI spec; `leji --help` renders from the same
+// file, so this page and the tool cannot disagree.
+const cli = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'packages', 'sdk', 'cli.json'), 'utf-8'));
+const slug = (name: string) => name.replace(/\s+/g, '-');
+
+// Split inline `code` spans on backticks (odd segments are code). Segments stay
+// escaped text children, never set:html.
+const segments = (s: string) => s.split('`').map((part, i) => ({ part, code: i % 2 === 1 }));
+---
+
+<Base
+   lang="pt-br"
+   title="Referência da CLI · Leji"
+   description="A referência completa do comando leji, gerada a partir da própria especificação da CLI: cada comando com suas flags, códigos de saída e exemplos."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/cli/" />
+         <main id="content" class="prose">
+            <PageHeader kind="reference" />
+            <h1>Referência da CLI</h1>
+            <TranslationNote strings={strings.note} href="/cli/" />
+            <p class="sp-lede">{cli.summary}</p>
+            <p>
+               Instale no runtime usado pela sua cadeia de ferramentas ou pelo CI; a interface de comandos é idêntica
+               nos três. Todo comando aceita <code>--root &lt;dir&gt;</code> para indicar uma camada existente; <code
+                  >init</code
+               > e <code>adopt</code> criam uma, então nomeiam o alvo com <code>--dir &lt;path&gt;</code>. Os comandos
+               de relatório também oferecem uma saída <code>--json</code> legível por máquina. A mesma especificação gera
+               esta referência e o <code>leji --help</code>. Trabalha por meio de um agente? A mesma validação e a mesma
+               conformidade estão disponíveis como <a href="/pt-br/mcp/">ferramentas MCP</a>.
+            </p>
+
+            <div class="runtimes-block">
+               <SupportedRuntimes />
+            </div>
+
+            <div class="cli-install">
+               <p class="cli-install-label">Instalação</p>
+               <div class="cli-install-tabs"><InstallTabs /></div>
+               <p class="cli-install-next">
+                  Está começando agora com o Leji? O <a href="/pt-br/quickstart/">Início rápido</a> mostra como instalar e
+                  depois criar ou adotar sua primeira camada de contexto.
+               </p>
+            </div>
+
+            <div class="cli-code"><Code code={cli.usage} lang="bash" theme={lejiSyntaxTheme} /></div>
+
+            <aside class="cli-onboarding">
+               <h2>Integração do agente</h2>
+               <p>
+                  Incorpore um repositório a uma camada de contexto.{' '}
+                  <a href="#adopt"><code>leji adopt</code></a> gera a estrutura da camada em torno de um repositório existente
+                  e mantém os arquivos no lugar (com <code>--wire-adapters</code>, ele converte pontos de entrada{' '}
+                  <code>CLAUDE.md</code> /{' '}
+                  <code>AGENTS.md</code> existentes em redirecionamentos de uma linha); <a href="#init"
+                     ><code>leji init</code></a
+                  > gera a estrutura de uma nova camada, com um roteiro de integração para o seu agente preencher; <a
+                     href="#detect"><code>leji detect</code></a
+                  > encontra os hosts instalados, e <a href="#start"><code>leji start</code></a> abre um deles dentro da camada
+                  de contexto. Veja uma prévia de <code>init</code> ou <code>adopt</code> com <code>--dry-run</code>.
+               </p>
+            </aside>
+
+            {
+               cli.groups.map((g: any) => (
+                  <Fragment>
+                     <h2>{g.title}</h2>
+                     <table class="cli-table cmd-table">
+                        <tbody>
+                           {cli.commands
+                              .filter((c: any) => c.group === g.id)
+                              .map((c: any) => (
+                                 <tr>
+                                    <td>
+                                       <a href={`#${slug(c.name)}`}>
+                                          <code>{c.name}</code>
+                                       </a>
+                                    </td>
+                                    <td>
+                                       {c.aliasOf
+                                          ? [
+                                               'alias de ',
+                                               <a href={`#${slug(c.aliasOf)}`}>
+                                                  <code>{c.aliasOf}</code>
+                                               </a>,
+                                            ]
+                                          : segments(c.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}
+                                    </td>
+                                 </tr>
+                              ))}
+                        </tbody>
+                     </table>
+                  </Fragment>
+               ))
+            }
+
+            <h2>Códigos de saída</h2>
+            <table class="cli-table">
+               <thead>
+                  <tr><th>Código</th><th>Significado</th></tr>
+               </thead>
+               <tbody>
+                  {
+                     cli.exitCodes.map((e: any) => (
+                        <tr>
+                           <td>
+                              <code>{e.code}</code>
+                           </td>
+                           <td>{segments(e.meaning).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+
+            <h2>Opções globais</h2>
+            <table class="cli-table">
+               <tbody>
+                  {
+                     cli.globalOptions.map((o: any) => (
+                        <tr>
+                           <td>
+                              <code>{o.flags}</code>
+                           </td>
+                           <td>{segments(o.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+            <p>
+               Quando executada a partir de um checkout do código-fonte do repositório Leji, e não de um pacote
+               instalado, a CLI acrescenta um marcador de build à versão exibida: um sufixo <code>+dev.</code> com a revisão
+               curta correspondente ao checkout, ou apenas{' '}
+               <code>+dev</code> quando não é possível ler a revisão. Uma cópia instalada exibe somente a versão.
+            </p>
+
+            <h2 id="pinned-cli">A CLI que um repositório fixa</h2>
+            <p>
+               Em um repositório que declara diretamente a CLI do Leji e a mantém instalada, se essa cópia atende à
+               versão mínima da camada, o <code>leji</code> instalado executa essa cópia em toda invocação, inclusive <code
+                  >--version</code
+               > e{' '}
+               <code>--help</code>. O Node a encontra em <code>node_modules</code>; o Python, em um ambiente de projeto
+               dentro do repositório (<code>.venv</code>, ou o <code>UV_PROJECT_ENVIRONMENT</code> do uv). Assim, a pessoa
+               que digita <code>leji</code>, o hook do git, o CI e todos os colegas executam a mesma versão da
+               ferramenta, independentemente da versão instalada globalmente por cada um. Em qualquer outro caso, a CLI
+               global funciona exatamente como antes.
+            </p>
+            <p>
+               Defina <code>LEJI_NO_LOCAL</code> com qualquer valor para executar a cópia global em vez da local. A CLI Go
+               não faz esse repasse porque, em um repositório Go, a cópia declarada é compilada sob demanda pela cadeia de
+               ferramentas, não instalada como executável: execute a cópia fixada com <code>go tool leji</code>. Vai
+               atualizar a CLI Python? Um console script já instalado passa a fazer o repasse depois de uma
+               reinstalação, que regrava o ponto de entrada.
+            </p>
+
+            {
+               cli.commands.map((c: any) => (
+                  <section class="cmd">
+                     <h2 id={slug(c.name)}>
+                        <code>leji {c.name}</code>
+                     </h2>
+                     <p>{segments(c.description).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</p>
+                     {c.details?.length > 0 && (
+                        <ul class="cmd-details">
+                           {c.details.map((d: string) => (
+                              <li>{segments(d).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</li>
+                           ))}
+                        </ul>
+                     )}
+                     <div class="cli-code">
+                        <Code code={c.usage} lang="bash" theme={lejiSyntaxTheme} />
+                     </div>
+                     {c.options.length > 0 && (
+                        <table class="cli-table">
+                           <tbody>
+                              {c.options.map((o: any) => (
+                                 <tr>
+                                    <td>
+                                       <code>{o.flags}</code>
+                                    </td>
+                                    <td>{segments(o.summary).map((s) => (s.code ? <code>{s.part}</code> : s.part))}</td>
+                                 </tr>
+                              ))}
+                           </tbody>
+                        </table>
+                     )}
+                     <p class="ex-label">{c.examples.length > 1 ? 'Exemplos' : 'Exemplo'}</p>
+                     <div class="cli-code">
+                        <Code code={c.examples.join('\n')} lang="bash" theme={lejiSyntaxTheme} />
+                     </div>
+                  </section>
+               ))
+            }
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .cli-onboarding {
+      margin: 1.8rem 0 0.6rem;
+      padding: 1.1rem 1.3rem;
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
+      border-radius: 0 8px 8px 0;
+   }
+   .cli-onboarding h2 {
+      margin: 0 0 0.4rem;
+      font-size: 1.1rem;
+   }
+   .cli-onboarding p {
+      margin: 0;
+      color: var(--leji-text-body);
+   }
+
+   /* command names styled like the schema links */
+   .cmd-table td a code {
+      color: var(--leji-link);
+   }
+   .cmd-table td a:hover code {
+      background: rgba(0, 159, 113, 0.14);
+   }
+
+   .runtimes-block {
+      margin-bottom: 1.2rem;
+   }
+
+   /* dark wrapper because InstallTabs is styled for a dark background */
+   .cli-install {
+      margin: 0 0 1.8rem;
+   }
+   .cli-install-label {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-text-body);
+      margin: 0 0 0.6rem;
+   }
+   .cli-install-tabs {
+      background: var(--leji-deep);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      overflow: hidden;
+   }
+   .cli-install-next {
+      margin: 0.9rem 0 0;
+      color: var(--leji-text-body);
+   }
+
+   .cli-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.8rem 0 0;
+   }
+   .cli-table th {
+      text-align: left;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-text-body);
+      padding: 0.4rem 0.9rem 0.4rem 0;
+      border-bottom: 1px solid var(--leji-border);
+   }
+   .cli-table td {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: top;
+      color: var(--leji-text-body);
+   }
+   .cli-table td:first-child {
+      white-space: nowrap;
+   }
+   .cli-table td code {
+      color: var(--leji-text);
+      font-size: 0.85em;
+   }
+
+   .cmd {
+      margin-top: 2.6rem;
+      padding-top: 0.4rem;
+   }
+   .cmd h2 {
+      scroll-margin-top: calc(var(--header-h) + 1.5rem);
+   }
+   .cmd h2 code {
+      color: var(--leji-text);
+      background: none;
+      padding: 0;
+   }
+   .cmd-details {
+      margin: 0.9rem 0 0;
+      padding: 0;
+      list-style: none;
+   }
+   .cmd-details li {
+      position: relative;
+      padding-left: 1.1rem;
+      margin: 0.5rem 0;
+      color: var(--leji-text-body);
+      line-height: 1.6;
+   }
+   .cmd-details li::before {
+      content: '';
+      position: absolute;
+      left: 0.1rem;
+      top: 0.62em;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--leji-brand);
+   }
+   .ex-label {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-text-body);
+      margin: 1.1rem 0 0;
+   }
+   .cli-code :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+      margin-top: 0.6rem;
+   }
+</style>

@@ -1275,7 +1275,7 @@ const BADGE_SCENARIOS: Scenario[] = [
    { name: 'badge --endpoint (reject)', setup: seedLayer, args: ['badge', '--endpoint', 'x'] },
 ];
 
-// --- F9: the trust boundary (absolute containment, standing entries, verified reads) ---
+// --- the trust boundary (absolute containment, standing entries, verified reads) ---
 // Every setup below plants its symlink with a FIXED target — an absolute path outside
 // any layer, or a relative name that never resolves — so the planted link is
 // byte-identical in all three captures and the tree snapshots stay comparable. What
@@ -1429,7 +1429,7 @@ function mountsRoleAliasedOutside(dir: string): void {
    fs.symlinkSync(ESCAPE_DIR, path.join(dir, '.leji', 'mounts'));
 }
 
-// --- F3: `mounts update-pin` (held until the ports land) ----------------------
+// --- `mounts update-pin` ------------------------------------------------------
 // The pin move is the one federation command that WRITES the manifest, so these
 // scenarios compare the written tree as closely as the output: a refusal must leave
 // leji.json byte-identical in all three, and an update must change exactly the pin.
@@ -2317,15 +2317,28 @@ function handoffFixture(name: string, version: string | null): (dir: string) => 
 
 const HANDOFF_SCENARIOS: Scenario[] = [
    // Installed, but never declared: the repository asked for nothing.
-   { name: '--version (handoff: undeclared)', setup: handoffFixture('node-undeclared', '1.4.0'), args: ['--version'] },
+   // git on PATH (and nothing else): the checkout build marker needs it in Node and
+   // Python, while the Go binary reads its own build info.
+   {
+      name: '--version (handoff: undeclared)',
+      setup: handoffFixture('node-undeclared', '1.4.0'),
+      args: ['--version'],
+      env: { PATH: gitDir() },
+   },
    // Declared and installed, but older than the layer's spec line requires.
    {
       name: '--version (handoff: below the minimum)',
       setup: handoffFixture('node-below-minimum', '0.9.3'),
       args: ['--version'],
+      env: { PATH: gitDir() },
    },
    // Go declares the tool and has no installed executable: the not-applicable branch.
-   { name: '--version (handoff: go tool)', setup: handoffFixture('go-tool', null), args: ['--version'] },
+   {
+      name: '--version (handoff: go tool)',
+      setup: handoffFixture('go-tool', null),
+      args: ['--version'],
+      env: { PATH: gitDir() },
+   },
 ];
 
 /** A fixture working copy with every seed its `expected.json` declares materialized,
@@ -3615,7 +3628,7 @@ const SCENARIOS: Scenario[] = [
    },
    { name: 'export skips a symlinked content file', setup: symlinkInContent, args: ['export'] },
    { name: 'export aborts on an escaping viewer dir', setup: symlinkedViewerDir, args: ['export'] },
-   // The two names are one operation (A2): each SDK's `viewer build` run must match
+   // The two names are one operation: each SDK's `viewer build` run must match
    // its own `export` run byte for byte, and all three must agree with each other.
    {
       name: 'export and viewer build are the same operation (alias equivalence)',
@@ -3623,7 +3636,7 @@ const SCENARIOS: Scenario[] = [
       args: ['export'],
       alias: ['viewer', 'build'],
    },
-   // --- F9: the trust boundary, command by command ---
+   // --- the trust boundary, command by command ---
    {
       name: 'export (.leji/dist symlinked out of the repository)',
       setup: distSymlinkedOutside,
@@ -3791,8 +3804,10 @@ const SCENARIOS: Scenario[] = [
       args: ['validate'],
    },
    // --- meta ---
-   { name: '--version', setup: () => {}, args: ['--version'] },
-   { name: '-v', setup: () => {}, args: ['-v'] },
+   // Real mode: the checkout build marker reads the revision through git, which the
+   // neutral PATH does not carry, while the Go binary reads its own build info.
+   { name: '--version', mode: 'real', setup: () => {}, args: ['--version'] },
+   { name: '-v', mode: 'real', setup: () => {}, args: ['-v'] },
    { name: '--help', setup: () => {}, args: ['--help'] },
    // Per-command help (`leji <command> --help`): adopt covers description + details
    // + options + examples; the two-word form covers the changelog subcommand path.

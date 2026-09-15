@@ -1,0 +1,208 @@
+{
+  "agent-profile": {
+    "source": "6f35071154c7a40523370848f4c2d0e88102aaaa",
+    "strings": {
+      "/title": "Frontmatter del perfil de agente de Leji",
+      "/description": "Valida el frontmatter YAML de un documento de perfil de agente. El cuerpo en markdown queda libre.",
+      "/properties/id/description": "Identificador estable de este perfil, por ejemplo \"core\" o \"reviewer\".",
+      "/properties/name/description": "Nombre del rol, legible por personas.",
+      "/properties/role/description": "El identificador de rol que cubre este perfil, vinculado en el mapa agents del manifiesto.",
+      "/properties/purpose/description": "Una línea sobre para qué sirve este rol.",
+      "/properties/version/description": "Versión de este perfil; opcional.",
+      "/properties/inherits/description": "id del único perfil core cuyos arrays de postura y cuyo cuerpo extiende este perfil, resuelto según la especificación. La resolución es de un solo nivel: el destino debe existir, ser único y declarar el rol core. Un perfil que declara inherits puede omitir requiredRead y mustAskWhen allí donde el perfil base ya los aporta.",
+      "/properties/requiredRead/description": "Rutas que este rol carga antes de cualquier tarea.",
+      "/properties/defaultContext/description": "Categorías que este rol carga por defecto.",
+      "/properties/mustAskWhen/description": "Condiciones en las que el rol debe detenerse y preguntar a una persona.",
+      "/properties/mustRefuseWhen/description": "Condiciones en las que el rol debe negarse sin más, en vez de preguntar.",
+      "/properties/escalation/description": "A quién o a dónde escalar.",
+      "/properties/owners/description": "Responsables de este perfil; opcional.",
+      "/properties/freshness/description": "Horizonte de revisión de este perfil.",
+      "/properties/freshness/properties/reviewAfter/description": "Fecha ISO 8601 a partir de la cual conviene revisar el perfil por si está desactualizado.",
+      "/properties/host/description": "El host de agente que ejecuta este agente, por ejemplo \"claude-code\", \"codex\" o \"cursor\". Omítalo en los perfiles independientes del host.",
+      "/properties/invocation/description": "Cómo invocar este agente como una CLI externa. Omítalo cuando se trate del agente residente del propio host.",
+      "/properties/invocation/properties/command/description": "Plantilla de comando para invocar este agente desde un shell. Debe llevar el marcador <prompt> como palabra de shell propia y sin comillas; el pattern solo comprueba que el punto de sustitución existe, y su colocación la fija la especificación.",
+      "/properties/invocation/properties/constraints/description": "Restricciones operativas que conviene que una máquina conozca, por ejemplo límites de longitud del prompt o tiempos de espera."
+    },
+    "example": {
+      "source": "350f79bd5da7f1f45dd056e68cc8e4e71e6015d2",
+      "strings": {
+        "/purpose": "Segunda opinión independiente sobre textos, decisiones de diseño y cuestiones de criterio.",
+        "/invocation/constraints/0": "mantenga los prompts breves; los prompts muy largos bloquean la CLI",
+        "/invocation/constraints/1": "no interactivo; entra un prompt, sale una respuesta, sin estado de sesión",
+        "/mustAskWhen/0": "cuando el veredicto cambiaría una decisión ya registrada",
+        "/mustAskWhen/1": "cuando la pregunta implica material confidencial que no está ya en la capa de contexto"
+      },
+      "body": "# Thought Partner (Codex)\n\nSe invoca a través del rol `thought-partner` de `leji.json`, nunca por su nombre\nen los protocolos. Dele el encargo con prompts autocontenidos: el texto o la\ndecisión de que se trate, las restricciones que lo condicionan y la pregunta\nexacta que hay que responder. No tiene acceso a este repositorio ni a su\nhistorial; todo lo que deba sopesar tiene que ir en el prompt.\n\nTrate sus veredictos como una perspectiva más. Cuando el thought partner y el\nagente residente discrepan, el asunto pasa a una persona, citando ambas posturas."
+    }
+  },
+  "context-changelog": {
+    "source": "c37993e1f94a670b97ced6604478192b05678f43",
+    "strings": {
+      "/title": "Registro de cambios del contexto de Leji",
+      "/description": "Registro legible por máquinas, de solo anexión, de los cambios de la capa de contexto.",
+      "/properties/schemaVersion/description": "La línea de especificación de Leji contra la que se escribió este artefacto, por ejemplo \"1.0\".",
+      "/properties/entries/description": "Los cambios de la capa de contexto. El orden canónico se obtiene ordenando por (date, id) de forma ascendente; la posición dentro del array no significa nada. Las entradas nuevas pueden aparecer en cualquier punto, y las más antiguas pueden compactarse con una entrada de compactación. Debe haber al menos una entrada: un registro de cambios que nace vacío no es válido, y la compactación siempre deja atrás su propia entrada de compactación.",
+      "/properties/entries/items/properties/id/description": "Identificador estable de esta entrada de cambio, único dentro del registro de cambios.",
+      "/properties/entries/items/properties/date/description": "ISO 8601 en UTC: una fecha de calendario YYYY-MM-DD (que se ordena como el inicio del día) o una marca de tiempo completa terminada en Z, por ejemplo 2026-06-13T15:04:05Z. No se admiten desplazamientos horarios ni horas sin zona, de modo que el orden lexicográfico es también el cronológico.",
+      "/properties/entries/items/properties/type/description": "El tipo de cambio.",
+      "/properties/entries/items/properties/summary/description": "Descripción en una línea de lo que cambió.",
+      "/properties/entries/items/properties/paths/description": "Rutas relativas a la raíz del repositorio a las que afectó el cambio. Al menos una; una entrada de compactación registra la unión de las rutas que plegó, o la ruta del propio registro de cambios cuando esa unión queda vacía.",
+      "/properties/entries/items/properties/categories/description": "Categorías de contenido que tocó el cambio.",
+      "/properties/entries/items/properties/decisionRefs/description": "Ids de los registros de decisión relacionados con este cambio.",
+      "/properties/entries/items/properties/proposedBy/description": "Persona o agente que propuso el cambio.",
+      "/properties/entries/items/properties/approvedBy/description": "Persona que aprobó el cambio.",
+      "/properties/entries/items/properties/breaking/description": "Si el cambio rompe a quienes consumen la capa de contexto.",
+      "/properties/entries/items/properties/compacted/description": "Obligatorio en las entradas de compactación: qué retiró la compactación del extremo más antiguo.",
+      "/properties/entries/items/properties/compacted/properties/entries/description": "Cuántas entradas retiró esta compactación del extremo más antiguo.",
+      "/properties/entries/items/properties/compacted/properties/firstId/description": "Id de la entrada más antigua que retiró esta compactación.",
+      "/properties/entries/items/properties/compacted/properties/lastId/description": "Id de la entrada más reciente que retiró esta compactación."
+    },
+    "example": {
+      "source": "9f6e37373aa0afc00b85a6125f4aa703e67a1f76",
+      "strings": {
+        "/entries/0/summary": "Se sembró la capa de contexto: perfil de arranque, glosario, invariantes del sistema y primer registro de decisión.",
+        "/entries/1/summary": "Se añadió el perfil de agente thought-partner y se vinculó al rol en el mapa agents del manifiesto.",
+        "/entries/2/summary": "Se traspasó la propiedad de la capa de contexto de Jo Lee al Acme Platform Team."
+      }
+    }
+  },
+  "context-index": {
+    "source": "a2f819e56b9f0ea827117dcb4e0ef69a80e294a9",
+    "strings": {
+      "/title": "Índice del contexto de Leji",
+      "/description": "Mapa generado de la capa de contexto. Nunca se mantiene a mano; regenérelo con cada cambio.",
+      "/properties/schemaVersion/description": "La línea de especificación de Leji contra la que se escribió este artefacto, por ejemplo \"1.0\".",
+      "/properties/generatedAt/description": "Marca de tiempo ISO 8601 del momento en que se generó el índice.",
+      "/properties/generator/description": "La herramienta que generó este índice.",
+      "/properties/generator/properties/name/description": "Nombre de la herramienta generadora, por ejemplo \"leji\".",
+      "/properties/generator/properties/version/description": "Versión de la herramienta generadora.",
+      "/properties/rootPath/description": "La raíz de la capa de contexto para la que se generó este índice; refleja el rootPath del manifiesto. Las rutas de las entradas son relativas a la raíz del repositorio, no se recalculan a partir de ella.",
+      "/properties/entries/description": "Una entrada por cada documento indexado de la capa de contexto. Los valores de `id` y de `path` son únicos en el conjunto de entradas; el validador de referencia impone esta unicidad (JSON Schema no puede, porque la restricción recae sobre un subcampo y no sobre el objeto entero).",
+      "/properties/entries/items/properties/id/description": "Identificador estable; los cambios de nombre y los traslados actualizan la ruta, nunca el id.",
+      "/properties/entries/items/properties/path/description": "Ruta al documento, relativa a la raíz del repositorio.",
+      "/properties/entries/items/properties/title/description": "Título legible por personas, tomado del primer encabezado del documento o de su frontmatter.",
+      "/properties/entries/items/properties/category/description": "A qué categoría de contenido pertenece este documento.",
+      "/properties/entries/items/properties/kind/description": "Si el documento es verdad presente mantenida (intent) o evidencia fechada (record). Si falta, se entiende intent.",
+      "/properties/entries/items/properties/date/description": "La fecha de un registro, tomada únicamente de un campo date válido del frontmatter.",
+      "/properties/entries/items/properties/summary/description": "Resumen en una línea del documento, para el enrutamiento y la navegación.",
+      "/properties/entries/items/properties/tags/description": "Etiquetas libres; opcional.",
+      "/properties/entries/items/properties/owners/description": "Responsables de este documento; opcional.",
+      "/properties/entries/items/properties/lastModified/description": "Fecha ISO 8601 del último cambio del documento, tomada del control de versiones cuando está disponible.",
+      "/properties/entries/items/properties/contentHash/description": "Hash del contenido del documento, con el que se detectan desviaciones y traslados estables.",
+      "/properties/entries/items/properties/freshness/description": "Horizonte de revisión de este documento.",
+      "/properties/entries/items/properties/freshness/properties/reviewAfter/description": "Fecha ISO 8601 a partir de la cual conviene revisar el documento por si está desactualizado.",
+      "/properties/entries/items/properties/links/description": "Referencias salientes de este documento; opcional.",
+      "/properties/mounts/description": "Registros de enrutamiento de las capas de contexto hermanas federadas, derivados de federation.mounts del manifiesto (especificación: distribution.md, machine-readable-surface.md). Son únicamente metadatos de enrutamiento: el utillaje MUST NOT copiar aquí las entradas de índice ni la prosa de una hermana. Un registro de montaje nunca revela nada que la audiencia de la anfitriona no pueda ver.",
+      "/properties/mounts/items/properties/name/description": "El nombre de la capa hermana; coincide con el nombre que lleva su propio manifiesto.",
+      "/properties/mounts/items/properties/source/description": "Localizador de repositorio normalizado de la capa hermana.",
+      "/properties/mounts/items/properties/pin/description": "Id de commit completo e inmutable (SHA-1 o SHA-256) de la revisión de la hermana que lee la anfitriona.",
+      "/properties/mounts/items/properties/trackingRef/description": "Referencia testigo completamente cualificada contra la que se comparan la alcanzabilidad y la desactualización, cuando se declara.",
+      "/properties/mounts/items/properties/owner/description": "El responsable de la capa hermana.",
+      "/properties/mounts/items/properties/role/description": "Descripción en prosa de lo que lleva la hermana.",
+      "/properties/mounts/items/properties/categories/description": "Los ámbitos de categoría de contenido sobre los que esta hermana puede responder.",
+      "/properties/mounts/items/properties/topics/description": "Etiquetas de tema breves para el enrutamiento por relevancia.",
+      "/properties/mounts/items/properties/requiredWhen/description": "Condiciones de tarea en las que un lector debe resolver este montaje o fallar en cerrado."
+    },
+    "example": {
+      "source": "1fccbf70bba6d629e338183ef7f1ddae193eb5f8",
+      "strings": {
+        "/entries/0/title": "Adoptar la capa de contexto Leji",
+        "/entries/1/title": "Glosario",
+        "/entries/1/summary": "Qué significan invoice, credit note y settlement en Acme.",
+        "/entries/2/title": "Invariantes del sistema",
+        "/entries/2/summary": "Manejo del dinero, regla de solo anexión del libro mayor, fronteras entre servicios."
+      }
+    }
+  },
+  "context-manifest": {
+    "source": "c9af35cb227900101494492f8824a1685ac4124c",
+    "strings": {
+      "/title": "Manifiesto del contexto de Leji (leji.json)",
+      "/description": "El punto de entrada para máquinas de una capa de contexto Leji. Vive en la raíz del repositorio con el nombre leji.json.",
+      "/properties/leji/description": "La línea de especificación de Leji a la que apunta esta capa de contexto, por ejemplo \"1.0\". La clave autonombrada sigue la convención de OpenAPI e identifica el archivo como un manifiesto Leji.",
+      "/properties/name/description": "Un identificador corto y estable para esta capa de contexto, por ejemplo \"acme-billing-context\".",
+      "/properties/description/description": "Resumen en una línea de lo que abarca esta capa de contexto.",
+      "/properties/rootPath/description": "La raíz del contexto, como ruta POSIX relativa a la raíz del repositorio. Declara dónde vive la capa de contexto; no recalcula las rutas que gobierna: las entradas del índice, las páginas fijadas, las rutas de los perfiles y toda otra ruta de los artefactos Leji se resuelven desde la raíz del repositorio. El `homepage`, el `logo` y el `favicon` del visor son la excepción: se escriben relativos a la raíz del contexto, y también se acepta una ruta relativa a la raíz del repositorio que quede bajo ella.",
+      "/properties/bootProfilePath/description": "Ruta al perfil de arranque, el punto de entrada independiente del agente por el que empiezan todos los hosts y todas las personas.",
+      "/properties/categories/description": "Correspondencia entre categoría lógica y archivo de índice. Las claves son los cinco identificadores de categoría, y cada una apunta a uno o más archivos de índice curados que enumeran el contenido de esa categoría.",
+      "/properties/categories/properties/domain/description": "Dónde vive el contenido de domain: el lenguaje del negocio y la semántica del producto.",
+      "/properties/categories/properties/system/description": "Dónde vive el contenido de system: la arquitectura y los invariantes que todo cambio respeta.",
+      "/properties/categories/properties/practice/description": "Dónde vive el contenido de practice: las convenciones y los patrones probados.",
+      "/properties/categories/properties/governance/description": "Dónde vive el contenido de governance: las salvaguardas de agentes y las reglas operativas.",
+      "/properties/categories/properties/decisions/description": "Dónde viven los registros de decisión: registros fechados de por qué las cosas son como son.",
+      "/$defs/categoryMapping/properties/indexes/description": "Uno o más archivos de índice para esta categoría, con rutas relativas a la raíz del repositorio. Cada archivo de índice es markdown curado que lleva un bloque `leji-index` delimitado cuyas líneas `- path: <directorio-o-archivo>` seleccionan el contenido que pertenece a esta categoría. El contenido se queda donde vive; el archivo de índice solo declara su inclusión.",
+      "/properties/machine/description": "Ubicación de los artefactos legibles por máquinas: el índice, el registro de cambios, los perfiles y los registros de decisión.",
+      "/properties/machine/properties/indexPath/description": "Ruta al índice del contexto generado.",
+      "/properties/machine/properties/changelogPath/description": "Ruta al registro de cambios del contexto legible por máquinas.",
+      "/properties/machine/properties/agentProfilesPath/description": "Directorio que contiene los documentos de perfil de agente.",
+      "/properties/machine/properties/decisionRecordsPath/description": "Directorio que contiene los registros de decisión.",
+      "/properties/agents/description": "Vinculación entre rol y perfil de agente. Las claves son identificadores de rol (por ejemplo \"thought-partner\" o \"reviewer\") y los valores son rutas a documentos de perfil de agente. Los protocolos convocan roles; este mapa decide quién los ocupa.",
+      "/properties/actors/description": "Registro opcional de los actores que pueden ocupar roles. Las claves son identificadores de actor estables. Cada actor declara los roles para los que es elegible y una plantilla de comando por rol. Úselo cuando un rol tenga más de un actor elegible, o cuando un mismo actor necesite una invocación distinta según el rol que ocupe; cualquiera de las dos razones basta por sí sola. Un rol con un único actor que solo necesita un comando ya queda servido por el host y la invocation del propio perfil de agente.",
+      "/properties/owners/description": "Quién responde por la salud de la capa de contexto. Los responsables responden de que la capa de contexto siga vigente y podada; no la escriben ni la curan en solitario (governance.md).",
+      "/properties/owners/properties/primary/description": "La persona que responde de la actualidad de la capa de contexto. Las capas de contexto sin responsable se pudren.",
+      "/properties/owners/properties/continuity/description": "Opcional. Otra persona que asume esa misma responsabilidad cuando la principal no está disponible o se aparta; las adopciones asistidas deberían nombrar a alguien antes de que la ayuda externa se retire. Volver a nombrar a la persona principal no aporta continuidad alguna, y un agente no puede ocupar el puesto: los responsables son personas que responden.",
+      "/$defs/owner/properties/name/description": "El nombre de la persona.",
+      "/$defs/owner/properties/contact/description": "Cómo ponerse en contacto con ella, por ejemplo una dirección de correo electrónico.",
+      "/properties/conformance/description": "El nivel de conformidad que declara esta capa de contexto, comprobable por el utillaje.",
+      "/properties/conformance/properties/claimedLevel/description": "El nivel de conformidad declarado: core, indexed, governed o federated.",
+      "/properties/conformance/properties/claimedAt/description": "Fecha ISO 8601 en que se afirmó la declaración por última vez.",
+      "/properties/federation/description": "Las capas hermanas montadas en este repositorio (especificación: distribution.md, patrón 3). El círculo compone las responsabilidades; no las centraliza.",
+      "/properties/federation/properties/mounts/description": "Cada montaje es una capa de contexto hermana que se lee en una versión fijada a través de una proyección de la capa hidratada por el resolutor, y que conserva su propio repositorio, sus responsables y su proceso de revisión y aprobación. El contenido materializado vive en la caché del resolutor, ignorada por git, y nunca se confirma aquí.",
+      "/properties/federation/properties/mounts/items/properties/name/description": "El nombre de la capa hermana; debe coincidir con el `name` de su propio manifiesto.",
+      "/properties/federation/properties/mounts/items/properties/source/description": "Localizador de repositorio normalizado de la capa hermana: una URL remota https://, ssh:// o de estilo SCP. Es la raíz de resolución y el espacio de nombres de la fijación. Las rutas del sistema de archivos local solo son válidas en las indicaciones locales de la máquina, nunca aquí.",
+      "/properties/federation/properties/mounts/items/properties/pin/description": "Id de commit completo e inmutable (SHA-1 o SHA-256) de la revisión de la hermana que lee esta anfitriona. Es el estado deseado que guarda el manifiesto: actualizar una fijación es una curación deliberada y revisada.",
+      "/properties/federation/properties/mounts/items/properties/trackingRef/description": "Referencia testigo completamente cualificada en el origen (refs/heads/* o refs/tags/*) contra la que se comparan el informe de fijaciones desactualizadas y la alcanzabilidad en la federación; opcional. Si falta, se usa la rama por defecto que anuncia el origen y queda recogida en la salida del comando.",
+      "/properties/federation/properties/mounts/items/properties/owner/description": "El responsable de la capa hermana. La responsabilidad se queda en el equipo de la hermana; la anfitriona nunca absorbe su contenido.",
+      "/properties/federation/properties/mounts/items/properties/role/description": "Qué lleva esta capa hermana, en prosa, por ejemplo \"contexto del lado del producto\". Es para personas; el enrutamiento usa los campos estructurados de más abajo.",
+      "/properties/federation/properties/mounts/items/properties/categories/description": "Los ámbitos de categoría de contenido sobre los que esta hermana puede responder. Son únicamente metadatos de enrutamiento; el contenido de la hermana se queda en la hermana. Obligatorio para la conformidad federated.",
+      "/properties/federation/properties/mounts/items/properties/topics/description": "Etiquetas de tema breves, visibles para la anfitriona, que sirven para enrutar una tarea hacia esta hermana, por ejemplo \"billing\" o \"checkout\". Son únicamente metadatos de enrutamiento.",
+      "/properties/federation/properties/mounts/items/properties/requiredWhen/description": "Condiciones de tarea en las que un lector debe resolver este montaje o, si no puede, detenerse e informar de contexto incompleto (fallo en cerrado). Es visible para la anfitriona; no debe revelar nada que la audiencia de la anfitriona no pueda ver.",
+      "/properties/vendorAdapters/description": "Los archivos de punto de entrada de proveedor presentes en este repositorio; cada uno debe redirigir al perfil de arranque.",
+      "/properties/viewer/description": "Preferencias de presentación que lee `leji viewer`. Es configuración de conveniencia, no normativa; la presentación misma queda fuera del alcance normativo.",
+      "/properties/viewer/properties/port/description": "Puerto preferido para la vista previa local de `leji viewer serve`. La opción --port lo sobrescribe; el valor por defecto es 5354 (LEJI en el teclado de un teléfono).",
+      "/properties/viewer/properties/logo/description": "Imagen de logotipo para el visor, como una ruta bajo la raíz del contexto (por ejemplo \"assets/logo.svg\"). Por defecto, la marca de Leji.",
+      "/properties/viewer/properties/title/description": "Título que muestra el visor (encabezado de la barra lateral y título de la página). Por defecto, el nombre de la capa de contexto.",
+      "/properties/viewer/properties/agentsLabel/description": "Etiqueta de la barra lateral para el grupo de perfiles de agente (los emojis son bienvenidos). Por defecto, \"🤖 Agents\". El grupo enumera los perfiles de agente de la capa y se ordena mediante viewer.groupOrder como cualquier otro grupo.",
+      "/properties/viewer/properties/favicon/description": "Favicon para el visor, como una ruta bajo la raíz del contexto (por ejemplo \"assets/icon.svg\"). Por defecto, la marca de Leji.",
+      "/properties/viewer/properties/homepage/description": "La página de inicio del visor, como una ruta relativa a la raíz del contexto (por ejemplo \"README.md\"). Por defecto, el overview.md sembrado.",
+      "/properties/viewer/properties/pins/description": "Páginas fijadas en lo alto de la barra lateral: rutas markdown relativas a la raíz del repositorio, o {path, label} si quiere una etiqueta propia. Fijar el perfil de arranque sustituye su línea por defecto.",
+      "/properties/viewer/properties/groupOrder/description": "Secuencia curada de los grupos de la barra lateral, por su etiqueta exacta (el H1 del archivo de índice). Los grupos enumerados van primero en este orden; los que no se enumeran siguen en el orden derivado.",
+      "/properties/viewer/properties/theme/description": "Sobrescrituras del tema del visor.",
+      "/properties/viewer/properties/theme/properties/primary/description": "Color principal o de acento, como color CSS hexadecimal (por ejemplo \"#009F71\"). Gobierna el marco del visor, los estados activos y los acentos de los diagramas; los enlaces del cuerpo y el código en línea usan el tono accesible fijo, salvo que viewer.theme.link aporte uno que supere la comprobación de contraste.",
+      "/properties/viewer/properties/theme/properties/link/description": "Color de los enlaces, como color CSS hexadecimal (por ejemplo \"#5A50F9\"). Se aplica a los enlaces del cuerpo y al código en línea solo cuando alcanza un 4,5:1 frente al fondo del código en línea, el más estrecho de los dos fondos sobre los que se apoyan; si no, se mantiene el tono accesible fijo y `leji view` / `leji export` avisan.",
+      "/properties/viewer/properties/mermaid/description": "Renderiza como diagramas en el visor los bloques de código ```mermaid delimitados. Por defecto, true.",
+      "/properties/viewer/properties/poweredBy/description": "Muestra la pequeña marca \"Powered by Leji\" en una esquina del visor. Por defecto, true; póngalo en false para quitarla.",
+      "/properties/viewer/properties/categoryEmojis/description": "Sobrescribe el emoji que aparece por defecto junto a cada categoría en el mapa de la capa generado. (Los grupos de la barra lateral se etiquetan con el H1 de cada archivo de índice.)"
+    },
+    "example": {
+      "source": "32556a875f9eca2f9d5d29f18a2efbed666da4ee",
+      "strings": {
+        "/description": "Capa de contexto compartida del monorepo de la plataforma de facturación de Acme."
+      }
+    }
+  },
+  "decision-record": {
+    "source": "9b31f508bd89be01f86088922ef0a30ebccf9408",
+    "strings": {
+      "/title": "Frontmatter del registro de decisión de Leji",
+      "/description": "Valida el frontmatter YAML de un registro de decisión. El cuerpo en markdown lleva el contexto, la decisión y las consecuencias, en prosa.",
+      "/properties/id/description": "Identificador estable de esta decisión, por ejemplo \"adopt-leji\".",
+      "/properties/title/description": "Título breve de la decisión.",
+      "/properties/status/description": "Estado de la decisión en su ciclo de vida.",
+      "/properties/date/description": "Fecha ISO 8601 en que se tomó la decisión; es inmutable una vez publicada, y un cambio de estado posterior no la mueve.",
+      "/properties/deciders/description": "Las personas que tomaron la decisión.",
+      "/properties/supersedes/description": "id del registro al que sustituye esta decisión.",
+      "/properties/supersededBy/description": "id del registro que sustituyó a este. REQUIRED cuando el status es \"superseded\": un registro sustituido debe apuntar a su sucesor, para que el enlace de sustitución se pueda recorrer en los dos sentidos.",
+      "/properties/affectedPaths/description": "Rutas relativas a la raíz del repositorio a las que afecta la decisión.",
+      "/properties/affectedCategories/description": "Categorías de contenido a las que afecta la decisión.",
+      "/properties/links/description": "Referencias salientes, por ejemplo a decisiones o issues relacionados; opcional."
+    },
+    "example": {
+      "source": "55a82c1b15d8fbf3275232827a3d11cf05925fe0",
+      "strings": {
+        "/title": "Adoptar la capa de contexto Leji"
+      },
+      "body": "# Adoptar la capa de contexto Leji\n\n## Context\n\nEl conocimiento de ingeniería vivía en las cabezas, en hilos de chat y en tres archivos de configuración de herramientas que iban divergiendo entre sí. Los agentes producían código que no encajaba con nuestros invariantes, porque los invariantes no estaban escritos en ningún sitio que una herramienta pudiera leer.\n\n## Decision\n\nAdoptar Leji en el nivel `indexed`: manifiesto, perfil de arranque, contenido de domain y de system, registros de decisión, índice generado y registro de cambios para máquinas.\n\n## Consequences\n\nLos archivos de configuración de proveedor se convierten en redirecciones de una línea. Las correcciones del contexto pasan por los mismos PR que el trabajo que las saca a la luz. Jo es responsable de la capa de contexto."
+    }
+  }
+}

@@ -350,6 +350,18 @@
       "categories": [
         "practice"
       ]
+    },
+    {
+      "id": "decision-set-read-guardrail",
+      "date": "2026-08-27",
+      "type": "changed",
+      "summary": "Boot profile and core agent posture, here and in the scaffold templates: read a multi-record decision set together before it lands.",
+      "paths": [
+        "docs/boot-profile.md",
+        "docs/agents/core.md",
+        "templates/boot-profile.md",
+        "templates/agents/core.md"
+      ]
     }
   ]
 }

@@ -59,12 +59,12 @@ def test_cli_help_pseudo_command_prints_help(capsys) -> None:
 
 def test_cli_version_pseudo_command_prints_version(capsys) -> None:
     from leji.cli import main
-    from leji.schemas import SDK_VERSION
+    from leji.schemas import display_version
 
     code = main(["version"])
     out = capsys.readouterr().out.strip()
     assert code == 0
-    assert out == SDK_VERSION
+    assert out == display_version()
 
 
 def test_cli_changelog_resolves_default_path(tmp_path, capsys) -> None:

@@ -90,7 +90,7 @@ var managerCommands = map[string]commandPair{
 	"pdm":    {add: []string{"pdm", "add", "-dG", "dev", pyDist}, runner: []string{"pdm", "run", "leji"}, install: []string{"pdm", "install"}},
 	"pipenv": {add: []string{"pipenv", "install", "--dev", pyDist}, runner: []string{"pipenv", "run", "leji"}, install: []string{"pipenv", "install", "--dev"}},
 	"pip":    {add: nil, runner: []string{"leji"}, install: nil},
-	// The same command F10's CI table installs a Go repository's tools with.
+	// The same command the generated CI job installs a Go repository's tools with.
 	"go":        {add: []string{"go", "get", "-tool", goToolPath + "@latest"}, runner: []string{"go", "tool", "leji"}, install: []string{"go", "mod", "download"}},
 	"go-legacy": {add: nil, runner: []string{"leji"}, install: nil},
 }
@@ -289,9 +289,9 @@ func lineRefused(files []string) string {
 	return "Ecosystem: " + joinAnd(files) + "; not a regular file inside this repository"
 }
 
-// The consent path (plan section 3): the prompt, and every outcome of running the
-// manager's own add command. leji writes no manifest byte itself, so these are the
-// only words it owns once the user says yes.
+// The consent path: the prompt, and every outcome of running the manager's own add
+// command. leji writes no manifest byte itself, so these are the only words it owns
+// once the user says yes.
 
 // ConsentDisclosure is printed immediately before the prompt, interactive runs
 // only. The manager runs here, as the user, with the user's environment: say so
@@ -372,19 +372,98 @@ const (
 	entryRefused
 )
 
-func classify(rootAbs, name string) entryKind {
+// verified is one probed name's verdict, carrying its bytes when the caller asked
+// for them: read from the descriptor the verdict was proved on, never re-opened by
+// name. hasText separates a body that is empty from one that could not be taken,
+// which the reference expresses as a null string.
+type verified struct {
+	kind    entryKind
+	text    string
+	hasText bool
+}
+
+// testHookAfterJudgment, when set by a test in this package, runs inside verify once
+// the entry has been judged and before the verified open resolves it. It exists for
+// the canaries that have to land a symlink swap in that window deterministically,
+// and is nil in every other run.
+var testHookAfterJudgment func(abs string)
+
+// verify judges one probed name on the ENTRY, then proves the judgment on a
+// DESCRIPTOR.
+//
+// The entry decides its own kind first, with lstat: a link is refused rather than
+// followed, whatever it resolves to, because evidence reached through a link is not
+// this repository's evidence. That up-front lstat is the cheap refusal, and on its
+// own it leaves the entry free to become a link before the open, which the open
+// would then resolve and verify perfectly well — no swap back needed, and the name
+// would have evidenced a manager it never stood for. So the name is opened through
+// fsx.OpenVerifiedSource, which resolves, opens, and proves the descriptor is the
+// file it judged, and the descriptor's own stat must then report the same regular
+// file a FRESH lstat of the NAME does. A symlink's inode is never the inode of the
+// file it points at, so an entry that is a link at that instant cannot pass, and
+// neither can one that has become a different file — including the name renamed away
+// and linked back to its own inode, which every comparison against the FIRST lstat
+// accepts.
+//
+// wantText takes the bytes from that same descriptor, so what decides is what was
+// judged. The descriptor is closed on every path: this asks a question, it does not
+// hand a source out.
+//
+// The two failure classes are kept apart, and the three SDKs answer alike. What the
+// run can SEE contradicted — the identity or kind differs, the verified open handed
+// back no descriptor, nothing stands at the name any more — is refused, exactly as a
+// link or a directory is. What it merely could not COMPLETE on an entry still
+// standing and never contradicted — the open denied, a stat or read failure — leaves
+// the entry eligible and carries no bytes, which is the unreadable outcome this scan
+// has always reported for it. What remains is the recorded check-before-act window
+// (docs/practice/trust-boundary.md), which every verified fact on this path shares.
+func verify(rootAbs, name string, wantText bool) verified {
 	abs := filepath.Join(rootAbs, name)
 	info, err := os.Lstat(abs)
 	if err != nil {
-		return entryAbsent
+		return verified{kind: entryAbsent}
 	}
 	if !info.Mode().IsRegular() {
-		return entryRefused
+		return verified{kind: entryRefused}
 	}
-	if fsx.ResolvedWithinRoot(rootAbs, abs) {
-		return entryEligible
+	if !fsx.ResolvedWithinRoot(rootAbs, abs) {
+		return verified{kind: entryRefused}
 	}
-	return entryRefused
+	if testHookAfterJudgment != nil {
+		testHookAfterJudgment(abs)
+	}
+	source, err := fsx.OpenVerifiedSource(abs, func(real string) bool {
+		return fsx.ResolvedWithinRoot(rootAbs, real)
+	})
+	if err != nil {
+		return verified{kind: entryEligible} // the open failed operationally: unreadable
+	}
+	if source.File == nil {
+		return verified{kind: entryRefused}
+	}
+	defer func() { _ = source.File.Close() }()
+	opened, err := source.File.Stat()
+	if err != nil {
+		return verified{kind: entryEligible}
+	}
+	standing, err := os.Lstat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return verified{kind: entryRefused} // nothing stands at the name now
+		}
+		return verified{kind: entryEligible}
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(opened, standing) {
+		return verified{kind: entryRefused}
+	}
+	if !wantText {
+		return verified{kind: entryEligible}
+	}
+	data, err := io.ReadAll(source.File)
+	if err != nil {
+		return verified{kind: entryEligible}
+	}
+	return verified{kind: entryEligible, text: string(data), hasText: true}
 }
 
 // rootScan holds the probed names of one root, classified once.
@@ -403,7 +482,7 @@ func (s *rootScan) kind(name string) entryKind {
 	if k, ok := s.kinds[name]; ok {
 		return k
 	}
-	k := classify(s.rootAbs, name)
+	k := verify(s.rootAbs, name, false).kind
 	s.kinds[name] = k
 	return k
 }
@@ -424,16 +503,19 @@ func (s *rootScan) refused(names []string) []string {
 
 // read returns the bytes of one probed name, or ok=false. Structurally gated: a
 // name that is not an eligible regular file inside the real root is never opened,
-// so no read can bypass the eligibility rule by being spelled at a new call site.
+// so no read can bypass the eligibility rule by being spelled at a new call site —
+// and the name is judged ONCE MORE immediately before its bytes are taken, so they
+// come from the descriptor this run proved rather than from a name a swap could have
+// retargeted since the scan classified it.
 func (s *rootScan) read(name string) (string, bool) {
 	if s.kind(name) != entryEligible {
 		return "", false
 	}
-	data, err := os.ReadFile(filepath.Join(s.rootAbs, name))
-	if err != nil {
+	v := verify(s.rootAbs, name, true)
+	if v.kind != entryEligible || !v.hasText {
 		return "", false
 	}
-	return string(data), true
+	return v.text, true
 }
 
 // matching returns every root entry matching re, sorted bytewise (never by

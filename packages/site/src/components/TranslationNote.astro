@@ -1,0 +1,58 @@
+---
+// The note every translated page carries under its title: how the translation was made,
+// which text governs where the two differ, and the two ways to correct it. The
+// sentences are the locale's own, so this component only places the links inside them,
+// and it reads those links from the page's own URL rather than being handed them.
+import { templateParts, type NoteStrings } from '../data/i18n';
+import { correctionLinks, localeOf, sentenceGap } from '../i18n';
+
+interface Props {
+   strings: NoteStrings;
+   /** The English page of record for this route. */
+   href: string;
+}
+
+const { strings, href } = Astro.props;
+const { issueHref, editHref } = correctionLinks(Astro.url.pathname);
+// The sentences are joined here rather than in the strings file, so how a language
+// separates them is decided once for every locale (`zh-hans` and `ja` abut).
+const gap = sentenceGap(localeOf(Astro.url.pathname));
+// Every page carrying this note is one file a reader can open. The one-page view of the
+// specification is the only translated page that is not, and it carries the banner.
+if (!editHref) throw new Error(`the note needs the page's own source file: ${Astro.url.pathname}`);
+
+/** The links the corrections sentence places, by the placeholder that names each. */
+const links: Record<string, { href: string; text: string }> = {
+   '{issue}': { href: issueHref, text: strings.issueLinkText },
+   '{edit}': { href: editHref, text: strings.editLinkText },
+};
+---
+
+<p class="translation-note">
+   {`${strings.made}${gap}`}
+   {templateParts(strings.template).map((part) => (part === '{link}' ? <a href={href}>{strings.linkText}</a> : part))}
+   {gap}
+   {
+      templateParts(strings.corrections).map((part) =>
+         links[part] ? <a href={links[part].href}>{links[part].text}</a> : part,
+      )
+   }
+</p>
+
+<style>
+   .translation-note {
+      margin: 0 0 1.6rem;
+      padding: 0.9rem 1.2rem;
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
+      border-radius: 0 8px 8px 0;
+      font-size: 0.92rem;
+      line-height: 1.6;
+      color: var(--leji-text-body);
+   }
+   .translation-note a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+</style>

@@ -12,10 +12,10 @@ Options:
    --out <dir>         Output directory for the export (default: .leji/dist;
                        must resolve inside the repository, and never inside
                        .leji/ except exactly .leji/dist).
-   --strict            Fail the export on any lint finding and write nothing,
-                       leaving an existing export untouched. Without it, lint
-                       findings are reported as warnings and the export is still
-                       written.
+   --strict            Fail the export on any lint finding and leave the export
+                       destination untouched (the viewer chrome is regenerated
+                       before the lint runs). Without it, lint findings are
+                       reported as warnings and the export is still written.
 
 Global options: see leji --help.
 

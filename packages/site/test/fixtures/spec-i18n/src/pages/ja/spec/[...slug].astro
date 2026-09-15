@@ -1,0 +1,11 @@
+---
+// One route per locale, the whole of what a locale adds for the specification.
+import { getSpecI18nStaticPaths } from '@site/spec-i18n';
+import SpecPage from '../../../components/SpecPage.astro';
+
+export const getStaticPaths = () => getSpecI18nStaticPaths('ja');
+
+const { locale, entry, entries } = Astro.props;
+---
+
+<SpecPage locale={locale} entry={entry} entries={entries} />

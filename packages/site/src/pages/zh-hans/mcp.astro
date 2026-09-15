@@ -1,0 +1,248 @@
+---
+// Simplified Chinese translation of src/pages/mcp.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+//
+// The shell is composed here rather than through `Doc.astro` so the page can declare the
+// language it is written in while the sidebar stays on the English route it highlights.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import CopyableCode from '../../components/CopyableCode.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '0dbbe32b2b9f192f8f0bfa1241ad0ba3b6341a52';
+const strings = translationStrings('zh-hans');
+
+// Commands and configuration stay in the source language: they are typed, not read.
+const config = `{
+  "mcpServers": {
+    "leji": { "command": "npx", "args": ["-y", "@leji-org/mcp"] }
+  }
+}`;
+
+const claudeAddProject = 'claude mcp add leji --scope project -- npx -y @leji-org/mcp';
+const claudeAddUser = 'claude mcp add leji --scope user -- npx -y @leji-org/mcp';
+const codexAdd = 'codex mcp add leji -- npx -y @leji-org/mcp';
+
+// Tool and resource identifiers are part of the interface; only the summaries translate.
+const resources = [
+   ['leji://spec/full', '完整规范，汇为一份文档。'],
+   ['leji://spec/{id}', '单份规范文档，例如 leji://spec/conformance。'],
+   ['leji://schema/{name}', '单个 JSON Schema，例如 leji://schema/context-manifest。'],
+   ['leji://cli/help', 'leji CLI 的命令与选项参考。'],
+];
+
+const tools = [
+   ['search_spec', '匹配某个查询的规范章节。'],
+   ['fetch_spec_doc', '单份规范文档（或整份规范）。'],
+   ['fetch_schema', '单个 JSON Schema。'],
+   ['validate_manifest', '校验以内联方式提供的 leji.json。'],
+   ['validate_layer', '校验某个路径下的上下文层。'],
+   ['score_conformance', '声明的与已验证的一致性级别。'],
+   ['explain_conformance', '哪些已被验证，以及下一个级别还需要什么。'],
+];
+---
+
+<Base
+   lang="zh-hans"
+   title="MCP 服务器 · Leji"
+   description="从你的 AI 智能体里使用 Leji 工具：一个本地的、只读的 MCP 服务器，它提供规范与 schema，并检查磁盘上的上下文层。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/mcp/" />
+         <main id="content" class="prose">
+            <PageHeader kind="reference" />
+            <h1>MCP 服务器</h1>
+            <TranslationNote strings={strings.note} href="/mcp/" />
+            <p class="sp-lede">
+               Leji 的工具有两种形态。<a href="/zh-hans/cli/">CLI</a> 面向你和你的 CI；Model Context Protocol（MCP）服务器面向你的智能体。
+            </p>
+            <p>
+               <code>@leji-org/mcp</code> 是一个本地的 <a
+                  href="https://modelcontextprotocol.io"
+                  target="_blank"
+                  rel="noopener">MCP</a
+               > 服务器，封装了参考 SDK。智能体可以用它读取规范与 schema、校验磁盘上的上下文层并评估其一致性，无需抓取网站，也不必通过
+               shell 调用 CLI。
+            </p>
+            <p>
+               它在本地通过 stdio 运行，运行期不发起任何网络调用（不过首次 <code>npx</code> 安装会拉取该包），并且只暴露只读工具。
+            </p>
+
+            <h2>把它加到你的客户端</h2>
+            <p>
+               配置一次，<code>leji</code>
+               系列工具就会出现在其作用域覆盖的每一次会话中，无需再做任何设置：用户级注册覆盖每个项目，项目级注册覆盖那个仓库。客户端会按需启动{
+                  ' '
+               }
+               <code>leji-mcp</code>。
+            </p>
+            <p>
+               如果你正用 CLI 接入，而 Claude Code 或 Codex 就在你的 <code>PATH</code> 上，那么 <code>leji init</code>{
+                  ' '
+               }
+               与 <code>leji adopt</code> 会在交接给你的智能体之前，主动提议为那个宿主注册这个服务器。
+            </p>
+            <p>
+               由于这项提议需要交互确认，使用 <code>--yes</code> 运行时会跳过。以下说明适用于跳过提示、使用其他客户端，或希望采用不同作用域的情况。
+            </p>
+
+            <h3>Claude Code</h3>
+            <CopyableCode code={claudeAddProject} lang="bash" label="复制命令" />
+            <p>
+               <code>--scope project</code> 会在仓库根目录写入共享的 <code>.mcp.json</code
+               >；把它提交上去，之后每个克隆该仓库的人都会收到启用这个服务器的提议。若想改为对你个人、覆盖所有项目：
+            </p>
+            <CopyableCode code={claudeAddUser} lang="bash" label="复制命令" />
+            <p>
+               省略 <code>--scope</code> 会以私有方式注册该服务器，仅限本项目。完整参考：{' '}
+               <a href="https://docs.claude.com/en/docs/claude-code/mcp" target="_blank" rel="noopener"
+                  >Claude Code MCP 文档</a
+               >。
+            </p>
+
+            <h3>Codex</h3>
+            <CopyableCode code={codexAdd} lang="bash" label="复制命令" />
+            <p>
+               或者直接在 <code>~/.codex/config.toml</code> 中添加一个 <code>[mcp_servers.leji]</code> 表。完整参考：{
+                  ' '
+               }
+               <a href="https://developers.openai.com/codex/mcp" target="_blank" rel="noopener">Codex MCP 文档</a>。
+            </p>
+
+            <h3>其他客户端</h3>
+            <p>Claude Desktop、Cursor、Windsurf，以及任何其他 MCP 客户端，都用这份标准配置：</p>
+            <CopyableCode code={config} lang="json" label="复制 MCP 配置" />
+
+            <p>
+               需要 <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 22 或更新版本（<code
+                  >npx</code
+               > 随 Node 一起提供）。首次运行会拉取该包；之后的运行走缓存。把每个工具指向存放你的 <code>leji.json</code> 的那个仓库根目录。
+            </p>
+
+            <h2>工具</h2>
+            <p>所有工具均为只读；这个服务器暴露的能力都无法写入或修改上下文层。</p>
+            <table class="mcp-table">
+               <caption class="vh">该服务器暴露的 MCP 工具</caption>
+               <thead>
+                  <tr><th scope="col">工具</th><th scope="col">返回什么</th></tr>
+               </thead>
+               <tbody>
+                  {
+                     tools.map(([name, summary]) => (
+                        <tr>
+                           <th scope="row">
+                              <code>{name}</code>
+                           </th>
+                           <td>{summary}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+
+            <h2>资源</h2>
+            <table class="mcp-table">
+               <caption class="vh">该服务器暴露的 MCP 资源</caption>
+               <thead>
+                  <tr><th scope="col">URI</th><th scope="col">提供什么</th></tr>
+               </thead>
+               <tbody>
+                  {
+                     resources.map(([uri, summary]) => (
+                        <tr>
+                           <th scope="row">
+                              <code>{uri}</code>
+                           </th>
+                           <td>{summary}</td>
+                        </tr>
+                     ))
+                  }
+               </tbody>
+            </table>
+
+            <h2>为什么要有一个服务器，而不只是 CLI？</h2>
+            <p>
+               CLI 已经能够校验上下文层并评估一致性，这个服务器同样提供这两项能力。除此之外，它还能检索并提供规范与各份
+               schema，这是 CLI 不具备的能力；而且它是另一个入口，智能体可以自行取用的那一个：
+            </p>
+            <ul>
+               <li>
+                  <strong>它会自我通告。</strong
+                  >配置一次之后，它每次会话都出现在你的智能体的工具列表里，并附有它究竟做什么的说明。没有人需要去告诉智能体
+                  Leji 的存在，也无需告诉它 CLI 在哪里。
+               </li>
+               <li>
+                  <strong>它在没有 shell 的地方也能用。</strong
+                  >许多智能体环境不能、也不愿运行任意命令。一个只读、运行期不发起网络调用的服务器，在
+                  <code>leji validate</code> 够不到的地方也够得到。
+               </li>
+               <li>
+                  <strong>它直接提供规范与 schema。</strong
+                  >你的智能体把它们当作资源读取，无需网页抓取，并在工作中引用它们。
+               </li>
+            </ul>
+            <p>
+               消费一个上下文层并不需要这个服务器：一个符合规范的仓库，它的<a href="/zh-hans/spec/boot-profile/"
+                  >引导配置</a
+               >本身就能引导智能体开始工作。这个服务器解决的是另一类需求：了解 Leji，并据此检查上下文层。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .mcp-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.8rem 0 0;
+   }
+   .mcp-table caption.vh {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+   }
+   .mcp-table th {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: top;
+      text-align: left;
+      font-weight: 400;
+      color: var(--leji-text-body);
+      white-space: nowrap;
+   }
+   .mcp-table thead th {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+   }
+   .mcp-table th code {
+      color: var(--leji-text);
+      font-size: 0.85em;
+   }
+   .mcp-table td {
+      padding: 0.5rem 0.9rem 0.5rem 0;
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: top;
+      color: var(--leji-text-body);
+   }
+   .mcp-table td:first-child {
+      white-space: nowrap;
+   }
+   .mcp-table td code {
+      color: var(--leji-text);
+      font-size: 0.85em;
+   }
+</style>

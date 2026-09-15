@@ -15,9 +15,12 @@ builds:
     flags:
       - -trimpath
     # Stamp SDKVersion so the binary's `leji --version` matches the released tag.
+    # ReleaseBuild says this IS the release: the build happens in a checkout, so Go
+    # records a vcs.revision that would otherwise print as a +dev build marker.
     ldflags:
       - -s -w
       - -X github.com/leji-org/leji/packages/sdk-go/internal/schemas.SDKVersion={{ .Version }}
+      - -X github.com/leji-org/leji/packages/sdk-go/internal/schemas.ReleaseBuild=1
     goos:
       - linux
       - darwin

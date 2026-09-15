@@ -1,0 +1,110 @@
+---
+// Brazilian Portuguese translation of src/pages/manifest.astro. The English page is
+// the page of record; `source` is its git blob sha at the revision this translation
+// follows. The layout is `Doc.astro`'s, written out here because that layout takes
+// no `lang` and a translated page has to declare its own.
+//
+// The field rows and the lede come from the JSON Schema. The schema file itself is a
+// machine surface and is never translated; what this page shows of it is read through the
+// locale's schema map, the same one the translated schema reference renders from, so the
+// two pages state the same contract in the same words.
+import fs from 'node:fs';
+import path from 'node:path';
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import SchemaFields from '../../components/SchemaFields.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import { localizeSchema, readSchemaSources, schemaMap, schemaMapInputs } from '../../schema-i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+import { REPO_ROOT, SITE_ROOT } from '../../repo-root';
+
+const source = 'f3e18af84beae4479599b3eb247f7e8ff97cb27c';
+const strings = translationStrings('pt-br');
+
+// Field rows are generated from the schema, so this page can't drift from it.
+const schemaRaw = fs.readFileSync(path.join(REPO_ROOT, 'schemas', 'context-manifest.schema.json'), 'utf-8');
+const schemaMapPtBr = schemaMap('pt-br', schemaMapInputs(readSchemaSources()));
+const schema = localizeSchema(JSON.parse(schemaRaw), schemaMapPtBr['context-manifest'].strings);
+// A manifest that exercises every field; verified against the schema above.
+const exampleRaw = fs.readFileSync(path.join(SITE_ROOT, 'src', 'data', 'manifest-complete.json'), 'utf-8');
+---
+
+<Base
+   lang="pt-br"
+   title="O manifesto (leji.json) · Leji"
+   description="O manifesto leji.json: o ponto de entrada de máquina de uma camada de contexto Leji, que declara a raiz do contexto, o perfil de boot, os arquivos de índice de categoria e a declaração de conformidade."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/manifest/" />
+         <main id="content" class="prose">
+            <PageHeader kind="reference" />
+            <h1>O manifesto: <code>leji.json</code></h1>
+            <TranslationNote strings={strings.note} href="/manifest/" />
+            <p class="sp-lede">{schema.description}</p>
+
+            <p>
+               O manifesto é o único nome de arquivo fixo do Leji, portanto é o único arquivo que as ferramentas sempre
+               podem esperar encontrar na raiz do repositório.
+            </p>
+            <p>
+               As linhas dos campos são geradas a partir{' '}
+               <a href="/pt-br/schemas/context-manifest/">do schema</a>, portanto o conteúdo daqui não diverge do
+               contrato. Esta página apresenta os campos de nível superior e alguns campos aninhados; para estruturas
+               mais profundas, como os papéis e comandos de um ator, leia o próprio schema. Os campos obrigatórios estão
+               marcados.
+            </p>
+
+            <h2>Campos</h2>
+            <SchemaFields schema={schema} />
+
+            <h2>Um exemplo completo</h2>
+            <p>
+               Este é o exemplo de uma camada de contexto federada, com alcance organizacional, que monta uma irmã e usa
+               muito mais campos do manifesto do que uma camada real precisa. A maioria das camadas de contexto declara
+               apenas o subconjunto que usa: <code>leji init</code> gera um punhado desses campos, e um manifesto <code
+                  >core</code
+               > é bem mais curto.
+            </p>
+            <p>
+               Há dois detalhes do formato que podem gerar confusão: cada categoria aponta para <strong
+                  >arquivos de índice</strong
+               > escritos à mão, não para diretórios de conteúdo; e <code>agents</code> associa identificadores de papel a
+               documentos de perfil. Trata-se de um diretório de papéis, não de uma ordem de carregamento, portanto criar
+               uma associação nunca faz com que o perfil seja lido.
+            </p>
+            <p>
+               Um dos campos é condicional, não declarativo: <code>viewer.theme.link</code> colore os links do corpo e o código
+               em linha somente quando alcança 4,5:1 contra o fundo do código em linha do visualizador, e um valor que fica
+               abaixo desse limite gera um aviso, enquanto o tom acessível padrão é mantido.
+            </p>
+            <div class="manifest-example">
+               <Code code={exampleRaw.trimEnd()} lang="json" theme={lejiSyntaxTheme} wrap />
+            </div>
+
+            <p>
+               Veja <a href="/pt-br/spec/machine-readable-surface/">a superfície legível por máquina</a> para saber como o
+               manifesto se relaciona com o índice, o changelog e os perfis, e{' '}
+               <a href="/pt-br/spec/versioning/">versionamento</a> para a chave <code>leji</code> da linha da especificação.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .manifest-example :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+   }
+</style>

@@ -389,9 +389,9 @@ test('strict: the gate is the lint class, and a failed run leaves the target byt
    const strictDoc = JSON.parse(strict.stdout) as { ok: boolean; findings: unknown[] };
    assert.equal(strictDoc.ok, true);
    assert.deepEqual(strictDoc.findings, plainDoc.findings, 'the same findings, and still written');
-   // The class the gate does promote is the rendering lint's, so F4's findings fail
-   // a strict run the day they land. What that promotion DOES is pinned behaviorally
-   // by the test below; this only names the class the gate is scoped to.
+   // The class the gate does promote is the rendering lint's, so those findings
+   // fail a strict run. What that promotion DOES is pinned behaviorally by the
+   // test below; this only names the class the gate is scoped to.
    assert.ok(STRICT_LINT_RULES.has('render-unsupported'), 'the lint class is what --strict promotes');
 
    const distDir = path.join(dir, '.leji', 'dist');

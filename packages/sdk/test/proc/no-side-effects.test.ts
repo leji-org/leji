@@ -12,6 +12,7 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { run } from '../../dist/index.js';
+import { displayVersion } from '../../dist/lib/schemas.js';
 
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const repoRoot = path.resolve(pkgRoot, '..', '..');
@@ -124,7 +125,7 @@ for (const name of documented) {
          const r = await runCli([...name.split(' '), meta], dir);
          assert.equal(r.code, 0, `${name} ${meta} exited ${r.code}: ${r.stderr}`);
          if (meta === '--help') assert.match(r.stdout, /Usage: leji/);
-         else assert.match(r.stdout.trim(), /^\d+\.\d+\.\d+$/);
+         else assert.equal(r.stdout.trim(), displayVersion());
          assert.deepEqual(snapshot(dir), before, `${name} ${meta} wrote files`);
       });
    }

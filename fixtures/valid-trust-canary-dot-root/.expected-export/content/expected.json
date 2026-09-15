@@ -71,6 +71,11 @@
         { "path": "/content/context/decisions.md", "status": 200 },
         { "path": "/content/_sidebar.md", "status": 200 },
         { "path": "/content/_manifest.md", "status": 200, "note": "mount status metadata only, never mounted bytes" },
+        {
+          "path": "/content/_decisions.md",
+          "status": 200,
+          "note": "generated chrome the sidebar names; record frontmatter only, never mounted bytes"
+        },
         { "path": "/content/context-index.json", "status": 200 },
         {
           "path": "/content/leji.json",

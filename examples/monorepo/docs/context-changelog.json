@@ -32,6 +32,16 @@
       ],
       "proposedBy": "agent:claude",
       "approvedBy": "Jo Lee"
+    },
+    {
+      "id": "ownership-to-platform-team",
+      "date": "2026-09-11",
+      "type": "governance",
+      "summary": "Ownership of the context layer handed from Jo Lee to the Acme Platform Team.",
+      "paths": [
+        "leji.json"
+      ],
+      "approvedBy": "Acme Platform Team"
     }
   ]
 }

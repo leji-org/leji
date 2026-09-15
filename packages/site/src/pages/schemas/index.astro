@@ -2,21 +2,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Doc from '../../layouts/Doc.astro';
+import { schemaInventory, schemaProjection } from '../../schema-i18n';
+import { REPO_ROOT } from '../../repo-root';
 
-const SCHEMA_DIR = path.resolve(process.cwd(), '../../schemas');
-const schemas = fs
-   .readdirSync(SCHEMA_DIR)
-   .filter((f) => f.endsWith('.schema.json'))
-   .sort()
-   .map((file) => {
-      const parsed = JSON.parse(fs.readFileSync(path.join(SCHEMA_DIR, file), 'utf-8'));
-      return {
-         file,
-         name: file.replace(/\.schema\.json$/, ''),
-         title: parsed.title,
-         description: parsed.description,
-      };
-   });
+const SCHEMA_DIR = path.join(REPO_ROOT, 'schemas');
+// Title and description come off the projection, which is the one tree every schema page
+// renders from, so this list and the pages it links to can never name a schema two ways.
+const schemas = schemaInventory(fs.readdirSync(SCHEMA_DIR)).map((name) => {
+   const file = `${name}.schema.json`;
+   const { title, description } = schemaProjection(JSON.parse(fs.readFileSync(path.join(SCHEMA_DIR, file), 'utf-8')));
+   return { file, name, title: title?.text, description: description?.text };
+});
 ---
 
 <Doc

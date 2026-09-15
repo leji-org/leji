@@ -34,6 +34,14 @@ CANARY_DRIVEN = {
 FINDING_KEYS = ("rule", "severity", "path", "line", "construct")
 
 
+def _shape(f: dict) -> dict:
+    """A finding as the (rule, severity, path, line, construct) tuple the block matches
+    on, carrying only the coordinates the finding actually has: a manifest-level finding
+    names no path, line, or construct, and an expected entry states it the same way — by
+    leaving the key out — rather than by spelling an absent value."""
+    return {k: f[k] for k in FINDING_KEYS if f.get(k) is not None}
+
+
 def _expected(name: str) -> dict:
     return json.loads((FIXTURES / name / "expected.json").read_text(encoding="utf-8"))
 
@@ -127,8 +135,8 @@ def test_render_fixture_export_block(name: str, tmp_path: Path, capsys) -> None:
     assert doc["out"].replace("\\", "/") == block["out"], "the declared output directory"
     # Matched on (rule, severity, path, line, construct) IN ORDER — message text is
     # never compared, and the order is the canonical one the three SDKs share.
-    got = [{k: f.get(k) for k in FINDING_KEYS} for f in doc["findings"]]
-    assert got == block["findings"], f"findings for {name}"
+    got = [_shape(f) for f in doc["findings"]]
+    assert got == [_shape(f) for f in block["findings"]], f"findings for {name}"
 
     # `roles` is the layout's role map — which directory each role NAMES — and
     # present/absent say which of them a given run establishes: a `--strict` run names
@@ -153,6 +161,19 @@ def test_render_fixture_export_block(name: str, tmp_path: Path, capsys) -> None:
 
     # --- the golden tree -----------------------------------------------------
     out = _fixture_abs(directory, _fixture_rel(block["out"], "export out"))
+
+    # The chrome page's conditional content, as substrings: what a manifest value put
+    # into the generated <style>, and what a refused one must have left out. A named
+    # substring, not the whole file, so the assertion says which decision it pins; the
+    # golden tree stays the exhaustive byte contract.
+    index_html = block.get("indexHtml")
+    if index_html:
+        page = (out / "index.html").read_text(encoding="utf-8")
+        for needle in index_html.get("contains", []):
+            assert needle in page, f"{name}: index.html carries {needle!r}"
+        for needle in index_html.get("absent", []):
+            assert needle not in page, f"{name}: index.html must not carry {needle!r}"
+
     golden = block["goldenTree"]
     if golden["status"] == "none":
         assert not out.exists(), "a run that writes no export tree has nothing to bake"

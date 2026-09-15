@@ -1,69 +1,87 @@
 ---
 // Stable doc sidebar; only the active item changes. Collapsible groups persist open/closed across pages (localStorage).
 import { SPEC_DOCS, specPath } from '../data/spec-docs';
+import { navStrings } from '../data/i18n';
+import { englishKey, localeOf, localizedHref } from '../i18n';
 const { current } = Astro.props as { current: string };
 
-const here = (href: string) => (current === href ? 'page' : undefined);
-const schemasHere = current.startsWith('/schemas') ? 'page' : undefined;
+// `current` is the English route the page stands for, in either language; the language
+// itself is the page's own URL. Both sides of the comparison reduce to the English
+// route, so a translated page highlights the entry its page of record highlights.
+const locale = localeOf(Astro.url.pathname);
+const nav = navStrings(locale);
+const to = (route: string) => localizedHref(route, locale);
+
+const currentKey = englishKey(current);
+const here = (route: string) => (currentKey === englishKey(route) ? 'page' : undefined);
+const schemasHere = currentKey.startsWith('/schemas') ? 'page' : undefined;
 ---
 
-<nav class="doc-nav" aria-label="Documentation">
+<nav class="doc-nav" aria-label={nav.documentation}>
    <details data-group="spec" open>
-      <summary><span>Specification</span><span class="chev" aria-hidden="true">›</span></summary>
+      <summary><span>{nav.specification}</span><span class="chev" aria-hidden="true">›</span></summary>
       <ol>
          {
             SPEC_DOCS.map((d) => (
                <li>
-                  <a href={specPath(d.id)} aria-current={here(specPath(d.id))}>
-                     {d.label}
+                  <a href={to(specPath(d.id))} aria-current={here(specPath(d.id))}>
+                     {nav.specDocs[d.id]}
                   </a>
                </li>
             ))
          }
       </ol>
+      <ol class="plain">
+         <li>
+            <a href={to('/spec/full/')} aria-current={here('/spec/full/')}>{nav.onePage}</a>
+         </li>
+      </ol>
    </details>
 
    <details data-group="reference" open>
-      <summary><span>Reference</span><span class="chev" aria-hidden="true">›</span></summary>
+      <summary><span>{nav.reference}</span><span class="chev" aria-hidden="true">›</span></summary>
       <ol class="plain">
          <li>
-            <a href="/manifest/" aria-current={here('/manifest/')}>Manifest (leji.json)</a>
+            <a href={to('/manifest/')} aria-current={here('/manifest/')}>{nav.manifestFile}</a>
          </li>
          <li>
-            <a href="/schemas/" aria-current={schemasHere}>Schemas</a>
+            <a href={to('/schemas/')} aria-current={schemasHere}>{nav.schemas}</a>
          </li>
          <li>
-            <a href="/cli/" aria-current={here('/cli/')}>CLI</a>
+            <a href={to('/cli/')} aria-current={here('/cli/')}>{nav.cli}</a>
          </li>
          <li>
-            <a href="/mcp/" aria-current={here('/mcp/')}>MCP server</a>
+            <a href={to('/mcp/')} aria-current={here('/mcp/')}>{nav.mcp}</a>
          </li>
       </ol>
    </details>
 
    <details data-group="resources" open>
-      <summary><span>Resources</span><span class="chev" aria-hidden="true">›</span></summary>
+      <summary><span>{nav.resources}</span><span class="chev" aria-hidden="true">›</span></summary>
       <ol class="plain">
          <li>
-            <a href="/quickstart/" aria-current={here('/quickstart/')}>Quickstart</a>
+            <a href={to('/quickstart/')} aria-current={here('/quickstart/')}>{nav.quickstart}</a>
          </li>
          <li>
-            <a href="/agent-ready/" aria-current={here('/agent-ready/')}>Agent-ready</a>
+            <a href={to('/agent-ready/')} aria-current={here('/agent-ready/')}>{nav.agentReady}</a>
          </li>
          <li>
-            <a href="/adoption/" aria-current={here('/adoption/')}>Adoption guides</a>
+            <a href={to('/adoption/')} aria-current={here('/adoption/')}>{nav.adoptionGuide}</a>
          </li>
          <li>
-            <a href="/federation/" aria-current={here('/federation/')}>Federation</a>
+            <a href={to('/federation/')} aria-current={here('/federation/')}>{nav.federation}</a>
          </li>
          <li>
-            <a href="/rationale/" aria-current={here('/rationale/')}>Rationale</a>
+            <a href={to('/rationale/')} aria-current={here('/rationale/')}>{nav.rationale}</a>
          </li>
          <li>
-            <a href="/ai-native/" aria-current={here('/ai-native/')}>AI-native teams</a>
+            <a href={to('/ai-native/')} aria-current={here('/ai-native/')}>{nav.aiNative}</a>
          </li>
          <li>
-            <a href="/trust/" aria-current={here('/trust/')}>Trust</a>
+            <a href={to('/trust/')} aria-current={here('/trust/')}>{nav.trust}</a>
+         </li>
+         <li>
+            <a href={to('/translation/')} aria-current={here('/translation/')}>{nav.translation}</a>
          </li>
       </ol>
    </details>

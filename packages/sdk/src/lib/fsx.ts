@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { type TargetVerdict, LEJI_DIR, LEJI_IGNORE_REL, lejiRole, writableTarget } from './layout.js';
+import { byteCompare } from './text.js';
 
 export function toPosix(p: string): string {
    return p.split(path.sep).join('/');
@@ -38,7 +39,7 @@ export function readText(abs: string): string {
  * out.
  */
 export function readTextWithin(rootAbs: string, abs: string): string | null {
-   if (!isFile(abs) || !resolvedWithinRoot(rootAbs, abs)) return null;
+   if (!resolvedWithinRoot(rootAbs, abs) || !isFile(abs)) return null;
    return readText(abs);
 }
 
@@ -521,7 +522,13 @@ export function verifiedTargetRead(rootAbs: string, targetAbs: string, ownRoleRe
 
 /**
  * Recursively collect markdown files under a declared path (file or directory) as
- * repo-root-relative POSIX paths, sorted. Symlink-escaping entries are excluded.
+ * repo-root-relative POSIX paths, in byte order. Symlink-escaping entries are
+ * excluded.
+ *
+ * Byte order, never `sort()`'s UTF-16 code units: this order reaches generated
+ * output (the agent-profile scan hands it straight to the viewer's Agents group),
+ * and the Python and Go walks sort by code point and by bytes, which agree with each
+ * other and disagree with UTF-16 above the BMP.
  */
 export function walkMd(root: string, relPath: string): string[] {
    const rootAbs = path.resolve(root);
@@ -547,7 +554,7 @@ export function walkMd(root: string, relPath: string): string[] {
          }
       }
    }
-   return out.sort();
+   return out.sort(byteCompare);
 }
 
 /**

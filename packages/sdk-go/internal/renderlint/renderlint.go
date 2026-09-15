@@ -112,8 +112,9 @@ var (
 	lineTag = regexp.MustCompile(`^</?([A-Za-z][A-Za-z0-9-]*)([ \t]|/?>|$)`)
 )
 
-// escapable is CommonMark's escapable set: ASCII punctuation, and nothing else.
-func escapable(b byte) bool {
+// Escapable is CommonMark's escapable set: ASCII punctuation, and nothing else.
+// Shared with the link scan, which honors the same escapes this one does.
+func Escapable(b byte) bool {
 	return (b >= '!' && b <= '/') || (b >= ':' && b <= '@') || (b >= '[' && b <= '`') || (b >= '{' && b <= '~')
 }
 
@@ -185,6 +186,32 @@ func indentOf(line string) int {
 	return n
 }
 
+// fenceOpenAt is a fence opener on a line already stripped of its indent, or nil.
+func fenceOpenAt(rest string) []string {
+	fence := fenceOpen.FindStringSubmatch(rest)
+	if fence == nil || (fence[1][0] != '~' && strings.Contains(fence[2], "`")) {
+		return nil
+	}
+	return fence
+}
+
+// fenceCloseLine is the last line of the fenced block opened at li: the one carrying
+// its closer, or the document's last line when nothing closes it.
+func fenceCloseLine(text string, starts []int, li int, fence []string) int {
+	closeLi := li + 1
+	for ; closeLi < len(starts); closeLi++ {
+		candidate := lineTextAt(text, starts, closeLi)
+		m := fenceClose.FindStringSubmatch(candidate[indentOf(candidate):])
+		if m != nil && m[1][0] == fence[1][0] && len(m[1]) >= len(fence[1]) {
+			break
+		}
+	}
+	if closeLi > len(starts)-1 {
+		return len(starts) - 1
+	}
+	return closeLi
+}
+
 // indexFrom is strings.Index over text[from:], as an absolute offset or -1.
 func indexFrom(text, sub string, from int) int {
 	if from > len(text) {
@@ -229,19 +256,8 @@ func blockRegions(text string, starts []int) []region {
 		rest := line[indent:]
 		at := starts[li] + indent
 
-		if fence := fenceOpen.FindStringSubmatch(rest); fence != nil && (fence[1][0] == '~' || !strings.Contains(fence[2], "`")) {
-			closeLi := li + 1
-			for ; closeLi < len(starts); closeLi++ {
-				candidate := lineTextAt(text, starts, closeLi)
-				m := fenceClose.FindStringSubmatch(candidate[indentOf(candidate):])
-				if m != nil && m[1][0] == fence[1][0] && len(m[1]) >= len(fence[1]) {
-					break
-				}
-			}
-			last := closeLi
-			if last > len(starts)-1 {
-				last = len(starts) - 1
-			}
+		if fence := fenceOpenAt(rest); fence != nil {
+			last := fenceCloseLine(text, starts, li, fence)
 			regions = append(regions, region{start: starts[li], end: lineEndOf(text, starts, last)})
 			li = last + 1
 			continue
@@ -374,6 +390,94 @@ func afterCodeSpan(text string, regions []region, i int) int {
 	return i + open
 }
 
+// excludedRegions are the regions no scan of prose may read: the leading
+// frontmatter block and every fenced code block, by the same boundaries
+// blockRegions applies (fences at up to three spaces of indent, CRLF terminators, an
+// unclosed fence running to the end of the document). The HTML forms are
+// deliberately absent: a comment or an HTML block is excluded from the RENDER lint
+// because the profile excepts it, which says nothing about the links a consumer
+// reads out of one.
+func excludedRegions(text string, starts []int) []region {
+	var regions []region
+	n := len(text)
+	li := 0
+
+	fm := frontmatter.Parse(text)
+	if len(fm.Body) != n {
+		end := n - len(fm.Body)
+		regions = append(regions, region{start: 0, end: end})
+		if end >= n {
+			li = len(starts)
+		} else {
+			li = lineOf(starts, end)
+		}
+	}
+
+	for ; li < len(starts); li++ {
+		line := lineTextAt(text, starts, li)
+		indent := indentOf(line)
+		if indent >= 4 {
+			continue
+		}
+		fence := fenceOpenAt(line[indent:])
+		if fence == nil {
+			continue
+		}
+		last := fenceCloseLine(text, starts, li, fence)
+		regions = append(regions, region{start: starts[li], end: lineEndOf(text, starts, last)})
+		li = last
+	}
+	return regions
+}
+
+// ProseRegion is one run of prose: a slice of the document with its position in it,
+// so a scan over the run reports absolute coordinates.
+type ProseRegion struct {
+	// Text is the prose itself, a verbatim slice of the document.
+	Text string
+	// Line is the 1-based line Text opens on.
+	Line int
+	// Column is the 0-based column Text opens at, which is how a consumer tells a
+	// region that opens a line from one resuming mid-line after a code span.
+	Column int
+}
+
+// ProseRegions is the document minus everything a scan of prose must not read: the
+// excluded regions above, and every code span, walked by the same traversal the
+// render lint's inline pass uses (afterCodeSpan — a backtick run closed by a run of
+// exactly the same length, an unclosed run consumed as the literal text it is,
+// neither crossing an excluded region). Regions come back in document order and
+// never overlap; an empty one is never returned.
+func ProseRegions(text string) []ProseRegion {
+	starts := lineStartsOf(text)
+	excluded := excludedRegions(text, starts)
+	var out []ProseRegion
+	at, i := 0, 0
+	emit := func(end int) {
+		if end > at {
+			line := lineOf(starts, at)
+			out = append(out, ProseRegion{Text: text[at:end], Line: line + 1, Column: at - starts[line]})
+		}
+	}
+	for i < len(text) {
+		if skip := skipRegion(excluded, i); skip != i {
+			emit(i)
+			i = skip
+			at = i
+			continue
+		}
+		if text[i] == '`' {
+			emit(i)
+			i = afterCodeSpan(text, excluded, i)
+			at = i
+			continue
+		}
+		i++
+	}
+	emit(len(text))
+	return out
+}
+
 // nextMathDelimiter is the next unescaped `$$` at or after from, or -1. A delimiter
 // is a closer only where a delimiter can be read: not inside a code span, not inside
 // a comment, and not on the far side of a block boundary — a pair no more bridges a
@@ -385,7 +489,7 @@ func nextMathDelimiter(text string, regions []region, from int) int {
 		if skipRegion(regions, j) != j {
 			return -1
 		}
-		if text[j] == '\\' && j+1 < len(text) && escapable(text[j+1]) {
+		if text[j] == '\\' && j+1 < len(text) && Escapable(text[j+1]) {
 			j += 2
 			continue
 		}
@@ -453,7 +557,7 @@ func ScanRenderConstructs(text string) []Hit {
 			continue
 		}
 		c := text[i]
-		if c == '\\' && i+1 < len(text) && escapable(text[i+1]) {
+		if c == '\\' && i+1 < len(text) && Escapable(text[i+1]) {
 			i += 2
 			continue
 		}

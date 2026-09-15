@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from leji.cli import main
-from leji.schemas import load_cli_spec
+from leji.schemas import display_version, load_cli_spec
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO_ROOT / "examples" / "monorepo"
@@ -40,7 +40,7 @@ def test_version_prints_sdk_version() -> None:
         [sys.executable, "-m", "leji.cli", "--version"], capture_output=True, text=True
     )
     assert result.returncode == 0
-    assert result.stdout.strip().count(".") == 2
+    assert result.stdout.strip() == display_version()
 
 
 def test_version_flag_aliases(capsys) -> None:
@@ -57,7 +57,7 @@ def test_v_flag_short_circuits_command(capsys, tmp_path) -> None:
     # `init -v` prints the version and must not scaffold (no side effects).
     code, out, _ = run_cli(capsys, ["init", "--dir", str(tmp_path), "-v"])
     assert code == 0
-    assert out.strip().count(".") == 2
+    assert out.strip() == display_version()
     assert not (tmp_path / "leji.json").exists()
 
 
@@ -160,12 +160,15 @@ def test_changelog_compact_without_flags_exits_2(capsys) -> None:
 def test_changelog_compact_keep_folds_oldest_and_reports_counts(tmp_path, capsys) -> None:
     layer = tmp_path / "layer"
     shutil.copytree(EXAMPLE, layer)
+    source = json.loads((EXAMPLE / "docs" / "context-changelog.json").read_text())
+    n = len(source["entries"])
+    assert n >= 2, f"the example changelog needs at least 2 entries, has {n}"
     code, out, _ = run_cli(
         capsys, ["changelog", "compact", "--keep", "1", "--root", str(layer), "--json"]
     )
     assert code == 0, out
     payload = json.loads(out)
-    assert payload["folded"] == 1  # example has 2 entries; keep newest 1
+    assert payload["folded"] == n - 1  # keep newest 1
     assert payload["kept"] == 2  # 1 survivor + the compaction entry
     log = json.loads((layer / "docs" / "context-changelog.json").read_text())
     assert log["entries"][-1]["type"] == "compaction"
@@ -572,7 +575,7 @@ def test_meta_flags_never_write(tmp_path, monkeypatch, capsys, name, meta):
     if meta == "--help":
         assert "Usage: leji" in out
     else:
-        assert out.strip().count(".") == 2
+        assert out.strip() == display_version()
     assert _snapshot(tmp_path) == before, f"{name} {meta} wrote files"
 
 

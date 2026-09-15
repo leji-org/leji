@@ -1,6 +1,8 @@
 # Dependabot configuration. fixtures/ holds the ecosystem-detection test fixtures,
-# several of which are deliberately malformed manifests; exclude-paths keeps every
-# Dependabot job (version updates and dependency-graph submission) from parsing them.
+# several of which are deliberately malformed manifests; exclude-paths keeps
+# Dependabot's update jobs from opening pull requests for them. The dependency
+# graph still parses every manifest it finds, fixtures included, so an alert on a
+# fixtures/ path is dismissed as "not used" rather than fixed there.
 # open-pull-requests-limit: 0 leaves scheduled version-update PRs off; security
 # updates and the dependency graph for the real manifests are unaffected.
 version: 2

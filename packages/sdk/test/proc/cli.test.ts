@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { run } from '../../dist/index.js';
+import { displayVersion } from '../../dist/lib/schemas.js';
 
 const execFileAsync = promisify(execFile);
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -62,7 +63,7 @@ async function runCli(args: string[]): Promise<CliResult> {
 test('cli --version prints the SDK version', async () => {
    const result = await runCliProc(['--version']);
    assert.equal(result.code, 0);
-   assert.match(result.stdout.trim(), /^\d+\.\d+\.\d+$/);
+   assert.equal(result.stdout.trim(), displayVersion());
 });
 
 test('cli with no command shows usage and exits 2', async () => {

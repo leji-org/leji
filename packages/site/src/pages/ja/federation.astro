@@ -1,0 +1,181 @@
+---
+// Japanese translation of src/pages/federation.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+
+const source = '0448756deaad3c402173b30bac77dc310e71a6d8';
+const strings = translationStrings('ja');
+
+// Manifest keys and command lines stay in the source language: they are typed, not read.
+const mounts = `"federation": {
+   "mounts": [
+      {
+         "name": "product-context",
+         "source": "https://github.com/acme/product-context",
+         "pin": "7d3f2a19c4e8b6a0d5f1c2e9b8a7f6d5c4b3a2e1", // 完全なコミット ID：記録上のバージョン
+         "trackingRef": "refs/heads/main",                    // 古さはこれを基準に判断する
+         "owner": { "name": "Product team", "contact": "product@acme.example" },
+         "role": "product-side context, owned by the product team",
+         // 経路の決定：このマウントが作業に関係する条件
+         "categories": ["domain", "decisions"],
+         "requiredWhen": ["a task changes how a plan or entitlement is represented"]
+      }
+   ]
+}`;
+
+const commands = `leji mounts hydrate --fetch      # 各兄弟のレイヤー投影をそのピンで実体化する
+leji mounts status               # 可用性、完全性、各ピンの遅れを確認する
+leji mounts update-pin <name>    # ひとつのピンを観測済みのコミットまで進める
+leji mounts locate <name>        # 読み手が兄弟を読む場所を示す`;
+---
+
+<Base
+   lang="ja"
+   title="フェデレーション · Leji"
+   description="個別に所有される Leji コンテキストレイヤーを、ピン留めした兄弟マウントとして合成します。各チームのリポジトリ、所有関係、レビューの流れはそのまま維持されます。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/federation/" />
+         <main id="content" class="prose">
+            <PageHeader kind="guide" />
+            <h1>フェデレーション</h1>
+            <TranslationNote strings={strings.note} href="/federation/" />
+            <p class="sp-lede">
+               フェデレーションを使うと、個別に所有されるコンテキストレイヤーを、統合したり更新責任を移したりすることなく、チームでまとめて参照できます。
+            </p>
+
+            <h2>中央集約ではなく合成する理由</h2>
+            <p>
+               コンテキストレイヤーが最新に保たれるのは、所有者が仕事の中で読み、修正するからです。他チームの内容を中央に集約すると、内容と、それに責任を負う人たちが切り離されてしまいます。フェデレーションなら、リポジトリ、所有者、レビューの流れをそのまま維持できます。詳しい論拠は<a
+                  href="/ja/rationale/">設計の理由</a
+               >にあります。
+            </p>
+
+            <h2>兄弟マウントとは</h2>
+            <p>
+               兄弟とは、ホスト側が <code>federation.mounts</code>
+               で宣言する、別チームのコンテキストレイヤーです。この宣言では、ホストが参照する不変のコミットを完全な形でピン留めし、所有者と作業に応じた経路を記録します。ツールは、そのピンにある兄弟のマニフェストで定義されたレイヤーの投影を、git
+               管理外のキャッシュへ読み込みます。兄弟の内容がホストにコピーされることはありません。
+            </p>
+            <p>
+               投影とは、そのピンにある兄弟自身のマニフェストによって読み取り可能となる内容の総体です。<code
+                  >leji.json</code
+               >、コンテキストルート、ブートプロファイル、カテゴリインデックスファイル、<code>agents</code>
+               のバインディングが名指しするプロファイル、エージェントプロファイルと決定記録のツリー、機械可読なインデックスと変更履歴、そして生成されたインデックスが列挙する統制対象のパスすべてが、どこにあっても含まれます。
+            </p>
+            <p>
+               兄弟レイヤーは多くの場合、より大きな製品リポジトリ内にあります。この境界があるため、コンテキストを読むためだけに、マウントが製品全体を取り込むことはありません。
+            </p>
+            <p>
+               マウントは参照であり、フォークでもアクセス権の付与でもありません。権限は兄弟側に残り、誰が読めるかは引き続き兄弟のバージョン管理システムが決定します。マウントは、すでにアクセス権を持つ人が、その関係と選択されたリビジョンを確認できるようにするだけです。
+            </p>
+            <div class="federation-code"><Code code={mounts} lang="jsonc" theme={lejiSyntaxTheme} wrap /></div>
+            <p>
+               ピンの更新は、<code>leji.json</code>
+               に対する、レビュー済みの変更として行います。ホストは関係を宣言し、兄弟側は自身のリポジトリ、所有者、レビューのゲート、変更履歴、適合性の宣言を維持します。
+            </p>
+
+            <h2>マウントを扱う</h2>
+            <div class="federation-code"><Code code={commands} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+            <p>
+               <code>hydrate --fetch</code> は、明示的にネットワークから取得し、各投影をそのピンで実体化します。<code
+                  >status</code
+               > は、可用性、完全性、ピンの古さを調べます。<code>locate</code>
+               は、読み手が兄弟レイヤーを開くための、リゾルバ管理下のパスを返します。
+            </p>
+            <p>
+               マウントを最新に保つには、この一連の操作を繰り返します。<code>hydrate --fetch</code>
+               で出典を観測し、<code>status</code> で各ピンの遅れを確認します。次に <code>update-pin</code>
+               で、リゾルバが実際に観測したコミットまでピンを進め、もう一度 <code>hydrate</code>
+               を実行して、新しいピンで投影を実体化します。ピンの更新と実体化は別々の操作なので、手元の内容が変わる前に、書き換えをレビュー可能な差分として確認できます。
+            </p>
+            <p>
+               <code>update-pin</code>
+               は既定ではオフラインで動作します。実行時に実際に観測された最後の証跡まで進めるだけで、最新であることを示唆せず、その旨を出力に明記します。実行中に宣言された出典を観測するには
+               <code>--fetch</code>
+               を付けます。接続先はその出典だけです。途中のどこかで失敗した場合、処理は中止され、<code>leji.json</code> は変更されません。ピンは前方にしか進みません。現在のピンの子孫でない対象は、<code
+                  >--to &lt;oid&gt;</code
+               > で明示的に名指しし、さらに <code>--allow-non-fast-forward</code>
+               を付けないかぎり拒否されます。この組み合わせが必要になる理由として多いのは、上流ブランチが書き換えられた場合です。ただし、意図して以前のコミットへ巻き戻す場合にも必要になります。チェックしているのは履歴が書き換えられたかどうかではなく、祖先関係だからです。この組み合わせを使うたびに警告が表示され、JSON
+               出力にも記録されます。現在のピンから到達できないコミットへピンを移動するためです。マニフェストを変更せずに比較と変更内容を確認するには
+               <code>--dry-run</code> を使います。<code>--fetch</code>
+               と組み合わせた場合、そのフラグによるストア操作とネットワーク通信は実行されるため、取得したオブジェクトと参照は管理下のストアに残ります。
+            </p>
+            <p>
+               書き換えられるのはピン自体のバイト列だけです。そのため、フィールドの順序、書式、スキーマで定義されていないキーは、編集後もそのまま残ります。古いピンのキャッシュエントリもその場に残ります。内容アドレスで管理されているため、単に参照されなくなるだけです。整理用のコマンドはありません。容量を解放する場合は、<code
+                  >.leji/mounts/</code
+               > 配下の古いエントリを手動で削除してください。
+            </p>
+            <p>
+               ハイドレーションの途中で、不完全な投影が公開されることはありません。キャッシュは <code
+                  >.leji/mounts/</code
+               > 配下に置かれ、<code>init</code> がそれをルートの <code>.gitignore</code> に追加します。このパスは実装の詳細として扱ってください。<code
+                  >locate</code
+               > を使うと、兄弟レイヤーの参照先が分かります。キャッシュのパスを直接記述すると、公開方法が変わった際に動作しなくなります。
+            </p>
+            <p>
+               ビューアーでは、端末を使わずに同じ状態を確認できます。<code>leji viewer</code>
+               は、ホストと兄弟レイヤーを図示した Manifest ページを生成し、マウントごとに可用性、ずれ、所有者、ピン、出典を
+               1 行で表示します。ハイドレート後に再生成してください。
+            </p>
+
+            <h2><code>federated</code> を宣言する</h2>
+            <p>
+               ハイドレートされていないマウントは警告の対象ですが、ビルドは失敗しません。CI では <code
+                  >leji validate --federation=available|required</code
+               > を使って、可用性を必須にするか選択できます。通常の検証では取得を行わず、すべてのマウントを必須にも設定しません。
+            </p>
+            <p>
+               ローカルで利用できるだけでは、適合性を満たしません。ピンは <code>source</code>
+               で提示された参照から到達可能でなければならず、その確認にはネットワーク接続が必要です。このチェックには <code
+                  >leji conformance --federation=verify</code
+               > を実行してください。チェックが出典に到達できない場合は <code>unknown</code> と報告されます。<code
+                  >unknown</code
+               > がレベルを与えることは決してありません。
+            </p>
+            <p>
+               検証は必要条件ですが、それだけでは十分ではありません。<code>federated</code>
+               はさらに、このコンテキストレイヤー自身が別のリポジトリからピン留めされたマウントとして利用されていること、古いピンの報告が用意されていること、そしてブートプロファイルと生成されたインデックスがすべての兄弟を示していることを要求します。
+            </p>
+            <p>
+               最初の 2 項目はプロセスに関する申告なので、<code>verifiedLevel</code>
+               が利用者に代わって宣言することはありません。1 台のマシンで実体化したという事実は、適合性の入力にはなりません。
+            </p>
+
+            <h2>まず配布のパターンを選ぶ</h2>
+            <p>
+               ドキュメント専用の git
+               サブモジュールは、多数のリポジトリでひとつのコンテキストレイヤーを共有するためのものです。フェデレーションは、すでに個別のレイヤーを所有している複数のチームをつなぐためのものです。解決する課題が異なるため、フェデレーションがサブモジュールに取って代わることはありません。サブモジュールの詳しい手順は<a
+                  href="/ja/adoption/#where-it-lives">導入ガイド</a
+               >にあります。
+            </p>
+            <p>
+               規範的な投影の閉包、失敗の境界、フェデレーションの完全な規則については、<a href="/ja/spec/distribution/"
+                  >配布</a
+               >を参照してください。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .federation-code :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+   }
+</style>

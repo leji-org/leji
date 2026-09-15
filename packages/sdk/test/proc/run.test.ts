@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { run, serveViewer, generateViewer, loadManifest } from '../../dist/index.js';
+import { displayVersion } from '../../dist/lib/schemas.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const exampleDir = path.join(repoRoot, 'examples', 'monorepo');
@@ -36,7 +37,7 @@ async function runInProcess(argv: string[]): Promise<Captured> {
 test('run version', async () => {
    const r = await runInProcess(['version']);
    assert.equal(r.code, 0);
-   assert.match(r.out, /^\d+\.\d+\.\d+$/);
+   assert.equal(r.out, displayVersion());
 });
 
 test('--version and -v print the version; -V is not a version flag', async () => {
@@ -58,7 +59,7 @@ test('-v short-circuits before a command runs (no side effects)', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-run-vflag-'));
    const r = await runInProcess(['init', '--dir', dir, '-v']);
    assert.equal(r.code, 0);
-   assert.match(r.out, /^\d+\.\d+\.\d+$/);
+   assert.equal(r.out, displayVersion());
    assert.equal(fs.existsSync(path.join(dir, 'leji.json')), false, '-v did not scaffold');
 });
 
@@ -192,10 +193,13 @@ test('run changelog compact without --keep or --before exits 2', async () => {
 test('run changelog compact --keep folds the oldest and reports counts', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-run-compact-'));
    fs.cpSync(exampleDir, dir, { recursive: true });
+   const source = JSON.parse(fs.readFileSync(path.join(exampleDir, 'docs', 'context-changelog.json'), 'utf8'));
+   const n = source.entries.length;
+   assert.ok(n >= 2, `the example changelog needs at least 2 entries, has ${n}`);
    const r = await runInProcess(['changelog', 'compact', '--keep', '1', '--root', dir, '--json']);
    assert.equal(r.code, 0, r.out + r.err);
    const payload = JSON.parse(r.out);
-   assert.equal(payload.folded, 1); // example has 2 entries; keep newest 1
+   assert.equal(payload.folded, n - 1); // keep newest 1
    assert.equal(payload.kept, 2); // 1 survivor + the compaction entry
    const log = JSON.parse(fs.readFileSync(path.join(dir, 'docs', 'context-changelog.json'), 'utf8'));
    assert.equal(log.entries[log.entries.length - 1].type, 'compaction');
@@ -283,7 +287,7 @@ test('a default scaffold satisfies the CI the generator writes', async () => {
 // The other half of the `leji index` rule. When generation hits a hard finding the
 // index is not written, so the scaffold must not claim it, must not seed a
 // changelog off it, must say why, and must fail: a silent success here hands back a
-// layer whose generated CI fails, which is the defect this whole item removes.
+// layer whose generated CI fails, which is the defect this change removes.
 test('a scaffold that cannot be indexed reports it and fails', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-unindexable-'));
    fs.mkdirSync(path.join(dir, 'docs', 'domain'), { recursive: true });

@@ -27,9 +27,11 @@ import { type Manifest } from '../lib/manifest.js';
 import { renderLintFindings } from '../lib/renderlint.js';
 import {
    ACTIVE_EXTENSIONS,
+   DECISIONS_REL,
    OVERVIEW_REL,
    buildIndexHtml,
    generateViewer,
+   hasDecisionsPage,
    renderOverview,
    resolvedProfilePages,
 } from './viewer.js';
@@ -478,6 +480,11 @@ export function buildViewer(root: string, manifest: Manifest, outRel?: string, o
    // The generated sidebar is served as if at the content root.
    copyChrome(path.join(viewerAbs, '_sidebar.md'), path.join(outContent, '_sidebar.md'));
    copyChrome(path.join(viewerAbs, '_manifest.md'), path.join(outContent, '_manifest.md'));
+   // The Decisions page exists only where the layer declares a decisions category,
+   // so the copy is conditional on the same predicate the generation used.
+   if (hasDecisionsPage(manifest)) {
+      copyChrome(path.join(viewerAbs, DECISIONS_REL), path.join(outContent, DECISIONS_REL));
+   }
    // The viewer assets at the web root.
    copyChromeTree(path.join(viewerAbs, 'assets'), path.join(outAbs, 'assets'));
    // index.html at the web root, with the protect-your-context warning prepended.

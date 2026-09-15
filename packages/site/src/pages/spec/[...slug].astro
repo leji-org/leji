@@ -12,7 +12,7 @@ export async function getStaticPaths() {
 }
 
 const { doc } = Astro.props;
-const { Content } = await render(doc);
+const { Content, headings } = await render(doc);
 const docTitle = specDocTitle(doc.id);
 // Structured data must name the page as a reader sees it, so the headline comes
 // from the document's own H1 rather than the sidebar label, which is sentence
@@ -46,10 +46,59 @@ const articleLd = {
 const order = SPEC_DOCS.findIndex((d) => d.id === doc.id);
 const prev = order > 0 ? SPEC_DOCS[order - 1] : null;
 const next = order >= 0 && order < SPEC_DOCS.length - 1 ? SPEC_DOCS[order + 1] : null;
+
+// The longer documents are read section by section, and the frozen prose carries
+// no contents of its own. The anchors already exist on every h2-h4, so the list is
+// only a view over them. Three sections is where it starts to pay: below that the
+// document is one screen and the list is a second thing to read.
+interface TocEntry {
+   slug: string;
+   text: string;
+   children: { slug: string; text: string }[];
+}
+// Each heading's permalink anchor is a child of the heading, so its `#` is part of
+// the text content the collection reports. It belongs to the heading, not the title.
+const label = (text: string) => text.replace(/#$/, '').trimEnd();
+const contents: TocEntry[] = [];
+for (const h of headings) {
+   if (h.depth === 2) contents.push({ slug: h.slug, text: label(h.text), children: [] });
+   else if (h.depth === 3) contents.at(-1)?.children.push({ slug: h.slug, text: label(h.text) });
+}
+const showContents = contents.length >= 3;
 ---
 
 <Doc kind="normative" title={title} description={description} alternate={`/spec/${doc.id}.md`}>
    <script type="application/ld+json" set:html={JSON.stringify(articleLd)} />
+   {
+      doc.id === 'readme' && (
+         <p class="spec-find">
+            Searching the spec: open the <a href="/spec/full/">one-page view</a> and use your browser's find.
+         </p>
+      )
+   }
+   {
+      showContents && (
+         <nav class="doc-toc" aria-label="Contents">
+            <p class="toc-title">Contents</p>
+            <ol>
+               {contents.map((h) => (
+                  <li>
+                     <a href={`#${h.slug}`}>{h.text}</a>
+                     {h.children.length > 0 && (
+                        <ol>
+                           {h.children.map((c) => (
+                              <li>
+                                 <a href={`#${c.slug}`}>{c.text}</a>
+                              </li>
+                           ))}
+                        </ol>
+                     )}
+                  </li>
+               ))}
+            </ol>
+         </nav>
+      )
+   }
    <Content />
    {
       (prev || next) && (
@@ -72,3 +121,11 @@ const next = order >= 0 && order < SPEC_DOCS.length - 1 ? SPEC_DOCS[order + 1] :
       )
    }
 </Doc>
+
+<style>
+   .spec-find {
+      margin: 0.4rem 0 0;
+      font-size: 0.9rem;
+      color: var(--leji-text-body);
+   }
+</style>

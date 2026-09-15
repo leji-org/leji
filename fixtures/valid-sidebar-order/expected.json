@@ -1,0 +1,46 @@
+{
+  "validate": {
+    "exit": 0,
+    "findings": []
+  },
+  "conformance": {
+    "exit": 0,
+    "claimedLevel": "core",
+    "verifiedLevel": "core"
+  },
+  "export": {
+    "exit": 0,
+    "findings": [],
+    "out": ".leji/dist",
+    "layout": {
+      "roles": {
+        "viewer": ".leji/viewer/",
+        "dist": ".leji/dist/"
+      },
+      "present": [
+        ".leji/viewer/index.html",
+        ".leji/viewer/_sidebar.md",
+        ".leji/dist/index.html",
+        ".leji/dist/content/_sidebar.md",
+        ".leji/dist/content/_decisions.md",
+        ".leji/dist/content/domain/zebra.md",
+        ".leji/dist/content/domain/nested/alpha.md",
+        ".leji/dist/content/domain/apple.md",
+        ".leji/dist/content/shared/rules.md",
+        ".leji/dist/content/shared/approvals.md",
+        ".leji/dist/content/notes.md",
+        "docs/overview.md"
+      ],
+      "absent": ["docs/.leji/"],
+      "preserved": []
+    },
+    "rerun": {
+      "byteIdentical": true
+    },
+    "goldenTree": {
+      "status": "baked",
+      "contentDir": "expected-export/content",
+      "manifest": "expected-export.manifest.json"
+    }
+  }
+}

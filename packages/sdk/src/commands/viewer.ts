@@ -22,6 +22,7 @@ import {
    resolveAgentProfile,
    resolveCategoryAssignments,
    scanAgentProfiles,
+   scanDecisionRecords,
    scanProfileSetWith,
 } from '../lib/layer.js';
 import { mountStatus, type StatusResult } from '../lib/mounts.js';
@@ -118,6 +119,58 @@ function resolveThemeColor(manifest: Manifest, findings: Finding[]): string {
       ),
    );
    return DEFAULT_THEME_COLOR;
+}
+
+/** The ground the link tone is measured against: the inline-code background
+ * (`--leji-code-bg` in assets/vue.css). Body links land on white and inline code on
+ * this, and this is the narrower of the two — the fixed tone is 5.15:1 on white but
+ * 4.56:1 here (packages/sdk/test/viewer-contrast.test.ts) — so a color clearing AA
+ * here clears white too, and one check covers both. */
+const LINK_GROUND = '#E8F4EE';
+
+/** WCAG AA for normal-size text. */
+const LINK_CONTRAST_FLOOR = 4.5;
+
+type ViewerTheme = NonNullable<Manifest['viewer']>['theme'];
+
+/** The viewer's body-link tone: viewer.theme.link when it is a hex color that stays
+ * readable on the ground above, else null — the stylesheet's fixed accessible tone
+ * stands and nothing is emitted, so the layer renders exactly as it did without the
+ * field. Either refusal warns, naming the value the author wrote.
+ *
+ * Only a MISSING key is absent. The schema accepts `link: ""` and `link: "   "` as
+ * strings, so they are present-but-not-a-color: they take the predicate like any
+ * other unusable value and warn, rather than passing silently as an unset field. */
+function resolveThemeLink(theme: ViewerTheme | undefined, findings: Finding[]): string | null {
+   const configured = theme?.link;
+   if (configured === undefined) return null;
+   if (!SAFE_CSS_COLOR.test(configured)) {
+      findings.push(
+         finding(
+            'viewer-theme-link-contrast',
+            'warning',
+            `viewer.theme.link "${configured}" is not a hex color; body links keep the fixed accessible tone`,
+         ),
+      );
+      return null;
+   }
+   // SAFE_CSS_COLOR admits exactly the hex lengths parseAccentColor resolves, so
+   // neither parse can fail here; the guard is the type's, not a second policy.
+   const rgb = parseAccentColor(configured);
+   const ground = parseAccentColor(LINK_GROUND);
+   if (rgb === null || ground === null) return null;
+   const ratio = contrastRatio(relativeLuminance(rgb), relativeLuminance(ground));
+   if (ratio < LINK_CONTRAST_FLOOR) {
+      findings.push(
+         finding(
+            'viewer-theme-link-contrast',
+            'warning',
+            `viewer.theme.link "${configured}" reaches ${ratio.toFixed(2)}:1 against the inline-code ground; body links keep the fixed accessible tone`,
+         ),
+      );
+      return null;
+   }
+   return configured;
 }
 
 /** The accent as opaque sRGB channels, or null for a value that names no color the
@@ -263,9 +316,20 @@ function mdLinkText(s: string): string {
  * are exempt from relative resolution by Docsify's contract. Idempotent: leading
  * slashes are stripped first, so an already-absolute destination (the sidebar
  * builders are public API) never becomes `//…`, which Docsify routes as an
- * external protocol-relative URL. Empty input stays empty, never a bare `/`. */
+ * external protocol-relative URL. Empty input stays empty, never a bare `/`.
+ *
+ * ASCII control characters and the space are percent-encoded, not escaped: a bare
+ * CommonMark destination may contain neither, so either one ENDS the destination
+ * and everything after it lands in the page as markdown. File names may legally
+ * carry both (a newline is a legal POSIX file-name byte), and the destinations
+ * here are built from file names, so this is a structural neutralization rather
+ * than a cosmetic one. Percent-encoded they still route: the local server decodes
+ * a request path once, and a static host decodes it the same way. */
 function mdLinkDest(s: string): string {
-   const escaped = s.replace(/^\/+/, '').replace(/[\\()]/g, '\\$&');
+   const escaped = s
+      .replace(/^\/+/, '')
+      .replace(/[\u0000-\u0020\u007F]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))
+      .replace(/[\\()]/g, '\\$&');
    return escaped === '' ? '' : '/' + escaped;
 }
 
@@ -292,10 +356,13 @@ interface DirTree {
 /**
  * Render reference docs as a nested list mirroring the directory tree: folders are
  * bold non-link labels, files are links; sorted by name within each directory.
+ *
+ * Both sorts here are byte order, the order the Python and Go ports give: this
+ * section is generated sidebar bytes, which the three SDKs must emit identically.
  */
 function buildTreeSection(nodes: TreeNode[]): string[] {
    const root: DirTree = { dirs: new Map(), files: [] };
-   for (const node of [...nodes].sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0))) {
+   for (const node of [...nodes].sort((a, b) => byteCompare(a.rel, b.rel))) {
       const parts = node.rel.split('/');
       let cur = root;
       for (let i = 0; i < parts.length - 1; i++) {
@@ -315,7 +382,7 @@ function buildTreeSection(nodes: TreeNode[]): string[] {
       const merged: { name: string; dir?: DirTree; file?: TreeNode }[] = [
          ...[...node.dirs.entries()].map(([name, dir]) => ({ name, dir })),
          ...node.files.map((file) => ({ name: file.rel.split('/').pop()!, file })),
-      ].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      ].sort((a, b) => byteCompare(a.name, b.name));
       for (const e of merged) {
          if (e.dir) {
             // Path-compress single-child chains: a folder holding nothing but one
@@ -351,6 +418,10 @@ export interface SidebarEntry {
 export interface SidebarGroup {
    label: string;
    entries: SidebarEntry[];
+   /** True when a decisions-category index file contributed this group, so the
+    * generated decisions page leads it. Same-labeled groups merge, so the flag is
+    * the union over the merged ones. */
+   decisions?: boolean;
 }
 
 /** Render one sidebar link line. */
@@ -387,6 +458,9 @@ export function buildSidebar(
       // Bold labels: the sidebar-collapse plugin treats a strong label with a
       // nested list as a collapsible folder, matching hand-built sidebars.
       groupLines.push(`- **${mdLinkText(group.label)}**`);
+      // The generated decisions index leads its own group, the way the generated
+      // Manifest page leads the pins: the summary first, then the records it lists.
+      if (group.decisions) groupLines.push(entryLine('  ', { rel: DECISIONS_REL, title: 'Decisions index' }));
       groupLines.push(...buildGroupTree(group.entries, group.label));
    }
    // The browse zone renders as one collapsed "Reference" folder, not a bare
@@ -410,6 +484,12 @@ function groupLabel(root: string, indexRel: string): string {
  * group whose content lives under one directory doesn't repeat it), deeper
  * directories become bold sub-labels, and files render as links with their
  * record badges. Real repositories are not flat; the sidebar shouldn't be.
+ *
+ * The members arrive in their group's final sequence and the tree keeps it: each
+ * one streams into insertion-ordered children, so a file sits where it was
+ * declared and a directory sits at its first member's place, recursively. The
+ * uncurated browse zone has no declared order and sorts by name instead
+ * ({@link buildTreeSection}).
  */
 function buildGroupTree(entries: SidebarEntry[], label = ''): string[] {
    // Longest common directory prefix across all members.
@@ -422,56 +502,45 @@ function buildGroupTree(entries: SidebarEntry[], label = ''): string[] {
       prefix = prefix.slice(0, i);
    }
    const strip = prefix.length;
+   // A top-level directory whose name matches the group's own label (the
+   // emoji-stripped comparison) is hoisted away, so "💼 Business" never wraps a
+   // redundant "Business" level while outlier members stay as siblings. Dropping
+   // the segment as each member streams in IS the hoist: same tree, and the
+   // promoted content keeps the place its first member had.
+   const labelKey = label
+      .replace(/[^\p{L}\p{N} ]/gu, '')
+      .trim()
+      .toLowerCase();
 
    interface GroupDir {
+      /** Children in arrival order, directories and files interleaved. */
+      children: { name: string; dir?: GroupDir; file?: SidebarEntry }[];
       dirs: Map<string, GroupDir>;
-      files: SidebarEntry[];
    }
-   const rootNode: GroupDir = { dirs: new Map(), files: [] };
-   for (const e of [...entries].sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0))) {
-      const parts = e.rel.split('/').slice(strip);
+   const rootNode: GroupDir = { children: [], dirs: new Map() };
+   for (const e of entries) {
+      let parts = e.rel.split('/').slice(strip);
+      if (parts.length > 1 && labelKey !== '' && prettifyDirName(parts[0]).toLowerCase() === labelKey) {
+         parts = parts.slice(1);
+      }
       let cur = rootNode;
       for (let i = 0; i < parts.length - 1; i++) {
          const seg = parts[i];
          let child = cur.dirs.get(seg);
          if (!child) {
-            child = { dirs: new Map(), files: [] };
+            child = { children: [], dirs: new Map() };
             cur.dirs.set(seg, child);
+            cur.children.push({ name: seg, dir: child });
          }
          cur = child;
       }
-      cur.files.push(e);
-   }
-   // Hoist a top-level directory whose name matches the group's own label (the
-   // emoji-stripped comparison), so "💼 Business" never wraps a redundant
-   // "Business" level while outlier members stay as siblings.
-   const labelKey = label
-      .replace(/[^\p{L}\p{N} ]/gu, '')
-      .trim()
-      .toLowerCase();
-   const mergeInto = (target: GroupDir, src: GroupDir): void => {
-      target.files.push(...src.files);
-      for (const [name, dir] of src.dirs) {
-         const existing = target.dirs.get(name);
-         if (existing) mergeInto(existing, dir);
-         else target.dirs.set(name, dir);
-      }
-   };
-   for (const [name, dir] of [...rootNode.dirs.entries()]) {
-      if (labelKey !== '' && prettifyDirName(name).toLowerCase() === labelKey) {
-         rootNode.dirs.delete(name);
-         mergeInto(rootNode, dir);
-      }
+      cur.children.push({ name: parts[parts.length - 1], file: e });
    }
 
    const lines: string[] = [];
    const render = (node: GroupDir, depth: number): void => {
       const indent = '  '.repeat(depth + 1);
-      const merged: { name: string; dir?: GroupDir; file?: SidebarEntry }[] = [
-         ...[...node.dirs.entries()].map(([name, dir]) => ({ name, dir })),
-         ...node.files.map((file) => ({ name: file.rel.split('/').pop()!, file })),
-      ].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-      for (const e of merged) {
+      for (const e of node.children) {
          if (e.dir) {
             lines.push(`${indent}- **${mdLinkText(prettifyDirName(e.name))}**`);
             render(e.dir, depth + 1);
@@ -491,7 +560,8 @@ function buildGroupTree(entries: SidebarEntry[], label = ''): string[] {
  * Index files that share the same H1 label MERGE into one group: a topical
  * group (a product area, a program) spans categories by splitting into
  * per-category index files under one shared label. Documents outside rootPath
- * are not servable and are skipped.
+ * are not servable and are skipped. A group's members carry the order its index
+ * file declared them in: curation an author writes is what a reader sees.
  */
 export function buildSidebarGroups(
    root: string,
@@ -506,17 +576,26 @@ export function buildSidebarGroups(
       for (const indexRel of manifest.categories[category]?.indexes ?? []) {
          if (seen.has(indexRel)) continue;
          seen.add(indexRel);
-         const members: SidebarEntry[] = [];
-         for (const [relPath, a] of [...assignments.entries()].sort(([x], [y]) => (x < y ? -1 : 1))) {
+         // One index file's contribution, ordered on its own: the declared
+         // position first, then the path in byte order, which is the tiebreak
+         // among the documents one directory entry expanded to (they share its
+         // single position). The position is spent here — what carries onward is
+         // the member sequence itself.
+         const claimed: { entry: SidebarEntry; order: number }[] = [];
+         for (const [relPath, a] of assignments) {
             if (a.indexRel !== indexRel) continue;
             const entry = byPath.get(relPath);
             if (!entry) continue;
             const rel = relativeToRoot(relPath, manifest.rootPath);
             if (rel === null) continue;
-            members.push({ rel, title: sidebarLabel(root, relPath, rel) });
+            claimed.push({ entry: { rel, title: sidebarLabel(root, relPath, rel) }, order: a.order });
          }
+         claimed.sort((x, y) => x.order - y.order || byteCompare(x.entry.rel, y.entry.rel));
+         const members = claimed.map((c) => c.entry);
          if (members.length === 0) continue;
-         groups.push({ label: groupLabel(root, indexRel), entries: members });
+         const group: SidebarGroup = { label: groupLabel(root, indexRel), entries: members };
+         if (category === 'decisions') group.decisions = true;
+         groups.push(group);
       }
    }
    // Agent profiles are artifacts outside category content, so the sidebar
@@ -537,19 +616,24 @@ export function buildSidebarGroups(
    if (agentMembers.length > 0) {
       groups.unshift({ label: manifest.viewer?.agentsLabel ?? '🤖 Agents', entries: agentMembers });
    }
-   // Merge same-labeled groups, keeping first-occurrence order.
+   // Merge same-labeled groups, keeping first-occurrence order. Whole ordered
+   // contributions are appended, never re-sorted: two index files' positions are
+   // numbered independently, so a merged group's sequence is source order first
+   // (categories canonical, index files as the manifest declares them) and the
+   // declared order inside each. The array below IS that sequence; nothing
+   // downstream reorders it.
    const merged: SidebarGroup[] = [];
    const byLabel = new Map<string, SidebarGroup>();
    for (const g of groups) {
       const existing = byLabel.get(g.label);
       if (existing) {
          existing.entries.push(...g.entries);
+         if (g.decisions) existing.decisions = true;
       } else {
          byLabel.set(g.label, g);
          merged.push(g);
       }
    }
-   for (const g of merged) g.entries.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
    // viewer.groupOrder curates group sequence by exact label: listed groups come
    // first in the given order; unlisted groups follow in derived order.
    const order = manifest.viewer?.groupOrder ?? [];
@@ -604,6 +688,18 @@ function sidebarLabel(root: string, relPath: string, rootRel: string): string {
  * generation, the local server's route, and the export's copy. */
 export const OVERVIEW_REL = 'overview.md';
 
+/** The generated decisions index, named beside `_manifest.md` under the same
+ * reserved-underscore convention: written into the viewer dir, served under the
+ * content root, copied into an export. */
+export const DECISIONS_REL = '_decisions.md';
+
+/** True when the layer declares a decisions category. The page, its sidebar entry,
+ * and its copy into an export exist for exactly those layers: the category is
+ * optional, and a layer without one has no decisions to list. */
+export function hasDecisionsPage(manifest: Manifest): boolean {
+   return (manifest.categories.decisions?.indexes?.length ?? 0) > 0;
+}
+
 /**
  * The browse zone: every markdown file under rootPath that is NOT governed (in the
  * index) and NOT viewer/layer chrome (boot profile, agent profiles, category index
@@ -619,13 +715,14 @@ function referenceTree(root: string, manifest: Manifest, governedPaths: Set<stri
    const overviewRel = rootDirRel === '.' ? OVERVIEW_REL : `${rootDirRel}/${OVERVIEW_REL}`;
    const sidebarRel = rootDirRel === '.' ? '_sidebar.md' : `${rootDirRel}/_sidebar.md`;
    const manifestPageRel = rootDirRel === '.' ? '_manifest.md' : `${rootDirRel}/_manifest.md`;
+   const decisionsPageRel = rootDirRel === '.' ? DECISIONS_REL : `${rootDirRel}/${DECISIONS_REL}`;
    const nodes: TreeNode[] = [];
    for (const rel of walkTree(root, rootDirRel)) {
       if (governedPaths.has(rel)) continue;
       if (rel === manifest.bootProfilePath) continue;
       if (underPath(rel, profilesDir)) continue;
       if (indexFiles.has(rel)) continue;
-      if (rel === overviewRel || rel === sidebarRel || rel === manifestPageRel) continue;
+      if (rel === overviewRel || rel === sidebarRel || rel === manifestPageRel || rel === decisionsPageRel) continue;
       const r = relativeToRoot(rel, manifest.rootPath);
       if (r === null) continue;
       nodes.push({ rel: r, title: sidebarLabel(root, rel, r) });
@@ -897,6 +994,108 @@ export function buildManifestPage(manifest: Manifest, statuses: StatusResult[]):
          lines.push('', '**Roles**', '');
          for (const d of roled) lines.push(`- **${esc(d.name)}**: ${esc(d.role ?? '')}`);
       }
+   }
+   lines.push('');
+   return lines.join('\n');
+}
+
+/**
+ * The displayed decision number: the leading digit run of a `NNNN-slug.md` file
+ * name, exactly as written, so a layer's conventional `0006` renders `0006` and a
+ * deliberate gap in the series stays visible. Presentation only — `decisionNumberKey`
+ * in `validate.ts` strips leading zeros so `0017` and `17` collide as one identity,
+ * which is the wrong answer for a column people read. A file name that does not
+ * carry the convention has no number and renders blank.
+ */
+const DECISION_NUMBER_DISPLAY = /^([0-9]+)-[^\n]+\.md$/;
+
+function decisionNumber(relPath: string): string {
+   const m = DECISION_NUMBER_DISPLAY.exec(path.posix.basename(relPath));
+   return m === null ? '' : m[1];
+}
+
+/**
+ * Authored text that cannot become active markdown: `esc` handles the control
+ * characters, the pipe, the backtick and the angle brackets, and the brackets are
+ * escaped after it, never before, so a literal backslash is not double-counted.
+ *
+ * ONE helper for both roles on this page, because both need exactly this. As link
+ * text, an unescaped `]` closes the link early and the rest of the title lands as
+ * page markdown. As a plain cell, an unescaped `[…](…)` IS a link, which would make
+ * a status value, a date, an unresolvable id, or an unservable record's title
+ * render as one — breaking the plain-text status contract and the rule that a
+ * record outside the context root is named and never linked. `esc` alone leaves
+ * brackets intact, so every interpolation of authored text on this page goes
+ * through here.
+ */
+function inertText(s: string): string {
+   return esc(s).replace(/[[\]]/g, '\\$&');
+}
+
+/** One frontmatter scalar as a table cell: inert text, blank when it is not a
+ * string the record actually declares. */
+function decisionCell(value: unknown): string {
+   return typeof value === 'string' ? inertText(value) : '';
+}
+
+/** A supersession pointer: a link when the id names a record this page lists AND
+ * that record is servable; inert text otherwise (a pointer at no record, or at one
+ * the viewer cannot route to, is shown rather than linked to a 404). A reserved id
+ * with no route is the second case, not the first. */
+function supersessionCell(value: unknown, routeById: Map<string, string | null>): string {
+   if (typeof value !== 'string' || value.trim() === '') return '';
+   const rel = routeById.get(value);
+   return rel === undefined || rel === null ? inertText(value) : `[${inertText(value)}](${mdLinkDest(rel)})`;
+}
+
+/**
+ * The generated "Decisions" page: every decision record the layer carries, as one
+ * table built from the records' own frontmatter — the set `leji validate` scans, so
+ * the page cannot drift from what the layer governs, and no layer hand-maintains a
+ * summary table that silently lags its records.
+ *
+ * Deterministic by construction, like the Manifest page: declared values only, byte
+ * order by file name, one escaping contract, so the three SDKs emit identical bytes.
+ * Status is the frontmatter value as plain text — the schema's enum is validation's
+ * business, and a page that styled it would have to decide what an unknown value
+ * means. A record whose frontmatter does not parse shows its file name and blank
+ * cells; `leji validate` is where that defect is reported, not here.
+ */
+export function buildDecisionsPage(manifest: Manifest, records: ScannedProfile[]): string {
+   const pageTitle = manifest.viewer?.title ?? manifest.name;
+   const lines: string[] = [
+      `# ${inertText(pageTitle)}: Decisions`,
+      '',
+      "Generated from the decision records' frontmatter; edit the records, not this page.",
+      '',
+      '| Number | Decision | Status | Date | Supersedes | Superseded by |',
+      '| --- | --- | --- | --- | --- | --- |',
+   ];
+   // Byte order by file name, which is the numbering series a reader expects and the
+   // order the scan already returns; stated here so the page owns its own contract.
+   const ordered = [...records].sort((a, b) => byteCompare(a.relPath, b.relPath));
+   // Route by declared id, for the supersession columns. The FIRST listed record
+   // carrying an id reserves it, whether or not it is servable: a duplicate id is a
+   // validation error this page does not adjudicate, and skipping an unservable
+   // first record would silently hand the link to whichever later duplicate happens
+   // to be routable. A reservation with no route (`null`) renders as plain text.
+   const routeById = new Map<string, string | null>();
+   for (const record of ordered) {
+      const id = record.frontmatter?.id;
+      if (typeof id !== 'string' || id === '' || routeById.has(id)) continue;
+      routeById.set(id, relativeToRoot(record.relPath, manifest.rootPath));
+   }
+   for (const record of ordered) {
+      const fm = record.frontmatter;
+      const rel = relativeToRoot(record.relPath, manifest.rootPath);
+      const declared = fm?.title;
+      const label =
+         typeof declared === 'string' && declared.trim() !== '' ? declared : path.posix.basename(record.relPath);
+      // A record outside rootPath is not servable, so it is named without a link.
+      const decision = rel === null ? inertText(label) : `[${inertText(label)}](${mdLinkDest(rel)})`;
+      lines.push(
+         `| ${decisionNumber(record.relPath)} | ${decision} | ${decisionCell(fm?.status)} | ${decisionCell(fm?.date)} | ${supersessionCell(fm?.supersedes, routeById)} | ${supersessionCell(fm?.supersededBy, routeById)} |`,
+      );
    }
    lines.push('');
    return lines.join('\n');
@@ -1250,6 +1449,12 @@ export function buildIndexHtml(root: string, manifest: Manifest, base: ChromeBas
    // findings they raise.
    const homepage = effectiveHomepage(root, manifest, findings);
    const themeColor = resolveThemeColor(manifest, findings);
+   // The body-link override, or nothing at all: a layer without viewer.theme.link,
+   // and one whose value the guard refuses, both substitute the empty string, so
+   // their index.html is byte-for-byte the file 1.4.1 wrote. The declaration lands
+   // inside the page's own <style>, which loads after assets/vue.css and therefore
+   // wins the cascade against the fixed tone declared there.
+   const themeLink = resolveThemeLink(manifest.viewer?.theme, findings);
    // One pass over the template with a resolver map, never four sequential
    // replaces: a sequential pass re-scans what the previous one substituted, so a
    // manifest string like "{{DOCSIFY_CONFIG}}" in viewer.title or viewer.favicon
@@ -1257,6 +1462,7 @@ export function buildIndexHtml(root: string, manifest: Manifest, base: ChromeBas
    const substitutions: Record<string, string> = {
       LEJI_NAME_HTML: htmlEscape(displayTitle),
       FAVICON_URL: faviconUrl,
+      LEJI_LINK_STYLE: themeLink === null ? '' : `:root { --leji-link: ${themeLink}; }`,
       DOCSIFY_CONFIG: jsonForScript({
          name: nameHtml,
          // Where the layer's markdown is mounted. Docsify's own key, so the boot
@@ -1470,6 +1676,16 @@ export function generateViewer(root: string, manifest: Manifest, ignoreContext?:
    // user's own files) and served via a dedicated content route (never a committed
    // file at the context root, so no diff churn). Regenerated every run; pinned.
    writeViewerFile(`${viewerDir}/_manifest.md`, buildManifestPage(manifest, mountStatus(root, manifest)));
+
+   // The Decisions page: the same generated chrome, for a layer that declares a
+   // decisions category. Built from the records the validator scans, so it lists
+   // exactly what the layer governs and nothing has to be maintained by hand.
+   if (hasDecisionsPage(manifest)) {
+      writeViewerFile(
+         `${viewerDir}/${DECISIONS_REL}`,
+         buildDecisionsPage(manifest, scanDecisionRecords(root, manifest)),
+      );
+   }
 
    return { written, findings, entries: entries.length, indexEntries: entries };
 }

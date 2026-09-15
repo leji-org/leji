@@ -1,0 +1,1149 @@
+---
+// Vietnamese translation of src/pages/index.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import HeroMark from '../../components/HeroMark.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import AnimatedTerminal from '../../components/AnimatedTerminal.astro';
+import ViewerGlimpse from '../../components/ViewerGlimpse.astro';
+import InstallTabs from '../../components/InstallTabs.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import githubIcon from '../../assets/github.svg?raw';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+
+const source = '7acbb9a072d2b6210d2cdb83e952c5b49666ba1f';
+const strings = translationStrings('vi');
+
+// Captured verbatim from a real run: a repo with an existing docs/ tree and an
+// AGENTS.md, `leji adopt --yes --wire-adapters`, then validate and conformance
+// (the file list is elided to its first entries, real sorted order).
+// The fixture carries AGENTS.md, the portable adapter, rather than a
+// single-vendor entrypoint, because the standard is vendor-agnostic.
+// The fixture is `fixture()` in packages/sdk/test/site-hero.test.ts: that test
+// builds the same repository, runs these three commands against the built CLI, and
+// compares what it prints to the lines below. So this transcript is re-captured
+// where the CLI's output moves, rather than by hand after someone notices.
+const heroSession = [
+   { cmd: 'leji adopt --yes --wire-adapters' },
+   { out: 'Wrote 16 files (context root: docs/):' },
+   { out: '   .leji/work/onboarding-brief.md   AGENTS.md   docs/agents/core.md   …', mark: 'dim' },
+   { gap: true },
+   { cmd: 'leji validate' },
+   { out: 'ok (0 errors, 0 warnings)', mark: 'ok' },
+   { gap: true },
+   { cmd: 'leji conformance' },
+   { out: 'ok (0 errors, 0 warnings; claimedLevel: core, verifiedLevel: core, processAttested: 4)', mark: 'ok' },
+];
+
+// What the hero's `adopt` wrote: the manifest of the very layer the transcript
+// above creates. The panel leaves out the `$schema` pointer and the `claimedAt`
+// date, and the same test compares everything else to the fixture's leji.json.
+const peekJson = `{
+  "leji": "1.0",
+  "name": "acme-billing-context",
+  "description": "Shared context layer for this repository.",
+  "rootPath": "docs/",
+  "bootProfilePath": "docs/boot-profile.md",
+  "categories": {
+    "domain": { "indexes": ["docs/context/domain.md"] },
+    "system": { "indexes": ["docs/context/system.md"] },
+    "governance": { "indexes": ["docs/context/governance.md"] },
+    "decisions": { "indexes": ["docs/context/decisions.md"] }
+  },
+  "owners": { "primary": { "name": "Acme Platform Team", "contact": "platform@acme.example" } },
+  "conformance": { "claimedLevel": "core" },
+  "vendorAdapters": ["AGENTS.md"]
+}`;
+---
+
+<Base
+   lang="vi"
+   title="Leji: lớp ngữ cảnh dùng chung cho các nhóm AI-native"
+   description="Leji là một bản đặc tả mở cho một lớp ngữ cảnh dùng chung, có đánh phiên bản, thuộc về kho mã nguồn, được cả người lẫn AI agent đọc, với mọi thay đổi đều đi qua vòng xem xét."
+>
+   <!-- The banner sits outside <main>, but the monument band still has to start above
+        it so the gradient, glow and fluting run unbroken behind the header. .monument
+        pulls itself up by the header's height and pads the same amount back, and the
+        header paints transparent on top. See --header-h below. -->
+   <SiteHeader flush />
+   <main id="content">
+      <div class="monument">
+         <div class="wrap">
+            <section class="hero">
+               <div class="hero-text">
+                  <p class="kicker reveal r1">
+                     <span>/LEH-jee/</span><i class="sep" aria-hidden="true">◆</i><span>Bản đặc tả mở & bộ công cụ</span
+                     >
+                  </p>
+                  <!-- "legible" is the name: Leji, from legible, per the /LEH-jee/ kicker above. -->
+                  <h1 class="reveal r2">Làm cho ngữ cảnh<br />của bạn <span class="gild">đọc được.</span></h1>
+                  <div class="carved-rule reveal r2" aria-hidden="true"></div>
+                  <p class="lede reveal r3">
+                     Leji đưa phần chủ ý vốn bị vùi trong các cuộc chat của nhóm và chỉ dẫn riêng của từng công cụ về
+                     một nơi: lớp ngữ cảnh dùng chung do chính nhóm bạn sở hữu và xem xét. Leji chuẩn hoá hình thái và
+                     cách quản trị, chứ không chuẩn hoá nội dung. Nhờ đó, người và agent cùng đọc một nguồn, còn công cụ
+                     kiểm tra giúp phát hiện sự trôi lệch.
+                  </p>
+                  <div class="cta reveal r4">
+                     <a class="btn solid" href="/vi/quickstart/">Bắt đầu nhanh</a>
+                     <a class="btn ghost" href="/vi/spec/">Đọc bản đặc tả</a>
+                  </div>
+                  <div class="hero-note reveal r4">
+                     <TranslationNote strings={strings.note} href="/" />
+                  </div>
+               </div>
+
+               <div class="hero-proof reveal r5">
+                  <AnimatedTerminal
+                     lines={heroSession}
+                     title="acme-billing"
+                     glimpseTitle="leji view  ·  acme-billing-context"
+                     label="Một phiên Leji thật: áp dụng cho một kho mã nguồn sẵn có, kiểm tra, rồi chấm điểm"
+                  >
+                     <HeroMark slot="brand" size={64} loop />
+                     <ViewerGlimpse slot="glimpse" />
+                     <InstallTabs slot="footer" />
+                  </AnimatedTerminal>
+                  <p class="hero-license">
+                     <a class="oss-link" href="https://github.com/leji-org/leji" target="_blank" rel="noopener">
+                        <span class="gh-icon" set:html={githubIcon} /><span class="free"
+                           >Miễn phí &amp; mã nguồn mở</span
+                        >
+                     </a>&ensp;·&ensp;Apache-2.0&ensp;·&ensp;CC-BY-4.0
+                  </p>
+               </div>
+            </section>
+         </div>
+      </div>
+
+      <div class="levels-band">
+         <div class="wrap">
+            <section class="levels">
+               <p class="eyebrow is-kicker">Áp dụng, không phải di dời</p>
+               <h2 class="section-title levels-title">Bắt đầu từ chính kho mã nguồn bạn đang có.</h2>
+               <p class="levels-lede">
+                  CLI dựng khung một lớp ngữ cảnh lên trên cây tệp bạn vốn đã có. Không có gì bị di chuyển, và một điểm
+                  vào chỉ thay đổi khi bạn yêu cầu bằng <code>--wire-adapters</code>.
+               </p>
+               <ol class="adopt-flow">
+                  <li class="adopt-step">
+                     <span class="step-when">Trước hết</span>
+                     <h3>Dựng khung quanh cây tệp của bạn</h3>
+                     <p>
+                        <code>adopt</code> dùng lại thư mục gốc của tài liệu hiện có, tạo sẵn các tệp index danh mục và đưa
+                        nội dung từ điểm vào hiện tại của agent vào lớp ngữ cảnh. Không tệp nào bạn đã viết bị di chuyển;
+                        điểm vào cũng chỉ được viết lại khi bạn yêu cầu bằng <code>--wire-adapters</code>.
+                     </p>
+                  </li>
+                  <li class="adopt-step">
+                     <span class="step-when">Rồi</span>
+                     <h3>Agent của bạn đề xuất cách ánh xạ</h3>
+                     <p>
+                        Brief onboarding yêu cầu agent đọc kho mã nguồn rồi đề xuất tài liệu nào thuộc danh mục nào. Bạn
+                        xem xét đề xuất đó như xem xét mọi thay đổi khác.
+                     </p>
+                  </li>
+                  <li class="adopt-step">
+                     <span class="step-when">Về sau</span>
+                     <h3>Được quản trị từ đó trở đi</h3>
+                     <p>
+                        Mọi thay đổi đều đi qua cổng xem xét sẵn có của kho mã nguồn. Các phép kiểm trong CI phát hiện
+                        sự trôi lệch, còn hạn tươi làm lộ phần ngữ cảnh đã cũ.
+                     </p>
+                  </li>
+               </ol>
+            </section>
+         </div>
+      </div>
+
+      <div class="wrap">
+         <section class="surfaces">
+            <p class="eyebrow is-kicker">Con người đọc, agent truy cập</p>
+            <h2 class="section-title surfaces-title">Một nguồn, hai&nbsp;nhóm đối tượng.</h2>
+            <p class="surfaces-lede">
+               Một bản ghi thuộc về kho mã nguồn, thể hiện cách nhóm bạn suy nghĩ: ngôn ngữ của lĩnh vực, các ràng buộc,
+               các quyết định, các quy ước, các ràng buộc bảo vệ cho agent. Một nguồn duy nhất, thay đổi qua một cổng
+               xem xét duy nhất.
+            </p>
+            <div class="chart">
+               <div class="chart-source">
+                  <span class="chart-source-name">Lớp ngữ cảnh dùng chung</span>
+                  <span class="chart-source-tag">thay đổi qua vòng xem xét</span>
+               </div>
+               <svg class="chart-fork" viewBox="0 0 40 100" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="M0 50 H20 M20 23 V77 M20 23 H40 M20 77 H40"></path>
+               </svg>
+               <div class="chart-surfaces">
+                  <article class="surface">
+                     <p class="surface-label">Cho người</p>
+                     <p class="surface-body">
+                        Bất kỳ ai trong nhóm cũng đọc được đúng lớp ngữ cảnh mà agent được trỏ tới. <code
+                           >leji view</code
+                        >{' '}
+                        mở <strong>lớp ngữ cảnh dùng chung</strong> dưới dạng dễ đọc ngay trong trình duyệt.
+                     </p>
+                  </article>
+                  <article class="surface">
+                     <p class="surface-label">Cho agent</p>
+                     <p class="surface-body">
+                        Agent bước vào qua <a href="/vi/spec/boot-profile/">boot profile</a>, đúng một tệp nói rõ phải
+                        nạp gì trước một tác vụ; các tệp điểm vào (<code>AGENTS.md</code>, <code>CLAUDE.md</code>)
+                        chuyển hướng về đó thay vì tự giữ một bản sao. <strong>MCP server</strong> trao cho chúng bản đặc
+                        tả cùng các schema và cho phép chúng <a href="/vi/mcp/">kiểm tra và chấm mức tuân thủ</a> ngay trong
+                        giao diện đó, không cần gọi CLI.
+                     </p>
+                  </article>
+               </div>
+            </div>
+         </section>
+      </div>
+
+      <div class="levels-band">
+         <div class="wrap">
+            <section class="levels">
+               <p class="eyebrow is-kicker">Mức tuân thủ</p>
+               <h2 class="section-title levels-title">Tuyên bố một mức, rồi kiểm lại nó.</h2>
+               <p class="levels-lede">
+                  Bốn mức, mức sau bao hàm mức trước, được chấm theo những gì hiện diện chứ không theo mức trưởng thành
+                  tự đánh giá. Phần lớn các nhóm đi tới{' '}
+                  <code>governed</code> rồi dừng. CLI kiểm những gì máy kiểm được; phần còn lại do nhóm bạn đứng ra bảo đảm.
+               </p>
+               <ol class="ladder">
+                  <li>
+                     <span class="rung-tag">core</span>
+                     <strong class="rung-cap">Ngữ cảnh dùng chung của nhóm</strong>
+                     <span
+                        >manifest, boot profile, nội dung thật, một quyết định đầu tiên, một chủ sở hữu được nêu tên.</span
+                     >
+                  </li>
+                  <li>
+                     <span class="rung-tag">indexed</span>
+                     <strong class="rung-cap">Đọc được đối với công cụ</strong>
+                     <span>một index được sinh ra và một changelog máy đọc được.</span>
+                  </li>
+                  <li>
+                     <span class="rung-tag">governed</span>
+                     <strong class="rung-cap">Đã qua xem xét, có kiểm trôi lệch</strong>
+                     <span>xem xét qua pull request, agent profile, CI, và hạn tươi được kiểm.</span>
+                  </li>
+                  <li>
+                     <span class="rung-tag">federated</span>
+                     <strong class="rung-cap">Thực hành ở quy mô tổ chức</strong>
+                     <span
+                        >một mount có ghim trong các kho mã nguồn khác, kèm báo cáo pin lỗi thời.{' '}
+                        <a href="/vi/federation/">Federation hoạt động thế nào.</a></span
+                     >
+                  </li>
+               </ol>
+               <aside class="standard-note">
+                  <span class="standard-note-label">Không có rào cản thương mại</span>
+                  <p>
+                     Mọi mức đều đạt tới được chỉ với bản đặc tả mở và công cụ tham chiếu. Việc tuân thủ không bao giờ
+                     đòi hỏi một sản phẩm hay dịch vụ thương mại nào, kể cả của chính đơn vị quản thủ.
+                  </p>
+               </aside>
+            </section>
+         </div>
+      </div>
+
+      <div class="why-band">
+         <div class="wrap">
+            <p class="eyebrow is-kicker on-dark">Vì sao nó được dựng theo cách này</p>
+            <h2 class="section-title levels-title">
+               Chủ ý bền vững, chia sẻ trong một vòng tròn, kiểm bằng&nbsp;cơ chế.
+            </h2>
+            <section class="theses">
+               <article class="thesis">
+                  <span class="thesis-num">I.</span>
+                  <div class="thesis-body">
+                     <h3>Chủ ý thay vì chỉ dẫn</h3>
+                     <p>
+                        Chủ ý bền vững thuộc về một lớp ngữ cảnh duy nhất đã qua xem xét, nơi người và agent tự suy ra
+                        hành động từ đó. Các điểm vào của nhà cung cấp chuyển hướng về đó, nên ngữ cảnh của một{' '}
+                        <a href="/vi/ai-native/">nhóm AI-native</a> sống lâu hơn mọi công cụ.{' '}
+                        <a href="/vi/rationale/#intent-over-instructions">Vì sao chủ ý bền lâu.</a>
+                     </p>
+                  </div>
+               </article>
+               <article class="thesis">
+                  <span class="thesis-num">II.</span>
+                  <div class="thesis-body">
+                     <h3>Một vòng tròn, không phải một tầng</h3>
+                     <p>
+                        Người với người, người với AI, và người với AI với người đều được coi trọng ngang nhau quanh
+                        cùng một lớp ngữ cảnh dùng chung. Ai cũng đọc, ai cũng đề xuất, và con người phê duyệt qua pull
+                        request.{' '}
+                        <a href="/vi/rationale/#a-circle-not-a-tier">Vì sao vòng tròn hiệu quả.</a>
+                     </p>
+                  </div>
+               </article>
+               <article class="thesis">
+                  <span class="thesis-num">III.</span>
+                  <div class="thesis-body">
+                     <h3>Cơ chế thay vì thiện chí</h3>
+                     <p>
+                        Thực tế luôn thay đổi, còn ngữ cảnh dùng chung sẽ dần xuống cấp. Việc xem xét code, các phép
+                        kiểm những dạng trôi lệch máy kiểm được và hạn tươi đưa việc bảo trì vào cơ chế vận hành thay vì
+                        để nó trông vào thiện chí; ngữ cảnh lỗi thời không bao giờ bị âm thầm coi là còn hiệu lực.{' '}
+                        <a href="/vi/rationale/#why-this-is-not-a-wiki">Vì sao cơ chế mới là thứ quan trọng.</a>
+                     </p>
+                  </div>
+               </article>
+            </section>
+         </div>
+      </div>
+
+      <div class="wrap">
+         <section class="manifest-peek">
+            <div class="peek-text">
+               <p class="eyebrow is-kicker">Điểm vào cho máy</p>
+               <h2 class="section-title">Một tệp manifest</h2>
+               <p>
+                  Cây <code>docs/</code> sẵn có của bạn tuân thủ bằng cách <em>ánh xạ</em>, chứ không phải đổi tên. Một
+                  tệp{' '}
+                  <code>leji.json</code> duy nhất ở gốc kho mã nguồn khai báo gốc ngữ cảnh, boot profile, các ánh xạ danh
+                  mục, và tuyên bố mức tuân thủ.
+               </p>
+               <p>
+                  Một lớp ngữ cảnh tinh gọn không cần tệp nào của nhà cung cấp: lệnh triệu tập trỏ thẳng agent host tới
+                  boot profile, hoặc <code>leji start</code> mở ngay một host đã phát hiện được tại đó.
+               </p>
+               <p>
+                  Các tệp điểm vào chỉ là con trỏ, không bao giờ là nơi chứa ngữ cảnh. <code>AGENTS.md</code> là tệp dùng
+                  chung mà nhiều agent host đều đọc; <a href="/vi/adoption/">hướng dẫn áp dụng</a> nói nốt phần còn lại.
+               </p>
+               <p class="peek-more"><a href="/vi/manifest/">Tra cứu manifest →</a></p>
+            </div>
+            <div class="peek-code">
+               <Code code={peekJson} lang="json" theme={lejiSyntaxTheme} wrap />
+            </div>
+         </section>
+      </div>
+   </main>
+   <SiteFooter />
+</Base>
+
+<style>
+   .monument {
+      --grain: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='160'%20height='160'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.8'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20type='saturate'%20values='0'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url(%23n)'/%3E%3C/svg%3E");
+      position: relative;
+      overflow: hidden;
+      color: var(--leji-surface);
+      /* Depth, three layers deep: the linear runs deepest at both ends and opens
+         to --leji-deep across the middle, so the band frames itself; a mint wash
+         lights the top where the headline sits; and the brand green, centred
+         below the band's own edge, lifts the ground under the terminal the way
+         the retired composition lifted it from below. */
+      background:
+         radial-gradient(120% 80% at 50% -20%, rgba(112, 216, 194, 0.16), transparent 55%),
+         radial-gradient(90% 60% at 50% 118%, rgba(0, 159, 113, 0.55), transparent 60%),
+         linear-gradient(180deg, var(--leji-deepest) 0%, var(--leji-deep) 32%, var(--leji-deepest) 100%);
+      padding-bottom: clamp(3.5rem, 8vh, 6rem);
+      /* The banner is a sibling above this band, not a child, so <main> can be the
+         page's landmark. Pull the band up behind it and pad the same amount back, so
+         the gradient, glow and fluting are continuous under the header.
+         --header-h is the header row's height, defined in global.css. */
+      margin-top: calc(-1 * var(--header-h));
+      padding-top: var(--header-h);
+   }
+   /* stone grain */
+   .monument::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: var(--grain);
+      background-size: 160px 160px;
+      opacity: 0.07;
+      mix-blend-mode: overlay;
+      pointer-events: none;
+      z-index: 0;
+   }
+   /* engraved fluting */
+   .monument::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(112, 216, 194, 0.05) 78px 79px);
+      pointer-events: none;
+      z-index: 0;
+   }
+   .monument > * {
+      position: relative;
+      z-index: 1;
+   }
+   .hero {
+      padding: clamp(2.6rem, 8vh, 5.5rem) 0 clamp(1.5rem, 4vh, 3rem);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.06fr);
+      gap: clamp(2.2rem, 5vw, 4.5rem);
+      align-items: start;
+   }
+   @media (max-width: 900px) {
+      .hero {
+         grid-template-columns: 1fr;
+         gap: 2.6rem;
+         max-width: 680px;
+      }
+   }
+   .hero-text {
+      min-width: 0;
+   }
+
+   .kicker {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--leji-accent);
+      margin: 0 0 1.3rem;
+   }
+   .kicker .sep {
+      font-style: normal;
+      font-size: 0.5rem;
+      color: var(--leji-accent);
+      opacity: 0.7;
+      transform: translateY(-1px);
+   }
+
+   h1 {
+      font-family: var(--serif-display);
+      font-variation-settings: 'opsz' 144;
+      font-weight: 460;
+      font-size: clamp(2.4rem, 5.2vw, 4.05rem);
+      line-height: 1.06;
+      letter-spacing: -0.02em;
+      color: var(--leji-surface);
+      margin: 0;
+      max-width: 30ch;
+   }
+
+   /* The one word the headline turns on: mint against white, with the glow that
+      makes it read as lit rather than merely coloured. */
+   .gild {
+      position: relative;
+      white-space: nowrap;
+      color: var(--leji-accent);
+      font-style: italic;
+      font-variation-settings: 'opsz' 144;
+      text-shadow: 0 0 34px rgba(112, 216, 194, 0.4);
+   }
+
+   .carved-rule {
+      width: 92px;
+      height: 2px;
+      margin: 1.7rem 0 0;
+      background: linear-gradient(90deg, var(--leji-accent), rgba(112, 216, 194, 0.05));
+      border-radius: 2px;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+   }
+
+   .hero-note {
+      max-width: 50ch;
+      margin: 1.6rem 0 0;
+   }
+   .hero-note :global(.translation-note) {
+      margin: 0;
+      padding: 0.8rem 1.1rem;
+      border-left-color: var(--leji-accent);
+      background: rgba(255, 255, 255, 0.06);
+      font-size: 0.86rem;
+      color: var(--white-soft);
+   }
+   .hero-note :global(.translation-note a) {
+      color: var(--leji-accent);
+      text-decoration-color: var(--leji-accent-rule);
+   }
+   .hero-note :global(.translation-note a:hover) {
+      text-decoration-color: var(--leji-accent);
+   }
+
+   .lede {
+      font-family: var(--serif-text);
+      font-size: clamp(1.04rem, 1.5vw, 1.17rem);
+      line-height: 1.72;
+      color: var(--white-soft);
+      max-width: 50ch;
+      margin: 1.7rem 0 2.1rem;
+   }
+   .lede strong {
+      color: var(--leji-surface);
+      font-weight: 600;
+   }
+   .lede code {
+      font-size: 0.84em;
+      color: var(--white-strong);
+      background: rgba(255, 255, 255, 0.09);
+      border: 1px solid rgba(112, 216, 194, 0.22);
+      padding: 0.06em 0.36em;
+      border-radius: 4px;
+   }
+   .lede a {
+      color: inherit;
+      text-decoration: underline;
+      text-decoration-color: rgba(112, 216, 194, 0.35);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+      transition:
+         color 0.15s ease,
+         text-decoration-color 0.15s ease;
+   }
+   .lede a:hover {
+      color: var(--leji-accent);
+      text-decoration-color: var(--leji-accent);
+   }
+
+   .cta {
+      display: flex;
+      gap: 0.9rem;
+      flex-wrap: wrap;
+   }
+   .hero-license {
+      margin: 1.1rem 0 0;
+      padding-left: 1.4rem;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      color: var(--white-faint);
+   }
+   .hero-license .oss-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45em;
+      color: var(--leji-accent);
+      text-decoration: none;
+   }
+   .hero-license .gh-icon {
+      display: inline-flex;
+      color: var(--leji-surface);
+   }
+   .hero-license .gh-icon :global(svg) {
+      display: block;
+      height: 1.05em;
+      width: auto;
+   }
+   .hero-license .free {
+      color: var(--leji-accent);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+   }
+   .hero-license .oss-link:hover .free {
+      text-decoration: underline;
+      text-decoration-color: var(--leji-accent);
+      text-underline-offset: 3px;
+   }
+   .btn {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      text-decoration: none;
+      padding: 0.9rem 1.6rem;
+      border-radius: 7px;
+      transition:
+         transform 0.16s ease,
+         box-shadow 0.16s ease,
+         background 0.16s ease,
+         border-color 0.16s ease;
+   }
+   /* Primary CTA per the brand's own website mapping: brand green ground, white
+      label. Flat, not a ramp: the green is saturated enough to hold the button on
+      its own, and the shadow already gives it the lift. */
+   .btn.solid {
+      /* the accessible green ground carries white at 5.15:1 at any size; the
+         vivid brand green is the hover moment */
+      background: var(--leji-brand-dark);
+      color: var(--leji-surface);
+      font-weight: 600;
+      box-shadow:
+         inset 0 1px 0 rgba(255, 255, 255, 0.45),
+         0 10px 28px rgba(0, 159, 113, 0.32);
+   }
+   .btn.solid:hover {
+      background: var(--leji-brand);
+      transform: translateY(-2px);
+      box-shadow:
+         inset 0 1px 0 rgba(255, 255, 255, 0.55),
+         0 16px 40px rgba(0, 159, 113, 0.45);
+   }
+   .btn.ghost {
+      border: 1px solid rgba(112, 216, 194, 0.5);
+      color: var(--leji-accent);
+   }
+   .btn.ghost:hover {
+      background: rgba(112, 216, 194, 0.12);
+      border-color: var(--leji-accent);
+      transform: translateY(-2px);
+   }
+   .hero-proof {
+      position: relative;
+      min-width: 0;
+   }
+   .hero-proof::before {
+      content: '';
+      position: absolute;
+      inset: -12% -8% -16%;
+      background: radial-gradient(58% 60% at 62% 34%, rgba(112, 216, 194, 0.2), transparent 72%);
+      filter: blur(18px);
+      pointer-events: none;
+      z-index: 0;
+   }
+   .hero-proof > * {
+      position: relative;
+      z-index: 1;
+   }
+   .hero-proof :global(.term) {
+      box-shadow:
+         0 1px 0 rgba(255, 255, 255, 0.06) inset,
+         0 34px 80px rgba(16, 42, 41, 0.55),
+         0 0 0 1px rgba(112, 216, 194, 0.22);
+   }
+   .reveal {
+      opacity: 0;
+      transform: translateY(16px);
+      animation: rise 0.72s cubic-bezier(0.2, 0.6, 0.2, 1) forwards;
+   }
+   .r1 {
+      animation-delay: 0.12s;
+   }
+   .r2 {
+      animation-delay: 0.24s;
+   }
+   .r3 {
+      animation-delay: 0.4s;
+   }
+   .r4 {
+      animation-delay: 0.54s;
+   }
+   .r5 {
+      animation-delay: 0.46s;
+   }
+   @keyframes rise {
+      to {
+         opacity: 1;
+         transform: none;
+      }
+   }
+   @media (prefers-reduced-motion: reduce) {
+      .reveal {
+         animation: none;
+         opacity: 1;
+         transform: none;
+      }
+   }
+   .section-title {
+      font-family: var(--serif-display);
+      font-variation-settings: 'opsz' 80;
+      font-weight: 540;
+      font-size: clamp(1.7rem, 3vw, 2.3rem);
+      line-height: 1.12;
+      letter-spacing: -0.012em;
+      color: var(--leji-text);
+      margin: 0 0 0.6rem;
+      max-width: 22ch;
+   }
+   .levels {
+      padding: 0;
+   }
+   .levels-title {
+      max-width: 34ch;
+      margin-bottom: 0.9rem;
+   }
+   .levels-lede {
+      color: var(--leji-text-body);
+      margin: 0;
+      max-width: var(--measure);
+      font-size: var(--text-lede);
+      line-height: 1.7;
+   }
+   .levels-lede code {
+      font-size: 0.85em;
+      background: var(--leji-surface);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      color: var(--leji-text);
+   }
+   .adopt-flow {
+      list-style: none;
+      margin: 2.2rem 0 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: clamp(1.2rem, 3.5vw, 2.6rem);
+   }
+   .adopt-step {
+      position: relative;
+      padding-top: 1rem;
+   }
+   .adopt-step::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: var(--leji-brand);
+   }
+   .step-when {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+      margin-bottom: 0.5rem;
+   }
+   .adopt-step h3 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 1.1rem;
+      color: var(--leji-text);
+      margin: 0 0 0.4rem;
+   }
+   .adopt-step p {
+      color: var(--leji-text-body);
+      margin: 0;
+      line-height: 1.6;
+   }
+   @media (max-width: 720px) {
+      .adopt-flow {
+         grid-template-columns: 1fr;
+         gap: 1.5rem;
+      }
+      .adopt-step::before {
+         width: 50%;
+      }
+   }
+   .standard-note {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin: clamp(1.6rem, 3.5vh, 2.6rem) 0 0;
+      max-width: var(--measure);
+      padding: 0.15rem 0 0.15rem 1.1rem;
+      border-left: 2px solid var(--leji-brand);
+   }
+   .standard-note-label {
+      font-family: var(--mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+   }
+   .standard-note p {
+      margin: 0;
+      color: var(--leji-text-body);
+      line-height: 1.6;
+   }
+   .ladder {
+      list-style: none;
+      margin: clamp(1.7rem, 3.2vh, 2.3rem) 0 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      counter-reset: ladder;
+   }
+   @media (max-width: 900px) {
+      .ladder {
+         grid-template-columns: repeat(2, 1fr);
+         row-gap: 1.6rem;
+      }
+   }
+   @media (max-width: 560px) {
+      .ladder {
+         grid-template-columns: 1fr;
+         row-gap: 1.6rem;
+      }
+   }
+   .ladder li {
+      counter-increment: ladder;
+      border: 1px solid var(--leji-border);
+      border-radius: 12px;
+      padding: 1.4rem 1.4rem 1.3rem;
+      /* Flat white per the brand's card rule: on the mint band and on the canvas
+         alike, pure white plus the border is what lifts the card. */
+      background: var(--leji-surface);
+      position: relative;
+      transition:
+         transform 0.16s ease,
+         box-shadow 0.16s ease,
+         border-color 0.16s ease;
+   }
+   .ladder li:hover {
+      transform: translateY(-3px);
+      border-color: var(--leji-brand);
+      box-shadow: 0 14px 34px rgba(24, 61, 59, 0.12);
+   }
+   /* A light chip carrying dark text: mint ground, heading tone on it, 7.1:1.
+      Brand green here would force white text at 3.4:1 on a 15px numeral. */
+   .ladder li::before {
+      content: counter(ladder);
+      position: absolute;
+      top: -0.85rem;
+      left: 1.1rem;
+      font-family: var(--serif-display);
+      font-weight: 620;
+      color: var(--leji-text);
+      background: var(--leji-accent);
+      padding: 0.06rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.92rem;
+      box-shadow: 0 3px 10px rgba(24, 61, 59, 0.18);
+   }
+   .ladder .rung-tag {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+      margin-bottom: 0.55rem;
+   }
+   .ladder .rung-cap {
+      display: block;
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: var(--text-lede);
+      line-height: 1.2;
+      color: var(--leji-text);
+      margin-bottom: 0.5rem;
+   }
+   .ladder span {
+      font-size: 0.9rem;
+      color: var(--leji-text-body);
+      line-height: 1.55;
+   }
+
+   .levels-band {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(3rem, 7vh, 5rem) 0;
+      /* One recessed tint: the soft mint already sits a measured step under the
+         canvas, and a second gradient stop would have had to borrow a token whose
+         role is elsewhere. */
+      background:
+         radial-gradient(75% 60% at 88% -15%, rgba(0, 159, 113, 0.04), transparent 60%), var(--leji-accent-soft);
+      border-top: 1px solid var(--leji-accent-rule);
+      border-bottom: 1px solid var(--leji-accent-rule);
+   }
+   .levels-band::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: var(--grain);
+      background-size: 160px 160px;
+      opacity: 0.04;
+      mix-blend-mode: multiply;
+      pointer-events: none;
+   }
+   .levels-band::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(0, 159, 113, 0.022) 78px 79px);
+      pointer-events: none;
+   }
+   .levels-band > * {
+      position: relative;
+      z-index: 1;
+   }
+   .surfaces {
+      padding: clamp(3rem, 7vh, 5rem) 0;
+   }
+   .surfaces-title {
+      max-width: none;
+   }
+   .surfaces-lede {
+      color: var(--leji-text-body);
+      margin: 0.6rem 0 0;
+      max-width: var(--measure);
+      font-size: var(--text-lede);
+      line-height: 1.7;
+   }
+   .chart {
+      display: grid;
+      grid-template-columns: minmax(240px, 320px) clamp(2rem, 5vw, 3.5rem) 1fr;
+      align-items: center;
+      margin-top: 2.4rem;
+   }
+   .chart-source {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      padding: 1.5rem 1.7rem;
+      border: 1px solid var(--leji-brand);
+      border-radius: 14px;
+      background: var(--leji-surface);
+      box-shadow: 0 14px 32px rgba(24, 61, 59, 0.12);
+   }
+   .chart-source-name {
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.18rem;
+      line-height: 1.15;
+      color: var(--leji-text);
+   }
+   .chart-source-tag {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+   }
+   .chart-fork {
+      align-self: stretch;
+      width: 100%;
+      height: 100%;
+   }
+   .chart-fork path {
+      fill: none;
+      stroke: var(--leji-brand);
+      stroke-width: 1.25;
+      vector-effect: non-scaling-stroke;
+      opacity: 0.75;
+   }
+   .chart-surfaces {
+      display: flex;
+      flex-direction: column;
+      gap: clamp(0.9rem, 2.2vw, 1.5rem);
+   }
+   .surface {
+      position: relative;
+      padding: 1.4rem 1.6rem;
+      border: 1px solid var(--leji-border);
+      border-radius: 12px;
+      background: var(--leji-surface);
+   }
+   .surface::before {
+      content: '';
+      position: absolute;
+      left: -4.5px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--leji-brand);
+      box-shadow: 0 0 0 3px var(--leji-canvas);
+   }
+   .surface-label {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+      margin: 0 0 0.6rem;
+   }
+   .surface-body {
+      color: var(--leji-text-body);
+      margin: 0;
+      line-height: 1.7;
+      max-width: var(--measure);
+   }
+   .surface strong {
+      color: var(--leji-text);
+      font-weight: 600;
+   }
+   .surface code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+   .surface a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   @media (max-width: 720px) {
+      .chart {
+         grid-template-columns: 1fr;
+         gap: 1.4rem;
+      }
+      .chart-fork {
+         display: none;
+      }
+      .surface::before {
+         display: none;
+      }
+   }
+   .why-band {
+      margin-top: 0;
+      padding: clamp(3.5rem, 7vh, 5.5rem) 0 clamp(4rem, 8vh, 6rem);
+      position: relative;
+      overflow: hidden;
+      color: var(--leji-surface);
+      /* Travels the same direction as before, lighter to darker, so the band
+         settles as the page ends: --leji-deep down to --leji-deepest, mint above
+         the theses and brand green lifting the lower-left corner. */
+      background:
+         radial-gradient(90% 70% at 85% -20%, rgba(112, 216, 194, 0.14), transparent 58%),
+         radial-gradient(80% 60% at 0% 120%, rgba(0, 159, 113, 0.5), transparent 60%),
+         linear-gradient(180deg, var(--leji-deep), var(--leji-deepest));
+   }
+   .why-band::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: var(--grain);
+      background-size: 160px 160px;
+      opacity: 0.06;
+      mix-blend-mode: overlay;
+      pointer-events: none;
+   }
+   .why-band::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: repeating-linear-gradient(90deg, transparent 0 78px, rgba(112, 216, 194, 0.047) 78px 79px);
+      pointer-events: none;
+   }
+   .why-band > * {
+      position: relative;
+      z-index: 1;
+   }
+   .why-band .section-title {
+      color: var(--leji-surface);
+      margin-bottom: 1rem;
+   }
+   .why-lede {
+      color: var(--white-soft);
+      max-width: var(--measure);
+      font-size: var(--text-lede);
+      line-height: 1.7;
+      margin: 0 0 0.8rem;
+   }
+   /* One link treatment for the whole dark band, lede and theses alike. The
+      thesis links had no rule of their own, so they fell through to the global
+      `a { color: inherit }` and rendered white with the browser's default
+      underline: full strength, no offset, drawn straight through the line. Mint
+      carries the link on this ground, and the underline is held to a hairline so
+      it reads as emphasis rather than as a rule struck through the sentence. */
+   .why-band a {
+      color: var(--leji-accent);
+      text-decoration: underline;
+      text-decoration-color: rgba(112, 216, 194, 0.45);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+      transition: text-decoration-color 140ms ease;
+   }
+   .why-band a:hover {
+      text-decoration-color: var(--leji-accent);
+   }
+   .why-band a:focus-visible {
+      outline: 2px solid var(--leji-accent);
+      outline-offset: 3px;
+      border-radius: 2px;
+   }
+   @media (prefers-reduced-motion: reduce) {
+      .why-band a {
+         transition: none;
+      }
+   }
+   .theses {
+      margin-top: 0;
+   }
+   .thesis {
+      display: grid;
+      grid-template-columns: clamp(3.6rem, 7vw, 5.5rem) minmax(0, 1fr);
+      gap: clamp(1.4rem, 3.5vw, 3rem);
+      align-items: baseline;
+      padding: clamp(1.8rem, 3.6vh, 2.6rem) 0;
+   }
+   .thesis-num {
+      font-family: var(--serif-display);
+      font-variation-settings: 'opsz' 144;
+      font-weight: 460;
+      font-size: clamp(2.1rem, 3.4vw, 2.9rem);
+      line-height: 1;
+      color: var(--leji-accent);
+      text-align: right;
+   }
+   .thesis h3 {
+      font-family: var(--serif-display);
+      font-variation-settings: 'opsz' 72;
+      font-weight: 560;
+      font-size: 1.55rem;
+      margin: 0 0 0.7rem;
+      color: var(--leji-surface);
+   }
+   .thesis p {
+      margin: 0;
+      color: var(--white-soft);
+      line-height: 1.72;
+      max-width: var(--measure);
+   }
+   @media (max-width: 640px) {
+      .thesis {
+         grid-template-columns: 2.4rem minmax(0, 1fr);
+         gap: 1rem;
+         padding: 1.5rem 0;
+      }
+      .thesis-num {
+         font-size: 1.5rem;
+      }
+   }
+   .manifest-peek {
+      display: grid;
+      /* code column gets the larger share: monospace needs the horizontal room */
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+      gap: clamp(2rem, 4vw, 3rem);
+      align-items: center;
+      padding: clamp(3.5rem, 8vh, 6rem) 0;
+   }
+   @media (max-width: 760px) {
+      .manifest-peek {
+         grid-template-columns: 1fr;
+      }
+   }
+   .peek-text p {
+      color: var(--leji-text-body);
+      max-width: var(--measure);
+   }
+   .peek-text em {
+      color: var(--leji-text);
+   }
+   .peek-more a {
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+      text-decoration: none;
+      border-bottom: 1px solid var(--leji-brand);
+      padding-bottom: 2px;
+   }
+   /* Hover deepens, it does not brighten: the link is already the accessible end
+      of the green, so the state that answers is the darker one. */
+   .peek-more a:hover {
+      color: var(--leji-text);
+      border-color: var(--leji-text);
+   }
+   .peek-text code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+   .peek-code :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 14px;
+      padding: 1.5rem 1.7rem;
+      font-size: var(--code-fz);
+      line-height: 1.65;
+      box-shadow: 0 24px 60px rgba(24, 61, 59, 0.22);
+      margin: 0;
+   }
+</style>

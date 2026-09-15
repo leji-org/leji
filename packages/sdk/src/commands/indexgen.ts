@@ -7,6 +7,7 @@ import { gitLastModified, gitToplevel } from '../lib/git.js';
 import { duplicateIdFindings, scanCategories } from '../lib/layer.js';
 import { type Manifest, effectiveIndexPath } from '../lib/manifest.js';
 import { SDK_VERSION, SUPPORTED_LINES, schemaErrors } from '../lib/schemas.js';
+import { byteCompare } from '../lib/text.js';
 
 /** One artifact's entry in the generated context index. */
 export interface IndexEntry {
@@ -306,7 +307,7 @@ export function checkIndex(root: string, manifest: Manifest): IndexResult {
    });
    const got = stableStringify({
       rootPath: stored.rootPath,
-      entries: [...stored.entries].sort((a, b) => (a.path < b.path ? -1 : 1)).map(comparable),
+      entries: [...stored.entries].sort((a, b) => byteCompare(a.path, b.path)).map(comparable),
       mounts: stored.mounts ?? [],
    });
    if (want !== got) {

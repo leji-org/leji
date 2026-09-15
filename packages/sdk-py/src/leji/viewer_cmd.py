@@ -51,6 +51,7 @@ from .layer import (
     resolve_agent_profile,
     resolve_category_assignments,
     scan_agent_profiles,
+    scan_decision_records,
     scan_profile_set_with,
 )
 from .manifest import (
@@ -58,6 +59,7 @@ from .manifest import (
     Manifest,
     effective_agent_profiles_path,
     effective_index_path,
+    effective_viewer_title,
 )
 from .mounts import mount_status, read_text_within
 from .schemas import templates_dir
@@ -144,6 +146,60 @@ def _resolve_theme_color(manifest: Manifest, findings: list[Finding]) -> str:
         )
     )
     return DEFAULT_THEME_COLOR
+
+
+# The ground the link tone is measured against: the inline-code background
+# (`--leji-code-bg` in assets/vue.css). Body links land on white and inline code on
+# this, and this is the narrower of the two — the fixed tone is 5.15:1 on white but
+# 4.56:1 here — so a color clearing AA here clears white too, and one check covers
+# both. Mirrors the Node SDK's LINK_GROUND.
+LINK_GROUND = "#E8F4EE"
+
+# WCAG AA for normal-size text.
+LINK_CONTRAST_FLOOR = 4.5
+
+
+def _resolve_theme_link(theme: Optional[dict], findings: list[Finding]) -> Optional[str]:
+    """The viewer's body-link tone: viewer.theme.link when it is a hex color that stays
+    readable on the ground above, else None — the stylesheet's fixed accessible tone
+    stands and nothing is emitted, so the layer renders exactly as it did without the
+    field. Either refusal warns, naming the value the author wrote. Mirrors the Node
+    SDK's resolveThemeLink, rule name and messages included.
+
+    Only a MISSING key is absent. The schema accepts `link: ""` and `link: "   "` as
+    strings, so they are present-but-not-a-color: they take the predicate like any
+    other unusable value and warn, rather than passing silently as an unset field."""
+    configured = (theme or {}).get("link")
+    if configured is None:
+        return None
+    if not SAFE_CSS_COLOR.fullmatch(configured):
+        findings.append(
+            Finding(
+                "viewer-theme-link-contrast",
+                "warning",
+                f'viewer.theme.link "{configured}" is not a hex color; '
+                "body links keep the fixed accessible tone",
+            )
+        )
+        return None
+    # SAFE_CSS_COLOR admits exactly the hex lengths _parse_accent_color resolves, so
+    # neither parse can fail here; the guard is the type's, not a second policy.
+    rgb = _parse_accent_color(configured)
+    ground = _parse_accent_color(LINK_GROUND)
+    if rgb is None or ground is None:
+        return None
+    ratio = _contrast_ratio(_relative_luminance(rgb), _relative_luminance(ground))
+    if ratio < LINK_CONTRAST_FLOOR:
+        findings.append(
+            Finding(
+                "viewer-theme-link-contrast",
+                "warning",
+                f'viewer.theme.link "{configured}" reaches {ratio:.2f}:1 against the '
+                "inline-code ground; body links keep the fixed accessible tone",
+            )
+        )
+        return None
+    return configured
 
 
 # The bare hex an accent reduces to once the leading `#` is out of the way; the
@@ -335,6 +391,11 @@ def _md_link_text(s: str) -> str:
     return re.sub(r"[\\\[\]<>]", lambda m: "\\" + m.group(0), s)
 
 
+# The characters a bare CommonMark link destination may not contain: the ASCII
+# control range, the space, and DEL. Percent-encoded by _md_link_dest below.
+_MD_LINK_DEST_BARE_RE = re.compile(r"[\u0000-\u0020\u007f]")
+
+
 def _md_link_dest(s: str) -> str:
     """Escape a string for a Markdown link destination (`(...)`): backslash, parens.
     Destinations are emitted app-root absolute (leading slash): with the viewer's
@@ -343,8 +404,17 @@ def _md_link_dest(s: str) -> str:
     are exempt from relative resolution by Docsify's contract. Idempotent: leading
     slashes are stripped first, so an already-absolute destination (the sidebar
     builders are public API) never becomes `//...`, which Docsify routes as an
-    external protocol-relative URL. Empty input stays empty, never a bare `/`."""
-    escaped = re.sub(r"[\\()]", lambda m: "\\" + m.group(0), s.lstrip("/"))
+    external protocol-relative URL. Empty input stays empty, never a bare `/`.
+
+    ASCII control characters and the space are percent-encoded, not escaped: a bare
+    CommonMark destination may contain neither, so either one ENDS the destination
+    and everything after it lands in the page as markdown. File names may legally
+    carry both (a newline is a legal POSIX file-name byte), and the destinations here
+    are built from file names, so this is a structural neutralization rather than a
+    cosmetic one. Percent-encoded they still route: the local server decodes a
+    request path once, and a static host decodes it the same way."""
+    encoded = _MD_LINK_DEST_BARE_RE.sub(lambda m: f"%{ord(m.group(0)):02X}", s.lstrip("/"))
+    escaped = re.sub(r"[\\()]", lambda m: "\\" + m.group(0), encoded)
     if not escaped:
         return ""
     return "/" + escaped
@@ -441,6 +511,10 @@ class SidebarGroup:
 
     label: str
     entries: list[SidebarEntry]
+    #: True when a decisions-category index file contributed this group, so the
+    #: generated decisions page leads it. Same-labeled groups merge, so the flag is
+    #: the union over the merged ones.
+    decisions: bool = False
 
 
 def _entry_line(indent: str, e: SidebarEntry) -> str:
@@ -482,6 +556,12 @@ def build_sidebar(
         # Bold labels: the sidebar-collapse plugin treats a strong label with a
         # nested list as a collapsible folder, matching hand-built sidebars.
         group_lines.append(f"- **{_md_link_text(group.label)}**")
+        # The generated decisions index leads its own group, the way the generated
+        # Manifest page leads the pins: the summary first, then the records it lists.
+        if group.decisions:
+            group_lines.append(
+                _entry_line("  ", SidebarEntry(rel=DECISIONS_REL, title="Decisions index"))
+            )
         group_lines.extend(_build_group_tree(group.entries, group.label))
     # The browse zone renders as one collapsed "Reference" folder, not a bare
     # spill of links: a curated layer reads as pins + governed groups, with the
@@ -503,7 +583,13 @@ def _build_group_tree(entries: list[SidebarEntry], label: str = "") -> list[str]
     structure: the members' longest common directory prefix is stripped (so a
     group whose content lives under one directory doesn't repeat it), deeper
     directories become bold sub-labels, and files render as links. Real
-    repositories are not flat; the sidebar shouldn't be."""
+    repositories are not flat; the sidebar shouldn't be.
+
+    The members arrive in their group's final sequence and the tree keeps it: each
+    one streams into insertion-ordered children, so a file sits where it was
+    declared and a directory sits at its first member's place, recursively. The
+    uncurated browse zone has no declared order and sorts by name instead
+    (``_build_tree_section``)."""
 
     # Longest common directory prefix across all members.
     def dir_of(rel: str) -> list[str]:
@@ -518,21 +604,11 @@ def _build_group_tree(entries: list[SidebarEntry], label: str = "") -> list[str]
         prefix = prefix[:i]
     strip = len(prefix)
 
-    root_node: dict = {"dirs": {}, "files": []}
-    for e in sorted(entries, key=lambda x: x.rel):
-        parts = e.rel.split("/")[strip:]
-        cur = root_node
-        for seg in parts[:-1]:
-            child = cur["dirs"].get(seg)
-            if child is None:
-                child = {"dirs": {}, "files": []}
-                cur["dirs"][seg] = child
-            cur = child
-        cur["files"].append(e)
-
-    # Hoist a top-level directory whose name matches the group's own label (the
-    # emoji-stripped comparison), so "💼 Business" never wraps a redundant
-    # "Business" level while outlier members stay as siblings. Mirrors Node's
+    # A top-level directory whose name matches the group's own label (the
+    # emoji-stripped comparison) is hoisted away, so "💼 Business" never wraps a
+    # redundant "Business" level while outlier members stay as siblings. Dropping
+    # the segment as each member streams in IS the hoist: same tree, and the
+    # promoted content keeps the place its first member had. Mirrors Node's
     # /[^\p{L}\p{N} ]/gu strip via unicodedata categories.
     label_key = (
         "".join(ch for ch in label if unicodedata.category(ch)[0] in ("L", "N") or ch == " ")
@@ -540,29 +616,28 @@ def _build_group_tree(entries: list[SidebarEntry], label: str = "") -> list[str]
         .lower()
     )
 
-    def merge_into(target: dict, src: dict) -> None:
-        target["files"].extend(src["files"])
-        for name, d in src["dirs"].items():
-            existing = target["dirs"].get(name)
-            if existing is not None:
-                merge_into(existing, d)
-            else:
-                target["dirs"][name] = d
-
-    for name in list(root_node["dirs"].keys()):
-        if label_key != "" and _prettify_dir_name(name).lower() == label_key:
-            d = root_node["dirs"].pop(name)
-            merge_into(root_node, d)
+    # Each node holds its children in arrival order, directories and files
+    # interleaved, beside a name index of its subdirectories.
+    root_node: dict = {"children": [], "dirs": {}}
+    for e in entries:
+        parts = e.rel.split("/")[strip:]
+        if len(parts) > 1 and label_key != "" and _prettify_dir_name(parts[0]).lower() == label_key:
+            parts = parts[1:]
+        cur = root_node
+        for seg in parts[:-1]:
+            child = cur["dirs"].get(seg)
+            if child is None:
+                child = {"children": [], "dirs": {}}
+                cur["dirs"][seg] = child
+                cur["children"].append({"name": seg, "dir": child})
+            cur = child
+        cur["children"].append({"name": parts[-1], "file": e})
 
     lines: list[str] = []
 
     def render(node: dict, depth: int) -> None:
         indent = "  " * (depth + 1)
-        merged = [{"name": name, "dir": d} for name, d in node["dirs"].items()] + [
-            {"name": f.rel.split("/")[-1], "file": f} for f in node["files"]
-        ]
-        merged.sort(key=lambda e: e["name"])
-        for e in merged:
+        for e in node["children"]:
             if "dir" in e:
                 lines.append(f"{indent}- **{_md_link_text(_prettify_dir_name(e['name']))}**")
                 render(e["dir"], depth + 1)
@@ -590,9 +665,15 @@ def build_sidebar_groups(root: str, manifest: Manifest, entries: list[dict]) -> 
             if index_rel in seen:
                 continue
             seen.add(index_rel)
-            members: list[SidebarEntry] = []
+            # One index file's contribution, ordered on its own: the declared
+            # position first, then the path in UTF-8 byte order, which is the
+            # tiebreak among the documents one directory entry expanded to (they
+            # share its single position). The position is spent here; what carries
+            # onward is the member sequence itself.
+            claimed: list[tuple[int, bytes, SidebarEntry]] = []
             for rel_path in sorted(assignments):
-                if assignments[rel_path].index_rel != index_rel:
+                a = assignments[rel_path]
+                if a.index_rel != index_rel:
                     continue
                 entry = by_path.get(rel_path)
                 if not entry:
@@ -600,10 +681,24 @@ def build_sidebar_groups(root: str, manifest: Manifest, entries: list[dict]) -> 
                 rel = _relative_to_root(rel_path, manifest["rootPath"])
                 if rel is None:
                     continue
-                members.append(SidebarEntry(rel=rel, title=_sidebar_label(root, rel_path, rel)))
+                claimed.append(
+                    (
+                        a.order,
+                        rel.encode("utf-8"),
+                        SidebarEntry(rel=rel, title=_sidebar_label(root, rel_path, rel)),
+                    )
+                )
+            claimed.sort(key=lambda c: (c[0], c[1]))
+            members: list[SidebarEntry] = [c[2] for c in claimed]
             if not members:
                 continue
-            groups.append(SidebarGroup(label=_group_label(root, index_rel), entries=members))
+            groups.append(
+                SidebarGroup(
+                    label=_group_label(root, index_rel),
+                    entries=members,
+                    decisions=category == "decisions",
+                )
+            )
     # Agent profiles are artifacts outside category content, so the sidebar
     # surfaces them from the profile scan as their own group (label curated via
     # viewer.agentsLabel; first in derived order, reorderable by groupOrder).
@@ -633,18 +728,23 @@ def build_sidebar_groups(root: str, manifest: Manifest, entries: list[dict]) -> 
                 entries=agent_members,
             ),
         )
-    # Merge same-labeled groups, keeping first-occurrence order.
+    # Merge same-labeled groups, keeping first-occurrence order. Whole ordered
+    # contributions are appended, never re-sorted: two index files' positions are
+    # numbered independently, so a merged group's sequence is source order first
+    # (categories canonical, index files as the manifest declares them) and the
+    # declared order inside each. The list below IS that sequence; nothing
+    # downstream reorders it.
     merged: list[SidebarGroup] = []
     by_label: dict[str, SidebarGroup] = {}
     for g in groups:
         existing = by_label.get(g.label)
         if existing is not None:
             existing.entries.extend(g.entries)
+            if g.decisions:
+                existing.decisions = True
         else:
             by_label[g.label] = g
             merged.append(g)
-    for g in merged:
-        g.entries.sort(key=lambda e: e.rel)
     # viewer.groupOrder curates group sequence by exact label: listed groups come
     # first in the given order; unlisted groups follow in derived order.
     order = (manifest.get("viewer") or {}).get("groupOrder") or []
@@ -704,6 +804,18 @@ def _sidebar_label(root: str, rel_path: str, root_rel: str) -> str:
 # generation, the local server's route, and the export's copy.
 OVERVIEW_REL = "overview.md"
 
+#: The generated decisions index, named beside `_manifest.md` under the same
+#: reserved-underscore convention: written into the viewer dir, served under the
+#: content root, copied into an export.
+DECISIONS_REL = "_decisions.md"
+
+
+def has_decisions_page(manifest: Manifest) -> bool:
+    """True when the layer declares a decisions category. The page, its sidebar
+    entry, and its copy into an export exist for exactly those layers: the category
+    is optional, and a layer without one has no decisions to list."""
+    return bool((manifest["categories"].get("decisions") or {}).get("indexes"))
+
 
 def _reference_tree(root: str, manifest: Manifest, governed_paths: set[str]) -> list[TreeNode]:
     """The browse zone: every markdown file under rootPath that is NOT governed
@@ -720,6 +832,7 @@ def _reference_tree(root: str, manifest: Manifest, governed_paths: set[str]) -> 
     overview_rel = OVERVIEW_REL if root_dir_rel == "." else f"{root_dir_rel}/{OVERVIEW_REL}"
     sidebar_rel = "_sidebar.md" if root_dir_rel == "." else f"{root_dir_rel}/_sidebar.md"
     manifest_page_rel = "_manifest.md" if root_dir_rel == "." else f"{root_dir_rel}/_manifest.md"
+    decisions_page_rel = DECISIONS_REL if root_dir_rel == "." else f"{root_dir_rel}/{DECISIONS_REL}"
     nodes: list[TreeNode] = []
     for rel in walk_tree(root, root_dir_rel):
         if rel in governed_paths:
@@ -730,7 +843,7 @@ def _reference_tree(root: str, manifest: Manifest, governed_paths: set[str]) -> 
             continue
         if rel in index_files:
             continue
-        if rel in (overview_rel, sidebar_rel, manifest_page_rel):
+        if rel in (overview_rel, sidebar_rel, manifest_page_rel, decisions_page_rel):
             continue
         r = _relative_to_root(rel, manifest["rootPath"])
         if r is None:
@@ -920,7 +1033,7 @@ def build_manifest_page(manifest: Manifest, statuses: list[dict]) -> str:
     Deterministic by construction — declared values plus git-derived (never
     wall-clock, never networked) state — so the three SDKs emit identical bytes."""
     viewer_cfg = manifest.get("viewer") or {}
-    title = viewer_cfg.get("title") or manifest["name"]
+    title = effective_viewer_title(manifest)
     lines: list[str] = [
         f"# {_esc(title)}: Manifest",
         "",
@@ -1079,6 +1192,119 @@ def build_manifest_page(manifest: Manifest, statuses: list[dict]) -> str:
             lines.extend(["", "**Roles**", ""])
             for d in roled:
                 lines.append(f"- **{_esc(d['name'])}**: {_esc(d['role'])}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+# The displayed decision number: the leading digit run of a `NNNN-slug.md` file
+# name, exactly as written, so a layer's conventional `0006` renders `0006` and a
+# deliberate gap in the series stays visible. Presentation only: validate's
+# decision_number_key strips leading zeros so `0017` and `17` collide as one
+# identity, which is the wrong answer for a column people read. A file name that
+# does not carry the convention has no number and renders blank.
+_DECISION_NUMBER_DISPLAY_RE = re.compile(r"^([0-9]+)-[^\n]+\.md\Z")
+
+
+def _decision_number(rel_path: str) -> str:
+    m = _DECISION_NUMBER_DISPLAY_RE.match(posixpath.basename(rel_path))
+    return m.group(1) if m else ""
+
+
+def _inert_text(s: str) -> str:
+    """Authored text that cannot become active markdown: _esc handles the control
+    characters, the pipe, the backtick and the angle brackets, and the brackets are
+    escaped after it, never before, so a literal backslash is not double-counted.
+
+    ONE helper for both roles on the decisions page, because both need exactly this.
+    As link text, an unescaped `]` closes the link early and the rest of the title
+    lands as page markdown. As a plain cell, an unescaped `[...](...)` IS a link,
+    which would make a status value, a date, an unresolvable id, or an unservable
+    record's title render as one, breaking the plain-text status contract and the
+    rule that a record outside the context root is named and never linked. _esc
+    alone leaves brackets intact, so every interpolation of authored text on that
+    page comes through here."""
+    return re.sub(r"[\[\]]", lambda m: "\\" + m.group(0), _esc(s))
+
+
+def _decision_cell(value: object) -> str:
+    """One frontmatter scalar as a table cell: inert text, blank when it is not a
+    string the record actually declares."""
+    return _inert_text(value) if isinstance(value, str) else ""
+
+
+def _supersession_cell(value: object, route_by_id: dict[str, Optional[str]]) -> str:
+    """A supersession pointer: a link when the id names a record this page lists AND
+    that record is servable; inert text otherwise (a pointer at no record, or at one
+    the viewer cannot route to, is shown rather than linked to a 404). A reserved id
+    with no route is the second case, not the first."""
+    # strip(_JS_WS), not the default strip(): the reference blank-checks with JS
+    # `.trim()`, whose whitespace set includes U+FEFF and the U+2000 block that
+    # Python's default strip leaves alone. A BOM-only pointer is blank there.
+    if not isinstance(value, str) or value.strip(_JS_WS) == "":
+        return ""
+    rel = route_by_id.get(value)
+    if rel is None:
+        return _inert_text(value)
+    return f"[{_inert_text(value)}]({_md_link_dest(rel)})"
+
+
+def build_decisions_page(manifest: Manifest, records: list[ScannedProfile]) -> str:
+    """The generated "Decisions" page: every decision record the layer carries, as
+    one table built from the records' own frontmatter, the set `leji validate` scans,
+    so the page cannot drift from what the layer governs and no layer hand-maintains
+    a summary table that silently lags its records.
+
+    Deterministic by construction, like the Manifest page: declared values only, byte
+    order by file name, one escaping contract, so the three SDKs emit identical
+    bytes. Status is the frontmatter value as plain text: the schema's enum is
+    validation's business, and a page that styled it would have to decide what an
+    unknown value means. A record whose frontmatter does not parse shows its file
+    name and blank cells; `leji validate` is where that defect is reported."""
+    page_title = effective_viewer_title(manifest)
+    lines: list[str] = [
+        f"# {_inert_text(page_title)}: Decisions",
+        "",
+        "Generated from the decision records' frontmatter; edit the records, not this page.",
+        "",
+        "| Number | Decision | Status | Date | Supersedes | Superseded by |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    # Byte order by file name, which is the numbering series a reader expects. The
+    # encode() key is the SDK's standing idiom for it; the TS reference reaches the
+    # same order through an explicit byte compare because JS compares UTF-16 units.
+    ordered = sorted(records, key=lambda r: r.rel_path.encode("utf-8"))
+    # Route by declared id, for the supersession columns. The FIRST listed record
+    # carrying an id reserves it, whether or not it is servable: a duplicate id is a
+    # validation error this page does not adjudicate, and skipping an unservable
+    # first record would silently hand the link to whichever later duplicate happens
+    # to be routable. A reservation with no route (None) renders as plain text.
+    route_by_id: dict[str, Optional[str]] = {}
+    for record in ordered:
+        rec_id = (record.frontmatter or {}).get("id")
+        if not isinstance(rec_id, str) or rec_id == "" or rec_id in route_by_id:
+            continue
+        route_by_id[rec_id] = _relative_to_root(record.rel_path, manifest["rootPath"])
+    for record in ordered:
+        fm = record.frontmatter or {}
+        rel = _relative_to_root(record.rel_path, manifest["rootPath"])
+        declared = fm.get("title")
+        # _JS_WS again: a title the reference reads as blank (a lone BOM, say)
+        # falls back to the file name there, so it must here too.
+        label = (
+            declared
+            if isinstance(declared, str) and declared.strip(_JS_WS) != ""
+            else posixpath.basename(record.rel_path)
+        )
+        # A record outside rootPath is not servable, so it is named without a link.
+        decision = (
+            _inert_text(label) if rel is None else f"[{_inert_text(label)}]({_md_link_dest(rel)})"
+        )
+        lines.append(
+            f"| {_decision_number(record.rel_path)} | {decision}"
+            f" | {_decision_cell(fm.get('status'))} | {_decision_cell(fm.get('date'))}"
+            f" | {_supersession_cell(fm.get('supersedes'), route_by_id)}"
+            f" | {_supersession_cell(fm.get('supersededBy'), route_by_id)} |"
+        )
     lines.append("")
     return "\n".join(lines)
 
@@ -1450,8 +1676,14 @@ def _assemble_sidebar(
 
     # A pin replaces the doc's default sidebar position: pinned docs render in
     # the top zone only, dropped from their group listing like the tree below.
+    # `decisions` travels with the rebuilt group: it is a property of which index
+    # file contributed it, not of which of its entries survived the pin filter.
     groups = [
-        SidebarGroup(label=g.label, entries=[e for e in g.entries if e.rel not in pinned_root_rel])
+        SidebarGroup(
+            label=g.label,
+            entries=[e for e in g.entries if e.rel not in pinned_root_rel],
+            decisions=g.decisions,
+        )
         for g in build_sidebar_groups(root, manifest, entries)
     ]
     # The homepage already has a fixed entry point (the sidebar title links to it),
@@ -1479,7 +1711,7 @@ def _build_index_html(root: str, manifest: Manifest, base: str, findings: list[F
     invocation discards them, having already reported the generation run's."""
     viewer_cfg = manifest.get("viewer") or {}
     # Display title: viewer.title override, else the context layer name.
-    display_title = viewer_cfg.get("title") or manifest["name"]
+    display_title = effective_viewer_title(manifest)
     # The sidebar header. A configured brand logo renders as a centered block (the
     # wordmark IS the title, the way hand-built dashboards do it); the default Leji
     # mark renders small and inline beside the title text. Raw <img> HTML inside
@@ -1509,6 +1741,13 @@ def _build_index_html(root: str, manifest: Manifest, base: str, findings: list[F
     else:
         favicon_url = _html_escape(_default_logo(base))
     config = _docsify_config(root, manifest, name_html, base, findings)
+    # The body-link override, or nothing at all: a layer without viewer.theme.link,
+    # and one whose value the guard refuses, both substitute the empty string, so
+    # their index.html is byte-for-byte the file 1.4.1 wrote. The declaration lands
+    # inside the page's own <style>, which loads after assets/vue.css and therefore
+    # wins the cascade against the fixed tone declared there. Resolved after the
+    # config so the homepage, accent, and link warnings keep their shared order.
+    theme_link = _resolve_theme_link(viewer_cfg.get("theme"), findings)
     # Mermaid is on unless explicitly disabled. When off, the two mermaid scripts
     # are omitted from the page and their assets are not copied (a leaner viewer).
     mermaid_scripts = (
@@ -1524,6 +1763,7 @@ def _build_index_html(root: str, manifest: Manifest, base: str, findings: list[F
     substitutions = {
         "LEJI_NAME_HTML": _html_escape(display_title),
         "FAVICON_URL": favicon_url,
+        "LEJI_LINK_STYLE": "" if theme_link is None else f":root {{ --leji-link: {theme_link}; }}",
         "DOCSIFY_CONFIG": config,
         "MERMAID_SCRIPTS": mermaid_scripts,
     }
@@ -1729,6 +1969,15 @@ def generate_viewer(
     write_viewer_file(
         f"{viewer_dir}/_manifest.md", build_manifest_page(manifest, mount_status(root, manifest))
     )
+
+    # The Decisions page: the same generated chrome, for a layer that declares a
+    # decisions category. Built from the records the validator scans, so it lists
+    # exactly what the layer governs and nothing has to be maintained by hand.
+    if has_decisions_page(manifest):
+        write_viewer_file(
+            f"{viewer_dir}/{DECISIONS_REL}",
+            build_decisions_page(manifest, scan_decision_records(root, manifest)),
+        )
 
     return ViewerResult(
         written=written, findings=findings, entries=len(entries), index_entries=entries

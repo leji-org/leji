@@ -75,12 +75,14 @@ leji mounts locate <name>        # where a reader should read the sibling from`;
    <h2>Working the mounts</h2>
    <div class="federation-code"><Code code={commands} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
    <p>
-      Use <code>hydrate --fetch</code> to materialize every projection at its pin, with an explicit network fetch. Use
+      Use <code>hydrate --fetch</code> to materialize every projection at its pin, with an explicit network fetch. Use{
+         ' '
+      }
       <code>status</code> to inspect availability, integrity, and pin staleness. Use <code>locate</code> to get the resolver-managed
       path where a reader should open one sibling.
    </p>
    <p>
-      Keeping a mount current is that same loop, once around: <code>hydrate --fetch</code> to observe the sources,
+      Keeping a mount current is that same loop, once around: <code>hydrate --fetch</code> to observe the sources,{' '}
       <code>status</code> to see how far each pin has fallen behind, <code>update-pin</code> to move one pin forward to the
       commit the resolver witnessed, then <code>hydrate</code> again to materialize the projection at the new pin. Moving
       the pin and materializing it are separate acts, so the rewrite is a reviewable diff before any content changes underneath
@@ -89,14 +91,15 @@ leji mounts locate <name>        # where a reader should read the sibling from`;
    <p>
       <code>update-pin</code> is offline by default: it promotes the last witness a run actually observed, and says so in
       its output rather than implying freshness. Add <code>--fetch</code> to observe the declared source during the run, which
-      contacts that source and nothing else; if any part of that fails, the run refuses and leaves
+      contacts that source and nothing else; if any part of that fails, the run refuses and leaves{' '}
       <code>leji.json</code> untouched. The pin moves forward only. A target that is not a descendant of the current pin is
-      refused unless you name it explicitly with <code>--to &lt;oid&gt;</code> and add
-      <code>--allow-non-fast-forward</code>, which is the flag for the one case that needs it: an upstream branch that
-      was rewritten. That combination is warned about every time, and recorded in the JSON output, because it moves a
-      pin to a commit the current one does not reach. Use <code>--dry-run</code> to see the comparison and the rewrite without
-      rewriting the manifest; combined with <code>--fetch</code> it still performs that flag's store and network acts, so
-      fetched objects and refs do land in the managed store.
+      refused unless you name it explicitly with <code>--to &lt;oid&gt;</code> and add{' '}
+      <code>--allow-non-fast-forward</code>. An upstream branch that was rewritten is the usual reason to reach for that
+      pair; a deliberate rollback to an earlier commit needs it too, because the check is ancestry rather than whether
+      history was rewritten. The combination is warned about every time, and recorded in the JSON output, because it
+      moves a pin to a commit the current one does not reach. Use <code>--dry-run</code> to see the comparison and the rewrite
+      without rewriting the manifest; combined with <code>--fetch</code> it still performs that flag's store and network acts,
+      so fetched objects and refs do land in the managed store.
    </p>
    <p>
       Only the pin's own bytes are rewritten, so your field order, formatting, and any keys the schema does not model

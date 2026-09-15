@@ -1,0 +1,511 @@
+---
+// Simplified Chinese translation of src/pages/quickstart.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation follows,
+// and it is what the drift gate compares against the current blob.
+//
+// The SDK structured data on the English page is not repeated here: the site's JSON-LD
+// keeps English as its canonical language, so one graph describes the packages.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import SupportedRuntimes from '../../components/SupportedRuntimes.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import InstallTabs from '../../components/InstallTabs.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+
+const source = '1d85a2ee9d95b8dcb58708c54e093711d2d5ff27';
+const strings = translationStrings('zh-hans');
+
+// Commands, flags, paths, and code stay unchanged; authored sample comments translate.
+const initCode = `leji adopt --dry-run    # 精确的写入计划；不会写入任何内容
+leji adopt              # 接入既有仓库（新仓库使用 leji init）
+                        # 然后提议打开 Claude Code 或 Codex
+
+leji adopt --wire-adapters  # 在既有 CLAUDE.md / AGENTS.md 上完成接入
+
+npm create leji         # 也可一步完成上述操作，且无需安装：
+                        # 它读取目录，并选择 adopt 或 init`;
+
+const validateCode = `leji validate           # schema + lint 规则
+leji validate --content # 再加上占位内容 / 内容单薄告警
+leji index              # 生成索引`;
+
+const conformanceCode = `leji conformance        # 为声明打分`;
+
+const viewCode = `leji view               # 在浏览器中打开人类可读的查看器
+leji viewer build       # 导出静态文件夹，部署在内部身份认证之后`;
+
+const ciCode = `leji ci                 # 生成工作流
+leji ci --hooks         # 与本地 pre-commit 相同的关卡
+
+# 生成的作业会运行：
+leji validate           # schema + lint 规则
+leji index --check      # 索引过期即失败
+
+# indexed 及以上级别再添加：
+leji changelog check    # 仅可追加`;
+
+const startCode = 'leji start              # 也可用 --agent claude-code | codex 指定一个宿主';
+
+const apiCode = `import { validateLayer, writeIndex, conformanceReport } from '@leji-org/leji';
+
+const { findings } = validateLayer('.');`;
+
+const mcpCode = `# Claude Code（本项目）
+claude mcp add leji --scope project -- npx -y @leji-org/mcp
+
+# Codex
+codex mcp add leji -- npx -y @leji-org/mcp`;
+---
+
+<Base
+   lang="zh-hans"
+   title="快速上手 · Leji"
+   description="快速上手：安装 Leji CLI，创建或映射一个上下文层，校验它，并对照它所声明的级别为它打分。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/quickstart/" />
+         <main id="content" class="adopt-main measured">
+            <section class="gs-hero">
+               <PageHeader kind="guide" />
+               <h1>建立上下文层，并检查它是否符合规范。</h1>
+               <TranslationNote strings={strings.note} href="/quickstart/" />
+               <p class="lede">
+                  只需五条命令，即可完成安装和一致性评分。leji
+                  的所有功能都随包发布，并在本地离线运行；只有你主动调用的操作才会访问网络。<code>leji init</code> 与 <code
+                     >leji adopt</code
+                  > 中的依赖步骤，只在你同意时才运行你自己的包管理器；而联邦相关的抓取只与你所指明的那个仓库通信：{' '}
+                  <code>leji mounts hydrate --fetch</code>、<code>leji mounts update-pin --fetch</code> 与{' '}
+                  <code>leji conformance --federation=verify</code>。
+               </p>
+            </section>
+
+            <SupportedRuntimes />
+
+            <section class="steps" aria-label="快速上手步骤">
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">01</span>安装工具</h2>
+                     <p>
+                        三个版本都通过同一套 fixture 套件测试，因此无论 CI 安装哪一个，标志、JSON
+                        输出和退出码都完全相同。
+                     </p>
+                     <p>
+                        把它声明为 dev dependency，才能让 CI、pre-commit
+                        钩子和每位贡献者都使用同一个固定版本。你无需自行研究安装命令：
+                        <code>leji init</code> 与 <code>leji adopt</code>
+                        会识别本仓库实际使用的包管理器，并且只在你明确同意时，替你运行它自己的添加命令：
+                        <code>npm</code>、<code>pnpm</code>、<code>yarn</code> 与 <code>bun</code>；
+                        <code>uv</code>、<code>poetry</code>、<code>pdm</code> 与 <code>pipenv</code>；以及
+                        <code>go get -tool</code>，它需要 Go 1.24 或更新版本，而自行构建 Go 版 CLI 则需要 Go 1.26.6
+                        或更新版本。用 pip 时，leji
+                        只打印需要添加的那一行，不会运行任何东西。全局安装不会碍事：在一个固定了自有副本的仓库内部，Node
+                        与 Python 版 CLI 每次调用都运行那个副本（<a href="/zh-hans/cli/#pinned-cli"
+                           >仓库所固定的那个 CLI</a
+                        >）。
+                     </p>
+                  </div>
+                  <div class="step-install"><InstallTabs /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">02</span>创建一个新的上下文层，或接入既有仓库</h2>
+                     <p>
+                        仓库根目录中会生成一份 <code>leji.json</code> 清单、一份引导配置、若干类别的起始文档、第一份决策记录和一份入门简报。此外，上下文根目录之外还会多出两个文件：在仓库中没有
+                        <code>AGENTS.md</code>
+                        时，会生成一份只含指针的 <code>AGENTS.md</code>（<code>--no-agents</code> 会跳过它）；根目录的 <code
+                           >.gitignore</code
+                        > 也会加入一行 <code>.leji/</code>，忽略这份简报所在的工作区。这些都不要求你有智能体。
+                     </p>
+                     <p>
+                        脚手架最初生成的只是占位内容。接受提议后，智能体会读取仓库、提出映射方案供你批准，然后删除这份简报。若拒绝提议，你会得到一条可稍后运行的命令；加上
+                        <code>--yes</code> 会跳过这一步，因此 CI 无需有人值守。
+                     </p>
+                     <p>
+                        独自工作？<code>--mode solo</code> 会生成 identity 和 writing-style 的起始内容，并让这份简报引导一次负责人访谈；你可以直接输入答案、提供附件，或把材料放进一个目录。只有经过你批准的汇总结果才会成为上下文，原始材料则留在仓库根目录
+                        <code>.leji/</code> 这个被 git 忽略的工作区里：<code>init</code> 与{' '}
+                        <code>adopt</code> 会写入那条忽略规则，而只要它下面还有任何东西被 git 跟踪，两者就完全拒绝运行。一旦上下文层有了内容，智能体就会删掉那些产物。
+                     </p>
+                     <aside class="map-note">
+                        <strong>已经有一棵 <code>docs/</code> 树了？</strong>
+                        <code>adopt</code> 会在它旁边生成脚手架，什么也不搬动。你既有的入口保持原样，因此在 <code
+                           >--wire-adapters</code
+                        > 运行之前，你手上的是一份接入草稿，而不是一个符合规范的层。
+                     </aside>
+                  </div>
+                  <div class="step-code"><Code code={initCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">03</span>校验</h2>
+                     <ul class="checks">
+                        <li>
+                           <strong>schema 检查：</strong>清单、索引、变更日志，以及智能体配置与决策记录的 frontmatter。
+                        </li>
+                        <li>
+                           <strong>结构与 lint：</strong>引导配置、索引文件与普通文档没有
+                           schema。已声明的文件必须存在，而变更日志相对{' '}
+                           <code>HEAD</code> 必须是仅可追加的。在 <code>indexed</code> 及以上级别，过期的索引会直接导致失败。
+                        </li>
+                     </ul>
+                     <p class="fine">
+                        在既有的 <code>CLAUDE.md</code> 或 <code>AGENTS.md</code> 之上做过一次普通的 <code>adopt</code> 之后，预期会看到
+                        <code>vendor-adapter-redirect</code>
+                        失败项：每一个尚未指向引导配置的入口文件各一条，直到 <code>--wire-adapters</code> 运行为止。
+                     </p>
+                  </div>
+                  <div class="step-code"><Code code={validateCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">04</span>声明一个级别，再检查它</h2>
+                     <p>
+                        部分接入是设计使然：从 <code>core</code> 开始，每一级都包含前一级。清单声明该级别；{' '}
+                        <code>leji conformance</code> 对照它为上下文层打分。
+                     </p>
+                     <p class="ladder-line">
+                        <code>core</code> → <code>indexed</code> → <code>governed</code> → <code>federated</code>
+                     </p>
+                     <p class="ladder-more">
+                        <a href="/zh-hans/spec/conformance/">每个级别对你的要求</a>
+                     </p>
+                  </div>
+                  <div class="step-code"><Code code={conformanceCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+
+               <article class="step">
+                  <div class="step-text">
+                     <h2><span class="step-num">05</span>看见你的上下文层</h2>
+                     <p>这里呈现的正是智能体读取的上下文层，只是换成了便于人阅读的形式。</p>
+                  </div>
+                  <div class="step-code"><Code code={viewCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               </article>
+            </section>
+
+            <section class="duo">
+               <div class="duo-cell">
+                  <h2>通过 CI 持续校验</h2>
+                  <p>
+                     提供方是从你的 <code>origin</code> remote 推断出来的；当 remote 指不出提供方时，回落到 GitHub。
+                  </p>
+                  <Code code={ciCode} lang="bash" theme={lejiSyntaxTheme} wrap />
+                  <p class="fine">
+                     退出码贴合 CI：<code>0</code> 干净，允许有警告；<code>1</code> 有检查未通过，无论它是否报出发现项；<code
+                        >2</code
+                     >
+                     用法错误，或内部失败，例如拒绝覆盖已有文件。
+                  </p>
+               </div>
+               <div class="duo-cell">
+                  <h2>进入上下文层</h2>
+                  <p>这个层会成为智能体最先读取的上下文，无需经过任何厂商文件。</p>
+                  <Code code={startCode} lang="bash" theme={lejiSyntaxTheme} wrap />
+                  <p class="fine">
+                     如果检测到多个宿主，它会询问你的选择。如果没有检测到宿主，或当前在脚本、CI
+                     中运行，它会输出应执行的命令，而不会自行猜测。{' '}
+                     <a href="/zh-hans/adoption/#put-it-to-work">接入指南</a>讲了宿主参数透传标志与厂商文件的回落表。
+                  </p>
+               </div>
+            </section>
+
+            <section class="mcp-block">
+               <h2>给你的智能体的不只是上下文，还有工具</h2>
+               <p>
+                  进入上下文层，为智能体提供的是工作所需的上下文；<a href="/zh-hans/mcp/">MCP 服务器</a
+                  >提供的则是工具能力。这个本地只读服务器可以校验磁盘上的上下文层并评估一致性，因此智能体无需使用
+                  shell。它只读取并报告；它绝不写入。
+               </p>
+               <Code code={mcpCode} lang="bash" theme={lejiSyntaxTheme} wrap />
+               <p class="fine">
+                  <code>init</code> 与 <code>adopt</code> 会主动提议替你注册它：对 Claude Code 用项目作用域，对 Codex 用用户级。上面这些命令是给跳过了那个提示的人准备的；把
+                  <code>--scope project</code> 换成 <code>--scope user</code
+                  >，就是只为你个人注册一次，而不是为这个仓库注册。任何 MCP 客户端都能用；<a href="/zh-hans/mcp/"
+                     >MCP 服务器</a
+                  >一页有完整的工具清单。
+               </p>
+            </section>
+
+            <section class="shapes" aria-label="按情形划分的接入形态">
+               <h2>然后按你的情形接入</h2>
+               <table class="shape-table">
+                  <tbody>
+                     <tr>
+                        <th scope="row"><a href="/zh-hans/adoption/#where-it-lives">单体仓库</a></th>
+                        <td>一个仓库，一个上下文层，在仓库根目录初始化一次。</td>
+                     </tr>
+                     <tr>
+                        <th scope="row"><a href="/zh-hans/adoption/#where-it-lives">多个仓库，一个层</a></th>
+                        <td>一个专用的上下文仓库，在每个消费仓库中以只含文档的方式挂载，并按仓库固定版本。</td>
+                     </tr>
+                     <tr>
+                        <th scope="row"><a href="/zh-hans/federation/">多个已有归属的层</a></th>
+                        <td>各自已经拥有一个上下文层的团队。把每一个作为同级层挂载；归属与工作方式保持不变。</td>
+                     </tr>
+                  </tbody>
+               </table>
+            </section>
+
+            <section class="api-peek">
+               <div class="peek-text">
+                  <h2>从脚本调用</h2>
+                  <p>
+                     大多数命令同时也是一次库调用，可用于钩子、机器人与构建步骤。源码在 <a
+                        href="https://github.com/leji-org/leji"
+                        target="_blank"
+                        rel="noopener">leji-org/leji</a
+                     >，Apache-2.0。
+                  </p>
+               </div>
+               <div class="peek-code"><Code code={apiCode} lang="js" theme={lejiSyntaxTheme} wrap /></div>
+            </section>
+
+            <p class="next-step">
+               接下来：面向既有仓库的<a href="/zh-hans/adoption/">接入指南</a>，或者在多个团队各自拥有一个上下文层时看<a
+                  href="/zh-hans/federation/">联邦</a
+               >。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .gs-hero {
+      /* No top padding: .doc-shell already sets the 2.5rem above the first line,
+         and every Doc page starts its h1 there. */
+      padding: 0 0 1rem;
+      max-width: 760px;
+   }
+   /* h1 comes from the shared .measured/.prose display scale in global.css. */
+   .lede {
+      font-size: var(--text-lede);
+      line-height: 1.7;
+      color: var(--leji-text-body);
+      max-width: var(--measure-fine);
+      margin: 0;
+   }
+
+   h2 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 1.6rem;
+      line-height: 1.25;
+      color: var(--leji-text);
+      margin: 0 0 0.6rem;
+   }
+
+   .steps {
+      margin-top: 2.5rem;
+      display: grid;
+      gap: 2.8rem;
+      padding: 1.6rem 0 0.4rem;
+   }
+   .step {
+      display: grid;
+      gap: 0.9rem;
+   }
+   .step-text p {
+      color: var(--leji-text-body);
+      margin: 0.4rem 0 0;
+   }
+   .step-text code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+   .map-note {
+      margin-top: 1.1rem;
+      padding: 0.9rem 1.2rem;
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
+      border-radius: 0 8px 8px 0;
+      font-size: 0.92rem;
+      color: var(--leji-text-body);
+   }
+   .map-note strong {
+      color: var(--leji-text);
+   }
+   .checks {
+      margin: 0.6rem 0 1rem;
+      padding-left: 1.1rem;
+      color: var(--leji-text-body);
+   }
+   .checks li {
+      margin: 0.4rem 0;
+   }
+   .checks strong {
+      color: var(--leji-text);
+      font-weight: 600;
+   }
+   .ladder-line {
+      font-size: 0.92rem;
+   }
+   .step-text .ladder-more {
+      margin-top: 1.15rem;
+   }
+   .ladder-more a {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-link);
+      text-decoration: none;
+      border-bottom: 1px solid var(--leji-brand);
+      padding-bottom: 2px;
+      white-space: nowrap;
+   }
+   .ladder-more a:hover {
+      color: var(--leji-text);
+      border-color: var(--leji-text);
+   }
+
+   /* CI + invocation */
+   .duo {
+      margin-top: 4rem;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2.8rem;
+   }
+   .duo-cell h2 {
+      font-size: 1.35rem;
+   }
+   .duo-cell p {
+      color: var(--leji-text-body);
+      margin: 0 0 1.1rem;
+   }
+   .duo-cell .fine {
+      margin: 1rem 0 0;
+   }
+   .duo-cell .fine a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   .duo-cell code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+
+   /* by situation */
+   .shapes {
+      margin-top: 4rem;
+   }
+   .shape-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.4rem 0 0;
+   }
+   .shape-table th,
+   .shape-table td {
+      border-bottom: 1px solid var(--leji-border);
+      vertical-align: baseline;
+      text-align: left;
+      padding: 0.85rem 0 0.85rem 0;
+   }
+   .shape-table th {
+      white-space: nowrap;
+      padding-right: 2.2rem;
+      font-family: var(--serif-display);
+      font-weight: 580;
+      font-size: 1.08rem;
+   }
+   .shape-table th a {
+      color: var(--leji-text);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+      transition: color 0.15s;
+   }
+   .shape-table th a:hover {
+      color: var(--leji-link);
+   }
+   .shape-table td {
+      font-size: 0.95rem;
+      color: var(--leji-text-body);
+      line-height: 1.55;
+   }
+
+   /* library surface */
+   .api-peek {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.4rem;
+      padding: 4rem 0 4.5rem;
+   }
+   .peek-text p {
+      color: var(--leji-text-body);
+   }
+   .peek-text a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   .peek-text code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+
+   .step-code {
+      margin-top: 0;
+   }
+
+   .step-install {
+      background: var(--leji-deep);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      overflow: hidden;
+   }
+
+   .mcp-block {
+      margin-top: 4rem;
+   }
+   .mcp-block p {
+      color: var(--leji-text-body);
+      margin: 0 0 1.1rem;
+   }
+   .mcp-block code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+   .mcp-block .fine {
+      margin: 1rem 0 0;
+   }
+   .mcp-block .fine a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+
+   .step-code :global(.astro-code),
+   .duo-cell :global(.astro-code),
+   .peek-code :global(.astro-code),
+   .mcp-block :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 12px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.65;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      margin: 0;
+   }
+</style>

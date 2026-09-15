@@ -5,6 +5,7 @@ package validate
 import (
 	"encoding/json"
 	"fmt"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -17,6 +18,7 @@ import (
 	"github.com/leji-org/leji/packages/sdk-go/internal/fsx"
 	"github.com/leji-org/leji/packages/sdk-go/internal/git"
 	"github.com/leji-org/leji/packages/sdk-go/internal/layer"
+	"github.com/leji-org/leji/packages/sdk-go/internal/links"
 	"github.com/leji-org/leji/packages/sdk-go/internal/manifest"
 	"github.com/leji-org/leji/packages/sdk-go/internal/mountblock"
 	"github.com/leji-org/leji/packages/sdk-go/internal/mounts"
@@ -183,6 +185,59 @@ func checkCategories(root string, m *manifest.Manifest, fs *[]findings.Finding) 
 			*fs = append(*fs, findings.New("paths-outside-root", findings.Warning,
 				fmt.Sprintf("machine.%s falls outside rootPath %s", key, m.RootPath), rel))
 		}
+	}
+}
+
+// governedDocuments is the governed set the link gate walks: every markdown document
+// this layer answers for, deduplicated and in byte order of path. Composed here from
+// the scans that already define it — the boot profile, every indexed document under
+// every category, the profile set (agentProfilesPath plus the profiles bound outside
+// it), and the decision records — rather than discovered by a walk of its own, so a
+// document is link-checked exactly when the layer claims it. The category index files
+// are not in it: an index is the selector, and what it selects is what the layer
+// governs.
+func governedDocuments(root string, m *manifest.Manifest) []string {
+	seen := map[string]bool{m.BootProfilePath: true}
+	for _, doc := range layer.ScanCategories(root, m).Docs {
+		seen[doc.RelPath] = true
+	}
+	for _, profile := range layer.ScanProfileSet(root, m) {
+		seen[profile.RelPath] = true
+	}
+	for _, record := range layer.ScanDecisionRecords(root, m) {
+		seen[record.RelPath] = true
+	}
+	relPaths := make([]string, 0, len(seen))
+	for rel := range seen {
+		relPaths = append(relPaths, rel)
+	}
+	// Go compares strings bytewise, which is the one byte order every ordered
+	// canonical surface uses across the three SDKs.
+	sort.Strings(relPaths)
+	return relPaths
+}
+
+// checkLinks is the in-layer link gate: every governed document's markdown links
+// resolve to something the layer carries. Structural and always on — a dangling link
+// is a reference to context that is not there, which the --content lint's advisory
+// signals never are. A document that cannot be read here is one the structural pass
+// already reports as missing or escaping, so it contributes nothing twice.
+func checkLinks(root string, m *manifest.Manifest, fs *[]findings.Finding) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return
+	}
+	layerRootAbs := filepath.Join(rootAbs, filepath.FromSlash(m.RootPath))
+	for _, relPath := range governedDocuments(root, m) {
+		abs := filepath.Join(root, relPath)
+		if !fsx.ResolvedWithinRoot(rootAbs, abs) || !fsx.IsFile(abs) {
+			continue
+		}
+		text, err := fsx.ReadText(abs)
+		if err != nil {
+			continue
+		}
+		*fs = append(*fs, links.Findings(rootAbs, layerRootAbs, relPath, text)...)
 	}
 }
 
@@ -585,6 +640,7 @@ func checkProfilesAndDecisions(root string, m *manifest.Manifest, fs *[]findings
 		decisionIDs = append(decisionIDs, layer.IDItem{ID: id, RelPath: d.RelPath})
 	}
 	*fs = append(*fs, layer.DuplicateIDFindings(decisionIDs, "decision record")...)
+	checkDecisionNumbers(decisions, fs)
 	checkSupersession(decisions, fs)
 
 	validDecisions := 0
@@ -597,6 +653,51 @@ func checkProfilesAndDecisions(root string, m *manifest.Manifest, fs *[]findings
 		where := manifest.EffectiveDecisionRecordsPath(m)
 		*fs = append(*fs, findings.New("decisions-empty", findings.Error,
 			"no valid decision record found; core conformance requires at least one", where))
+	}
+}
+
+// `[^\n]` rather than `.`: ECMAScript's dot also rejects CR and U+2028/U+2029, which
+// Go's and Python's do not, and a file name may legally carry any of them. Spelling it
+// out keeps the three SDKs matching the same basenames.
+var decisionNumberRe = regexp.MustCompile(`^([0-9]+)-[^\n]+\.md$`)
+
+// decisionNumberKey is the leading number of a decision-record file name,
+// canonicalized: the digit run before the first hyphen of `NNNN-slug.md`, without its
+// leading zeros, so that `0017-a.md` and `17-b.md` are the same decision number.
+// Compared as a string, not converted, so an arbitrarily long digit run stays exact in
+// all three SDKs. A file name that does not carry the convention has no number and is
+// not checked; ok reports whether it does.
+func decisionNumberKey(relPath string) (string, bool) {
+	m := decisionNumberRe.FindStringSubmatch(path.Base(relPath))
+	if m == nil {
+		return "", false
+	}
+	digits := strings.TrimLeft(m[1], "0")
+	if digits == "" {
+		return "0", true
+	}
+	return digits, true
+}
+
+// checkDecisionNumbers rejects two decision records carrying the same leading number.
+// Ids are the records' identity and are checked separately; the number is how people
+// and indexes cite a decision, so a renumbering or a copied record that leaves two
+// `0017-` files makes every reference to "0017" ambiguous. One finding per record
+// after the first in byte order of path, mirroring layer.DuplicateIDFindings.
+func checkDecisionNumbers(decisions []layer.ScannedProfile, fs *[]findings.Finding) {
+	seen := map[string]string{}
+	for _, d := range decisions {
+		key, ok := decisionNumberKey(d.RelPath)
+		if !ok {
+			continue
+		}
+		first, dup := seen[key]
+		if dup && first != d.RelPath {
+			*fs = append(*fs, findings.New("decision-number-duplicate", findings.Error,
+				"decision number \""+key+"\" already used by "+first, d.RelPath))
+		} else {
+			seen[key] = d.RelPath
+		}
 	}
 }
 
@@ -1094,6 +1195,7 @@ func ValidateLayer(root string, content bool) (Result, error) {
 	checkFederationMounts(root, m, &fs)
 	fs = append(fs, MountSurfacingFindings(root, m)...)
 	checkProfilesAndDecisions(root, m, &fs)
+	checkLinks(root, m, &fs)
 
 	indexRel := manifest.EffectiveIndexPath(m)
 	indexExists := fsx.IsFile(filepath.Join(root, indexRel))

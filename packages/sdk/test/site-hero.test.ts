@@ -26,6 +26,13 @@ import { fileURLToPath } from 'node:url';
 //   gaps           the blank band the hero puts between stanzas.
 // Nothing else about the output is pinned here, and every line the hero does show is.
 //
+// Two more of the homepage's hand-copied constants are pinned against the same fixture,
+// on the same reasoning. The viewer window beside the transcript renders two files copied
+// verbatim out of `leji export` over this layer (the sidebar and the seeded homepage), so
+// this test exports the layer and compares those bytes. And the manifest panel lower on
+// the page shows what the `adopt` above wrote, so it is compared to the fixture's own
+// leji.json, minus the two keys the panel leaves out.
+//
 // The fixture's temporary directory is elided from every projected line before the
 // comparison. It is machine-specific, so a line carrying it could never match the
 // hero; the placeholder makes such a line fail as drift rather than as a stray path.
@@ -43,6 +50,10 @@ const repoRoot = path.resolve(packageDir, '..', '..');
 const cli = path.join(packageDir, 'dist', 'cli.js');
 const HERO_REL = 'packages/site/src/pages/index.astro';
 const heroSource = path.join(repoRoot, ...HERO_REL.split('/'));
+const GLIMPSE_REL = 'packages/site/src/data/hero-glimpse';
+const glimpseDir = path.join(repoRoot, ...GLIMPSE_REL.split('/'));
+/** The exported files the glimpse renders, named as the export writes them under content/. */
+const PINNED = ['_sidebar.md', 'overview.md'];
 
 /** One rendered transcript line: a typed command, an output line, or the blank band
  * the hero puts between stanzas. */
@@ -52,6 +63,8 @@ type Line = { kind: 'cmd' | 'out'; text: string } | { kind: 'gap' };
 const HERO_BLOCK = /const heroSession = \[\n([\s\S]*?)\n\];/;
 const HERO_GAP = /^\s*\{ gap: true \},?$/;
 const HERO_ENTRY = /^\s*\{ (cmd|out): '([^'\\]*)'(?:, mark: '[a-z]+')? \},?$/;
+/** The manifest panel's template literal, from its declaration to the backtick closing it. */
+const PEEK_BLOCK = /const peekJson = `([\s\S]*?)`;/;
 /** The header `adopt` prints above its per-file lines, and one of those lines. */
 const WROTE = /^Wrote \d+ files \(context root: .*\):$/;
 const WRITTEN_FILE = /^ {3}(\S.*)$/;
@@ -68,23 +81,32 @@ function parseHeroSession(source: string): Line[] {
 }
 
 /**
- * The fixture the hero's re-capture comment documents: a repository that already has
- * a docs/ tree and a non-empty AGENTS.md, committed. Committed for two reasons the
- * SDK enforces: `adopt` refuses a dirty working tree, and the `core` conformance item
+ * The fixture the hero's re-capture comment documents: the demo team's repository, which
+ * already has a docs/ tree and a non-empty AGENTS.md, committed. Committed for two reasons
+ * the SDK enforces: `adopt` refuses a dirty working tree, and the `core` conformance item
  * asks the layer to live in a git repository.
+ *
+ * Three details the homepage reads back out of it. The repository directory is named
+ * `acme-billing`, because `adopt` names the layer after the directory it runs in. Its
+ * git identity is the demo team, because `adopt` takes the layer's owner from git config
+ * rather than from the commit author. And there is no `docs/overview.md`, so the layer's
+ * homepage is the one the viewer seeds, with the generated category map on it.
  */
 function fixture(): string {
-   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'leji-site-hero-')));
-   fs.mkdirSync(path.join(dir, 'docs'));
-   fs.writeFileSync(path.join(dir, 'docs', 'overview.md'), '# Overview\n\nWhat this repository is for.\n');
+   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'leji-site-hero-')));
+   const dir = path.join(root, 'acme-billing');
+   fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
    fs.writeFileSync(path.join(dir, 'docs', 'architecture.md'), '# Architecture\n\nHow the pieces fit together.\n');
+   fs.writeFileSync(path.join(dir, 'docs', 'runbook.md'), '# Runbook\n\nHow to operate this service.\n');
    fs.writeFileSync(path.join(dir, 'AGENTS.md'), '# Agents\n\nHow agents work in this repository.\n');
    const git = (...a: string[]): void => {
       execFileSync('git', a, { cwd: dir, env: { ...process.env, GIT_DIR: undefined }, stdio: 'ignore' });
    };
    git('init', '-q');
+   git('config', 'user.name', 'Acme Platform Team');
+   git('config', 'user.email', 'platform@acme.example');
    git('add', '-A');
-   git('-c', 'user.name=Hero Test', '-c', 'user.email=hero@example.com', 'commit', '-q', '-m', 'seed');
+   git('commit', '-q', '-m', 'seed');
    return dir;
 }
 
@@ -138,15 +160,21 @@ function render(session: Line[]): string {
 let fixtureDir = '';
 let hero: Line[] = [];
 let projected: Line[] = [];
+const exported: Record<string, string> = {};
 
 before(() => {
    fixtureDir = fixture();
    projected = projectedSession(fixtureDir);
    hero = parseHeroSession(fs.readFileSync(heroSource, 'utf8'));
+   const exportDir = path.join(fixtureDir, 'hero-export');
+   runCli(fixtureDir, ['export', '--out', exportDir]);
+   for (const file of PINNED) exported[file] = fs.readFileSync(path.join(exportDir, 'content', file), 'utf8');
 });
 
 after(() => {
-   if (fixtureDir) fs.rmSync(fixtureDir, { recursive: true, force: true });
+   // One level up: the fixture repository is a directory inside the temporary root, so the
+   // layer takes its name from the repository rather than from the mkdtemp suffix.
+   if (fixtureDir) fs.rmSync(path.dirname(fixtureDir), { recursive: true, force: true });
 });
 
 test('the homepage hero transcript is what the CLI prints today', () => {
@@ -170,4 +198,43 @@ test('a one-character edit to a heroSession line fails the comparison', () => {
    });
    assert.notEqual(mutated, source, 'the mutation changed nothing, so this negative check proves nothing');
    assert.throws(() => assert.deepEqual(parseHeroSession(mutated), projected), assert.AssertionError);
+});
+
+// The viewer window on the homepage renders these two files as they are: whatever
+// `leji export` writes for this fixture is what a visitor sees. So the check is byte
+// equality, in that direction: when the generator's sidebar or seeded homepage moves,
+// the hero is re-opened here rather than quietly dating itself. A suspected defect in
+// the generator is its own item; the remedy here is only ever to re-copy and re-look.
+for (const file of PINNED) {
+   test(`the hero glimpse's ${file} is the file leji export writes today`, () => {
+      assert.equal(
+         fs.readFileSync(path.join(glimpseDir, file), 'utf8'),
+         exported[file],
+         `the hero glimpse no longer shows what \`leji export\` writes for the hero fixture (${file}): ` +
+            `inspect the change, copy the new output over ${GLIMPSE_REL}/${file}, ` +
+            'and update the glimpse if its shape moved.',
+      );
+   });
+}
+
+// The manifest panel below the hero is the manifest this fixture's `adopt` wrote, so it
+// moves whenever the scaffold does. Two keys are deliberately absent from the panel and
+// are dropped from both sides before the comparison: the `$schema` pointer, and the
+// `claimedAt` date, which would be the day the panel was captured.
+test('the manifest peek is the manifest the hero fixture adopts to', () => {
+   const block = PEEK_BLOCK.exec(fs.readFileSync(heroSource, 'utf8'));
+   assert.ok(block, `no peekJson template literal in ${HERO_REL}: this test cannot see the panel at all`);
+   const peek = JSON.parse(block[1]) as Record<string, unknown>;
+   const manifest = JSON.parse(fs.readFileSync(path.join(fixtureDir, 'leji.json'), 'utf8')) as Record<string, unknown>;
+   for (const doc of [peek, manifest]) {
+      delete doc.$schema;
+      const conformance = doc.conformance as Record<string, unknown> | undefined;
+      if (conformance) delete conformance.claimedAt;
+   }
+   assert.deepEqual(
+      peek,
+      manifest,
+      `the manifest peek in ${HERO_REL} is no longer the manifest \`leji adopt\` writes for the hero fixture. ` +
+         "Re-capture it from the fixture's leji.json, less the $schema pointer and the claimedAt date.",
+   );
 });

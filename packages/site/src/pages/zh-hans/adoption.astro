@@ -1,0 +1,314 @@
+---
+// Simplified Chinese translation of src/pages/adoption.astro. The English page is the
+// page of record; `source` is its git blob sha at the revision this translation follows.
+//
+// The English page renders adoption/README.md, which is single-sourced for GitHub as
+// well. A translation cannot enter that file, so the prose is authored here in the same
+// structure, with the section anchors the rest of the site links to kept verbatim.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+
+const source = 'b0a7cbb4e90903e9ce8944f64eee3ad4ffd51081';
+const strings = translationStrings('zh-hans');
+
+// Commands, flags, paths, and code stay unchanged; authored sample comments translate.
+const scaffoldCode = `leji adopt --dry-run       # 预览每一处写入；不会写入任何内容
+leji adopt                 # 既有仓库：围绕现有内容生成脚手架
+leji init                  # 新仓库：生成 leji.json、引导配置、类别起始内容与第一份决策
+leji adopt --wire-adapters # 在厂商入口（CLAUDE.md、AGENTS.md）上完成接入`;
+
+const startCode = `leji start                                  # 检测宿主，并在上下文层中打开它
+leji start --agent codex                    # 指定宿主，不再检测
+leji start --agent claude-code -- --chrome  # 将标志传给该宿主`;
+
+const badgeCode = `leji badge                        # 写入 leji-badge.svg，并打印代码片段
+leji badge --out docs/badge.svg   # 写到其他位置；代码片段会使用该路径`;
+
+const badgeLine = '[![Leji 1.0 · governed · self-attested](leji-badge.svg)](https://leji.org/agent-ready/)';
+
+const indexBlocks = `\`\`\`leji-index record
+- path: docs/operations/
+\`\`\`
+
+\`\`\`leji-index intent
+- path: docs/operations/escalation-policy.md
+\`\`\``;
+
+const viewerCode = `leji viewer serve      # 在 http://127.0.0.1:5354/ 本地预览
+leji viewer build      # 导出自包含的静态文件夹，供内部部署`;
+---
+
+<Base
+   lang="zh-hans"
+   title="接入指南 · Leji"
+   description="如何在单体仓库、多仓库组织，或者在既有的上下文仓库旁边接入 Leji，而不必搬动你已经写好的文档。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/adoption/" />
+         <main id="content" class="prose">
+            <PageHeader kind="guide" />
+            <h1>接入指南</h1>
+            <TranslationNote strings={strings.note} href="/adoption/" />
+            <p>
+               接入
+               Leji，就是把仓库从初始脚手架逐步建成真正可用的上下文层。你需要映射现有文档、接通入口、加入检查，并确定上下文层的存放位置。完成后，每个人都会有一个可靠的起点。
+            </p>
+
+            <span id="scaffold"></span>
+
+            <h2><span class="step-num">01</span>脚手架</h2>
+            <p>
+               <code>leji adopt</code> 会复用 <code>docs/</code>、<code>doc/</code> 或 <code>documentation/</code
+               >，不搬动你的工作成果。它会写出：
+            </p>
+            <ul>
+               <li>
+                  一份 <code>leji.json</code>，其中 <code>name</code> 取自目录名，<code>rootPath</code> 已设置，<code
+                     >owners</code
+                  > 取自可用的 git 身份。
+               </li>
+               <li>
+                  一份引导配置、各类别索引、一份入门简报，以及一份完整的、<code>status: accepted</code> 的首个决策。
+               </li>
+               <li>在没有 <code>AGENTS.md</code> 时，写一份指针式的 <code>AGENTS.md</code>。</li>
+            </ul>
+            <div class="adopt-code"><Code code={scaffoldCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+            <p>
+               也可以一步到位，无需预先安装任何东西：<code>npm create leji</code> 会检查当前目录，并在这里运行 <code
+                  >leji adopt</code
+               >，或者在没有什么可接入的仓库里运行 <code>leji init</code
+               >。这条命令会替代本步骤，而不是作为它的前置步骤；运行后，直接从下一节继续即可。
+            </p>
+            <p>
+               应当映射实际存在的路径，而不是重命名它们。<code>docs/engineering/START-HERE.md</code> 完全可以直接作为引导配置；新建的层则建议采用默认的小写连字符命名。
+            </p>
+
+            <span id="make-it-yours"></span>
+
+            <h2><span class="step-num">02</span>把它变成你自己的</h2>
+            <p>
+               首先，为已有内容分类。每一份生成的索引文件选中的都是它所属的整个类别目录，因此已经放在其中的内容，在脚手架落地的那一刻就受治理；写在其他位置的内容，则要等有人把它列入索引，才会进入上下文层。你可以把入门简报交给智能体，批准它提出的映射方案，也可以自行编辑索引文件。
+            </p>
+            <p>
+               什么都不需要搬动。一个类别映射到若干整理好的索引文件，而其中一条条目选中的既可以是单个文件，也可以是整个目录，因此既有的
+               <code>docs/</code> 树可以原地不动（见<a href="/zh-hans/spec/content-categories/">内容类别</a>）。
+            </p>
+            <p>
+               把你的决策历史一并带过来。既有的 ADR 目录，只要其中的记录带上<a href="/zh-hans/schemas/decision-record/"
+                  >决策记录 schema</a
+               >所要求的 frontmatter 就能适配；脚手架已经把 <code>&lt;rootPath&gt;/decisions/0001-adopt-leji.md</code> 写成了第一份。
+            </p>
+            <p>
+               接下来，接好发现路径。在既有的 <code>CLAUDE.md</code>、<code>GEMINI.md</code>、<code>.cursor/rules</code> 或
+               <code>AGENTS.md</code> 之上接入时，那个文件被刻意保持原样，这意味着这次接入还只是草稿：旧入口还没有重定向，<code
+                  >leji validate</code
+               > 会报 <code>vendor-adapter-redirect</code>，而 <code>leji conformance</code> 对照你所声明的 <code
+                  >core</code
+               > 只验证出 <code>none</code>。
+            </p>
+            <p>
+               <code>leji adopt --wire-adapters</code> 会把那些内容迁入上下文层，并把入口替换成：<code
+                  >Read ./&lt;bootProfilePath&gt; first. It is the canonical context entrypoint for this repository.</code
+               > 此后校验就能在 <code>core</code> 通过。
+            </p>
+            <p>
+               <code>AGENTS.md</code> 是那个可通用的适配器，许多宿主都原生读取它。<code>init</code> 与 <code>adopt</code
+               > 在它不存在时创建一个只含指针的文件；<code>--no-agents</code> 会跳过它。单一厂商专属的入口文件，绝不会被创建。
+            </p>
+            <p>
+               若要手动接入，复制 <a
+                  href="https://github.com/leji-org/leji/blob/main/templates/leji.json"
+                  target="_blank"
+                  rel="noopener">templates/leji.json</a
+               > 与 <a
+                  href="https://github.com/leji-org/leji/blob/main/templates/boot-profile.md"
+                  target="_blank"
+                  rel="noopener">templates/boot-profile.md</a
+               >，创建索引，并使用 <a
+                  href="https://github.com/leji-org/leji/blob/main/templates/decision-record.md"
+                  target="_blank"
+                  rel="noopener">templates/decision-record.md</a
+               >。在声明 <code>core</code> 之前，清掉 <code>leji validate</code> 点名的每一处占位内容；不需要的 <code
+                  >agents</code
+               > 条目或类别就删掉。
+            </p>
+
+            <span id="put-it-to-work"></span>
+
+            <h2><span class="step-num">03</span>让它真正派上用场</h2>
+            <p>
+               上下文层的价值，在于让智能体动手前就读取它，而不是事后补读。<code>leji start</code>
+               会从仓库根目录启动编码智能体，让它以引导配置为起点，而不是先自行猜测仓库情况。
+            </p>
+            <div class="adopt-code"><Code code={startCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+            <p>
+               <code>leji detect</code> 列出可用宿主；<code>leji start --help</code> 解释参数透传。脚本使用 <code
+                  >bootProfilePath</code
+               >。<code>agents</code> 中的绑定，哪怕是 <code>default</code
+               >，也只是记录有哪些配置，绝不会加载它们；只有引导配置里的指示才会。
+            </p>
+
+            <span id="keep-it-honest"></span>
+
+            <h2><span class="step-num">04</span>让它保持诚实</h2>
+            <p>
+               可靠的上下文层应当如实描述仓库当前的状态。引用断裂，或索引与源内容不再一致时，下面这些检查都会失败。未被索引的
+               markdown 和残留的占位内容则会被报告，但不会导致检查失败，这样你就能在智能体依照过期指引行动前发现漂移。
+            </p>
+            <p>
+               <code>leji validate --content</code> 找出占位内容与内容单薄之处。<code>leji status</code> 找出未被索引的、悬空的或过期的材料。<code
+                  >leji conformance</code
+               > 报告进展。
+            </p>
+            <p>
+               在 <code>indexed</code> 级别，<code>leji index</code> 生成 <code>context-index.json</code>；<code
+                  >leji index --check</code
+               > 会在它过期时失败。<code>leji changelog check</code> 校验那份机器可读的变更日志。
+            </p>
+            <p>
+               还没有 CI 约定的话，<code>leji ci</code> 会生成一个工作流；<code>leji ci --hooks</code> 会把这些关卡装成 pre-commit
+               钩子。<code>leji ci --help</code> 解释 CLI 的解析方式。
+            </p>
+            <p>
+               在已经稳定运行的流水线中，将 <code>leji validate</code> 和 <code>leji index --check</code> 加入必需任务与钩子。把
+               CLI 声明为 dev dependency，这样一次干净安装就会带上它：<code>leji init</code>/<code>leji adopt</code> 会识别本仓库实际使用的包管理器，并在你明确同意时运行它自己的添加命令（pip
+               与 1.24 之前的 Go 则只得到需要添加的那一行）。
+            </p>
+            <p>
+               在 <code>governed</code> 级别，再加上经过评审的变更、有效的智能体配置、时效性检查，以及必需的 CI。
+            </p>
+
+            <h3>展示你的一致性</h3>
+            <p>
+               <code>leji badge</code> 会在仓库根目录写出 <code>leji-badge.svg</code>，并打印可粘贴进 README 的那一行：
+            </p>
+            <div class="adopt-code"><Code code={badgeCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+            <div class="adopt-code"><Code code={badgeLine} lang="markdown" theme={lejiSyntaxTheme} wrap /></div>
+            <p>
+               这枚徽章是自我声明的，并且对这一次运行保持诚实：它陈述的是 <code>leji conformance</code> 验证到的级别，绝不会高于
+               <code>leji.json</code> 所声明的级别，有时还会低于它。离线运行无法确认的声明，会被写在 stdout 上，而不是做进徽章里。
+            </p>
+            <p>
+               请在已提交的代码树上运行它。没有已提交基线的变更日志，无法据以检查仅可追加的规则，因此无论 <code
+                  >leji.json</code
+               >
+               声明什么，这次运行都止步于 <code>core</code>；而在已提交的变更日志之上追加的条目，会与 <code>HEAD</code>
+               比对，不必自己先提交也能通过。一次运行如果没有验证到任何级别，就根本不会写出徽章。
+            </p>
+            <p>这段代码里的图片路径是相对仓库根目录的。位于子目录中的 README，需要把路径调整成从那里能够到达该文件。</p>
+
+            <span id="where-it-lives"></span>
+
+            <h2><span class="step-num">05</span>它存放在哪里</h2>
+            <p>一个仓库，把一个上下文层留在它的工作旁边。</p>
+            <p>
+               如果多个仓库共用同一个层，可采用只含文档的子模块。先创建它自己的仓库，再将它挂载到每个消费方的 <code
+                  >context/</code
+               >，并由各仓库固定版本。固定版本更新应通过可评审、可脚本化的方式提出。构建和运行时都不得依赖它。
+            </p>
+            <p>
+               把智能体指向 <code>context/docs/boot-profile.md</code>；保留下来的厂商文件重定向到那里。见<a
+                  href="https://github.com/leji-org/leji/tree/main/examples/multi-repo"
+                  target="_blank"
+                  rel="noopener">多仓库示例</a
+               >与<a href="/zh-hans/spec/distribution/">分发规范</a>。
+            </p>
+            <p>
+               联邦面向的是各自拥有一个层的团队。它的<a href="/zh-hans/federation/">指南</a
+               >覆盖了声明、填充、状态、路由，以及
+               <code>federated</code> 相关的检查。
+            </p>
+
+            <span id="optional-cases"></span>
+
+            <h2><span class="step-num">06</span>可选情形</h2>
+
+            <details class="fold">
+               <summary>一个角色可以由多个 actor 担任</summary>
+
+               <p>
+                  一个角色通常绑定到一份配置；<code>host</code> 与 <code>invocation</code> 描述如何启用它。若有多个参与者，或者需要按角色区分的调用方式，可选的
+                  <code>actors</code> 会列出各自有资格担任的角色与命令模板。见<a
+                     href="/zh-hans/schemas/context-manifest/">清单 schema</a
+                  >。
+               </p>
+               <p>actor 不授予任何批准权。具体由编排方选择；Leji 1.0 不定义选择规则。</p>
+            </details>
+
+            <details class="fold">
+               <summary>意图与记录共处一个目录</summary>
+
+               <p>把状态与读数作为记录来治理。一个文件选择器就能让意图留在同一个目录里：</p>
+               <div class="adopt-code"><Code code={indexBlocks} lang="markdown" theme={lejiSyntaxTheme} wrap /></div>
+               <p>
+                  文件选择器优先。智能体会将该策略作为必需意图加载；记录则单独返回，作为带日期的候选，只有在任务选中某条记录或有人明确要求时才加载。见<a
+                     href="/zh-hans/spec/content-categories/">内容类别</a
+                  >。
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary>在查看器中呈现上下文层</summary>
+
+               <p><code>context-index.json</code> 可以被各类文档工具使用。CLI 命令：</p>
+               <div class="adopt-code"><Code code={viewerCode} lang="bash" theme={lejiSyntaxTheme} wrap /></div>
+               <p>
+                  <code>serve</code> 不是正式部署。只向这个上下文层的受众发布。构建产物写在仓库内部（默认是 <code
+                     >.leji/dist/</code
+                  >，或者其中的某个 <code>--out</code>
+                  路径），而那个输出目录归你：把它复制到你的部署环境读取的任何位置。受治理文档的 H1 提供导航；清单的 <code
+                     >viewer</code
+                  > 字段提供品牌与固定项。MkDocs 也可以使用这份索引。见<a href="/zh-hans/spec/machine-readable-surface/"
+                     >机器可读接口规范</a
+                  >。
+               </p>
+               <p>
+                  各家渲染器对 markdown 的处理并不一致，因此一个上下文层可以依赖哪些语法，由<a
+                     href="https://github.com/leji-org/leji/blob/main/adoption/rendering.md"
+                     target="_blank"
+                     rel="noopener">渲染配置</a
+                  >固定下来。<code>leji export</code>
+                  会对照那份配置检查它所携带的每一份文档，因此导出干净的层，始终处在已写明的语法子集之内，也不含那份配置点名的那些差异。这比“在每一个托管平台和编辑器预览里都渲染得一模一样”要窄。
+               </p>
+            </details>
+
+            <details class="fold">
+               <summary>从同步或沙箱化的来源读取</summary>
+
+               <p>Leji 可以读取由克隆、沙箱挂载，或保留 git 的 Google Drive、Dropbox 目录所呈现出来的 git 树。</p>
+               <p>
+                  上传的文件、粘贴的文本，以及没有 <code>.git</code> 的文档，缺少版本元数据。它们的时效是未知的；git 工作副本仍然是权威的。见<a
+                     href="/zh-hans/spec/governance/">治理</a
+                  >。
+               </p>
+            </details>
+
+            <p class="next-step">
+               接下来：<a href="/zh-hans/manifest/">清单参考</a>逐字段说明，或者<a href="/zh-hans/spec/">规范</a
+               >说明它们背后的规则。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .adopt-code :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+      margin: 0.6rem 0 0;
+   }
+</style>

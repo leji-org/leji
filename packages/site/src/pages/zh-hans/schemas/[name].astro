@@ -1,0 +1,179 @@
+---
+// Simplified Chinese translation of src/pages/schemas/[name].astro. The English page is
+// the page of record; `source` is its git blob sha at the revision this translation
+// follows.
+//
+// The schema tab prints the published file byte for byte: it is the machine surface and
+// is never translated. Everything the page states about that file (its title, its lede,
+// every field description, and the prose inside the example beside it) comes from the
+// locale's schema map, which carries one translation per place a string lives.
+import { Code } from 'astro:components';
+import PageHeader from '../../../components/PageHeader.astro';
+import SchemaFields from '../../../components/SchemaFields.astro';
+import SectionNav from '../../../components/SectionNav.astro';
+import SiteFooter from '../../../components/SiteFooter.astro';
+import SiteHeader from '../../../components/SiteHeader.astro';
+import TranslationNote from '../../../components/TranslationNote.astro';
+import { translationStrings } from '../../../data/i18n';
+import type { ExampleNoteKey } from '../../../data/schema-examples';
+import Base from '../../../layouts/Base.astro';
+import { checkedExample, localizeSchema, readSchemaSources, schemaMap, schemaMapInputs } from '../../../schema-i18n';
+import lejiSyntaxTheme from '../../../styles/shiki-leji.json';
+
+const source = 'f90d4b17ac5062b03e49ef95d81440b693081100';
+const strings = translationStrings('zh-hans');
+
+/** The note above each example panel, under the key the inventory names it by. */
+const EXAMPLE_NOTES: Record<ExampleNoteKey, string> = {
+   manifest: '位于仓库根目录的一份符合规范的清单。',
+   index: '一份生成的上下文索引，CLI 会在有变更时重新生成它。',
+   changelog: '一份机器可读的上下文层变更日志。',
+   agentProfile:
+      '一份符合规范的智能体配置。本 schema 校验的是 YAML frontmatter；下方的 markdown 正文是自由形式的散文。',
+   decisionRecord: '一份符合规范的决策记录。本 schema 校验的是 YAML frontmatter；markdown 正文承载背景、决策和后果。',
+};
+
+export async function getStaticPaths() {
+   return readSchemaSources().map((entry) => ({ params: { name: entry.name } }));
+}
+
+const { name } = Astro.params;
+const sources = readSchemaSources();
+const map = schemaMap('zh-hans', schemaMapInputs(sources));
+const entry = sources.find((one) => one.name === name)!;
+const translated = map[entry.name];
+const schema = localizeSchema(entry.schema, translated.strings);
+// Checked on the way out: the localized instance reads back as the instance it claims to
+// be, differs from the published one only in the prose this locale carries, and still
+// satisfies the schema wherever the translation touched it.
+const exampleText = checkedExample(entry.parsed, translated.example, entry.schema, `zh-hans ${entry.name} example`);
+---
+
+<Base
+   lang="zh-hans"
+   title={`${schema.title ?? entry.file} · Leji`}
+   description={`JSON Schema ${schema.title ?? entry.file}，是 Leji 规范的一部分；Leji 是面向 AI 原生团队共享上下文层的规范。`}
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current={`/schemas/${entry.name}/`} />
+         <main id="content" class="prose">
+            <PageHeader kind="normative" />
+            <h1>{schema.title ?? entry.file}</h1>
+            <TranslationNote strings={strings.note} href={`/schemas/${entry.name}/`} />
+            {schema.description && <p class="sp-lede">{schema.description}</p>}
+
+            <p class="schema-meta">
+               <strong>权威 <code>$id</code>：</strong>
+               <code>{schema.$id}</code><br />
+               <strong>原始文件：</strong>
+               <a href={`/schemas/v1.0/${entry.file}`}><code>{entry.file}</code></a>
+            </p>
+
+            <h2>字段</h2>
+            <SchemaFields schema={schema} />
+
+            <h2>Schema 与示例</h2>
+            <div class="tabs">
+               <input type="radio" name="schema-tabs" id="tab-schema" checked />
+               <input type="radio" name="schema-tabs" id="tab-example" />
+               <div class="tab-bar">
+                  <label for="tab-schema">Schema</label>
+                  <label for="tab-example">
+                     示例 · <code>{entry.example.label}</code>
+                  </label>
+               </div>
+               <div class="tab-panels">
+                  <div class="tab-panel" data-panel="schema">
+                     <Code code={entry.raw.trimEnd()} lang="json" theme={lejiSyntaxTheme} wrap />
+                  </div>
+                  <div class="tab-panel" data-panel="example">
+                     <p class="example-note">{EXAMPLE_NOTES[entry.example.noteKey]}</p>
+                     <Code code={exampleText} lang={entry.example.format} theme={lejiSyntaxTheme} wrap />
+                  </div>
+               </div>
+            </div>
+
+            <p class="all-schemas"><a href="/zh-hans/schemas/">← 全部 Schema</a></p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   .schema-meta {
+      line-height: 2;
+   }
+
+   /* CSS-only tabs: hidden radios drive the active panel, no JavaScript. */
+   .tabs {
+      margin-top: 1rem;
+   }
+   .tabs > input {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+      pointer-events: none;
+   }
+   .tab-bar {
+      display: flex;
+      gap: 0.3rem;
+      border-bottom: 1px solid var(--leji-border);
+   }
+   .tab-bar label {
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      letter-spacing: 0.04em;
+      color: var(--leji-text-body);
+      padding: 0.5rem 0.9rem;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.15s;
+   }
+   .tab-bar label code {
+      background: none;
+      padding: 0;
+      font-size: 1em;
+      color: inherit;
+   }
+   .tab-bar label:hover {
+      color: var(--leji-link);
+   }
+   #tab-schema:checked ~ .tab-bar label[for='tab-schema'],
+   #tab-example:checked ~ .tab-bar label[for='tab-example'] {
+      color: var(--leji-text);
+      border-bottom-color: var(--leji-brand);
+   }
+   #tab-schema:focus-visible ~ .tab-bar label[for='tab-schema'],
+   #tab-example:focus-visible ~ .tab-bar label[for='tab-example'] {
+      outline: 2px solid var(--leji-link);
+      outline-offset: 2px;
+   }
+   .tab-panel {
+      display: none;
+   }
+   #tab-schema:checked ~ .tab-panels [data-panel='schema'],
+   #tab-example:checked ~ .tab-panels [data-panel='example'] {
+      display: block;
+   }
+   .example-note {
+      font-size: 0.9rem;
+      color: var(--leji-text-body);
+      margin: 0.9rem 0 0;
+   }
+   .tab-panels :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+      margin-top: 0.9rem;
+   }
+   .all-schemas {
+      margin-top: 2rem;
+   }
+</style>

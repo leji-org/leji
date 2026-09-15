@@ -14,16 +14,11 @@ import lejiSyntaxTheme from '../styles/shiki-leji.json';
 // AGENTS.md, `leji adopt --yes --wire-adapters`, then validate and conformance
 // (the file list is elided to its first entries, real sorted order).
 // The fixture carries AGENTS.md, the portable adapter, rather than a
-// single-vendor entrypoint: the standard is vendor-agnostic and the hero should
-// not showcase one vendor's file.
-// Re-capture this after any change to what init/adopt writes; it drifted once
-// when AGENTS.md generation landed and took the file count with it.
-// To re-capture: outside this repo, make a fresh dir with a docs/ tree (a couple
-// of markdown files) and a non-empty AGENTS.md, then `git init && git add -A &&
-// git commit` (adopt refuses a dirty tree). From that dir run, in order:
-//   node <leji-repo>/packages/sdk/dist/cli.js adopt --yes --wire-adapters
-//   node <leji-repo>/packages/sdk/dist/cli.js validate
-//   node <leji-repo>/packages/sdk/dist/cli.js conformance
+// single-vendor entrypoint, because the standard is vendor-agnostic.
+// The fixture is `fixture()` in packages/sdk/test/site-hero.test.ts: that test
+// builds the same repository, runs these three commands against the built CLI, and
+// compares what it prints to the lines below. So this transcript is re-captured
+// where the CLI's output moves, rather than by hand after someone notices.
 const heroSession = [
    { cmd: 'leji adopt --yes --wire-adapters' },
    { out: 'Wrote 16 files (context root: docs/):' },
@@ -36,25 +31,24 @@ const heroSession = [
    { out: 'ok (0 errors, 0 warnings; claimedLevel: core, verifiedLevel: core, processAttested: 4)', mark: 'ok' },
 ];
 
-// Shaped like what `leji init` actually scaffolds (templates/leji.json), so the
-// paths here are ones a reader can reproduce rather than invent.
+// What the hero's `adopt` wrote: the manifest of the very layer the transcript
+// above creates. The panel leaves out the `$schema` pointer and the `claimedAt`
+// date, and the same test compares everything else to the fixture's leji.json.
 const peekJson = `{
   "leji": "1.0",
-  "name": "ai-native-team-context",
+  "name": "acme-billing-context",
+  "description": "Shared context layer for this repository.",
   "rootPath": "docs/",
   "bootProfilePath": "docs/boot-profile.md",
   "categories": {
     "domain": { "indexes": ["docs/context/domain.md"] },
     "system": { "indexes": ["docs/context/system.md"] },
+    "governance": { "indexes": ["docs/context/governance.md"] },
     "decisions": { "indexes": ["docs/context/decisions.md"] }
   },
-  "machine": {
-    "indexPath": "docs/context-index.json",
-    "changelogPath": "docs/context-changelog.json"
-  },
-  "agents": { "reviewer": "docs/agents/reviewer.md" },
-  "owners": { "primary": { "name": "John Smith" } },
-  "conformance": { "claimedLevel": "indexed" }
+  "owners": { "primary": { "name": "Acme Platform Team", "contact": "platform@acme.example" } },
+  "conformance": { "claimedLevel": "core" },
+  "vendorAdapters": ["AGENTS.md"]
 }`;
 ---
 
@@ -92,8 +86,8 @@ const peekJson = `{
                <div class="hero-proof reveal r5">
                   <AnimatedTerminal
                      lines={heroSession}
-                     title="ai-native-repo"
-                     glimpseTitle="leji view  ·  AI-native Team  (illustration)"
+                     title="acme-billing"
+                     glimpseTitle="leji view  ·  acme-billing-context"
                      label="A real Leji session: adopt an existing repo, validate it, score it"
                   >
                      <HeroMark slot="brand" size={64} loop />
@@ -178,9 +172,10 @@ const peekJson = `{
                   <article class="surface">
                      <p class="surface-label">For agents</p>
                      <p class="surface-body">
-                        Agents enter through the boot profile (vendor entrypoints redirect there), and the{' '}
-                        <strong>MCP server</strong> hands them the spec and schemas and lets them{' '}
-                        <a href="/mcp/">validate it and score conformance</a> natively.
+                        Agents enter through the <a href="/spec/boot-profile/">boot profile</a>, the one file that says
+                        what to load before a task; entrypoint files (<code>AGENTS.md</code>, <code>CLAUDE.md</code>)
+                        redirect there instead of carrying their own copy. The <strong>MCP server</strong> hands them the
+                        spec and schemas and lets them <a href="/mcp/">validate it and score conformance</a> natively.
                      </p>
                   </article>
                </div>
@@ -218,7 +213,7 @@ const peekJson = `{
                      <span class="rung-tag">federated</span>
                      <strong class="rung-cap">Org-wide practice</strong>
                      <span
-                        >a pinned mount in other repos, with stale-pin reporting.
+                        >a pinned mount in other repos, with stale-pin reporting.{' '}
                         <a href="/federation/">How federation works.</a></span
                      >
                   </li>
@@ -291,7 +286,7 @@ const peekJson = `{
                   the boot profile, or <code>leji start</code> opens a detected host there.
                </p>
                <p>
-                  Entrypoint files are pointers, never homes. <code>AGENTS.md</code> is the portable one most agent hosts
+                  Entrypoint files are pointers, never homes. <code>AGENTS.md</code> is the portable one many agent hosts
                   read; the <a href="/adoption/">adoption guide</a> covers the rest.
                </p>
                <p class="peek-more"><a href="/manifest/">Manifest reference →</a></p>

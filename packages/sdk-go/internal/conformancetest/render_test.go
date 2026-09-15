@@ -49,7 +49,14 @@ type renderExportBlock struct {
 	Findings []renderFinding `json:"findings"`
 	Out      string          `json:"out"`
 	Layout   expectedLayout  `json:"layout"`
-	Rerun    struct {
+	// IndexHTML pins the chrome page's conditional content as substrings. A finding
+	// with no path, line, or construct decodes to this struct's zero values on both
+	// sides, so an expected entry that omits those keys matches the emitted one.
+	IndexHTML struct {
+		Contains []string `json:"contains"`
+		Absent   []string `json:"absent"`
+	} `json:"indexHtml"`
+	Rerun struct {
 		ByteIdentical bool `json:"byteIdentical"`
 	} `json:"rerun"`
 	GoldenTree goldenTree `json:"goldenTree"`
@@ -327,6 +334,28 @@ func TestRenderFixtureExportBlocks(t *testing.T) {
 
 			// --- the golden tree ---------------------------------------------------
 			out := fixtureAbs(dir, block.Out)
+
+			// The chrome page's conditional content, as substrings: what a manifest
+			// value put into the generated <style>, and what a refused one must have
+			// left out. A named substring, not the whole file, so the assertion says
+			// which decision it pins; the golden tree stays the exhaustive byte
+			// contract.
+			if len(block.IndexHTML.Contains) > 0 || len(block.IndexHTML.Absent) > 0 {
+				page, err := os.ReadFile(filepath.Join(out, "index.html"))
+				if err != nil {
+					t.Fatalf("reading the exported index.html: %v", err)
+				}
+				for _, needle := range block.IndexHTML.Contains {
+					if !strings.Contains(string(page), needle) {
+						t.Fatalf("index.html must carry %q", needle)
+					}
+				}
+				for _, needle := range block.IndexHTML.Absent {
+					if strings.Contains(string(page), needle) {
+						t.Fatalf("index.html must not carry %q", needle)
+					}
+				}
+			}
 			if block.GoldenTree.Status == "none" {
 				if _, err := os.Stat(out); err == nil {
 					t.Fatal("a run that writes no export tree has nothing to bake")

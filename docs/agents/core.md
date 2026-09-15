@@ -24,4 +24,4 @@ The shared posture for all agents working in this repository. Role profiles inhe
 
 ## Escalation
 
-Raise anything in the boot profile's "stop and ask" list to the layer owner through a pull request or a GitHub issue on `leji-org/leji`; decisions that change normative spec text or a published version wait for a human to approve.
+Raise anything in the boot profile's "stop and ask" list to the layer owner through a pull request or a GitHub issue on `leji-org/leji`; decisions that change normative spec text or a published version wait for a human to approve. When one change introduces two or more decision records, read the set together before it lands, for overlap, contradiction, and any record that narrates a state the landed tree will not show.

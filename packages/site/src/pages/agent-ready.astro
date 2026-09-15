@@ -32,47 +32,67 @@ const badgeLine = '[![Leji 1.0 · governed · self-attested](leji-badge.svg)](ht
          <main id="content" class="agent-ready-main measured">
             <section class="hero">
                <PageHeader kind="guide" />
-               <h1>Your repo, agent-ready in two commands.</h1>
+               <h1>Your repo, agent-ready in three commands.</h1>
                <p class="lede">
                   The badge that most likely brought you here marks a repository whose context layer an agent can boot
                   from, validated and scored on the maintainer's own machine and self-attested. Making your own repo
-                  agent-ready takes the two commands below.
+                  agent-ready takes the three commands below.
                </p>
                <p class="jump"><a href="#badge">What the badge attests ↓</a></p>
             </section>
 
-            <section class="cmds" aria-label="The two commands">
+            <p class="fine">
+               <code>leji start</code> opens a context layer that already exists, so a repository without one adopts first.
+               Step 02 does that; a repository that already has a <code>leji.json</code> goes straight to step 03. The <a
+                  href="/quickstart/">quickstart</a
+               > walks the fuller path, from adopting an existing repo to scoring the level it claims.
+            </p>
+
+            <section class="cmds" aria-label="The three commands">
                <div class="cmd">
                   <p class="cmd-label">01 · Install the CLI</p>
                   <div class="cmd-install"><InstallTabs /></div>
                </div>
                <div class="cmd">
-                  <p class="cmd-label">02 · Enter the context layer</p>
+                  <p class="cmd-label">02 · Adopt the repository</p>
+                  <CopyableCode code="leji adopt" lang="bash" label="Copy the adopt command" />
+               </div>
+               <div class="cmd">
+                  <p class="cmd-label">03 · Enter the context layer</p>
                   <CopyableCode code="leji start" lang="bash" label="Copy the start command" />
                </div>
             </section>
-
-            <p class="fine">
-               No context layer in the repository yet? The <a href="/quickstart/">quickstart</a> walks the fuller path, from
-               adopting an existing repo to scoring the level it claims.
-            </p>
 
             <section class="what">
                <h2>What just happened</h2>
                <ul>
                   <li>
-                     Your agent opened in the context layer and read the <a href="/spec/boot-profile/">boot profile</a> first,
-                     so its first context is the team's rather than whatever it inferred from the tree.
+                     <code>leji start</code> launched a detected agent host from the repository root, with one instruction:
+                     read the <a href="/spec/boot-profile/">boot profile</a> first, so its opening context is the team's rather
+                     than whatever it inferred from the tree. That is an instruction, not a check; leji points the agent at
+                     the file and never verifies that it read it. With no host detected, or in a scripted run, nothing launches
+                     and the command prints the line to run instead.
                   </li>
                   <li>
-                     Validation and <a href="/spec/conformance/">conformance scoring</a> run from the package you just installed,
-                     on your own machine, with no service in the loop.
+                     Before it launched, <code>leji start</code> printed a Setup block for this clone: whether the Leji CLI
+                     this repository declares resolves here at the version the layer's spec line needs, whether the MCP server
+                     is registered for the host it selected, whether a shared <code>.mcp.json</code> is committed, and whether
+                     the pre-commit hook is installed. Each gap is reported with the command that closes it, and none of them
+                     blocks entry.
+                  </li>
+                  <li>
+                     Checking the layer itself is separate: <code>leji validate</code> for schemas and lint rules, <code
+                        >leji conformance</code
+                     > for the <a href="/spec/conformance/">level it claims</a>. Both run from the package you just
+                     installed, on your own machine, with no service in the loop.
                   </li>
                   <li>
                      The tooling opens no connection of its own, and there is no account, no registry and no hosted
                      service behind it. What reaches the network, you invoke yourself: the federation fetches contact
-                     the repository you named, and the dependency step at <code>leji init</code> runs your own package manager
-                     on your explicit yes. The agent leji launches is the one you already run, with its own network behavior.
+                     the repository you named, and the dependency step in <code>leji init</code> and <code
+                        >leji adopt</code
+                     > runs your own package manager on your explicit yes. The agent leji launches is the one you already
+                     run, with its own network behavior.
                   </li>
                </ul>
             </section>

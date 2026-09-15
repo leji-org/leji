@@ -1,0 +1,296 @@
+---
+// Vietnamese translation of src/pages/agent-ready.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import InstallTabs from '../../components/InstallTabs.astro';
+import CopyableCode from '../../components/CopyableCode.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+import lejiSyntaxTheme from '../../styles/shiki-leji.json';
+// The badge shown below is the canonical fixture itself, not a copy: the four
+// files under fixtures/badge/ are the byte oracle the three SDKs are tested
+// against, so the sample on this page cannot drift from what `leji badge` writes.
+// It carries its own role="img", <title> and aria-label, so it needs no wrapper.
+import badgeSvg from '../../../../../fixtures/badge/governed.svg?raw';
+
+const source = '5c8c494965adf111b26a09a4971295b119166e0a';
+const strings = translationStrings('vi');
+
+// The badge markdown exactly as `leji badge` prints it, for one level, so the
+// sample and the tool cannot read differently.
+const badgeLine = '[![Leji 1.0 · governed · self-attested](leji-badge.svg)](https://leji.org/agent-ready/)';
+---
+
+<Base
+   lang="vi"
+   title="Sẵn sàng cho agent · Leji"
+   description="Cài CLI của Leji rồi chạy leji start: agent của bạn khởi động từ chính lớp ngữ cảnh của nhóm. Kèm theo là huy hiệu tuân thủ tự khai tuyên bố điều gì, và nó được sinh ra như thế nào."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/agent-ready/" />
+         <main id="content" class="agent-ready-main measured">
+            <section class="hero">
+               <PageHeader kind="guide" />
+               <h1>Kho mã nguồn của bạn, sẵn sàng cho agent trong ba câu lệnh.</h1>
+               <TranslationNote strings={strings.note} href="/agent-ready/" />
+               <p class="lede">
+                  Có lẽ bạn đã tới đây qua một huy hiệu. Huy hiệu đó đánh dấu kho mã nguồn có một lớp ngữ cảnh mà agent
+                  có thể khởi động từ đó, được kiểm tra và chấm điểm ngay trên máy của người bảo trì theo hình thức tự
+                  khai. Việc giúp kho mã nguồn của bạn cũng sẵn sàng cho agent gói gọn trong ba câu lệnh dưới đây.
+               </p>
+               <p class="jump"><a href="#badge">Huy hiệu khai điều gì ↓</a></p>
+            </section>
+
+            <p class="fine">
+               <code>leji start</code> mở một lớp ngữ cảnh có sẵn, vì vậy kho mã nguồn chưa có lớp này cần áp dụng trước.
+               Bước 02 sẽ thực hiện việc đó; nếu đã có <code>leji.json</code>, bạn có thể đi thẳng tới bước 03. Trang <a
+                  href="/vi/quickstart/">bắt đầu nhanh</a
+               > trình bày quy trình đầy đủ hơn, từ áp dụng Leji cho kho mã nguồn hiện có đến chấm đúng mức mà kho mã nguồn
+               tuyên bố.
+            </p>
+
+            <section class="cmds" aria-label="Ba câu lệnh">
+               <div class="cmd">
+                  <p class="cmd-label">01 · Cài CLI</p>
+                  <div class="cmd-install"><InstallTabs /></div>
+               </div>
+               <div class="cmd">
+                  <p class="cmd-label">02 · Áp dụng cho kho mã nguồn</p>
+                  <CopyableCode code="leji adopt" lang="bash" label="Sao chép câu lệnh adopt" />
+               </div>
+               <div class="cmd">
+                  <p class="cmd-label">03 · Bước vào lớp ngữ cảnh</p>
+                  <CopyableCode code="leji start" lang="bash" label="Sao chép câu lệnh start" />
+               </div>
+            </section>
+
+            <section class="what">
+               <h2>Vừa rồi đã xảy ra chuyện gì</h2>
+               <ul>
+                  <li>
+                     <code>leji start</code> đã mở một agent host phát hiện được, ngay từ gốc kho mã nguồn, kèm đúng một chỉ
+                     dẫn: hãy đọc <a href="/vi/spec/boot-profile/">boot profile</a> trước tiên, để ngữ cảnh mở đầu của agent
+                     đến từ nhóm chứ không phải do nó tự suy ra từ cây tệp. Đó là một chỉ dẫn, không phải một phép kiểm: leji
+                     trỏ agent tới tệp đó chứ không bao giờ xác minh rằng agent đã đọc. Nếu không phát hiện được host nào,
+                     hoặc khi chạy trong một script, sẽ không có gì được mở và câu lệnh in ra dòng lệnh để bạn tự chạy.
+                  </li>
+                  <li>
+                     Trước khi khởi chạy, <code>leji start</code> in một khối Setup cho bản clone này: hệ thống có tìm được
+                     CLI Leji mà kho mã nguồn khai báo, đúng phiên bản nhánh đặc tả của lớp ngữ cảnh yêu cầu hay không; liệu
+                     MCP server đã được đăng ký cho host mà nó chọn hay chưa, liệu một tệp <code>.mcp.json</code> dùng chung
+                     đã được commit hay chưa, và liệu hook pre-commit đã được cài hay chưa. Mỗi chỗ thiếu đều được báo kèm
+                     câu lệnh khắc phục, và không chỗ nào trong số đó chặn bạn bước vào.
+                  </li>
+                  <li>
+                     Việc kiểm chính lớp ngữ cảnh thì tách riêng: <code>leji validate</code> cho schema và các quy tắc lint,{
+                        ' '
+                     }
+                     <code>leji conformance</code> cho <a href="/vi/spec/conformance/">mức mà nó tuyên bố</a>. Cả hai
+                     đều chạy từ đúng gói bạn vừa cài, ngay trên máy của bạn, không có dịch vụ nào xen vào.
+                  </li>
+                  <li>
+                     Công cụ không tự mở kết nối nào, và phía sau nó không có tài khoản, không có sổ đăng ký, cũng không
+                     có dịch vụ nào. Những gì chạm tới mạng đều do bạn tự gọi: các lệnh tải về của federation liên hệ
+                     đúng kho mã nguồn bạn đã nêu tên, còn bước khai báo phụ thuộc trong <code>leji init</code> và <code
+                        >leji adopt</code
+                     > thì chạy chính trình quản lý gói của bạn khi bạn đồng ý rõ ràng. Agent mà leji khởi chạy chính là agent
+                     bạn vốn đã dùng, với hành vi mạng của riêng nó.
+                  </li>
+               </ul>
+            </section>
+
+            <section class="badge" id="badge">
+               <h2>Huy hiệu khai điều gì</h2>
+               <p>
+                  Huy hiệu được tạo ngay trên máy: <code>leji badge</code> chấm điểm kho mã nguồn bằng <code
+                     >leji conformance</code
+                  >, ghi ra tệp SVG cho đúng mức mà lần chạy offline đó đã xác minh, rồi in ra một dòng markdown nhúng
+                  nó vào.
+               </p>
+               <CopyableCode code="leji badge" lang="bash" label="Sao chép câu lệnh badge" />
+               <p class="caption">
+                  Với một lớp ngữ cảnh được xác minh ở mức <code>governed</code>, huy hiệu trông như thế này:
+               </p>
+               <div class="badge-shot" set:html={badgeSvg} />
+               <aside class="attest-note">
+                  <strong>Tự khai</strong> nghĩa là được chấm bằng chính công cụ của kho mã nguồn đó: không sổ đăng ký, không
+                  endpoint, không tài khoản. Huy hiệu nêu đúng mức mà lần chạy offline này đã xác minh, không bao giờ cao
+                  hơn mức mà lớp ngữ cảnh tuyên bố, và có thể thấp hơn.
+               </aside>
+               <p class="caption">Dòng markdown nhúng nó vào một README:</p>
+               <div class="badge-md"><Code code={badgeLine} lang="markdown" theme={lejiSyntaxTheme} wrap /></div>
+               <p>
+                  Các mức là <code>core</code>, <code>indexed</code>, <code>governed</code> và <code>federated</code>,
+                  mức sau bao hàm mức trước. <a href="/vi/spec/conformance/">Danh sách kiểm mức tuân thủ</a> nói mỗi mức đòi
+                  hỏi gì ở một nhóm, và mọi mức đều đạt tới được chỉ với bản đặc tả mở và công cụ tham chiếu.
+               </p>
+               <p>
+                  Vì vậy, điều đáng xem là kết quả kiểm tra chứ không phải hình huy hiệu: hãy chạy <code
+                     >leji conformance</code
+                  > ngay trong kho mã nguồn đó và xem nó báo cáo gì. Trang <a href="/vi/trust/">Tin cậy</a> nói về ai duy
+                  trì Leji, nhánh 1.0 hứa hẹn điều gì, và chuyện gì xảy ra nếu đơn vị quản thủ biến mất.
+               </p>
+            </section>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>
+
+<style>
+   /* No top padding: .doc-shell already sets the space above the first line, and
+      every doc page starts its h1 there. */
+   .hero {
+      padding: 0 0 1rem;
+      max-width: 760px;
+   }
+   .lede {
+      font-size: var(--text-lede);
+      line-height: 1.7;
+      color: var(--leji-text-body);
+      max-width: var(--measure-fine);
+      margin: 0;
+   }
+
+   h2 {
+      font-family: var(--serif-display);
+      font-weight: 560;
+      font-size: 1.6rem;
+      line-height: 1.25;
+      color: var(--leji-text);
+      margin: 0 0 0.6rem;
+   }
+
+   p,
+   li {
+      color: var(--leji-text-body);
+   }
+   a {
+      color: var(--leji-link);
+      text-decoration-color: var(--leji-brand);
+      text-underline-offset: 3px;
+   }
+   code {
+      background: var(--leji-code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: var(--leji-text);
+   }
+
+   /* The jump the badge-clicker takes when the attestation is what they came for.
+      Same instrument as the quickstart's "what each level asks of you" link. */
+   .jump {
+      margin: 1.1rem 0 0;
+   }
+   .jump a {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-decoration: none;
+      border-bottom: 1px solid var(--leji-brand);
+      padding-bottom: 2px;
+      white-space: nowrap;
+   }
+   .jump a:hover {
+      color: var(--leji-text);
+      border-color: var(--leji-text);
+   }
+
+   /* The pitch: the two commands, one under the other, nothing between them. */
+   .cmds {
+      margin-top: 1.8rem;
+      display: grid;
+      gap: 1.8rem;
+   }
+   .cmd-label {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--leji-text-body);
+      margin: 0 0 0.6rem;
+   }
+   .cmd-install {
+      background: var(--leji-deep);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(24, 61, 59, 0.16);
+      overflow: hidden;
+   }
+
+   .fine {
+      margin: 1.6rem 0 0;
+   }
+
+   .what {
+      margin-top: 3.4rem;
+   }
+   .what ul {
+      margin: 0.6rem 0 0;
+      padding-left: 1.1rem;
+   }
+   .what li {
+      margin: 0.5rem 0;
+   }
+
+   .badge {
+      margin-top: 3.4rem;
+      padding-bottom: 1rem;
+      /* the jump link lands the heading below the sticky header, not under it */
+      scroll-margin-top: calc(var(--header-h) + 1.5rem);
+   }
+   .badge p {
+      margin: 0 0 1.1rem;
+   }
+   .badge .caption {
+      margin: 1.4rem 0 0;
+   }
+   /* The badge at its own size on the page background, which is how it sits in a
+      README: no frame, no scaling, nothing this page adds to it. The face shows the
+      level alone, so the note under it carries what the badge claims. */
+   .badge-shot {
+      margin: 0.9rem 0 1rem;
+   }
+   .badge-shot :global(svg) {
+      display: block;
+   }
+
+   /* Same instrument as the quickstart's map-note: brand rule, accent ground. Kept
+      at body size rather than that page's smaller setting, because this is the
+      section's claim and not marginalia. */
+   .attest-note {
+      margin: 0 0 1.4rem;
+      padding: 0.9rem 1.2rem;
+      border-left: 3px solid var(--leji-brand);
+      background: var(--leji-accent-soft);
+      border-radius: 0 8px 8px 0;
+      color: var(--leji-text-body);
+      line-height: 1.6;
+   }
+   .attest-note strong {
+      color: var(--leji-text);
+   }
+
+   /* The printed markdown is a sample, not a line to copy: one level's wording,
+      whichever level the reader's own run verifies. Hence no copy button. */
+   .badge-md {
+      margin: 0.6rem 0 1.6rem;
+   }
+   .badge-md :global(.astro-code) {
+      background: var(--leji-deep) !important;
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      font-size: var(--code-fz);
+      line-height: 1.6;
+      margin: 0;
+      overflow-x: auto;
+   }
+</style>

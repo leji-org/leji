@@ -1,0 +1,162 @@
+---
+// Vietnamese translation of src/pages/trust.astro. The English page is the page of
+// record; `source` is its git blob sha at the revision this translation follows.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '5dbd0f0ebf13d599ab3f4e97d7b27a0b859d951c';
+const strings = translationStrings('vi');
+---
+
+<Base
+   lang="vi"
+   title="Tin cậy · Leji"
+   description="Ai quản thủ Leji, các sản phẩm thương mại của đơn vị quản thủ liên hệ thế nào với bản đặc tả, nhánh đặc tả 1.0 hứa hẹn điều gì, chuyện gì xảy ra nếu đơn vị quản thủ biến mất, và cách báo cáo một lỗ hổng."
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/trust/" />
+         <main id="content" class="prose">
+            <PageHeader kind="governance" />
+            <h1>Tin cậy</h1>
+            <TranslationNote strings={strings.note} href="/trust/" />
+            <p>
+               Leji được thiết kế để bạn phải đặt niềm tin ít nhất có thể. Bản đặc tả, các schema, công cụ và fixture
+               đều công khai, được cấp phép rộng rãi, và chạy ngay trên máy của bạn. Leji có một đơn vị quản thủ là một
+               công ty được nêu tên, và thứ bảo vệ bạn không phải là niềm tin vào thiện ý của đơn vị đó: mọi thứ ở đây
+               đều được cấp phép mở, chạy được mà không cần dịch vụ nào của đơn vị quản thủ, không đòi hỏi một endpoint
+               nào của họ, cho phép các bản hiện thực cạnh tranh và các dịch vụ thương mại, và có thể được fork.
+            </p>
+
+            <h2>Ai duy trì dự án này</h2>
+            <p>
+               Leji do <a href="https://vuongnguyen.com" target="_blank" rel="noopener">Vuong Nguyen</a> tạo ra và được{
+                  ' '
+               }
+               <a href="https://contexing.com" target="_blank" rel="noopener">Contexing, LLC</a> quản thủ.{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md" target="_blank" rel="noopener"
+                  >GOVERNANCE.md</a
+               >{' '}
+               ghi lại cách các quyết định được đưa ra, cách quyền duy trì được chuyển giao, và những tài sản nào chuyển giao
+               cùng với nó. Contexing nắm giữ tên gọi Leji. Bản đặc tả, các schema và công cụ đều được cấp phép rộng rãi và
+               bất kỳ ai cũng có thể fork dưới một tên khác.
+            </p>
+
+            <h2>Sản phẩm thương mại</h2>
+            <p>
+               Contexing, LLC, đơn vị quản thủ Leji, đang phát triển LejiAI, một viewer Leji dạng dịch vụ tại leji.ai
+               dành cho các nhóm có thành viên không làm việc trong git. Dịch vụ này là tuỳ chọn. Không mức tuân thủ nào
+               đòi hỏi nó, không phần nào của bản đặc tả phụ thuộc vào nó, và công cụ tham chiếu vẫn chạy cục bộ,
+               offline, và không cần tài khoản. Thứ mà viewer dạng dịch vụ thêm vào là hạ tầng chứ không phải năng lực
+               về định dạng: xác thực, kiểm soát truy cập theo từng người và vận hành hạ tầng. Các sản phẩm thương mại
+               độc lập xây trên Leji, kể cả những sản phẩm cạnh tranh với chúng tôi, không cần xin phép ai.
+            </p>
+            <p>
+               Mọi đề xuất do đơn vị quản thủ soạn, nếu ảnh hưởng đến các mảng mà sản phẩm của họ phụ thuộc vào, đều
+               được gắn nhãn rõ ràng và công khai lấy ý kiến lâu hơn. Nhờ đó, bạn có thể tự kiểm chứng tuyên bố "không
+               có lợi thế về mức tuân thủ", thay vì chỉ tin lời chúng tôi. Xem{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md" target="_blank" rel="noopener"
+                  >GOVERNANCE.md</a
+               >.
+            </p>
+
+            <h2>Lời hứa về phiên bản</h2>
+            <p>
+               Bản đặc tả và các schema nằm trên nhánh 1.0, <strong
+                  >đã đóng băng tại GA cùng bản phát hành công cụ tham chiếu 1.3.0</strong
+               >{' '}
+               (được ghi trong nhật ký quyết định của kho mã nguồn). Trong nhánh này, thay đổi schema chỉ được phép là thêm
+               mới; mọi thay đổi không tương thích đều ra mắt thành một nhánh mới, không bao giờ sửa tại chỗ. Công cụ tham
+               chiếu đánh phiên bản riêng và khai báo những nhánh đặc tả mà nó hỗ trợ. Quy tắc đầy đủ:{' '}
+               <a href="/vi/spec/versioning/">đánh phiên bản</a>.
+            </p>
+
+            <h2>Ngôn ngữ</h2>
+            <p>
+               leji.org được viết bằng tiếng Anh; <a href="/vi/translation/">các trang đã dịch đều nói rõ điều đó</a> và mời
+               bạn gửi góp ý chỉnh sửa.
+            </p>
+
+            <h2>Nếu đơn vị quản thủ biến mất</h2>
+            <p>
+               Mọi thứ cần thiết để tiếp tục mà không có đơn vị quản thủ đều đã công khai và được cấp phép cho đúng mục
+               đích đó: bản đặc tả (CC-BY-4.0), các schema cùng toàn bộ công cụ tham chiếu (Apache-2.0), và bộ fixture
+               dùng chung mà ba SDK đều được kiểm theo. Việc kiểm tra, dựng khung và chấm mức tuân thủ đều chạy offline
+               và không gửi báo cáo đi đâu. Một bản fork hay một bản hiện thực độc lập không cần xin phép ai và không
+               mất đi năng lực nào.
+            </p>
+            <p>
+               Tên gọi và logo là những phần không thuộc phạm vi các giấy phép: cả hai đều là nhãn hiệu, có điều khoản
+               sử dụng riêng, và các tệp tài nguyên logo nằm ngoài những giấy phép nêu trên. Một bản fork giữ được mọi
+               quyền mà giấy phép trao cho, gồm trọn bản đặc tả, các schema, các SDK, CLI và bộ fixture, và không cần
+               xin phép ai. Nó cần một cái tên khác và hạ tầng của riêng nó: tên miền, các đăng ký gói và khoá ký là tài
+               sản vận hành, không phải artifact được cấp phép. Một bản fork được và không được tự gọi mình là gì thì đã
+               viết rõ trong{' '}
+               <a href="/vi/trademark/">chính sách nhãn hiệu và cách dùng tên</a>.
+            </p>
+
+            <h2>Các bản hiện thực độc lập</h2>
+            <p>
+               Các SDK tham chiếu là ba mã nguồn độc lập (TypeScript, Python, Go), được duy trì để có hành vi giống hệt
+               nhau bằng một bộ fixture dùng chung, và đó cũng chính là bộ mà một bản hiện thực bên ngoài có thể kiểm
+               theo. Mức tuân thủ là tự khai theo danh sách kiểm đã công bố; không có chương trình chứng nhận nào và
+               không có rào cản thương mại nào:{' '}
+               <a href="/vi/spec/conformance/">mọi mức đều đạt tới được chỉ với bản đặc tả mở và công cụ tham chiếu</a>.
+            </p>
+
+            <h2>Bảo mật</h2>
+            <p>
+               Công cụ tham chiếu chạy trên máy của bạn: không đo đạc từ xa, không cần tài khoản và không phụ thuộc vào
+               bất kỳ dịch vụ nào ngoài chính máy của bạn. Việc kiểm tra, dựng khung và chấm mức tuân thủ đều hoạt động
+               hoàn toàn offline, các schema và mẫu đều nằm sẵn trong từng gói, và phần logic kiểm tra cùng dựng khung
+               của Leji không tạo yêu cầu mạng nào. Contexing, LLC, đơn vị quản thủ Leji, đang phát triển một dịch vụ
+               tại leji.ai; công cụ tham chiếu không bao giờ liên hệ tới đó.
+            </p>
+            <p>
+               Những lệnh federation mà bạn chủ động gọi (<code>leji mounts hydrate --fetch</code>,{' '}
+               <code>leji mounts update-pin --fetch</code>, và <code>leji conformance --federation=verify</code>) chỉ
+               liên hệ đúng kho mã nguồn bạn đã nêu tên, không gì khác.{' '}
+               <code>leji start</code> và bước bàn giao tuỳ chọn trong quy trình onboarding thì khởi chạy chính coding agent
+               mà bạn vốn đã có, và hành vi mạng của agent đó là chuyện của nó.
+            </p>
+            <p>
+               Trang web này tách biệt với công cụ: leji.org, ở bản triển khai do đơn vị quản thủ vận hành, dùng <a
+                  href="https://usefathom.com"
+                  target="_blank"
+                  rel="noopener">Fathom</a
+               > để thống kê lưu lượng ở dạng tổng hợp; mã nguồn của trang không kèm phần đo đạc nào, và mỗi bản triển khai
+               tự thêm phần của mình. Hãy báo cáo lỗ hổng qua{' '}
+               <a href="https://github.com/leji-org/leji/security/advisories/new" target="_blank" rel="noopener"
+                  >kênh báo cáo lỗ hổng riêng tư của GitHub</a
+               >{' '}
+               hoặc <a href="mailto:security@leji.org">security@leji.org</a>; quy trình nằm trong{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/SECURITY.md" target="_blank" rel="noopener"
+                  >SECURITY.md</a
+               >.
+            </p>
+
+            <h2>Phần ghi chép thay đổi</h2>
+            <p>
+               Kho mã nguồn này chạy đúng những kiểm soát về lớp ngữ cảnh mà bản đặc tả đòi hỏi ở người áp dụng: một
+               changelog đã qua xem xét, một index được sinh ra, và các bản ghi quyết định, trong đó có cả bước chuyển
+               từ preview sang GA và{' '}
+               <a
+                  href="https://github.com/leji-org/leji/blob/main/docs/decisions/0007-commercial-hosted-viewer.md"
+                  target="_blank"
+                  rel="noopener">quyết định xây một viewer thương mại dạng dịch vụ</a
+               >. Các bản phát hành được ghi trong{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/CHANGELOG.md" target="_blank" rel="noopener"
+                  >CHANGELOG.md</a
+               >, kèm một bản sao cho máy đọc.
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

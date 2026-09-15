@@ -1,0 +1,145 @@
+---
+// Simplified Chinese translation of src/pages/trust.astro. The English page is the page
+// of record; `source` is its git blob sha at the revision this translation follows.
+//
+// The shell is composed here rather than through `Doc.astro` so the page can declare the
+// language it is written in while the sidebar stays on the English route it highlights.
+import Base from '../../layouts/Base.astro';
+import SiteHeader from '../../components/SiteHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import SectionNav from '../../components/SectionNav.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import TranslationNote from '../../components/TranslationNote.astro';
+import { translationStrings } from '../../data/i18n';
+
+const source = '5dbd0f0ebf13d599ab3f4e97d7b27a0b859d951c';
+const strings = translationStrings('zh-hans');
+---
+
+<Base
+   lang="zh-hans"
+   title="信任 · Leji"
+   description="谁受托管理 Leji，受托方的商业产品与规范是什么关系，1.0 规范版本系列承诺了什么，受托方消失会怎样，以及如何报告漏洞。"
+>
+   <SiteHeader />
+   <div class="wrap">
+      <div class="doc-shell">
+         <SectionNav current="/trust/" />
+         <main id="content" class="prose">
+            <PageHeader kind="governance" />
+            <h1>信任</h1>
+            <TranslationNote strings={strings.note} href="/trust/" />
+            <p>
+               Leji 的设计目标，是尽量减少对信任的依赖。规范、schema、工具与 fixture
+               全部公开，采用宽松许可，并且运行在你自己的机器上。Leji
+               有一家公开具名的公司担任受托方，但真正提供保障的并不是你对其动机的信任：这里的一切都以开放许可发布，无需依赖受托方的任何服务或端点即可运行，允许竞争性实现和商业服务，也可以分叉。
+            </p>
+
+            <h2>谁在维护它</h2>
+            <p>
+               Leji 由 <a href="https://vuongnguyen.com" target="_blank" rel="noopener">Vuong Nguyen</a> 创建，并由
+               <a href="https://contexing.com" target="_blank" rel="noopener">Contexing, LLC</a> 受托管理。{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md" target="_blank" rel="noopener"
+                  >GOVERNANCE.md</a
+               >{' '}
+               记录了决策机制、维护权的转移方式，以及随之转移的资产。Contexing 持有 Leji 这一名称。规范、schema 与工具采用宽松许可，任何人都可以使用不同名称进行分叉。
+            </p>
+
+            <h2>商业产品</h2>
+            <p>
+               Leji 的受托方 Contexing, LLC 正在开发 LejiAI，一个位于 leji.ai 的托管 Leji 查看器，面向成员并不在 git
+               中工作的团队。它完全可选：没有任何一致性级别要求使用它，规范也没有任何部分依赖它；参考工具仍在本地离线运行，且无需账号。托管查看器增加的是基础设施能力，而不是格式能力，包括身份认证、按人的访问控制，以及由专人运维的部署环境。基于
+               Leji 构建的独立商业产品，包括与我们竞争的产品，都无需任何许可。
+            </p>
+            <p>
+               由受托方提出、且触及其产品所依赖领域的提案会被明确标注，并在公开场合给出更长的评论期，因此“没有一致性上的优势”是你可以核查的事，而不是我们的一面之词。见{
+                  ' '
+               }
+               <a href="https://github.com/leji-org/leji/blob/main/GOVERNANCE.md" target="_blank" rel="noopener"
+                  >GOVERNANCE.md</a
+               >。
+            </p>
+
+            <h2>版本承诺</h2>
+            <p>
+               规范与 schema 位于 1.0 版本系列上，<strong>已 GA，在 v1.3.0 参考工具发布时冻结</strong
+               >（记录在本仓库的决策日志中）。在这个系列内部，schema
+               变更只能是增量的；任何不兼容的变更都作为新的版本系列发布，绝不原地进行。参考工具单独做版本管理，并声明它支持哪些规范版本系列。完整规则见<a
+                  href="/zh-hans/spec/versioning/">版本管理</a
+               >。
+            </p>
+
+            <h2>语言</h2>
+            <p>leji.org 以英文书写；<a href="/zh-hans/translation/">翻译页面会写明这一点</a>，并欢迎读者提出更正。</p>
+
+            <h2>如果受托方消失了</h2>
+            <p>
+               即使受托方不复存在，继续维护所需的一切也都已经公开，并采用允许这样做的许可发布：规范（CC-BY-4.0）、schema
+               与全部参考工具（Apache-2.0），以及三个 SDK 共同测试所依据的那套共享 fixture
+               套件。校验、脚手架与一致性评分都离线运行，不向任何地方回传。分叉或独立实现无需任何许可，也不会损失任何能力。
+            </p>
+            <p>
+               名称与标识才是这些许可不涵盖的内容：两者都是商标，各有自己的使用条款，而标识的素材文件也在上述许可之外。分叉可以保留许可授予的一切：完整的规范、schema、各
+               SDK、CLI 与 fixture
+               套件，无需另行许可；但需要采用不同名称，并建立自己的基础设施。域名、包注册与签名密钥属于运营资产，而非许可涵盖的产物。分叉能用什么名称、不能用什么名称，详见<a
+                  href="/zh-hans/trademark/">商标与使用政策</a
+               >。
+            </p>
+
+            <h2>独立实现</h2>
+            <p>
+               参考 SDK 是三份独立的代码库（TypeScript、Python、Go），由同一套共享 fixture
+               套件维持行为完全一致，而外部实现可以对照的正是同一套套件。一致性是<strong>自我声明</strong
+               >的，依据的是已公开的检查清单；不存在认证计划，也不存在商业关卡：<a href="/zh-hans/spec/conformance/"
+                  >仅凭开放的规范与参考工具就能达到每一个级别</a
+               >。
+            </p>
+
+            <h2>安全</h2>
+            <p>
+               参考工具运行在你的机器上：没有遥测，没有账号，除了你自己的机器之外没有任何依赖。校验、脚手架与一致性评分完全离线工作，schema
+               与模板随每个包一起发布，而 Leji 自身的校验与脚手架逻辑不发起任何网络请求。Leji 的受托方 Contexing, LLC
+               正在开发一个位于 leji.ai 的托管服务；参考工具绝不会与它通信。
+            </p>
+            <p>
+               那些由你有意调用的联邦命令（<code>leji mounts hydrate --fetch</code>、<code
+                  >leji mounts update-pin --fetch</code
+               > 与
+               <code>leji conformance --federation=verify</code>）只与你所指明的那个仓库通信，别无其他。<code
+                  >leji start</code
+               >
+               以及可选的入门交接会启动你本就装有的编码智能体，它的网络行为归它自己。
+            </p>
+            <p>
+               本网站与工具是分开的：由受托方部署的 leji.org 使用 <a
+                  href="https://usefathom.com"
+                  target="_blank"
+                  rel="noopener">Fathom</a
+               > 做聚合流量分析；站点源码本身不带任何分析，由具体部署自行添加。报告漏洞可通过{' '}
+               <a href="https://github.com/leji-org/leji/security/advisories/new" target="_blank" rel="noopener"
+                  >GitHub 的私密漏洞报告</a
+               >{' '}
+               或 <a href="mailto:security@leji.org">security@leji.org</a>；流程见{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/SECURITY.md" target="_blank" rel="noopener"
+                  >SECURITY.md</a
+               >。
+            </p>
+
+            <h2>变更记录</h2>
+            <p>
+               本仓库采用的，正是规范要求接入方实施的那套上下文层控制：经过评审的变更日志、生成的索引和决策记录，其中包括从预览到
+               GA 的过渡与{' '}
+               <a
+                  href="https://github.com/leji-org/leji/blob/main/docs/decisions/0007-commercial-hosted-viewer.md"
+                  target="_blank"
+                  rel="noopener">构建商业托管查看器的那份决策</a
+               >。发布记录在{' '}
+               <a href="https://github.com/leji-org/leji/blob/main/CHANGELOG.md" target="_blank" rel="noopener"
+                  >CHANGELOG.md</a
+               > 中，并有一份机器可读的镜像。
+            </p>
+         </main>
+      </div>
+   </div>
+   <SiteFooter />
+</Base>

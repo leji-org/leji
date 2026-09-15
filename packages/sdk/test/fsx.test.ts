@@ -9,6 +9,7 @@ import {
    mkdirpGuarded,
    openWriteGuarded,
    renameGuarded,
+   readTextWithin,
    resolvedWithinRoot,
    rmGuarded,
    verifiedTargetRead,
@@ -90,6 +91,30 @@ test('resolvedWithinRoot: an unreadable directory is unresolvable, and unresolva
       fs.chmodSync(closed, 0o700);
       fs.rmSync(root, { recursive: true, force: true });
    }
+});
+
+// The governed-document read: containment is judged first, existence second, so the
+// idiom reads the same way as the link resolver and the other two SDKs. Both checks
+// must pass, so the refusals are what the order has to leave unchanged.
+test('readTextWithin: inside root is read, escaping and absent are refused', () => {
+   const root = repo();
+   fs.writeFileSync(path.join(root, 'inside.md'), 'inside\n');
+   assert.equal(readTextWithin(root, path.join(root, 'inside.md')), 'inside\n', 'a regular file inside root');
+
+   const away = outside();
+   fs.writeFileSync(path.join(away, 'real.md'), 'outside\n');
+   fs.symlinkSync(path.join(away, 'real.md'), path.join(root, 'escape.md'));
+   assert.equal(readTextWithin(root, path.join(root, 'escape.md')), null, 'an existing file resolving out of root');
+
+   fs.mkdirSync(path.join(root, 'dir'));
+   fs.symlinkSync(away, path.join(root, 'dir', 'up'));
+   assert.equal(readTextWithin(root, path.join(root, 'dir', 'up', 'real.md')), null, 'a symlinked ancestor');
+
+   assert.equal(readTextWithin(root, path.join(root, 'absent.md')), null, 'nothing standing at a contained path');
+   assert.equal(readTextWithin(root, path.join(root, 'dir')), null, 'a directory is not a regular file');
+
+   fs.rmSync(root, { recursive: true, force: true });
+   fs.rmSync(away, { recursive: true, force: true });
 });
 
 // --- the rule, through the conveniences ---------------------------------------
