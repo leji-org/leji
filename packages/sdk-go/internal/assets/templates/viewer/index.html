@@ -7,7 +7,7 @@
    (not interpolated into JS source), so a layer name can never break out of the
    script context.
 -->
-<html lang="en">
+<html lang="en"{{LEJI_APPEARANCE_ATTR}}>
    <head>
       <meta charset="UTF-8" />
       <!--
@@ -31,17 +31,24 @@
       />
       <title>{{LEJI_NAME_HTML}}</title>
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <!-- Form controls, scrollbars, and the pre-stylesheet canvas take the scheme
+           this meta names: the one the layer chose, or both, which leaves the
+           choice to the reader's operating system. The :root declarations in the
+           stylesheets below govern after. -->
+      <meta name="color-scheme" content="{{LEJI_COLOR_SCHEME}}" />
       <link rel="icon" href="{{FAVICON_URL}}" />
-      <link rel="stylesheet" href="assets/vue.css" />
+      <link rel="stylesheet" href="assets/vue.css" />{{LEJI_DARK_SHEET}}
       <link rel="stylesheet" href="assets/docsify-sidebar-collapse.min.css" />
       <style>{{LEJI_LINK_STYLE}}
-         /* Viewer default styling: white content, the brand canvas on the sidebar
-            and its chrome, tight nesting — the shape teams hand-build for internal
-            dashboards. Accents ride --theme-color (set by Docsify from
-            viewer.theme.primary); the text tones are the --leji-text* custom
-            properties assets/vue.css declares, which loads before this block. */
+         /* Viewer default styling: the content ground, the brand canvas on the
+            sidebar and its chrome, tight nesting, the shape teams hand-build for
+            internal dashboards. Every ground, rule, and tone here names a custom
+            property assets/vue.css declares, which loads before this block, so
+            both color schemes are carried by the tokens rather than restated
+            here. Accents ride --theme-color (set by Docsify from
+            viewer.theme.primary). */
          body {
-            background-color: #ffffff;
+            background-color: var(--leji-page);
          }
 
          /* Classification chip: top-right corner, the page's category (+ record
@@ -54,8 +61,8 @@
             font-size: 0.7rem;
             letter-spacing: 0.02em;
             color: var(--leji-text-body);
-            background: #f7f8f5;
-            border: 1px solid #cde5d9;
+            background: var(--leji-paper);
+            border: 1px solid var(--leji-line);
             border-radius: 999px;
             padding: 3px 10px;
             user-select: none;
@@ -63,8 +70,8 @@
 
          /* Light sidebar */
          .sidebar {
-            background-color: #f7f8f5;
-            border-right: 1px solid #cde5d9;
+            background-color: var(--leji-paper);
+            border-right: 1px solid var(--leji-line);
          }
          /* Loading state while the served sidebar is being generated: the CSS
             :empty rule paints instantly (before any script runs); the boot
@@ -156,7 +163,7 @@
             transform: none !important;
             font-size: 8px;
             line-height: 1;
-            color: #aaa;
+            color: var(--leji-caret);
             top: 0.9em;
             margin-top: 0;
             left: -4px;
@@ -195,18 +202,18 @@
          .sidebar-nav hr {
             margin: 16px 0;
             border: none;
-            border-top: 1px solid #cde5d9;
+            border-top: 1px solid var(--leji-line);
          }
 
          /* Search */
          .search input {
-            background-color: #ffffff;
-            border: 1px solid #cde5d9;
+            background-color: var(--leji-page);
+            border: 1px solid var(--leji-line);
             color: var(--leji-text-body);
          }
          .search .results-panel {
-            background-color: #ffffff;
-            border: 1px solid #cde5d9;
+            background-color: var(--leji-page);
+            border: 1px solid var(--leji-line);
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
          }
          .search .results-panel .matching-post > a {
@@ -216,7 +223,7 @@
             color: var(--theme-color, #009f71);
          }
          .matching-post {
-            border-bottom: 1px solid #cde5d9;
+            border-bottom: 1px solid var(--leji-line);
          }
 
          /* App name / logo block */
@@ -254,7 +261,7 @@
             text-decoration: none;
          }
          .leji-powered a:hover {
-            color: #164e42;
+            color: var(--leji-deep);
          }
       </style>
    </head>

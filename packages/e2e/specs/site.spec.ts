@@ -2,13 +2,17 @@
 // existing role, accessible label, heading, or URL: the suite reads the site as a
 // reader does and never asks it to grow a hook for the sake of a test.
 
-import { expect, test } from '@playwright/test';
+import { type Page, expect, test } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
    SITE_CONSOLE_ALLOWANCES,
+   SITE_DARK_TONES,
+   SITE_LIGHT_TONES,
    SITE_URL,
+   type SiteSurface,
+   assertSiteScheme,
    backgroundOf,
    collectConsoleErrors,
    expectNoConsoleErrors,
@@ -231,10 +235,31 @@ test.describe('site', () => {
       // The schema reference was the last destination in this locale's chrome that
       // still went to English, and it no longer does: every link the sidebar offers a
       // Vietnamese reader now lands in Vietnamese. The rule it used to demonstrate is
-      // unchanged and still carries every locale whose own page is missing — a link to
+      // unchanged and still carries every locale whose own page is missing: a link to
       // the English route, with nothing marking it as a language change beyond the
       // selector that already names the language being read.
       await expect(sidebar.getByRole('link', { name: 'Schemas' })).toHaveAttribute('href', '/vi/schemas/');
+      expectNoConsoleErrors(errors, SITE_CONSOLE_ALLOWANCES);
+   });
+
+   test('the collapsed menu button keeps its Vietnamese name across a press', async ({ page }) => {
+      const errors = collectConsoleErrors(page);
+      // The toggle only renders where the header collapses, which the default
+      // viewport is too wide for, so the width is part of the case.
+      await page.setViewportSize({ width: 600, height: 900 });
+      const response = await page.goto(`${SITE_URL}/vi/`);
+      expect(response?.status()).toBe(200);
+      // The button is named in Vietnamese and stays named that through a press:
+      // `aria-expanded` carries open and closed, so the reader is never told the
+      // state in a second language by the control they just used.
+      const toggle = page.getByRole('banner').getByRole('button', { name: 'Mở menu' });
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(toggle).toHaveAccessibleName('Mở menu');
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(toggle).toHaveAccessibleName('Mở menu');
       expectNoConsoleErrors(errors, SITE_CONSOLE_ALLOWANCES);
    });
 
@@ -353,5 +378,495 @@ test.describe('site', () => {
          }
       }
       expect(found, `missing space before or after an inline element:\n${found.join('\n')}`).toEqual([]);
+   });
+});
+
+// The site paints the operating system's color scheme unless a reader has stored a
+// choice of their own: the light palette and the dark one are sheets of their own,
+// `packages/site/src/styles/palette.css` and `dark.css`, and the head links the dark
+// one under a media query the control rewrites. Neither scheme is a state a page can
+// be put into without either the preference or the choice, so both are judged by
+// rendering. The unit test holds the palette to its contrast floors; this run holds
+// the pages to the palette, on the surfaces a dark theme can leave behind.
+//
+// Seven routes, chosen for the surfaces they carry between them rather than for
+// coverage of the route table: the landing page and a locale's copy of it (the
+// monument, its cards and its recessed band), the quickstart (a tip, a table, both
+// kinds of code frame), a specification page (prose, a contents box, inline code),
+// a schema page (the generated field reference), the translation page (prose alone)
+// and the 404.
+const SCHEME_SURFACES: { route: string; surfaces: SiteSurface[] }[] = [
+   {
+      route: '/',
+      surfaces: [
+         { what: 'the page ground', at: (page) => page.locator('body'), paints: 'background', role: 'canvas' },
+         {
+            what: 'the wordmark in the header',
+            at: (page) => page.getByRole('banner').locator('.leji-logo'),
+            paints: 'color',
+            role: 'inkOnDeep',
+         },
+         {
+            what: 'the hero headline',
+            at: (page) => page.locator('.hero h1'),
+            paints: 'color',
+            role: 'inkOnDeep',
+         },
+         {
+            what: 'a card on the recessed band',
+            at: (page) => page.locator('.ladder li').first(),
+            paints: 'background',
+            role: 'surface',
+         },
+         {
+            what: 'the recessed band',
+            at: (page) => page.locator('.levels-band').first(),
+            paints: 'background',
+            role: 'wash',
+         },
+      ],
+   },
+   {
+      route: '/quickstart/',
+      surfaces: [
+         { what: 'the page ground', at: (page) => page.locator('body'), paints: 'background', role: 'canvas' },
+         {
+            what: 'the header band',
+            at: (page) => page.locator('.site-header-band'),
+            paints: 'background',
+            role: 'deep',
+         },
+         {
+            what: 'the wordmark in the header',
+            at: (page) => page.getByRole('banner').locator('.leji-logo'),
+            paints: 'color',
+            role: 'inkOnDeep',
+         },
+         { what: 'the page headline', at: (page) => page.locator('.gs-hero h1'), paints: 'color', role: 'text' },
+         { what: 'the tip beside a step', at: (page) => page.locator('.map-note'), paints: 'background', role: 'wash' },
+         {
+            what: 'a table cell',
+            at: (page) => page.locator('.shape-table td').first(),
+            paints: 'color',
+            role: 'body',
+         },
+         {
+            what: 'inline code in a step',
+            at: (page) => page.locator('.step-text code').first(),
+            paints: 'background',
+            role: 'codeBg',
+         },
+         {
+            what: 'a code block',
+            at: (page) => page.locator('.peek-code .astro-code'),
+            paints: 'background',
+            role: 'deep',
+         },
+         { what: 'a body link', at: (page) => page.locator('.peek-text a').first(), paints: 'color', role: 'link' },
+      ],
+   },
+   {
+      route: '/spec/boot-profile/',
+      surfaces: [
+         { what: 'the page ground', at: (page) => page.locator('body'), paints: 'background', role: 'canvas' },
+         {
+            what: 'the header band',
+            at: (page) => page.locator('.site-header-band'),
+            paints: 'background',
+            role: 'deep',
+         },
+         { what: 'the document heading', at: (page) => page.locator('.prose h1'), paints: 'color', role: 'text' },
+         {
+            what: 'the contents box',
+            at: (page) => page.getByRole('navigation', { name: 'Contents' }),
+            paints: 'background',
+            role: 'wash',
+         },
+         {
+            what: 'a section-nav group',
+            at: (page) => page.getByRole('navigation', { name: 'Documentation' }).locator('summary').first(),
+            paints: 'color',
+            role: 'body',
+         },
+         { what: 'a code block', at: (page) => page.locator('.prose pre').first(), paints: 'background', role: 'deep' },
+         {
+            what: 'inline code in prose',
+            at: (page) => page.locator('.prose p > code').first(),
+            paints: 'background',
+            role: 'codeBg',
+         },
+         { what: 'a body link', at: (page) => page.locator('.prose p a').first(), paints: 'color', role: 'link' },
+      ],
+   },
+   {
+      route: '/schemas/context-manifest/',
+      surfaces: [
+         { what: 'the page ground', at: (page) => page.locator('body'), paints: 'background', role: 'canvas' },
+         {
+            what: 'the header band',
+            at: (page) => page.locator('.site-header-band'),
+            paints: 'background',
+            role: 'deep',
+         },
+         { what: 'the schema heading', at: (page) => page.locator('.prose h1'), paints: 'color', role: 'text' },
+         {
+            what: 'the published schema, in its frame',
+            at: (page) => page.locator('[data-panel="schema"] pre'),
+            paints: 'background',
+            role: 'deep',
+         },
+         {
+            what: 'a field description',
+            at: (page) => page.locator('dt#viewer + dd'),
+            paints: 'color',
+            role: 'text',
+         },
+         { what: 'a body link', at: (page) => page.locator('.all-schemas a'), paints: 'color', role: 'link' },
+      ],
+   },
+   {
+      route: '/translation/',
+      surfaces: [
+         { what: 'the page ground', at: (page) => page.locator('body'), paints: 'background', role: 'canvas' },
+         {
+            what: 'the header band',
+            at: (page) => page.locator('.site-header-band'),
+            paints: 'background',
+            role: 'deep',
+         },
+         { what: 'the document heading', at: (page) => page.locator('.prose h1'), paints: 'color', role: 'text' },
+         {
+            what: 'a section-nav group',
+            at: (page) => page.getByRole('navigation', { name: 'Documentation' }).locator('summary').first(),
+            paints: 'color',
+            role: 'body',
+         },
+         { what: 'a body link', at: (page) => page.locator('.prose li a').first(), paints: 'color', role: 'link' },
+      ],
+   },
+   {
+      route: '/vi/',
+      surfaces: [
+         { what: 'the page ground', at: (page) => page.locator('body'), paints: 'background', role: 'canvas' },
+         {
+            what: 'the wordmark in the header',
+            at: (page) => page.getByRole('banner').locator('.leji-logo'),
+            paints: 'color',
+            role: 'inkOnDeep',
+         },
+         { what: 'the hero headline', at: (page) => page.locator('.hero h1'), paints: 'color', role: 'inkOnDeep' },
+         {
+            what: 'a card on the recessed band',
+            at: (page) => page.locator('.ladder li').first(),
+            paints: 'background',
+            role: 'surface',
+         },
+         {
+            what: 'the recessed band',
+            at: (page) => page.locator('.levels-band').first(),
+            paints: 'background',
+            role: 'wash',
+         },
+      ],
+   },
+   {
+      route: '/404.html',
+      surfaces: [
+         { what: 'the page ground', at: (page) => page.locator('body'), paints: 'background', role: 'canvas' },
+         {
+            what: 'the header band',
+            at: (page) => page.locator('.site-header-band'),
+            paints: 'background',
+            role: 'deep',
+         },
+         {
+            what: 'the wordmark in the header',
+            at: (page) => page.getByRole('banner').locator('.leji-logo'),
+            paints: 'color',
+            role: 'inkOnDeep',
+         },
+         { what: 'the headline', at: (page) => page.locator('.lost h1'), paints: 'color', role: 'text' },
+         { what: 'the copy under it', at: (page) => page.locator('.lost-text'), paints: 'color', role: 'body' },
+         { what: 'a body link', at: (page) => page.locator('.lost-text a').first(), paints: 'color', role: 'link' },
+      ],
+   },
+];
+
+// Both schemes over the same reads. The light run is the half that keeps the media
+// block from leaking: a dark value reaching a reader who asked for neither theme
+// fails here on the value 1.5.0 painted.
+for (const [scheme, tones, other] of [
+   ['dark', SITE_DARK_TONES, SITE_LIGHT_TONES],
+   ['light', SITE_LIGHT_TONES, SITE_DARK_TONES],
+] as const) {
+   test.describe(`site (${scheme} scheme)`, () => {
+      test.use({ colorScheme: scheme });
+
+      for (const { route, surfaces } of SCHEME_SURFACES) {
+         test(`${route} paints the ${scheme} scheme on every surface it carries`, async ({ page }) => {
+            await assertSiteScheme(page, route, surfaces, tones, other);
+         });
+      }
+   });
+}
+
+// --- the reader's own choice ------------------------------------------------------
+//
+// A reader may keep a scheme of their own, in one key per browser, and the runs below
+// are the half the preference cannot reach: a stored choice that opposes the operating
+// system, the control cycling through its three states, and the same cycle in a
+// browser whose storage refuses to answer.
+
+/** The key the site stores a reader's choice under. */
+const APPEARANCE_KEY = 'leji-appearance';
+/** The states the control cycles through, in the order it cycles them. */
+const SCHEME_STATES = ['System', 'Light', 'Dark'] as const;
+
+/** How the page is arranged for a scheme: the root's stamp, the dark link's media,
+ *  and how many further links to the same sheet the pre-paint script wrote. */
+async function schemeArrangement(page: Page) {
+   return page.evaluate(() => {
+      const link = document.getElementById('leji-dark') as HTMLLinkElement | null;
+      if (link === null) return null;
+      const href = link.getAttribute('href');
+      return {
+         appearance: document.documentElement.dataset.appearance ?? null,
+         media: link.getAttribute('media'),
+         written: document.querySelectorAll(`link[rel="stylesheet"][href="${href}"]:not(#leji-dark)`).length,
+      };
+   });
+}
+
+/** The control, addressed the way a reader using a screen reader reaches it: by role
+ *  and by the whole accessible name, which carries the state it is in. */
+const schemeControl = (page: Page, state: (typeof SCHEME_STATES)[number]) =>
+   page.getByRole('button', { name: `Color scheme ${state}` });
+
+/** What the key holds, as the page's own storage reports it. */
+const storedChoice = (page: Page) => page.evaluate((key) => localStorage.getItem(key), APPEARANCE_KEY);
+
+const canvasOf = (page: Page) => backgroundOf(page.locator('body'));
+
+for (const [stored, scheme, tones, other] of [
+   ['dark', 'light', SITE_DARK_TONES, SITE_LIGHT_TONES],
+   ['light', 'dark', SITE_LIGHT_TONES, SITE_DARK_TONES],
+] as const) {
+   test.describe(`site (stored ${stored} choice)`, () => {
+      test.use({ colorScheme: scheme });
+
+      test.beforeEach(async ({ page }) => {
+         await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [APPEARANCE_KEY, stored]);
+      });
+
+      for (const { route, surfaces } of SCHEME_SURFACES) {
+         test(`${route} paints the stored ${stored} scheme under a ${scheme} system`, async ({ page }) => {
+            await assertSiteScheme(page, route, surfaces, tones, other);
+         });
+      }
+
+      test(`the head is arranged for a stored ${stored} choice`, async ({ page }) => {
+         await page.goto(`${SITE_URL}/quickstart/`);
+         // The control drawn in the stored state is the control script's own signal
+         // that it has run, so the arrangement below is read after it, not during it.
+         await expect(schemeControl(page, stored === 'dark' ? 'Dark' : 'Light')).toBeVisible();
+         expect(await schemeArrangement(page)).toEqual({
+            appearance: stored,
+            media: 'not all',
+            // A stored dark choice needs a sheet that blocks the first paint in every
+            // browser, which is the link the pre-paint script writes through the
+            // parser. A stored light choice needs no sheet at all.
+            written: stored === 'dark' ? 1 : 0,
+         });
+      });
+   });
+}
+
+test.describe('site (the stored dark choice is handed back)', () => {
+   test.use({ colorScheme: 'light' });
+
+   test.beforeEach(async ({ page }) => {
+      await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [APPEARANCE_KEY, 'dark']);
+   });
+
+   test('the first click retires the written link and gives the scheme to the static one', async ({ page }) => {
+      await page.goto(`${SITE_URL}/quickstart/`);
+      await expect(canvasOf(page)).resolves.toBe(rgb(SITE_DARK_TONES.canvas));
+
+      await schemeControl(page, 'Dark').click();
+
+      await expect(schemeControl(page, 'System')).toBeVisible();
+      expect(await schemeArrangement(page)).toEqual({
+         appearance: null,
+         media: '(prefers-color-scheme: dark)',
+         written: 0,
+      });
+      await expect(storedChoice(page)).resolves.toBe(null);
+      await expect(canvasOf(page)).resolves.toBe(rgb(SITE_LIGHT_TONES.canvas));
+   });
+});
+
+test.describe('site (the reader cycles the scheme)', () => {
+   test.use({ colorScheme: 'light' });
+
+   test('the control moves through system, light and dark, and the page follows it', async ({ page }) => {
+      await page.goto(`${SITE_URL}/`);
+
+      // Nothing stored, so the page arrives on the operating system's scheme and the
+      // control says so. Each click then names the state it has moved to, in its
+      // accessible name, and the root, the link, the key and the canvas move with it.
+      for (const [state, appearance, media, stored, canvas] of [
+         ['System', null, '(prefers-color-scheme: dark)', null, SITE_LIGHT_TONES.canvas],
+         ['Light', 'light', 'not all', 'light', SITE_LIGHT_TONES.canvas],
+         ['Dark', 'dark', 'all', 'dark', SITE_DARK_TONES.canvas],
+         ['System', null, '(prefers-color-scheme: dark)', null, SITE_LIGHT_TONES.canvas],
+      ] as const) {
+         const control = schemeControl(page, state);
+         await expect(control).toBeVisible();
+         await expect(control).toHaveAttribute('data-appearance', state.toLowerCase());
+         expect(await schemeArrangement(page)).toEqual({ appearance, media, written: 0 });
+         await expect(storedChoice(page)).resolves.toBe(stored);
+         await expect(canvasOf(page)).resolves.toBe(rgb(canvas));
+         await control.click();
+      }
+   });
+});
+
+// Storage is a privilege a browser can withdraw, and the control is not allowed to
+// stop working when it does: the choice is best-effort, but the cycle is not. Each
+// run below replaces the storage methods before any of the page's own scripts run.
+test.describe('site (a browser whose storage refuses)', () => {
+   test.use({ colorScheme: 'light' });
+
+   /** The tones the three states paint under a light system, in cycling order. */
+   const canvasFor = {
+      System: SITE_LIGHT_TONES.canvas,
+      Light: SITE_LIGHT_TONES.canvas,
+      Dark: SITE_DARK_TONES.canvas,
+   };
+
+   /** Three clicks from wherever the control started, each asserted as it lands. */
+   async function cycleFrom(page: Page, first: (typeof SCHEME_STATES)[number]) {
+      let at = SCHEME_STATES.indexOf(first);
+      await expect(schemeControl(page, SCHEME_STATES[at])).toBeVisible();
+      for (let click = 0; click < 3; click += 1) {
+         await schemeControl(page, SCHEME_STATES[at]).click();
+         at = (at + 1) % SCHEME_STATES.length;
+         const state = SCHEME_STATES[at];
+         await expect(schemeControl(page, state)).toBeVisible();
+         await expect(canvasOf(page)).resolves.toBe(rgb(canvasFor[state]));
+      }
+   }
+
+   test('reads and writes that throw leave the control cycling from system', async ({ page }) => {
+      await page.addInitScript(() => {
+         const refuse = () => {
+            throw new DOMException('storage is not available', 'SecurityError');
+         };
+         for (const method of ['getItem', 'setItem', 'removeItem']) {
+            Object.defineProperty(Storage.prototype, method, { value: refuse });
+         }
+      });
+      await page.goto(`${SITE_URL}/`);
+      await cycleFrom(page, 'System');
+   });
+
+   test('a read that answers dark with writes that throw leaves the control cycling from dark', async ({ page }) => {
+      await page.addInitScript(() => {
+         const refuse = () => {
+            throw new DOMException('storage is not available', 'SecurityError');
+         };
+         Object.defineProperty(Storage.prototype, 'getItem', { value: () => 'dark' });
+         for (const method of ['setItem', 'removeItem']) {
+            Object.defineProperty(Storage.prototype, method, { value: refuse });
+         }
+      });
+      await page.goto(`${SITE_URL}/`);
+      await cycleFrom(page, 'Dark');
+   });
+
+   test('a read that changes after the first one cannot move the control off the page', async ({ page }) => {
+      // Storage is read once a page, by the script in the head. A second read here
+      // would answer `light` and put the control out of step with the dark page the
+      // first read produced, which is why the control reads the root instead.
+      await page.addInitScript(() => {
+         let reads = 0;
+         Object.defineProperty(Storage.prototype, 'getItem', {
+            value: () => (reads++ === 0 ? 'dark' : 'light'),
+         });
+      });
+      await page.goto(`${SITE_URL}/`);
+
+      await expect(schemeControl(page, 'Dark')).toBeVisible();
+      expect(await schemeArrangement(page)).toEqual({ appearance: 'dark', media: 'not all', written: 1 });
+      await expect(canvasOf(page)).resolves.toBe(rgb(SITE_DARK_TONES.canvas));
+
+      await schemeControl(page, 'Dark').click();
+
+      await expect(schemeControl(page, 'System')).toBeVisible();
+      expect(await schemeArrangement(page)).toEqual({
+         appearance: null,
+         media: '(prefers-color-scheme: dark)',
+         written: 0,
+      });
+      await expect(canvasOf(page)).resolves.toBe(rgb(SITE_LIGHT_TONES.canvas));
+   });
+});
+
+// --- the head of every built page -------------------------------------------------
+//
+// The three elements have to be on every page, in order, and ahead of the styles the
+// bundle appends: a page that lost them would paint the operating system's scheme
+// whatever a reader chose, and a page whose palette link landed after the bundle
+// would paint the light canvas in dark. Seven routes cannot answer that, so this one
+// reads the built inventory from disk, which is the directory the runner serves.
+
+/** The built page inventory. Stated rather than taken from the walk, so a route that
+ *  stopped being emitted fails here instead of quietly shrinking the sweep. */
+const BUILT_PAGES = 186;
+
+const siteDist = path.resolve(specDir, '..', '..', 'site', 'dist');
+
+function builtPages(dir: string): string[] {
+   return fs
+      .readdirSync(dir, { recursive: true, encoding: 'utf8' })
+      .filter((entry) => entry.endsWith('.html'))
+      .map((entry) => path.join(dir, entry));
+}
+
+const PALETTE_LINK = /<link rel="stylesheet" href="\/_astro\/palette\.[A-Za-z0-9_-]+\.css">/;
+const DARK_LINK =
+   /<link id="leji-dark" rel="stylesheet" href="\/_astro\/dark\.[A-Za-z0-9_-]+\.css" media="\(prefers-color-scheme: dark\)">/;
+/** Anything the bundle emits: a hashed stylesheet other than the two above, or one of
+ *  the blocks Astro inlines instead of linking. */
+const BUNDLED = /<style[\s>]|<link rel="stylesheet" href="\/_astro\/(?!palette\.|dark\.)/;
+
+test.describe('site (every built page)', () => {
+   test('the head carries the palette, the dark sheet and the script, ahead of the bundle', () => {
+      const pages = builtPages(siteDist);
+      expect(pages.length, 'the built page inventory').toBe(BUILT_PAGES);
+
+      for (const file of pages) {
+         const where = path.relative(siteDist, file);
+         const html = fs.readFileSync(file, 'utf8');
+         const headEnd = html.indexOf('</head>');
+         expect(headEnd, `${where}: no head`).toBeGreaterThan(0);
+         const head = html.slice(0, headEnd);
+
+         const palette = head.search(PALETTE_LINK);
+         const dark = head.search(DARK_LINK);
+         const script = [...head.matchAll(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi)].find((m) =>
+            m[0].includes("getElementById('leji-dark')"),
+         );
+         const bundled = head.search(BUNDLED);
+
+         expect(palette, `${where}: the palette link`).toBeGreaterThanOrEqual(0);
+         expect(dark, `${where}: the dark link`).toBeGreaterThan(palette);
+         expect(script?.index, `${where}: the pre-paint script`).toBeGreaterThan(dark);
+         expect(bundled, `${where}: a bundled stylesheet`).toBeGreaterThan(script!.index);
+
+         // The root is stamped by the script at runtime and never by the build, so a
+         // cached page cannot carry one reader's choice to the next.
+         expect(/<html[^>]*data-appearance/.test(html), `${where}: a built-in appearance`).toBe(false);
+      }
    });
 });

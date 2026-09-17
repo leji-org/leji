@@ -1,6 +1,24 @@
 # Contributing
 
-The Leji spec is at 1.0, extracted from lived practice; the reference SDKs and tooling are at 1.5.0. The 1.0 spec line is GA and frozen at the v1.3.0 reference-tooling release: schema changes within it are additive only, and breaking changes require a new line per spec/versioning.md.
+The Leji spec is at 1.0, extracted from lived practice; the reference SDKs and tooling are at 1.5.1. The 1.0 spec line is GA and frozen at the v1.3.0 reference-tooling release: schema changes within it are additive only, and breaking changes require a new line per spec/versioning.md.
+
+## Before you build
+
+**A direct pull request is welcome** for a bug fix, a typo, a documentation or translation correction, or a test for behavior the docs already promise. Open it whenever you like, and link an issue if one exists.
+
+**Anything else starts as a feature request**: anything that adds behavior, a surface, a dependency, a toolchain path, or a manifest field, in any package or on the site.
+
+**You get an answer normally within 14 days**, one of three:
+
+- **Accepted**, naming the release it targets.
+- **Not now**, naming what would change that.
+- **Declined**, with the reason, kept on the issue ([Governance](GOVERNANCE.md#how-the-specification-changes)).
+
+**What acceptance means.** It authorizes building toward the named release, subject to review and, for anything normative, to the public comment periods [Governance](GOVERNANCE.md#steward-proposals-and-conflicts-of-interest) sets. It is not a merge, and it is not a guarantee that the change ships. Code follows an accepted request: a feature pull request that arrives without one is triaged as a request first, and its code waits on the answer.
+
+**Why this way.** A request costs you minutes and a declined pull request costs you days. The answer is measured against [ROADMAP.md](ROADMAP.md), so you can read what a request is weighed against before you write anything.
+
+**The steward uses the same door.** The steward's own features start as public feature requests too, and where one touches an area a steward product depends on it is labeled and slowed down, per [Governance](GOVERNANCE.md#steward-proposals-and-conflicts-of-interest).
 
 ## Development setup
 
@@ -22,7 +40,7 @@ Prerequisites: Node 24+, a Python >=3.10 (the Python SDK pins 3.12 via `packages
 - `npm run cli:mode` says which is active (version strings can't); `npm run cli:assert -- live|packed`
   fails loudly on a mismatch. Full discipline: `docs/practice/testing-cli-adoptions.md`.
 
-- **Spec proposals.** Open an issue first: the problem, the intent, and the lived case behind it. Leji specifies proven practice; proposals grounded in something a real team does carry more weight than ideas in the abstract.
+- **Spec proposals.** Open an issue first: the problem, the intent, and the lived case behind it. Leji specifies proven practice; proposals grounded in something a real team does carry more weight than ideas in the abstract. The answer you can expect, and when, is in [Before you build](#before-you-build).
 - **Pull requests.** Normative changes (anything under `spec/` or `schemas/`) ride PR review and require a `CHANGELOG.md` entry plus a machine-readable `CHANGELOG.json` entry. Yes, the spec dogfoods itself.
 - **Contributor terms.** Every commit needs a DCO sign-off (`git commit -s`); contributions ship under the license for their content type. See [Contributor terms](#contributor-terms).
 - **Tooling.** SDK changes need tests and must keep `leji validate` passing against `examples/`. The Node, Python, and Go SDKs (`packages/sdk`, `packages/sdk-py`, `packages/sdk-go`) are behaviorally identical: a behavior change in one rides into all three, pinned by the shared `fixtures/` suite. Behavior develops and proves out fully in the TypeScript SDK first, the canonical implementation, against the LIVE channel ([testing-cli-adoptions](docs/practice/testing-cli-adoptions.md)); the Go and Python ports are made only from settled TypeScript behavior, pinned by the shared fixtures at port time. The Go SDK builds with Go 1.26.6+; `gofmt`, `go vet ./...`, and `go test ./...` must pass.

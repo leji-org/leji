@@ -4,6 +4,15 @@ import '@fontsource-variable/source-serif-4';
 import '@fontsource/ibm-plex-mono/400.css';
 import '@fontsource/ibm-plex-mono/500.css';
 import '../styles/global.css';
+// The two palettes ship as sheets of their own, loaded through their built URLs so
+// they are hashed and cached like the main stylesheet. They are linked rather than
+// imported because the order matters: an imported sheet joins the bundle Astro
+// appends at the end of the head, and the dark palette has to be able to follow the
+// light one. The dark link carries the condition, which is how one copy of the
+// palette serves both the operating system's preference and a reader's stored choice.
+import paletteSheet from '../styles/palette.css?url';
+import darkSheet from '../styles/dark.css?url';
+import SchemeToggle from '../components/SchemeToggle.astro';
 import { chromeStrings } from '../data/i18n';
 import { alternates, localeOf } from '../i18n';
 
@@ -100,11 +109,42 @@ const siteLd = {
       <meta name="twitter:title" content={title} />
       <meta name="twitter:description" content={description} />
       <meta name="twitter:image" content={ogImage} />
+      {
+         /* The light palette, the dark one, then the script that addresses it, all three
+          written by the parser inside the head so they act before the first paint and
+          ahead of the stylesheets the bundle appends at the end of it. With no stored
+          choice the dark link's own query follows the operating system live and the
+          script does nothing, so no listener exists anywhere. A stored light choice
+          silences the link; a stored dark one silences it and writes a second link to
+          the same sheet, which every browser treats as render blocking because the
+          parser created it, so a reader never sees the other scheme first. */
+      }
+      <link rel="stylesheet" href={paletteSheet} />
+      <link id="leji-dark" rel="stylesheet" href={darkSheet} media="(prefers-color-scheme: dark)" />
+      <script is:inline>
+         (function () {
+            try {
+               var choice = localStorage.getItem('leji-appearance');
+               if (choice !== 'light' && choice !== 'dark') return;
+               var sheet = document.getElementById('leji-dark');
+               document.documentElement.dataset.appearance = choice;
+               sheet.media = 'not all';
+               if (choice === 'dark')
+                  document.write('<link rel="stylesheet" href="' + sheet.getAttribute('href') + '">');
+            } catch (e) {}
+         })();
+      </script>
       <script type="application/ld+json" set:html={JSON.stringify(siteLd)} />
       {analyticsEnabled && <script is:inline src={analyticsScript} data-site={analyticsSite} defer />}
    </head>
    <body>
       <a class="skip-link" href="#content">{chrome.skipToContent}</a>
       <slot />
+      {
+         /* The scheme control closes the body of every page, after the content rather
+          than in the header: it is the reader's own setting, not a destination, and it
+          keeps its corner of the viewport wherever the page has been scrolled to. */
+      }
+      <SchemeToggle />
    </body>
 </html>

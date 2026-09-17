@@ -185,6 +185,24 @@ func resolveThemeLink(theme *manifest.Theme, fnds *[]findings.Finding) string {
 	return configured
 }
 
+// resolveAppearance returns the scheme the layer names, or the empty string for the
+// reader's own. Mirrors the Node SDK's resolveAppearance.
+//
+// Exactly `light` and `dark` stamp a scheme on the page. Everything else takes the
+// system route: the field absent, `system`, and any value the schema refuses. None
+// of them is a finding, because the enum is the validation and every CLI path runs
+// it before generation; a direct SDK call carrying an unknown value renders the
+// default rather than meeting a second policy written for it here.
+func resolveAppearance(theme *manifest.Theme) string {
+	if theme == nil || theme.Appearance == nil {
+		return ""
+	}
+	if configured := *theme.Appearance; configured == "light" || configured == "dark" {
+		return configured
+	}
+	return ""
+}
+
 // hexDigits matches the bare hex an accent reduces to once the leading `#` is out
 // of the way; the length check follows.
 var hexDigits = regexp.MustCompile(`^[0-9a-f]+$`)
@@ -2181,17 +2199,58 @@ func BuildIndexHTML(root string, m *manifest.Manifest, base string, fnds *[]find
 	}
 	// The body-link override, or nothing at all: a layer without viewer.theme.link,
 	// and one whose value the guard refuses, both substitute the empty string, so
-	// their index.html is byte-for-byte the file 1.4.1 wrote. The declaration lands
-	// inside the page's own <style>, which loads after assets/vue.css and therefore
-	// wins the cascade against the fixed tone declared there. Resolved after the
-	// config so the homepage, accent, and link warnings keep their shared order.
+	// their page declares no link tone of its own. The declaration lands inside the
+	// page's own <style>, which loads after assets/vue.css and therefore wins the
+	// cascade against the fixed tone declared there. The guard runs whatever scheme
+	// the page carries, so its finding is raised even where the value it judges is
+	// then emitted nowhere. Resolved after the config so the homepage, accent, and
+	// link warnings keep their shared order.
 	var theme *manifest.Theme
 	if m.Viewer != nil {
 		theme = m.Viewer.Theme
 	}
+	link := resolveThemeLink(theme, fnds)
+	// The scheme the layer names, which decides three of the substitutions below and
+	// the shape of the link declaration.
+	appearance := resolveAppearance(theme)
+	// Scoped to the light scheme on a page that follows the system, because the dark
+	// scheme's link tone is fixed and the guard measures the authored color against
+	// the light grounds only. A page stamped light needs no scope, having no other
+	// scheme to leak into; a page stamped dark declares nothing, the tone there never
+	// being the layer's to move.
 	linkStyle := ""
-	if link := resolveThemeLink(theme, fnds); link != "" {
-		linkStyle = ":root { --leji-link: " + link + "; }"
+	if link != "" && appearance != "dark" {
+		if appearance == "light" {
+			linkStyle = ":root { --leji-link: " + link + "; }"
+		} else {
+			linkStyle = "@media (prefers-color-scheme: light) { :root { --leji-link: " + link + "; } }"
+		}
+	}
+	// The stamp the boot script and the dark sheet read. An absent or `system` value
+	// stamps nothing on the root element, so the page follows the reader's system.
+	appearanceAttr := ""
+	if appearance != "" {
+		appearanceAttr = ` data-appearance="` + appearance + `"`
+	}
+	// Form controls, scrollbars, and the canvas the browser paints before any
+	// stylesheet applies: the one scheme where the layer names one, both where it
+	// leaves the choice to the reader's system.
+	colorScheme := appearance
+	if colorScheme == "" {
+		colorScheme = "light dark"
+	}
+	// The dark half of the palette, linked rather than inlined, so one copy of the
+	// rules serves both routes. The media attribute is what decides between them: the
+	// dark media query where the reader's system chooses, `all` where the layer has
+	// already chosen dark. A layer naming light links no sheet, which is what keeps
+	// the dark rules off a page that must never take them.
+	darkSheet := ""
+	if appearance != "light" {
+		media := "(prefers-color-scheme: dark)"
+		if appearance == "dark" {
+			media = "all"
+		}
+		darkSheet = "\n      <link rel=\"stylesheet\" href=\"assets/vue-dark.css\" media=\"" + media + "\" />"
 	}
 	// Mermaid is on unless explicitly disabled. When off, the scripts are omitted
 	// and their assets not copied (~3MB smaller viewer).
@@ -2205,11 +2264,14 @@ func BuildIndexHTML(root string, m *manifest.Manifest, base string, fnds *[]find
 	// manifest string like "{{DOCSIFY_CONFIG}}" in viewer.title or viewer.favicon
 	// would be expanded a second time and break out of the element it landed in.
 	substitutions := map[string]string{
-		"LEJI_NAME_HTML":  htmlEscape(displayTitle),
-		"FAVICON_URL":     faviconURL,
-		"LEJI_LINK_STYLE": linkStyle,
-		"DOCSIFY_CONFIG":  config,
-		"MERMAID_SCRIPTS": mermaidScripts,
+		"LEJI_NAME_HTML":       htmlEscape(displayTitle),
+		"FAVICON_URL":          faviconURL,
+		"LEJI_APPEARANCE_ATTR": appearanceAttr,
+		"LEJI_COLOR_SCHEME":    colorScheme,
+		"LEJI_DARK_SHEET":      darkSheet,
+		"LEJI_LINK_STYLE":      linkStyle,
+		"DOCSIFY_CONFIG":       config,
+		"MERMAID_SCRIPTS":      mermaidScripts,
 	}
 	return placeholderRe.ReplaceAllStringFunc(string(htmlBytes), func(whole string) string {
 		if v, ok := substitutions[whole[2:len(whole)-2]]; ok {

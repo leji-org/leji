@@ -1,0 +1,150 @@
+/* The palette: every token the site spends, declared once for the light scheme and
+   re-valued for the dark one in dark.css, which the head of every page links after
+   this sheet. The rules that spend them live in global.css and in each component. */
+
+:root {
+   /* The site designs both schemes, so native UI matches the one in use and a
+      browser's forced darkening has nothing left to invert. A reader who has
+      chosen one of the two is served by the two rules below this block. */
+   color-scheme: light dark;
+
+   /* Leji OSS identity. Light neutral is the environment, green is the signal:
+      --leji-canvas carries the page, --leji-brand marks what is Leji, and
+      --leji-deep is spent deliberately on heroes, bands and code, never as a
+      default ground. Tokens are named for the role they play, not the colour
+      they hold, so one value can serve several roles and each role can move
+      without renaming its usages. */
+   --leji-brand: #009f71;
+   --leji-brand-dark: #007d59;
+   --leji-deep: #183d3b;
+   --leji-deepest: #102a29;
+   --leji-accent: #70d8c2;
+   --leji-accent-soft: #f6f1e0;
+   --leji-canvas: #f7f8f5;
+   --leji-surface: #ffffff;
+   --leji-text: #183b32;
+   --leji-text-body: #4d5b56;
+   --leji-text-muted: #76827d;
+   /* Ink for the grounds that stay dark, or stay mint, whichever scheme is in
+      use: the fixed accent, the deep-green bands, and the primary call to
+      action. A text token whose ground moves with it follows the page; these
+      cannot, so each one names the ground it is cut for.
+        --leji-ink-on-deep      white lettering on a deep band
+        --leji-ink-on-deep-soft the same band's quieter voice, one tone down,
+                                the same value in both schemes
+        --leji-ink-on-cta       the primary button's label, whose ground is the
+                                brand green in light and the mint in dark
+        --leji-cta-hover        that button's hover ground, lifted rather than
+                                brightened in dark so the label still holds */
+   --leji-ink-on-accent: #183b32;
+   --leji-ink-on-deep: #ffffff;
+   --leji-ink-on-deep-soft: #f7f8f5;
+   --leji-ink-on-cta: #ffffff;
+   --leji-cta-hover: var(--leji-brand);
+   /* Brand green is a brand colour first: at 3.2:1 on the canvas it cannot carry
+      normal-size text. --leji-link is the same hue held to 4.8:1, and it is what
+      links, small labels and interactive marks use on light grounds. */
+   --leji-link: #007d59;
+   --leji-border: #cde5d9;
+   /* The edge of a box that sits on the wash, in the wash's own family. */
+   --leji-wash-border: #e6dec6;
+   --leji-code-bg: #f1ede2;
+   /* Decorative hairline for a light band's edges: the accent at low alpha, so
+      the rule tints rather than draws. */
+   --leji-accent-rule: rgba(112, 216, 194, 0.25);
+   /* The 3px rule the header draws below itself and the footer above itself. It
+      is the boundary between the deep band and the page, so it is the full mint
+      where that boundary is a contrast of light against dark, and a tint where
+      both sides are already dark. */
+   --leji-accent-line: var(--leji-accent);
+   /* The header's ground while content is travelling under it: translucent, so
+      the band reads as glass rather than as a lid. */
+   --leji-stuck-backdrop: rgba(24, 61, 59, 0.85);
+   /* The radial washes a deep band paints over its own ground: mint lighting the
+      edge the text sits against, brand green lifting the opposite corner. The
+      hero spends the stronger pair, the closing band and the footer the quieter
+      one. A dark page needs far less lift than a light one, so each alpha drops
+      to a fraction of its light value there. */
+   --leji-hero-glow-mint: rgba(112, 216, 194, 0.16);
+   --leji-hero-glow-brand: rgba(0, 159, 113, 0.55);
+   --leji-band-glow-mint: rgba(112, 216, 194, 0.14);
+   --leji-band-glow-brand: rgba(0, 159, 113, 0.5);
+
+   /* Text tones on the deep-green surfaces; centralized so the contrast override reaches all */
+   --white-strong: rgba(255, 255, 255, 0.92);
+   --white-soft: rgba(255, 255, 255, 0.84);
+   --white-faint: rgba(255, 255, 255, 0.62);
+
+   /* The column: ~70 characters at the body serif, in rem rather than ch.
+      Both units are in use here and the split is deliberate, not drift:
+        rem (this token): a SHARED column that different elements must all land
+          in. `ch` cannot do this job: it is font-relative, so 70ch on a 12.5px
+          mono <pre> is ~524px while 70ch on 17px serif prose is ~630px, and the
+          same token would silently produce two different columns.
+        ch (headings, the hero lede, the footer tagline): a PER-ELEMENT character
+          count that has to track that element's own size. rem cannot do this job:
+          a fixed rem cap on a clamp()-sized h1 crushes it as the viewport grows.
+      Rule of thumb: several elements sharing one edge, use the token; one element
+      holding its own line length, use ch. */
+   --measure: 39.5rem;
+   /* Narrower, for a lede opening a page. Not for anything stacked mid-column:
+      there it reads as a third width rather than emphasis. */
+   --measure-fine: 34rem;
+
+   /* Display scale for every page below the landing page. */
+   --h1-doc: clamp(2rem, 4.5vw, 2.9rem);
+
+   /* Running prose is one size on every page: the body size, inherited. A page
+      that shrinks its own body text makes the reader feel a jump moving between
+      pages, and it quietly changes the measure too, since the same column holds
+      more characters at a smaller size.
+      One step above body, for a paragraph that opens a page or a section. The
+      landing hero is the deliberate exception and sets its own. */
+   --text-lede: 1.12rem;
+
+   --serif-display: 'Fraunces Variable', 'Fraunces', georgia, serif;
+   --serif-text: 'Source Serif 4 Variable', 'Source Serif 4', georgia, serif;
+   --mono: 'IBM Plex Mono', menlo, monospace;
+
+   /* one size for every multi-line code block, site-wide.
+      0.78 keeps the home "manifest" example's longest line on one row. */
+   --code-fz: 0.78rem;
+
+   /* The band's full border-box height: SiteHeader's 30px logo row, its 1.05rem
+      padding, and the 3px bottom border the flush variant reserves transparently.
+      The band is sticky, so this is also the strip of viewport that is spoken for:
+      anything pulling up under it or pinning or scrolling into place below it
+      clears the whole painted band, border included, by this much. */
+   --header-h: calc(30px + 2 * 1.05rem + 3px);
+
+   /* How far a fixed element in the lower corner stands off the viewport's edge,
+      past a home indicator where the device reports one. Whatever sits in that
+      corner and whatever has to keep clear of it both read this one value. */
+   --leji-corner-inset: max(1rem, env(safe-area-inset-bottom));
+}
+
+/* A chosen scheme, stamped on the root element, which native controls, scrollbars
+   and the canvas a browser paints before any stylesheet applies have to follow as
+   well as the page does. Without a choice the root carries no attribute and the
+   declaration above stands, so the operating system decides. */
+:root[data-appearance='dark'] {
+   color-scheme: dark;
+}
+:root[data-appearance='light'] {
+   color-scheme: light;
+}
+
+/* High-contrast preference: full-opacity tones, darker text, stronger hairlines.
+   Every override is a canonical token value, so the strengthened state stays
+   inside the palette: body text takes the heading tone (11.5:1 on canvas, up
+   from 6.7:1) and the hairline takes the muted tone (3.7:1, up from 1.2:1). */
+@media (prefers-contrast: more) {
+   :root {
+      --white-strong: var(--leji-surface);
+      --white-soft: var(--leji-surface);
+      --white-faint: var(--leji-surface);
+      --leji-text-body: #183b32;
+      --leji-border: #76827d;
+      --leji-accent-rule: rgba(112, 216, 194, 0.6);
+   }
+}

@@ -250,24 +250,79 @@ window.$docsify = Object.assign(lejiConfig, {
          });
       },
       function brandMermaid(hook) {
-         // Theme mermaid diagrams from the layer's accent color; runs at init so
-         // it lands after mermaid.min.js (loaded last) is present. The node-text
-         // color is the SDK's, computed at generation time over every color form
-         // the manifest accepts; the local fallback covers only a viewer tree
-         // generated before that field shipped.
+         // Theme mermaid diagrams for the color scheme the page renders in, which
+         // is the layer's where it names one and the operating system's otherwise;
+         // runs at init so it lands after mermaid.min.js (loaded last) is present.
+         // In the light scheme the nodes take the layer's accent color, and the
+         // node-text color is the SDK's, computed at generation time over every
+         // color form the manifest accepts; the local fallback covers only a viewer
+         // tree generated before that field shipped. In the dark scheme the palette
+         // is fixed, because an authored accent that reads on white need not read
+         // on the dark ground.
+
+         // The scheme the layer named, stamped on the root element at generation
+         // time, or nothing at all where the choice is the reader's system's. A
+         // stamped page cannot change scheme while it is open, so it resolves its
+         // palette once and registers no change listener; only light and dark are
+         // read as a choice, which is the same rule the generator applies.
+         var stamped = document.documentElement.dataset.appearance;
+         var forced = stamped === 'light' || stamped === 'dark' ? stamped : null;
+         var darkScheme =
+            forced === null && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+         function themeVariables() {
+            if (forced === 'dark' || (darkScheme && darkScheme.matches)) {
+               return {
+                  primaryColor: '#1b2422',
+                  primaryTextColor: '#f2f4f3',
+                  primaryBorderColor: '#70d8c2',
+                  lineColor: '#70d8c2',
+                  secondaryColor: '#161e1d',
+                  tertiaryColor: '#131a19',
+                  background: '#131a19',
+                  edgeLabelBackground: '#131a19',
+                  darkMode: true,
+               };
+            }
+            return {
+               primaryColor: window.$docsify.themeColor,
+               primaryTextColor:
+                  window.$docsify.lejiMermaidTextColor || lejiMermaidTextColor(window.$docsify.themeColor),
+               lineColor: '#666',
+               tertiaryColor: '#f7f8f5',
+            };
+         }
+         // Mermaid bakes its colors into the SVG it writes, so CSS cannot re-theme a
+         // rendered diagram and a plain re-run skips every node carrying
+         // data-processed. Keeping the authored source on the element is what makes
+         // a scheme change re-renderable without a reload. This handler runs before
+         // the mermaid plugin's own doneEach, which is what renders them: docsify
+         // calls a hook's handlers in registration order, and this plugin is
+         // registered before the vendored plugin appends its own.
+         hook.doneEach(function () {
+            var pending = document.querySelectorAll('.mermaid:not([data-processed])');
+            for (var i = 0; i < pending.length; i++) {
+               pending[i].setAttribute('data-leji-source', pending[i].textContent);
+            }
+         });
          hook.init(function () {
             if (!window.mermaid || !window.$docsify.themeColor) return;
-            window.mermaid.initialize({
-               startOnLoad: false,
-               theme: 'base',
-               themeVariables: {
-                  primaryColor: window.$docsify.themeColor,
-                  primaryTextColor:
-                     window.$docsify.lejiMermaidTextColor || lejiMermaidTextColor(window.$docsify.themeColor),
-                  lineColor: '#666',
-                  tertiaryColor: '#f7f8f5',
-               },
-            });
+            window.mermaid.initialize({ startOnLoad: false, theme: 'base', themeVariables: themeVariables() });
+            if (!darkScheme) return;
+            var rerender = function () {
+               window.mermaid.initialize({ startOnLoad: false, theme: 'base', themeVariables: themeVariables() });
+               var rendered = document.querySelectorAll('.mermaid[data-processed]');
+               for (var i = 0; i < rendered.length; i++) {
+                  var source = rendered[i].getAttribute('data-leji-source');
+                  if (source === null) continue;
+                  rendered[i].textContent = source;
+                  rendered[i].removeAttribute('data-processed');
+               }
+               window.mermaid.run({ querySelector: '.mermaid' });
+            };
+            // MediaQueryList became an EventTarget after prefers-color-scheme
+            // shipped, so the older listener form is the only one some browsers have.
+            if (darkScheme.addEventListener) darkScheme.addEventListener('change', rerender);
+            else if (darkScheme.addListener) darkScheme.addListener(rerender);
          });
       },
    ],

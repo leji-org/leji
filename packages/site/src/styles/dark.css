@@ -1,0 +1,55 @@
+/* Dark scheme: the same roles on a charcoal ground, the one the viewer paints,
+   so a reader moving between leji.org and a rendered context layer sees one
+   family of surfaces. Every token keeps the job its name gives it, so the page,
+   the bands and the wash stay in the same order of depth: the bands sit one step
+   below the page rather than above it.
+   Brand green and the mint accent are identity and hold their values; the darker
+   brand tone becomes the mint where it carries text, because the link green
+   disappears into a dark ground. The washes and the rules are the other half of
+   the scheme: on a light page they are how a deep band separates itself, and
+   here both sides are already dark, so each one drops to a tint. The link that
+   loads this sheet carries the condition, so the same values serve the operating
+   system's preference and a reader's stored choice. */
+
+:root {
+   --leji-brand-dark: #70d8c2;
+   --leji-deep: #0e1413;
+   --leji-deepest: #0a0f0e;
+   --leji-accent-soft: #161e1d;
+   --leji-canvas: #131a19;
+   --leji-surface: #1b2422;
+   --leji-text: #f2f4f3;
+   --leji-text-body: #c5ccca;
+   --leji-text-muted: #8f9997;
+   --leji-ink-on-accent: #131a19;
+   --leji-ink-on-deep: #f2f4f3;
+   --leji-ink-on-cta: #131a19;
+   --leji-cta-hover: #8ee2cf;
+   --leji-link: #70d8c2;
+   --leji-border: #2c3736;
+   --leji-wash-border: #2c3736;
+   --leji-code-bg: #0e1413;
+   --leji-accent-rule: rgba(112, 216, 194, 0.15);
+   --leji-accent-line: rgba(112, 216, 194, 0.08);
+   --leji-stuck-backdrop: rgba(19, 26, 25, 0.88);
+   --leji-hero-glow-mint: rgba(112, 216, 194, 0.06);
+   --leji-hero-glow-brand: rgba(0, 159, 113, 0.16);
+   --leji-band-glow-mint: rgba(112, 216, 194, 0.05);
+   --leji-band-glow-brand: rgba(0, 159, 113, 0.15);
+}
+
+/* High contrast on the dark ground. The light overrides read as strengthening
+   only against a light page: the heading tone is dark ink, and the deep-band
+   whites resolve to the surface, which is itself dark here. Each takes its dark
+   counterpart instead, and the stronger hairline the preference asks for is
+   restored over the value the rule above sets. */
+@media (prefers-contrast: more) {
+   :root {
+      --white-strong: #f7f8f5;
+      --white-soft: #f7f8f5;
+      --white-faint: #f7f8f5;
+      --leji-text-body: #f7f8f5;
+      --leji-border: #93a7a1;
+      --leji-accent-rule: rgba(112, 216, 194, 0.6);
+   }
+}

@@ -70,7 +70,11 @@
     "install": "Cài đặt Leji",
     "copyCommand": "Sao chép câu lệnh cài đặt",
     "copyCode": "Sao chép vào bộ nhớ tạm",
-    "copied": "Đã sao chép"
+    "copied": "Đã sao chép",
+    "colorScheme": "Chế độ màu",
+    "schemeSystem": "Theo hệ thống",
+    "schemeLight": "Sáng",
+    "schemeDark": "Tối"
   },
   "schema": {
     "required": "bắt buộc",

@@ -207,6 +207,19 @@ def _resolve_theme_link(theme: Optional[dict], findings: list[Finding]) -> Optio
 HEX_DIGITS = re.compile(r"^[0-9a-f]+$")
 
 
+def _resolve_appearance(theme: Optional[dict]) -> Optional[str]:
+    """The scheme the layer names, or None for the reader's own. Mirrors the Node
+    SDK's resolveAppearance.
+
+    Exactly `light` and `dark` stamp a scheme on the page. Everything else takes the
+    system route: the field absent, `system`, and any value the schema refuses. None
+    of them is a finding, because the enum is the validation and every CLI path runs
+    it before generation; a direct SDK call carrying an unknown value renders the
+    default rather than meeting a second policy written for it here."""
+    configured = (theme or {}).get("appearance")
+    return configured if configured in ("light", "dark") else None
+
+
 def _parse_accent_color(value: str) -> Optional[tuple[int, int, int]]:
     """The accent as opaque sRGB channels, or None for a value that names no color
     the generator can resolve — a keyword, `currentColor`, a malformed hex. Accepts
@@ -1743,11 +1756,16 @@ def _build_index_html(root: str, manifest: Manifest, base: str, findings: list[F
     config = _docsify_config(root, manifest, name_html, base, findings)
     # The body-link override, or nothing at all: a layer without viewer.theme.link,
     # and one whose value the guard refuses, both substitute the empty string, so
-    # their index.html is byte-for-byte the file 1.4.1 wrote. The declaration lands
-    # inside the page's own <style>, which loads after assets/vue.css and therefore
-    # wins the cascade against the fixed tone declared there. Resolved after the
-    # config so the homepage, accent, and link warnings keep their shared order.
+    # their page declares no link tone of its own. The declaration lands inside the
+    # page's own <style>, which loads after assets/vue.css and therefore wins the
+    # cascade against the fixed tone declared there. The guard runs whatever scheme
+    # the page carries, so its finding is raised even where the value it judges is
+    # then emitted nowhere. Resolved after the config so the homepage, accent, and
+    # link warnings keep their shared order.
     theme_link = _resolve_theme_link(viewer_cfg.get("theme"), findings)
+    # The scheme the layer names, which decides three of the substitutions below and
+    # the shape of the link declaration.
+    appearance = _resolve_appearance(viewer_cfg.get("theme"))
     # Mermaid is on unless explicitly disabled. When off, the two mermaid scripts
     # are omitted from the page and their assets are not copied (a leaner viewer).
     mermaid_scripts = (
@@ -1763,7 +1781,37 @@ def _build_index_html(root: str, manifest: Manifest, base: str, findings: list[F
     substitutions = {
         "LEJI_NAME_HTML": _html_escape(display_title),
         "FAVICON_URL": favicon_url,
-        "LEJI_LINK_STYLE": "" if theme_link is None else f":root {{ --leji-link: {theme_link}; }}",
+        # The stamp the boot script and the dark sheet read. An absent or `system` value
+        # stamps nothing on the root element, so the page follows the reader's system.
+        "LEJI_APPEARANCE_ATTR": ("" if appearance is None else f' data-appearance="{appearance}"'),
+        # Form controls, scrollbars, and the canvas the browser paints before any
+        # stylesheet applies: the one scheme where the layer names one, both where
+        # it leaves the choice to the reader's system.
+        "LEJI_COLOR_SCHEME": appearance or "light dark",
+        # The dark half of the palette, linked rather than inlined, so one copy of
+        # the rules serves both routes. The media attribute is what decides between
+        # them: the dark media query where the reader's system chooses, `all` where
+        # the layer has already chosen dark. A layer naming light links no sheet,
+        # which is what keeps the dark rules off a page that must never take them.
+        "LEJI_DARK_SHEET": (
+            ""
+            if appearance == "light"
+            else '\n      <link rel="stylesheet" href="assets/vue-dark.css" media="'
+            + ("all" if appearance == "dark" else "(prefers-color-scheme: dark)")
+            + '" />'
+        ),
+        # Scoped to the light scheme on a page that follows the system, because the
+        # dark scheme's link tone is fixed and the guard measures the authored color
+        # against the light grounds only. A page stamped light needs no scope, having
+        # no other scheme to leak into; a page stamped dark declares nothing, the
+        # tone there never being the layer's to move.
+        "LEJI_LINK_STYLE": (
+            ""
+            if theme_link is None or appearance == "dark"
+            else f":root {{ --leji-link: {theme_link}; }}"
+            if appearance == "light"
+            else f"@media (prefers-color-scheme: light) {{ :root {{ --leji-link: {theme_link}; }} }}"
+        ),
         "DOCSIFY_CONFIG": config,
         "MERMAID_SCRIPTS": mermaid_scripts,
     }

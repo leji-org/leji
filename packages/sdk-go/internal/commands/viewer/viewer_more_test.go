@@ -84,6 +84,7 @@ func TestGenerateViewerProjectsViewer(t *testing.T) {
 		"source-sans-pro-600-vietnamese.woff2",
 		"third-party-licenses.txt",
 		"viewer-boot.js",
+		"vue-dark.css",
 		"vue.css",
 		"zoom-image.min.js",
 	}
@@ -653,6 +654,73 @@ func TestLinkGuardMeasuresTheNarrowerGround(t *testing.T) {
 	}
 }
 
+// The guard measures the authored color against the light grounds and nothing else,
+// so what the page may do with an accepted color follows from the scheme it renders
+// in: a page that follows the reader's system keeps the tone behind the light media
+// query, a page that names light needs no query to hold it there, and a page that
+// names dark declares nothing, its link tone being fixed. The guard itself runs on
+// every page, so a refused value is reported whatever the scheme.
+func TestLinkDeclarationTakesTheShapeThePageCanCarry(t *testing.T) {
+	const brandLink = "#5A50F9"
+	declared := func(v string) *string { return &v }
+	cases := []struct {
+		appearance  *string
+		label       string
+		declaration string
+	}{
+		{nil, "absent", "@media (prefers-color-scheme: light) { :root { --leji-link: " + brandLink + "; } }"},
+		{declared("system"), "system", "@media (prefers-color-scheme: light) { :root { --leji-link: " + brandLink + "; } }"},
+		{declared("light"), "light", ":root { --leji-link: " + brandLink + "; }"},
+		{declared("dark"), "dark", ""},
+	}
+	dir := exampleCopy(t)
+	for _, c := range cases {
+		m := manifest.LoadManifest(dir).Manifest
+		if m.Viewer == nil {
+			m.Viewer = &manifest.Viewer{}
+		}
+		link := brandLink
+		m.Viewer.Theme = &manifest.Theme{Link: &link, Appearance: c.appearance}
+		res, err := GenerateViewer(dir, m)
+		if err != nil {
+			t.Fatalf("%s: GenerateViewer: %v", c.label, err)
+		}
+		if w := linkWarnings(res.Findings); len(w) != 0 {
+			t.Fatalf("%s: a passing value warned %d times", c.label, len(w))
+		}
+		page, err := os.ReadFile(filepath.Join(dir, ".leji", "viewer", "index.html"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.declaration == "" {
+			if strings.Contains(string(page), "--leji-link:") {
+				t.Fatalf("%s: expected the page to declare nothing", c.label)
+			}
+		} else if !strings.Contains(string(page), c.declaration) {
+			t.Fatalf("%s: expected the page to carry %q", c.label, c.declaration)
+		}
+
+		// The finding is about the value the author wrote, not about whether this
+		// particular page would have had a use for it.
+		refused := "#767676"
+		m.Viewer.Theme = &manifest.Theme{Link: &refused, Appearance: c.appearance}
+		res, err = GenerateViewer(dir, m)
+		if err != nil {
+			t.Fatalf("%s: GenerateViewer: %v", c.label, err)
+		}
+		if w := linkWarnings(res.Findings); len(w) != 1 {
+			t.Fatalf("%s: the refusal was surfaced %d times, want once", c.label, len(w))
+		}
+		page, err = os.ReadFile(filepath.Join(dir, ".leji", "viewer", "index.html"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(page), "--leji-link:") {
+			t.Fatalf("%s: a refused value declared something", c.label)
+		}
+	}
+}
+
 // A malformed value has no measurable ratio, so the guard's other message says what
 // is wrong with it and names what the viewer does instead.
 func TestGenerateViewerRefusesALinkThatNamesNoColor(t *testing.T) {
@@ -759,8 +827,10 @@ func TestGenerateViewerAcceptsALinkThatClearsTheFloor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(page), "--leji-link: #5A50F9;") {
-		t.Error("expected the declaration to carry the authored hex")
+	// Scoped to the light scheme, and asserted whole: the wrapper is the contract,
+	// because the guard measures the authored color against the light grounds only.
+	if !strings.Contains(string(page), "@media (prefers-color-scheme: light) { :root { --leji-link: #5A50F9; } }") {
+		t.Error("expected the declaration to carry the authored hex, scoped to the light scheme")
 	}
 
 	m.Viewer.Theme = linkTheme("#9ad0c0")

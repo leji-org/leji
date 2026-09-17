@@ -26,7 +26,7 @@ import (
 var SupportedLines = []string{"1.0"}
 
 // SDKVersion is overridable via ldflags; defaults to match Node/Python.
-var SDKVersion = "1.5.0"
+var SDKVersion = "1.5.1"
 
 // ReleaseBuild is set by the release build's ldflags. When it is non-empty the
 // binary is a published artifact and DisplayVersion returns the bare version

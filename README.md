@@ -5,7 +5,7 @@
 
 **An open specification for the shared context layer of AI-native teams.** Leji (from the word *legible*, pronounced LEH-jee) defines a versioned, repo-owned context layer of how a team thinks: domain language, constraints, decision records, conventions, agent guardrails, one reviewed body of context that people and AI agents both read, changed through the same review gate as the code.
 
-> **Status: 1.5.0.** The reference SDKs (`@leji-org/leji` on npm and JSR, `leji` on PyPI, and the Go module) are at 1.5.0. The specification and schemas are on the v1.0 line, **GA and frozen at the v1.3.0 reference-tooling release**: any incompatible change ships as a new line. See [spec/versioning.md](spec/versioning.md).
+> **Status: 1.5.1.** The reference SDKs (`@leji-org/leji` on npm and JSR, `leji` on PyPI, and the Go module) are at 1.5.1. The specification and schemas are on the v1.0 line, **GA and frozen at the v1.3.0 reference-tooling release**: any incompatible change ships as a new line. See [spec/versioning.md](spec/versioning.md).
 
 ## Principles
 
@@ -53,4 +53,4 @@ Code, schemas, templates, and the SDK: Apache-2.0. Specification prose and ratio
 
 ## Governance
 
-See [GOVERNANCE.md](GOVERNANCE.md). Leji was created by [Vuong Nguyen](https://vuongnguyen.com); [Contexing, LLC](https://contexing.com) is the steward.
+See [GOVERNANCE.md](GOVERNANCE.md) and the direction in [ROADMAP.md](ROADMAP.md). Leji was created by [Vuong Nguyen](https://vuongnguyen.com); [Contexing, LLC](https://contexing.com) is the steward.

@@ -1,11 +1,11 @@
-// The suite's one entry point: prepare the fixtures, start the five servers the
+// The suite's one entry point: prepare the fixtures, start the seven servers the
 // specs address, run Playwright over them, and take down everything it started.
 //
 // Two things are owned here rather than by Playwright, for the same reason:
 // Playwright starts every `webServer` before `globalSetup` runs and detaches each
 // one into a session of its own, so preparation cannot happen early enough and
 // the servers cannot be reached afterwards. So this script builds the trees first
-// and spawns the five servers itself.
+// and spawns the seven servers itself.
 //
 // Every process this script signals is a DIRECT child of it, signalled by the pid
 // its own `spawn` returned and only while Node still holds that child. Nothing is
@@ -14,9 +14,9 @@
 // exactly as far as it goes: a grandchild (a browser under Playwright) is the
 // child's to end, and the README says so rather than claiming otherwise.
 //
-// Nothing is written into `fixtures/`: the repository's fixture is copied out twice
-// (once as it stands, once with a custom `viewer.theme.primary`), and each copy is
-// what gets a viewer, an export, and a pair of servers.
+// Nothing is written into `fixtures/`: the repository's fixture is copied out four
+// times (as it stands, with a custom `viewer.theme.primary`, and once for each
+// scheme a layer can name), and each copy is what gets its own server or servers.
 
 import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -37,6 +37,13 @@ const fixture = path.join(work, 'fixture');
 // layer that declares one, hence a second copy, prepared and served like the first.
 const accentFixture = path.join(work, 'fixture-accent');
 const ACCENT = '#2244AA';
+// The same layer again, once per scheme a layer can name. A stamped page renders
+// its scheme on every system, which is only judgeable on a layer that names one,
+// and the stamp reaches the chrome at generation time like the accent does. These
+// two are served and never exported: what the stamp does to the page is the
+// generator's, and the per-SDK markup test pins it for the exported flavor.
+const lightFixture = path.join(work, 'fixture-light');
+const darkFixture = path.join(work, 'fixture-dark');
 const source = path.join(repoRoot, 'fixtures/valid-render-subset');
 const cli = path.join(repoRoot, 'packages/sdk/dist/cli.js');
 
@@ -46,6 +53,8 @@ const STATIC_PORT = 23922;
 const SITE_PORT = 23923;
 const ACCENT_VIEWER_PORT = 23924;
 const ACCENT_STATIC_PORT = 23925;
+const LIGHT_VIEWER_PORT = 23926;
+const DARK_VIEWER_PORT = 23927;
 
 /** How long a server gets to accept a connection before the run gives up. */
 const READY_TIMEOUT_MS = 60_000;
@@ -271,6 +280,8 @@ async function requirePortsFree() {
       ['site preview', SITE_PORT],
       ['custom-accent viewer', ACCENT_VIEWER_PORT],
       ['custom-accent static export', ACCENT_STATIC_PORT],
+      ['light-scheme viewer', LIGHT_VIEWER_PORT],
+      ['dark-scheme viewer', DARK_VIEWER_PORT],
    ]) {
       if (!(await portFree(port))) {
          throw new Error(
@@ -320,7 +331,7 @@ async function startServer({ name, port, args, cwd }) {
    await waitForPort(record, port);
 }
 
-/** The five servers, as commands. Astro is resolved the way the site workspace
+/** The seven servers, as commands. Astro is resolved the way the site workspace
  * resolves it and run directly, so the preview is this script's own child rather
  * than an npm wrapper's grandchild. */
 function serverPlan() {
@@ -367,34 +378,49 @@ function serverPlan() {
          ],
          cwd: here,
       },
+      {
+         name: 'viewer (light)',
+         port: LIGHT_VIEWER_PORT,
+         args: [cli, 'viewer', 'serve', '--root', lightFixture, '--port', String(LIGHT_VIEWER_PORT)],
+         cwd: here,
+      },
+      {
+         name: 'viewer (dark)',
+         port: DARK_VIEWER_PORT,
+         args: [cli, 'viewer', 'serve', '--root', darkFixture, '--port', String(DARK_VIEWER_PORT)],
+         cwd: here,
+      },
    ];
 }
 
-/** Index and export one prepared copy, so its live and static servers are never a
- * generation apart.
+/** Write one prepared copy's context index.
  *
- * The context index first: a real layer has one on disk, and the export copies what
- * is there. Without it the exported tree is the only one of the two whose
- * classification badge cannot resolve, and the parity the shared assertions claim
- * would be judged against a layer the fixture never is.
- *
- * Then one command for both trees: `export` regenerates `.leji/viewer` (what
- * `leji viewer serve` serves) and writes `.leji/dist` (what the static host serves).
+ * A real layer has one on disk, and every flavor reads it: without it the exported
+ * tree is the only one whose classification badge cannot resolve, and the parity
+ * the shared assertions claim would be judged against a layer the fixture never is.
  */
-async function build(label, root) {
+async function index(label, root) {
    const indexed = exitStatus(await run(`leji index (${label})`, process.execPath, [cli, 'index', '--root', root]));
    if (indexed !== 0) throw new Error(`leji index failed for the ${label} layer (exit ${indexed})`);
+}
+
+/** Index and export one prepared copy, so its live and static servers are never a
+ * generation apart: `export` regenerates `.leji/viewer` (what `leji viewer serve`
+ * serves) and writes `.leji/dist` (what the static host serves), in one command.
+ */
+async function build(label, root) {
+   await index(label, root);
    const exported = exitStatus(await run(`leji export (${label})`, process.execPath, [cli, 'export', '--root', root]));
    if (exported !== 0) throw new Error(`leji export failed for the ${label} layer (exit ${exported})`);
 }
 
-/** The accent copy's manifest: the fixture's own, plus the one field that makes it
- * a different layer. Written as JSON rather than patched as text, so the copy stays
- * valid however the fixture's manifest is formatted. */
-function declareAccent(root) {
+/** One prepared copy's manifest: the fixture's own, plus the `viewer.theme` fields
+ * that make it a different layer. Written as JSON rather than patched as text, so
+ * the copy stays valid however the fixture's manifest is formatted. */
+function declareTheme(root, theme) {
    const file = path.join(root, 'leji.json');
    const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
-   manifest.viewer = { ...manifest.viewer, theme: { ...manifest.viewer?.theme, primary: ACCENT } };
+   manifest.viewer = { ...manifest.viewer, theme: { ...manifest.viewer?.theme, ...theme } };
    fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + '\n');
 }
 
@@ -405,9 +431,19 @@ async function prepare() {
    fs.mkdirSync(work, { recursive: true });
    fs.cpSync(source, fixture, { recursive: true });
    fs.cpSync(source, accentFixture, { recursive: true });
-   declareAccent(accentFixture);
+   declareTheme(accentFixture, { primary: ACCENT });
    await build('default', fixture);
    await build('accent', accentFixture);
+   for (const [appearance, root] of [
+      ['light', lightFixture],
+      ['dark', darkFixture],
+   ]) {
+      fs.cpSync(source, root, { recursive: true });
+      declareTheme(root, { appearance });
+      // Indexed only: `leji viewer serve` generates the chrome it serves, and these
+      // two copies are never exported, so nothing else is owed here.
+      await index(appearance, root);
+   }
 }
 
 let code = 1;

@@ -1,5 +1,61 @@
 # Changelog
 
+## 1.5.1 · 2026-09-17
+
+### Added
+
+- **A dark theme for the viewer, following the operating system.** `leji view` and the
+  exported viewer read `prefers-color-scheme` and paint the brand's dark surfaces when the
+  reader's system is dark. There is no toggle and no stored choice: one dark stylesheet,
+  linked with `media="(prefers-color-scheme: dark)"`, re-values the theme tokens and
+  overrides the stock grounds, rules, tones, and syntax colors that read no token, every
+  text tone the dark palette declares at 4.5:1 or better on every dark ground.
+  `viewer.theme.link` governs the light scheme only, because the guard measures an authored
+  color against the light grounds; the dark scheme's link tone is fixed. The authored
+  `viewer.theme.primary` keeps its light-scheme role; in dark it colors no text and
+  diagrams take a fixed palette. Mermaid diagrams take a palette per scheme and re-render
+  from their authored source when the system scheme changes, with no reload. A reader whose
+  system is light, on a layer that names no scheme, sees the 1.5.0 viewer unchanged.
+  Requested in #14 by Daniel Montilla; the feature request on the record is #16.
+- **`viewer.theme.appearance`**: an optional manifest field naming which color scheme the
+  viewer renders in. `system` (the default) follows the reader's operating system, as
+  above; `light` and `dark` render that scheme on every system. A named scheme is stamped
+  on the page's root element and in the `color-scheme` meta, which reads `light dark` where
+  the choice stays the reader's; the dark stylesheet is linked under the dark media query
+  for `system`, unconditionally for `dark`, and not at all for `light`; the Mermaid
+  initializer reads the stamp before the system. A layer that sets nothing renders as
+  `system`, its page differing from 1.5.0's by that stylesheet link, the `color-scheme`
+  meta, and an inline style block that reads the palette tokens where it restated the same
+  light colors, and, where the layer names a link tone, that declaration scoped to the
+  light scheme. Additive schema field, `$id` unchanged; the schema page on leji.org
+  describes it in six languages. The choice is the layer's: the viewer carries no reader
+  control.
+- **leji.org follows the operating system's color scheme, and the reader may choose.** One
+  dark palette over the site's role tokens, on the viewer's charcoal grounds, every text
+  pair at AA; the light and dark palettes ship as their own stylesheets. A control at the
+  lower right of every page cycles system, light, and dark in the page's language, keeps
+  the choice in the browser where storage allows, and applies it before the first paint. A
+  reader whose system is light and has chosen nothing sees the 1.5.0 page with the control
+  added and the footer's last row clear of its corner.
+
+### Changed
+
+- **A feature starts as a request.** `CONTRIBUTING.md` gains "Before you build": a bug
+  fix, a correction, or a test for behavior the docs already promise is a direct pull
+  request; anything that adds behavior, a surface, a dependency, a toolchain path, or a
+  manifest field opens as a feature request first, answered normally within 14 days with
+  accepted (naming the release it targets), not now (naming what would change that), or
+  declined (with the reason kept on the issue). A feature-request issue template and the
+  pull request template's request line carry the path, and `ROADMAP.md` at the repository
+  root states the direction requests are measured against, linked from `README.md`,
+  `CONTRIBUTING.md`, and `GOVERNANCE.md`.
+
+### Fixed
+
+- **The collapsed menu button keeps its own language across a press.** On a translated page
+  the header script rewrote the button's accessible name in English on every press; the
+  rendered name now stays, and `aria-expanded` carries the state.
+
 ## 1.5.0 · 2026-09-14
 
 ### Added

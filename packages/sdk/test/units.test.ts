@@ -1330,6 +1330,7 @@ test('viewer: generates viewer + sidebar that reflect the layer', () => {
       '.leji/viewer/assets/source-sans-pro-600-vietnamese.woff2',
       '.leji/viewer/assets/third-party-licenses.txt',
       '.leji/viewer/assets/viewer-boot.js',
+      '.leji/viewer/assets/vue-dark.css',
       '.leji/viewer/assets/vue.css',
       '.leji/viewer/assets/zoom-image.min.js',
       'docs/overview.md',
@@ -1823,6 +1824,91 @@ test('viewer: the accent is hex and nothing else', () => {
          assert.equal(warnings.length, 1, `${JSON.stringify(accent)} warns exactly once`);
          assert.equal(warnings[0].message, themeWarning(accent));
          assert.ok(html.includes('"themeColor":"#009F71"'), `${JSON.stringify(accent)} falls back to the default`);
+      }
+   }
+});
+
+// --- viewer.theme.appearance ------------------------------------------------
+//
+// The scheme a layer names reaches the reader through three places in one page:
+// the stamp on the root element (which the boot script reads and the reader's
+// system cannot move), the color-scheme meta (the browser's own canvas, form
+// controls, and scrollbars), and the link that loads the dark half of the
+// palette. All three are asserted together, for every value the field takes and
+// for one it does not, because a page carrying two of the three is a page whose
+// chrome and content disagree.
+
+/** What one value of `viewer.theme.appearance` puts on the page. `darkSheet` is the
+ * `media` attribute the dark stylesheet is linked with, or null for a page that
+ * links no dark sheet at all. */
+interface AppearanceCase {
+   /** What the manifest declares, `undefined` for a layer carrying no such key. The
+    * union admits one value the schema's enum refuses, which is the last case: a
+    * value that reaches the generator anyway takes the system route. */
+   appearance?: 'system' | 'light' | 'dark' | 'midnight';
+   stamp: string | null;
+   colorScheme: string;
+   darkSheet: string | null;
+}
+
+const APPEARANCE_CASES: AppearanceCase[] = [
+   // Absent and `system` are the same page: identical markup, which follows the
+   // reader's system rather than naming a scheme of its own.
+   { appearance: undefined, stamp: null, colorScheme: 'light dark', darkSheet: '(prefers-color-scheme: dark)' },
+   { appearance: 'system', stamp: null, colorScheme: 'light dark', darkSheet: '(prefers-color-scheme: dark)' },
+   // A named scheme is rendered on every system: light links no dark sheet, and
+   // dark links it unconditionally.
+   { appearance: 'light', stamp: 'light', colorScheme: 'light', darkSheet: null },
+   { appearance: 'dark', stamp: 'dark', colorScheme: 'dark', darkSheet: 'all' },
+   // The enum refuses this one, and every CLI path validates before it generates.
+   // Reaching the generator anyway (a direct SDK call) is the system route, and is
+   // not a finding of the generator's own: the schema is the validation.
+   { appearance: 'midnight', stamp: null, colorScheme: 'light dark', darkSheet: '(prefers-color-scheme: dark)' },
+];
+
+/** The three surfaces read back off a generated page, so a case states what it
+ * expects rather than matching substrings one at a time. */
+function appearanceSurfaces(html: string): { stamp: string | null; colorScheme: string; darkSheet: string | null } {
+   const stamp = /<html[^>]*\sdata-appearance="([^"]*)"/.exec(html);
+   const colorScheme = /<meta name="color-scheme" content="([^"]*)" \/>/.exec(html);
+   assert.ok(colorScheme, 'the page declares a color-scheme meta');
+   // Matched as the pair it is: the dark sheet's link immediately follows the light
+   // sheet's, which is the cascade position keeping their compensations at the weight
+   // the shell expects.
+   const light = '<link rel="stylesheet" href="assets/vue\\.css" />';
+   const dark = '<link rel="stylesheet" href="assets/vue-dark\\.css" media="([^"]*)" />';
+   const pair = new RegExp(`${light}\\n      ${dark}\\n`).exec(html);
+   assert.ok(html.includes(light.replace(/\\/g, '')), 'the page links the light stylesheet');
+   return { stamp: stamp === null ? null : stamp[1], colorScheme: colorScheme[1], darkSheet: pair && pair[1] };
+}
+
+test('viewer: viewer.theme.appearance stamps the page it names, served and exported', () => {
+   const dir = copyExample();
+   const { manifest } = loadManifest(dir);
+   for (const expected of APPEARANCE_CASES) {
+      const label = expected.appearance ?? 'absent';
+      const declared = expected.appearance as 'system' | 'light' | 'dark' | undefined;
+      manifest!.viewer = { theme: declared === undefined ? {} : { appearance: declared } };
+
+      // Both flavors come from one page builder, so both are read: an export that
+      // lost the stamp would be a viewer nobody could see through the served one.
+      const served = generateViewer(dir, manifest!);
+      assert.deepEqual(
+         served.findings.filter((f) => f.rule.startsWith('viewer-theme')),
+         [],
+         `${label} raises no theme finding of its own`,
+      );
+      buildViewer(dir, manifest!);
+      for (const [flavor, file] of [
+         ['served', path.join(dir, '.leji', 'viewer', 'index.html')],
+         ['exported', path.join(dir, '.leji', 'dist', 'index.html')],
+      ] as const) {
+         const surfaces = appearanceSurfaces(fs.readFileSync(file, 'utf8'));
+         assert.deepEqual(
+            surfaces,
+            { stamp: expected.stamp, colorScheme: expected.colorScheme, darkSheet: expected.darkSheet },
+            `${label}, ${flavor}`,
+         );
       }
    }
 });
