@@ -102,20 +102,24 @@
       "size": 20065
     },
     "assets/viewer-boot.js": {
-      "sha256": "39b1335cc5e4783865d0d83dd187248338bb7ae369e48e30d153780df810bf54",
-      "size": 14016
+      "sha256": "823679af2b7aa74395da41f94a0bc0d9afa5ba5601e624cfc5c49cef726685ae",
+      "size": 17429
+    },
+    "assets/vue-dark.css": {
+      "sha256": "05b2b84e79937edaaa0c45c3a5d694363100ba2dfbe9a0b13f1ccdabefeabbea",
+      "size": 4611
     },
     "assets/vue.css": {
-      "sha256": "61d5ec46e3b2235b55a5ed038ff4451ffef42b9a5fed5dfb926918082159dda3",
-      "size": 28873
+      "sha256": "e5d3d25c16c2f67054226e45ea728f251aaa249fe85ef36ae69a528046d8aed6",
+      "size": 29498
     },
     "assets/zoom-image.min.js": {
       "sha256": "c142e32432c4fd0d47ea1a6d5640a66d4ffa9a331496a5bdb45c0449f6d381f9",
       "size": 17077
     },
     "index.html": {
-      "sha256": "c5b7f84230d0c6a2c59ae45e2dae69a327b5ec792b4134e07257aec84273428a",
-      "size": 11350
+      "sha256": "98b4754e4ff88e8ebb394774e79d772cb085bfdde2a4d54d3a6e014ee7394625",
+      "size": 12022
     }
   }
 }

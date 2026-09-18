@@ -115,7 +115,7 @@
     }
   },
   "context-manifest": {
-    "source": "c9af35cb227900101494492f8824a1685ac4124c",
+    "source": "dbf1d5fc26c5c68854e503831edc76143697ab43",
     "strings": {
       "/title": "Manifesto de contexto do Leji (leji.json)",
       "/description": "O ponto de entrada de máquina de uma camada de contexto Leji. Fica na raiz do repositório, com o nome leji.json.",
@@ -170,6 +170,7 @@
       "/properties/viewer/properties/theme/description": "Ajustes de tema do visualizador.",
       "/properties/viewer/properties/theme/properties/primary/description": "A cor principal, de destaque, como uma cor CSS em hexadecimal (por exemplo \"#009F71\"). Ela comanda a moldura do visualizador, os estados ativos e os destaques dos diagramas; os links no corpo do texto e o código em linha usam o tom acessível fixo, a menos que viewer.theme.link ofereça um que passe na verificação de contraste.",
       "/properties/viewer/properties/theme/properties/link/description": "A cor dos links, como uma cor CSS em hexadecimal (por exemplo \"#5A50F9\"). Só é aplicada aos links no corpo do texto e ao código em linha quando alcança 4,5:1 sobre o fundo do código em linha, o mais estreito dos dois fundos em que eles pousam; caso contrário o tom acessível fixo permanece e o `leji view` / `leji export` avisam.",
+      "/properties/viewer/properties/theme/properties/appearance/description": "O esquema de cores em que o visualizador renderiza: `system` (o padrão) segue o sistema operacional do leitor; `light` e `dark` renderizam esse esquema em todos os sistemas. Não há um botão de alternância para o leitor; a escolha é da camada.",
       "/properties/viewer/properties/mermaid/description": "Renderiza os blocos de código ```mermaid cercados como diagramas no visualizador. O padrão é true.",
       "/properties/viewer/properties/poweredBy/description": "Mostra o pequeno selo \"Powered by Leji\" no canto do visualizador. O padrão é true; use false para removê-lo.",
       "/properties/viewer/properties/categoryEmojis/description": "Substitui os emojis padrão exibidos ao lado de cada categoria no mapa da camada gerado. (Os grupos da barra lateral são rotulados pelo próprio H1 de cada arquivo de índice.)"

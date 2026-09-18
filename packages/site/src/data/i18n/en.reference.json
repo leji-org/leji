@@ -124,6 +124,22 @@
     "role": "What either copy button is called for the moment after it has copied, so a reader using a screen reader hears that it worked. Past tense, and short.",
     "english": "Copied"
   },
+  "chrome.colorScheme": {
+    "role": "The name of the control that chooses how the site is painted. A screen reader reads it together with the state name below, as one name, so it is a noun phrase and carries no verb.",
+    "english": "Color scheme"
+  },
+  "chrome.schemeSystem": {
+    "role": "The control's first state, in which the operating system decides. One word where the language has one, and the word a reader would recognise from their own system settings.",
+    "english": "System"
+  },
+  "chrome.schemeLight": {
+    "role": "The control's second state: the light scheme, whatever the operating system asks for. The adjective a reader's own system uses for it.",
+    "english": "Light"
+  },
+  "chrome.schemeDark": {
+    "role": "The control's third state: the dark scheme, on the same terms as the light one.",
+    "english": "Dark"
+  },
   "pageKinds.normative": {
     "role": "The classification eyebrow above the title of a page the specification binds: the specification documents and the JSON Schemas. {spec} is the specification line, a version token the page places and no locale translates.",
     "english": "{spec} \u00b7 normative"

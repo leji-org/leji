@@ -1,6 +1,6 @@
 {
   "name": "@leji-org/monorepo",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "private": true,
   "description": "Leji: an open specification for the shared context layer of AI-native teams. Workspace root for the spec, schemas, site, and SDKs.",
   "workspaces": [

@@ -1,4 +1,4 @@
-<!-- What does this change, and why? Link the issue if there is one. -->
+<!-- What does this change, and why? A fix links its issue if there is one. A feature links its accepted feature request; a feature without one is triaged as a request first, and its code waits on the answer. -->
 
 ## Checklist
 

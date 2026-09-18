@@ -49,7 +49,7 @@ Full terms, including what a fork may call its binary and what the logo requires
 
 Changes happen by proposal, in the open:
 
-1. Open an issue describing the problem and the intent behind the change, not just a fix.
+1. Open an issue describing the problem and the intent behind the change, not just a fix. Tooling and site features take the same first step: a feature request, answered normally within 14 days, as [CONTRIBUTING.md](CONTRIBUTING.md) describes; the roadmap those answers are measured against is [ROADMAP.md](ROADMAP.md).
 2. Propose the change as a pull request against `spec/`, and the schemas where the machine-readable surface is affected.
 3. Normative changes carry a changelog entry and a version bump under the spec's own [versioning rules](spec/versioning.md).
 

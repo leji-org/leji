@@ -39,7 +39,7 @@ const viewerDir = path.join(repoRoot, 'templates', 'viewer');
 
 /** The authored viewer sources: this theme's own files, never the vendored
  * third-party bundles beside them, whose colors are their upstream's business. */
-const AUTHORED = ['index.html', path.join('assets', 'vue.css')];
+const AUTHORED = ['index.html', path.join('assets', 'vue.css'), path.join('assets', 'vue-dark.css')];
 
 for (const rel of AUTHORED) {
    test(`templates/viewer/${rel.split(path.sep).join('/')} carries no legacy neutral`, () => {

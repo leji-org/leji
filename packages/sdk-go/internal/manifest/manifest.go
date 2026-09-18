@@ -72,6 +72,10 @@ type Theme struct {
 	// schema accepts the empty string, and the viewer's guard must warn about it
 	// rather than read it as an unset field (a plain string collapses both to "").
 	Link *string `json:"link,omitempty"`
+	// Appearance is a pointer for the same reason Link is: the schema's enum is what
+	// judges the value, and the generator has to see an absent key as absent rather
+	// than as an empty string it would then have to interpret.
+	Appearance *string `json:"appearance,omitempty"`
 }
 
 // ViewerPin is one viewer.pins entry: canonically a repo-relative path string,

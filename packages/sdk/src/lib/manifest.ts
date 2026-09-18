@@ -46,7 +46,7 @@ export interface Manifest {
       homepage?: string;
       pins?: (string | { path: string; label?: string })[];
       groupOrder?: string[];
-      theme?: { primary?: string; link?: string };
+      theme?: { primary?: string; link?: string; appearance?: 'system' | 'light' | 'dark' };
       mermaid?: boolean;
       poweredBy?: boolean;
       categoryEmojis?: Partial<Record<CategoryId, string>>;

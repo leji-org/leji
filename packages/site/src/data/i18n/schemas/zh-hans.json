@@ -115,7 +115,7 @@
     }
   },
   "context-manifest": {
-    "source": "c9af35cb227900101494492f8824a1685ac4124c",
+    "source": "dbf1d5fc26c5c68854e503831edc76143697ab43",
     "strings": {
       "/title": "Leji 上下文清单（leji.json）",
       "/description": "Leji 上下文层的机器入口。以 leji.json 的形式位于仓库根目录。",
@@ -170,6 +170,7 @@
       "/properties/viewer/properties/theme/description": "查看器主题的覆盖设置。",
       "/properties/viewer/properties/theme/properties/primary/description": "主色/强调色，用十六进制 CSS 颜色表示（例如 \"#009F71\"）。它决定查看器外框、激活状态和图表强调色；正文链接与行内代码使用那个固定的无障碍色调，除非 viewer.theme.link 提供了一个能通过对比度检查的颜色。",
       "/properties/viewer/properties/theme/properties/link/description": "链接颜色，用十六进制 CSS 颜色表示（例如 \"#5A50F9\"）。只有当它相对行内代码背景（正文链接与行内代码所落在的两种背景中较窄的那一个）达到 4.5:1 时，才会应用到正文链接与行内代码；否则仍保留那个固定的无障碍色调，并由 `leji view` / `leji export` 发出告警。",
+      "/properties/viewer/properties/theme/properties/appearance/description": "查看器以哪种配色方案渲染：`system`（默认值）跟随读者的操作系统；`light` 和 `dark` 在任何系统上都按该方案渲染。没有供读者使用的切换开关；配色方案由层决定。",
       "/properties/viewer/properties/mermaid/description": "在查看器中把 ```mermaid 围栏代码块渲染为图表。默认为 true。",
       "/properties/viewer/properties/poweredBy/description": "在查看器角落显示那个小小的 \"Powered by Leji\" 标记。默认为 true；设为 false 即可移除。",
       "/properties/viewer/properties/categoryEmojis/description": "覆盖生成的层地图中每个类别旁默认显示的 emoji。（侧边栏分组的标签取自各索引文件自己的 H1。）"

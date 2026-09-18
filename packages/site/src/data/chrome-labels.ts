@@ -8,9 +8,10 @@
 // other locale's set is checked against, so a label added here without a translation
 // fails the build instead of quietly shipping English on a translated page.
 //
-// Two of these reach a browser rather than the server: a copy button renames itself
-// while the feedback shows, so the component hands the pair to its script through data
-// attributes and the script carries no word of its own.
+// Some of these reach a browser rather than the server: a copy button renames itself
+// while the feedback shows, and the scheme control renames itself as a reader cycles
+// through the three states, so each component hands its words to its script through
+// data attributes and the script carries none of its own.
 
 export const CHROME_LABELS = {
    /** The first link on every page, which jumps past the header to the content. */
@@ -29,6 +30,15 @@ export const CHROME_LABELS = {
    copyCode: 'Copy to clipboard',
    /** What either button is called for the moment after it has copied. */
    copied: 'Copied',
+   /** The control that chooses how the site is painted, as a screen reader announces
+    * it; the state name below follows it, so the two are read as one name. */
+   colorScheme: 'Color scheme',
+   /** That control's first state, in which the operating system decides. */
+   schemeSystem: 'System',
+   /** Its second state: the light scheme, whatever the operating system asks for. */
+   schemeLight: 'Light',
+   /** Its third state: the dark scheme, on the same terms. */
+   schemeDark: 'Dark',
 } as const;
 
 /** Every shared-chrome label a locale authors. */

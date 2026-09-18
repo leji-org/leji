@@ -115,7 +115,7 @@
     }
   },
   "context-manifest": {
-    "source": "c9af35cb227900101494492f8824a1685ac4124c",
+    "source": "dbf1d5fc26c5c68854e503831edc76143697ab43",
     "strings": {
       "/title": "Leji コンテキストマニフェスト（leji.json）",
       "/description": "Leji コンテキストレイヤーの、機械向けエントリポイントです。リポジトリルートに leji.json として置かれます。",
@@ -170,6 +170,7 @@
       "/properties/viewer/properties/theme/description": "ビューアーのテーマの上書きです。",
       "/properties/viewer/properties/theme/properties/primary/description": "基調色・アクセント色を、16 進の CSS カラーで指定します（たとえば \"#009F71\"）。ビューアーの外枠、選択中の状態、図のアクセントに効きます。本文のリンクとインラインコードは、viewer.theme.link がコントラストの基準を満たす色を与えないかぎり、アクセシビリティに配慮した固定の色調を使います。",
       "/properties/viewer/properties/theme/properties/link/description": "リンクの色を、16 進の CSS カラーで指定します（たとえば \"#5A50F9\"）。本文のリンクとインラインコードに適用されるのは、それらが載る 2 つの背景のうち条件の厳しいインラインコードの背景に対して、4.5:1 に達したときだけです。届かない場合は、アクセシビリティに配慮した固定の色調がそのまま使われ、`leji view` と `leji export` が警告します。",
+      "/properties/viewer/properties/theme/properties/appearance/description": "ビューアーがどの配色で表示するかです。`system`（既定）は読み手のオペレーティングシステムに従います。`light` と `dark` は、どのシステムでもその配色で表示します。読み手が切り替える手段はありません。選ぶのはレイヤーの側です。",
       "/properties/viewer/properties/mermaid/description": "フェンス付きの ```mermaid コードブロックを、ビューアーで図として描画します。既定は true です。",
       "/properties/viewer/properties/poweredBy/description": "ビューアーの隅に、小さな \"Powered by Leji\" の表示を出します。既定は true で、false にすると消えます。",
       "/properties/viewer/properties/categoryEmojis/description": "生成されるレイヤーマップで、各カテゴリの横に表示される既定の絵文字を上書きします。（サイドバーのグループのラベルは、各インデックスファイル自身の H1 です。）"

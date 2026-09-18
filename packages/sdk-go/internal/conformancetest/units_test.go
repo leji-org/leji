@@ -9,11 +9,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/changelog"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/conformance"
+	"github.com/leji-org/leji/packages/sdk-go/internal/commands/export"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/freshness"
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/indexgen"
 	initcmd "github.com/leji-org/leji/packages/sdk-go/internal/commands/init"
@@ -271,6 +273,7 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 		".leji/viewer/assets/source-sans-pro-600-vietnamese.woff2",
 		".leji/viewer/assets/third-party-licenses.txt",
 		".leji/viewer/assets/viewer-boot.js",
+		".leji/viewer/assets/vue-dark.css",
 		".leji/viewer/assets/vue.css",
 		".leji/viewer/assets/zoom-image.min.js",
 		"docs/overview.md",
@@ -931,5 +934,114 @@ func writeFixtureFile(t *testing.T, dir, rel, content string) {
 	}
 	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", abs, err)
+	}
+}
+
+// --- viewer.theme.appearance ------------------------------------------------
+//
+// The scheme a layer names reaches the reader through three places in one page:
+// the stamp on the root element (which the boot script reads and the reader's
+// system cannot move), the color-scheme meta (the browser's own canvas, form
+// controls, and scrollbars), and the link that loads the dark half of the
+// palette. All three are asserted together, for every value the field takes and
+// for one it does not, because a page carrying two of the three is a page whose
+// chrome and content disagree.
+
+// appearanceCase is what one value of `viewer.theme.appearance` puts on the page.
+// darkSheet is the `media` attribute the dark stylesheet is linked with, and the
+// empty string means a page that links no dark sheet at all.
+type appearanceCase struct {
+	// declared is the manifest's value; nil for a layer carrying no such key. One
+	// case declares a value the schema's enum refuses, which is the point of it: a
+	// value that reaches the generator anyway takes the system route.
+	declared    *string
+	label       string
+	stamp       string
+	colorScheme string
+	darkSheet   string
+}
+
+// appearanceSurfaces reads the three surfaces back off a generated page, so a case
+// states what it expects rather than matching substrings one at a time.
+func appearanceSurfaces(t *testing.T, page string) (stamp, colorScheme, darkSheet string) {
+	t.Helper()
+	if m := regexp.MustCompile(`<html[^>]*\sdata-appearance="([^"]*)"`).FindStringSubmatch(page); m != nil {
+		stamp = m[1]
+	}
+	m := regexp.MustCompile(`<meta name="color-scheme" content="([^"]*)" />`).FindStringSubmatch(page)
+	if m == nil {
+		t.Fatal("the page declares no color-scheme meta")
+	}
+	colorScheme = m[1]
+	if !strings.Contains(page, `<link rel="stylesheet" href="assets/vue.css" />`) {
+		t.Fatal("the page links no light stylesheet")
+	}
+	// Matched as the pair it is: the dark sheet's link immediately follows the light
+	// sheet's, which is the cascade position keeping their compensations at the weight
+	// the shell expects.
+	pair := regexp.MustCompile(`<link rel="stylesheet" href="assets/vue\.css" />\n` +
+		`      <link rel="stylesheet" href="assets/vue-dark\.css" media="([^"]*)" />\n`)
+	if m := pair.FindStringSubmatch(page); m != nil {
+		darkSheet = m[1]
+	}
+	return stamp, colorScheme, darkSheet
+}
+
+// A layer that names a color scheme stamps the page it names, in both flavors; one
+// that names none, or names a value the schema refuses, renders a page that follows
+// the reader's system.
+func TestViewerAppearanceStampsThePage(t *testing.T) {
+	declared := func(v string) *string { return &v }
+	cases := []appearanceCase{
+		// Absent and `system` are the same page: identical markup, which follows
+		// the reader's system rather than naming a scheme of its own.
+		{declared: nil, label: "absent", stamp: "", colorScheme: "light dark", darkSheet: "(prefers-color-scheme: dark)"},
+		{declared: declared("system"), label: "system", stamp: "", colorScheme: "light dark", darkSheet: "(prefers-color-scheme: dark)"},
+		// A named scheme is rendered on every system: light links no dark sheet, and
+		// dark links it unconditionally.
+		{declared: declared("light"), label: "light", stamp: "light", colorScheme: "light", darkSheet: ""},
+		{declared: declared("dark"), label: "dark", stamp: "dark", colorScheme: "dark", darkSheet: "all"},
+		// The enum refuses this one, and every CLI path validates before it
+		// generates. Reaching the generator anyway (a direct SDK call) is the system
+		// route, and is not a finding of the generator's own: the schema is the
+		// validation.
+		{declared: declared("midnight"), label: "midnight", stamp: "", colorScheme: "light dark", darkSheet: "(prefers-color-scheme: dark)"},
+	}
+	dir := copyTree(t, exampleDir(t))
+	for _, c := range cases {
+		m := loadM(t, dir)
+		if m.Viewer == nil {
+			m.Viewer = &manifest.Viewer{}
+		}
+		m.Viewer.Theme = &manifest.Theme{Appearance: c.declared}
+
+		// Both flavors come from one page builder, so both are read: an export that
+		// lost the stamp would be a viewer nobody could see through the served one.
+		res, err := viewer.GenerateViewer(dir, m)
+		if err != nil {
+			t.Fatalf("%s: GenerateViewer: %v", c.label, err)
+		}
+		for _, f := range res.Findings {
+			if strings.HasPrefix(f.Rule, "viewer-theme") {
+				t.Fatalf("%s: raised %s, want no theme finding of its own", c.label, f.Rule)
+			}
+		}
+		if _, err := export.BuildViewer(dir, m, "", export.Options{}); err != nil {
+			t.Fatalf("%s: BuildViewer: %v", c.label, err)
+		}
+		for _, flavor := range []struct{ name, path string }{
+			{"served", filepath.Join(dir, ".leji", "viewer", "index.html")},
+			{"exported", filepath.Join(dir, ".leji", "dist", "index.html")},
+		} {
+			bytes, err := os.ReadFile(flavor.path)
+			if err != nil {
+				t.Fatalf("%s, %s: %v", c.label, flavor.name, err)
+			}
+			stamp, colorScheme, darkSheet := appearanceSurfaces(t, string(bytes))
+			if stamp != c.stamp || colorScheme != c.colorScheme || darkSheet != c.darkSheet {
+				t.Fatalf("%s, %s: stamp %q, meta %q, dark sheet %q; want %q, %q, %q",
+					c.label, flavor.name, stamp, colorScheme, darkSheet, c.stamp, c.colorScheme, c.darkSheet)
+			}
+		}
 	}
 }

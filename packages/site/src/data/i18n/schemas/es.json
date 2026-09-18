@@ -115,7 +115,7 @@
     }
   },
   "context-manifest": {
-    "source": "c9af35cb227900101494492f8824a1685ac4124c",
+    "source": "dbf1d5fc26c5c68854e503831edc76143697ab43",
     "strings": {
       "/title": "Manifiesto del contexto de Leji (leji.json)",
       "/description": "El punto de entrada para máquinas de una capa de contexto Leji. Vive en la raíz del repositorio con el nombre leji.json.",
@@ -170,6 +170,7 @@
       "/properties/viewer/properties/theme/description": "Sobrescrituras del tema del visor.",
       "/properties/viewer/properties/theme/properties/primary/description": "Color principal o de acento, como color CSS hexadecimal (por ejemplo \"#009F71\"). Gobierna el marco del visor, los estados activos y los acentos de los diagramas; los enlaces del cuerpo y el código en línea usan el tono accesible fijo, salvo que viewer.theme.link aporte uno que supere la comprobación de contraste.",
       "/properties/viewer/properties/theme/properties/link/description": "Color de los enlaces, como color CSS hexadecimal (por ejemplo \"#5A50F9\"). Se aplica a los enlaces del cuerpo y al código en línea solo cuando alcanza un 4,5:1 frente al fondo del código en línea, el más estrecho de los dos fondos sobre los que se apoyan; si no, se mantiene el tono accesible fijo y `leji view` / `leji export` avisan.",
+      "/properties/viewer/properties/theme/properties/appearance/description": "El esquema de color con el que renderiza el visor: `system` (el valor por defecto) sigue al sistema operativo del lector; `light` y `dark` renderizan ese esquema en todos los sistemas. No hay un conmutador para el lector; la elección es de la capa.",
       "/properties/viewer/properties/mermaid/description": "Renderiza como diagramas en el visor los bloques de código ```mermaid delimitados. Por defecto, true.",
       "/properties/viewer/properties/poweredBy/description": "Muestra la pequeña marca \"Powered by Leji\" en una esquina del visor. Por defecto, true; póngalo en false para quitarla.",
       "/properties/viewer/properties/categoryEmojis/description": "Sobrescribe el emoji que aparece por defecto junto a cada categoría en el mapa de la capa generado. (Los grupos de la barra lateral se etiquetan con el H1 de cada archivo de índice.)"

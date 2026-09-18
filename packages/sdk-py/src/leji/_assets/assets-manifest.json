@@ -5,7 +5,7 @@
     "schemas/agent-profile.schema.json": "sha256:9597a0ff39db7587daf210177fdc7ede41f9efeaab54596289534209826ba657",
     "schemas/context-changelog.schema.json": "sha256:616fd7bddd1f07638e2cbdc2cfa665166f4739283c5194eca34fbf923218ced4",
     "schemas/context-index.schema.json": "sha256:c3618e356622793326076a424d53843bfccf00511520cdba010c6946262ab440",
-    "schemas/context-manifest.schema.json": "sha256:95bb698001450ea21e55f58e315a79250cc9bd9d9ade0253a32bd22044384bef",
+    "schemas/context-manifest.schema.json": "sha256:5a78c2e5639dbd2836da6ac52189bd4dc93223c277cc370f0771c9c4b73922d7",
     "schemas/decision-record.schema.json": "sha256:f5db3e68be8b2233b9029949d79109b4784ce43ef1a1cd26e44a0427c8915b07",
     "templates/README.md": "sha256:3fa28c144a26076cc75dc2a6d23014d61370abcb2073afa7d5bd3f26af4884c7",
     "templates/agent-profile.md": "sha256:fb1cf77aeaffc10718795231b936a7eab9b54c9221f4de072677e3afd3656545",
@@ -15,7 +15,7 @@
     "templates/identity.md": "sha256:dc9b30ab64ba13f27db998c1bb070e5f560b8c442881566f3426fcf637fbfc62",
     "templates/leji.json": "sha256:4b265b83901e8995a4aa0f81984bda6a4b26373cec15baa7b825e832942d34cc",
     "templates/onboarding-brief.md": "sha256:3a4296e23829ca2cb64a87a3b009ac0e4d9a9539af79e22e3046caf74c45adbf",
-    "templates/viewer/assets/PROVENANCE.txt": "sha256:75425f589e57e4a3198eafc74b37030a5cfbb434abcb4990bf5d5e28bd808cb0",
+    "templates/viewer/assets/PROVENANCE.txt": "sha256:0e82808d3dafac574d6543b4d155cdda77a7f623b05442a100672bb89542c0e8",
     "templates/viewer/assets/docsify-copy-code.min.js": "sha256:942bc51b3bfb12be62f7be9edf67a85f441a0ec740d051db4e8fba3a8f6cb41c",
     "templates/viewer/assets/docsify-mermaid.js": "sha256:4850a5afd73684cd0b7d399f63aa71003cff754f0cdfc00de92427d5fe03b8c7",
     "templates/viewer/assets/docsify-sidebar-collapse.min.css": "sha256:ef27a5cc38b5fe5608afd766a9d3c181ab981131398a05fc2b37ddfa0b5abdc9",
@@ -41,10 +41,11 @@
     "templates/viewer/assets/source-sans-pro-600-latin.woff2": "sha256:156650610835fe32914722ecfc8dab0ebbb84795e201b842158afa0ea873cfa4",
     "templates/viewer/assets/source-sans-pro-600-vietnamese.woff2": "sha256:615c0d875de2ec25e22bba41b5cd0e1184517a90916cfac8a4be8467539a5c8f",
     "templates/viewer/assets/third-party-licenses.txt": "sha256:010843d18dd532c01a574a44e86699966ca633fd5bbafe79125bb4c9e247f5b6",
-    "templates/viewer/assets/viewer-boot.js": "sha256:39b1335cc5e4783865d0d83dd187248338bb7ae369e48e30d153780df810bf54",
-    "templates/viewer/assets/vue.css": "sha256:61d5ec46e3b2235b55a5ed038ff4451ffef42b9a5fed5dfb926918082159dda3",
+    "templates/viewer/assets/viewer-boot.js": "sha256:823679af2b7aa74395da41f94a0bc0d9afa5ba5601e624cfc5c49cef726685ae",
+    "templates/viewer/assets/vue-dark.css": "sha256:05b2b84e79937edaaa0c45c3a5d694363100ba2dfbe9a0b13f1ccdabefeabbea",
+    "templates/viewer/assets/vue.css": "sha256:e5d3d25c16c2f67054226e45ea728f251aaa249fe85ef36ae69a528046d8aed6",
     "templates/viewer/assets/zoom-image.min.js": "sha256:c142e32432c4fd0d47ea1a6d5640a66d4ffa9a331496a5bdb45c0449f6d381f9",
-    "templates/viewer/index.html": "sha256:dfcb2e81b640265a47adddd8ef5ba40582ad0f4c47b0fbba5e8ea6f5ea7095a2",
+    "templates/viewer/index.html": "sha256:7204a5d52ab6da74785479fb5da3746c03637eee96e110fe7b4c082aeae7b45f",
     "templates/writing-style.md": "sha256:ee17bb1b97cbe87c4d8ef59b80b2e1d03d997d8839a98d3eb2080c540efa7b2c"
   }
 }

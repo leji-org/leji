@@ -317,6 +317,15 @@
             "link": {
               "type": "string",
               "description": "Link color as a hex CSS color (e.g. \"#5A50F9\"). Applied to body links and inline code only when it reaches 4.5:1 against the inline-code ground, the narrower of the two backgrounds they land on; otherwise the fixed accessible tone stays and `leji view` / `leji export` warn."
+            },
+            "appearance": {
+              "type": "string",
+              "enum": [
+                "system",
+                "light",
+                "dark"
+              ],
+              "description": "Which color scheme the viewer renders in: `system` (the default) follows the reader's operating system; `light` and `dark` render that scheme on every system. There is no reader toggle; the choice is the layer's."
             }
           }
         },

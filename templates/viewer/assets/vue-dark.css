@@ -1,0 +1,174 @@
+/* ============================================================================
+   Dark scheme
+   The dark half of the viewer palette, in a sheet of its own. The page links it
+   directly after assets/vue.css, before assets/docsify-sidebar-collapse.min.css
+   and the shell's own <style>, so these rules win every specificity tie against
+   the light sheet and keep the weight the shell's later rules are written
+   against. When the rules apply is the link's business: its media attribute is
+   the dark media query where the layer names no scheme, and `all` where the
+   layer names dark; a layer naming light links no sheet at all.
+   The rules below re-value the tokens, then override the stock theme's own
+   literal grounds, rules, and tones, which read no token. Nothing here runs
+   before paint and nothing persists.
+   ========================================================================== */
+
+:root {
+  color-scheme: dark;
+  --leji-link: #70d8c2; /* fixed in dark: the layer's accent colors no text here */
+  --leji-deep: #70d8c2;
+  --leji-accent: #70d8c2;
+  --leji-page: #131a19;
+  --leji-paper: #1b2422;
+  --leji-text: #f2f4f3;
+  --leji-text-body: #c5ccca;
+  --leji-text-muted: #8f9997; /* clears AA at any size on the dark grounds */
+  --leji-line: #2c3736;
+  --leji-code-bg: #161e1d;
+  --leji-caret: #7c8583;
+}
+
+/* --- grounds the stock theme paints white --- */
+body,
+.app-nav li ul,
+section.cover.has-mask .mask {
+  background-color: var(--leji-page);
+}
+.sidebar,
+.markdown-section tr:nth-child(2n),
+.markdown-section p.tip {
+  background-color: var(--leji-paper);
+}
+.markdown-section p.tip code {
+  background-color: var(--leji-code-bg);
+}
+.sidebar-toggle,
+body.close .sidebar-toggle {
+  background-color: rgba(27, 36, 34, 0.85);
+}
+
+/* --- borders and rules --- */
+kbd,
+.markdown-section iframe,
+.markdown-section th,
+.markdown-section td {
+  border-color: var(--leji-line);
+}
+.app-nav li ul {
+  border: 1px solid var(--leji-line);
+  border-bottom-color: var(--leji-line);
+}
+.sidebar {
+  border-right: 1px solid var(--leji-line);
+}
+.markdown-section hr {
+  border-bottom-color: var(--leji-line);
+}
+.markdown-section tr {
+  border-top-color: var(--leji-line);
+}
+.markdown-section output {
+  border-color: var(--leji-line);
+}
+/* The attr(data-lang) label is 0.6rem text, so it takes a text tone here rather
+   than the rule tone the stock theme gives it. */
+.markdown-section pre::after,
+.markdown-section output::after {
+  color: var(--leji-text-muted);
+}
+.sidebar:hover::-webkit-scrollbar-thumb {
+  background: rgba(143, 153, 151, 0.4);
+}
+.sidebar:hover::-webkit-scrollbar-track {
+  background: rgba(143, 153, 151, 0.1);
+}
+.markdown-section p.warn {
+  background: rgba(112, 216, 194, 0.12);
+}
+
+/* --- chrome text and focus rings: the accent leaves text, the mint takes it --- */
+.search a:hover,
+.search .search-keyword,
+.search .matching-post a,
+.search p.search-keyword,
+.search .matching-post a:hover,
+.app-nav a:hover,
+.app-nav a.active,
+.sidebar .app-name-link,
+.sidebar ul li a:hover,
+section.cover .cover-main > p:last-child a,
+section.cover blockquote > p > a:hover {
+  color: var(--leji-link);
+}
+/* The shell's <style> loads after this sheet, so its own chrome hovers and the
+   two !important rules above need the same weight to follow the scheme. */
+.sidebar ul li.active > a,
+.sidebar-nav .app-sub-sidebar li.active > a,
+.sidebar-nav .app-sub-sidebar li a:hover,
+.sidebar-nav li > a:hover,
+.sidebar-nav ul ul li > a:hover,
+.search .results-panel .matching-post > a:hover {
+  color: var(--leji-link) !important;
+}
+.search input:focus {
+  border-color: var(--leji-link);
+  box-shadow: 0 0 0 2px rgba(112, 216, 194, 0.25);
+}
+
+/* --- code and syntax --- */
+.markdown-section pre > code {
+  color: var(--leji-text-body);
+}
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #8fa8a0;
+}
+.token.punctuation {
+  color: #c9d8d2;
+}
+.token.boolean,
+.token.number,
+.token.keyword,
+.token.function {
+  color: #f0a868;
+}
+.token.property {
+  color: #e3c46e;
+}
+.token.tag,
+.token.attr-name,
+.token.placeholder,
+.token.variable {
+  color: #8cc4f5;
+}
+.token.selector {
+  color: #b3b8f0;
+}
+.token.string,
+.token.attr-value,
+.token.control,
+.token.directive,
+.token.unit {
+  color: #70d8c2;
+}
+.token.entity,
+.token.url,
+.language-css .token.string,
+.style .token.string,
+.token.statement,
+.token.regex,
+.token.atrule {
+  color: #7ed4ec;
+}
+.token.important {
+  color: #f29b85;
+}
+.token.inserted {
+  border-bottom-color: #70d8c2;
+}
+
+/* --- vendored zoom overlay: its script writes background: #fff inline --- */
+.medium-zoom-overlay {
+  background: var(--leji-page) !important;
+}

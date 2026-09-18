@@ -173,6 +173,18 @@ function resolveThemeLink(theme: ViewerTheme | undefined, findings: Finding[]): 
    return configured;
 }
 
+/** The scheme the layer names, or null for the reader's own.
+ *
+ * Exactly `light` and `dark` stamp a scheme on the page. Everything else takes the
+ * system route: the field absent, `system`, and any value the schema refuses. None
+ * of them is a finding, because the enum is the validation and every CLI path runs
+ * it before generation; a direct SDK call carrying an unknown value renders the
+ * default rather than meeting a second policy written for it here. */
+function resolveAppearance(theme: ViewerTheme | undefined): 'light' | 'dark' | null {
+   const configured = theme?.appearance;
+   return configured === 'light' || configured === 'dark' ? configured : null;
+}
+
 /** The accent as opaque sRGB channels, or null for a value that names no color the
  * generator can resolve — a keyword, `currentColor`, a malformed hex. Accepts
  * 3/4/6/8-digit hex, the only form the accent can take; an accent carrying alpha is
@@ -1451,10 +1463,15 @@ export function buildIndexHtml(root: string, manifest: Manifest, base: ChromeBas
    const themeColor = resolveThemeColor(manifest, findings);
    // The body-link override, or nothing at all: a layer without viewer.theme.link,
    // and one whose value the guard refuses, both substitute the empty string, so
-   // their index.html is byte-for-byte the file 1.4.1 wrote. The declaration lands
-   // inside the page's own <style>, which loads after assets/vue.css and therefore
-   // wins the cascade against the fixed tone declared there.
+   // their page declares no link tone of its own. The declaration lands inside the
+   // page's own <style>, which loads after assets/vue.css and therefore wins the
+   // cascade against the fixed tone declared there. The guard runs whatever scheme
+   // the page carries, so its finding is raised even where the value it judges is
+   // then emitted nowhere.
    const themeLink = resolveThemeLink(manifest.viewer?.theme, findings);
+   // The scheme the layer names, which decides three of the substitutions below and
+   // the shape of the link declaration.
+   const appearance = resolveAppearance(manifest.viewer?.theme);
    // One pass over the template with a resolver map, never four sequential
    // replaces: a sequential pass re-scans what the previous one substituted, so a
    // manifest string like "{{DOCSIFY_CONFIG}}" in viewer.title or viewer.favicon
@@ -1462,7 +1479,35 @@ export function buildIndexHtml(root: string, manifest: Manifest, base: ChromeBas
    const substitutions: Record<string, string> = {
       LEJI_NAME_HTML: htmlEscape(displayTitle),
       FAVICON_URL: faviconUrl,
-      LEJI_LINK_STYLE: themeLink === null ? '' : `:root { --leji-link: ${themeLink}; }`,
+      // The stamp the boot script and the dark sheet read. An absent or `system` value
+      // stamps nothing on the root element, so the page follows the reader's system.
+      LEJI_APPEARANCE_ATTR: appearance === null ? '' : ` data-appearance="${appearance}"`,
+      // Form controls, scrollbars, and the canvas the browser paints before any
+      // stylesheet applies: the one scheme where the layer names one, both where it
+      // leaves the choice to the reader's system.
+      LEJI_COLOR_SCHEME: appearance ?? 'light dark',
+      // The dark half of the palette, linked rather than inlined, so one copy of the
+      // rules serves both routes. The media attribute is what decides between them:
+      // the dark media query where the reader's system chooses, `all` where the
+      // layer has already chosen dark. A layer naming light links no sheet, which is
+      // what keeps the dark rules off a page that must never take them.
+      LEJI_DARK_SHEET:
+         appearance === 'light'
+            ? ''
+            : `\n      <link rel="stylesheet" href="assets/vue-dark.css" media="${
+                 appearance === 'dark' ? 'all' : '(prefers-color-scheme: dark)'
+              }" />`,
+      // Scoped to the light scheme on a page that follows the system, because the
+      // dark scheme's link tone is fixed and the guard measures the authored color
+      // against the light grounds only. A page stamped light needs no scope, having
+      // no other scheme to leak into; a page stamped dark declares nothing, the tone
+      // there never being the layer's to move.
+      LEJI_LINK_STYLE:
+         themeLink === null || appearance === 'dark'
+            ? ''
+            : appearance === 'light'
+              ? `:root { --leji-link: ${themeLink}; }`
+              : `@media (prefers-color-scheme: light) { :root { --leji-link: ${themeLink}; } }`,
       DOCSIFY_CONFIG: jsonForScript({
          name: nameHtml,
          // Where the layer's markdown is mounted. Docsify's own key, so the boot

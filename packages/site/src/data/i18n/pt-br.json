@@ -70,7 +70,11 @@
     "install": "Instalar o Leji",
     "copyCommand": "Copiar o comando de instalação",
     "copyCode": "Copiar para a área de transferência",
-    "copied": "Copiado"
+    "copied": "Copiado",
+    "colorScheme": "Esquema de cores",
+    "schemeSystem": "Sistema",
+    "schemeLight": "Claro",
+    "schemeDark": "Escuro"
   },
   "schema": {
     "required": "obrigatório",

@@ -70,7 +70,11 @@
     "install": "Leji のインストール",
     "copyCommand": "インストールコマンドをコピー",
     "copyCode": "クリップボードにコピー",
-    "copied": "コピーしました"
+    "copied": "コピーしました",
+    "colorScheme": "配色",
+    "schemeSystem": "システム",
+    "schemeLight": "ライト",
+    "schemeDark": "ダーク"
   },
   "schema": {
     "required": "必須",

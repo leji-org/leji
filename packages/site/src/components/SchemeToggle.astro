@@ -1,0 +1,197 @@
+---
+// The reader's scheme control, rendered once by the base layout at the lower right of
+// every page in every language. It takes no props: the language it renders in is read
+// from the page's own URL, the way the header and the footer read theirs.
+import { chromeStrings } from '../data/i18n';
+import { localeOf } from '../i18n';
+
+const chrome = chromeStrings(localeOf(Astro.url.pathname));
+---
+
+{
+   /* The accessible name is the button's own content, the two hidden spans below, so a
+    reader hears what the control is and which of the three states it is in; the state
+    span is what the script rewrites. The glyphs are decoration and say nothing. */
+}
+<button
+   class="scheme-toggle"
+   type="button"
+   data-appearance="system"
+   title={chrome.schemeSystem}
+   data-label-system={chrome.schemeSystem}
+   data-label-light={chrome.schemeLight}
+   data-label-dark={chrome.schemeDark}
+>
+   <svg
+      class="scheme-glyph scheme-glyph-system"
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+   >
+      <circle cx="8" cy="8" r="5.25"></circle>
+      <path d="M8 2.75a5.25 5.25 0 0 1 0 10.5z" fill="currentColor" stroke="none"></path>
+   </svg>
+   <svg
+      class="scheme-glyph scheme-glyph-light"
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linecap="round"
+   >
+      <circle cx="8" cy="8" r="3.1"></circle>
+      <path
+         d="M8 1.3v1.5M8 13.2v1.5M1.3 8h1.5M13.2 8h1.5M3.4 3.4l1.05 1.05M11.55 11.55l1.05 1.05M12.6 3.4l-1.05 1.05M4.45 11.55L3.4 12.6"
+      ></path>
+   </svg>
+   <svg
+      class="scheme-glyph scheme-glyph-dark"
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linejoin="round"
+   >
+      <path d="M13.1 9.8A5.6 5.6 0 0 1 6.2 2.9a5.6 5.6 0 1 0 6.9 6.9z"></path>
+   </svg>
+   <span class="visually-hidden">{chrome.colorScheme}</span>
+   <span class="visually-hidden scheme-state">{chrome.schemeSystem}</span>
+</button>
+
+<style>
+   /* A card the size of one glyph, parked at the lower right of the viewport and
+      inset from the safe area so a notched phone keeps it reachable. Its ground and
+      ink are page-following tokens, so one set of rules covers both schemes. */
+   .scheme-toggle {
+      position: fixed;
+      right: max(1rem, env(safe-area-inset-right));
+      bottom: var(--leji-corner-inset);
+      /* One below the header band, so an open mobile menu covers the control rather
+         than the control covering the menu. The skip link is higher still, and sits
+         at the top of the page where this never reaches. */
+      z-index: 39;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.5rem;
+      height: 2.5rem;
+      padding: 0;
+      border: 1px solid var(--leji-border);
+      border-radius: 999px;
+      background: var(--leji-surface);
+      box-shadow: 0 6px 18px rgba(24, 61, 59, 0.18);
+      color: var(--leji-text-body);
+      cursor: pointer;
+      transition:
+         color 0.2s,
+         border-color 0.2s;
+   }
+   .scheme-toggle:hover,
+   .scheme-toggle:focus-visible {
+      color: var(--leji-link);
+      border-color: var(--leji-link);
+   }
+   .scheme-toggle:focus-visible {
+      outline: 2px solid var(--leji-link);
+      outline-offset: 3px;
+   }
+   @media (prefers-reduced-motion: reduce) {
+      .scheme-toggle {
+         transition: none;
+      }
+   }
+   /* A printed page has no scheme to choose. */
+   @media print {
+      .scheme-toggle {
+         display: none;
+      }
+   }
+   /* One glyph at a time, chosen by the state the button carries. The other two stay
+      in the markup: the control switches without a round trip, and the page ships the
+      same bytes whichever state a reader arrives in. */
+   .scheme-glyph {
+      display: none;
+   }
+   .scheme-toggle[data-appearance='system'] .scheme-glyph-system,
+   .scheme-toggle[data-appearance='light'] .scheme-glyph-light,
+   .scheme-toggle[data-appearance='dark'] .scheme-glyph-dark {
+      display: block;
+   }
+   /* Read by a screen reader, never seen: the control's name and its current state,
+      which together are the name the button announces. */
+   .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+   }
+</style>
+
+<script>
+   // Storage is read once a page, by the script in the head, which has already stamped
+   // the root and arranged the sheets by the time this runs; the control draws itself
+   // from that and leaves the arrangement alone until a click. Every later state is
+   // computed from the one the control displays rather than from storage, so a browser
+   // whose storage throws still cycles for the page's life.
+   const scheme = document.querySelector<HTMLButtonElement>('.scheme-toggle');
+   const darkSheet = document.getElementById('leji-dark') as HTMLLinkElement | null;
+
+   if (scheme && darkSheet) {
+      const KEY = 'leji-appearance';
+      const ORDER = ['system', 'light', 'dark'] as const;
+      type Choice = (typeof ORDER)[number];
+
+      const applied = (): Choice => {
+         const v = document.documentElement.dataset.appearance;
+         return v === 'light' || v === 'dark' ? v : 'system';
+      };
+
+      // What the reader sees and hears: the glyph, the tooltip, and the state half of
+      // the accessible name. The words come from the button's own data attributes, so
+      // this script carries none of its own and every language gets its own.
+      const draw = (choice: Choice) => {
+         scheme.dataset.appearance = choice;
+         const label = scheme.dataset[`label${choice[0].toUpperCase()}${choice.slice(1)}`] ?? '';
+         scheme.title = label;
+         const state = scheme.querySelector('.scheme-state');
+         if (state) state.textContent = label;
+      };
+
+      // The handoff: the link the head's script wrote for a stored dark choice is
+      // retired here, and from this point the static link's media carries the scheme.
+      const switchTo = (choice: Choice) => {
+         if (choice === 'system') delete document.documentElement.dataset.appearance;
+         else document.documentElement.dataset.appearance = choice;
+         document
+            .querySelectorAll(`link[rel="stylesheet"][href="${darkSheet.getAttribute('href')}"]:not(#leji-dark)`)
+            .forEach((l) => l.remove());
+         darkSheet.media = choice === 'system' ? '(prefers-color-scheme: dark)' : choice === 'dark' ? 'all' : 'not all';
+         draw(choice);
+      };
+
+      draw(applied());
+
+      scheme.addEventListener('click', () => {
+         const shown = (scheme.dataset.appearance ?? 'system') as Choice;
+         const next = ORDER[(ORDER.indexOf(shown) + 1) % ORDER.length];
+         try {
+            next === 'system' ? localStorage.removeItem(KEY) : localStorage.setItem(KEY, next);
+         } catch {
+            /* a browser that refuses the write still cycles for this page's life */
+         }
+         switchTo(next);
+      });
+   }
+</script>

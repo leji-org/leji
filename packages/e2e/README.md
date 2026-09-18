@@ -28,7 +28,7 @@ npm run e2e
 
 Both builds are required: the suite runs the CLI out of `packages/sdk/dist` and previews the site out of `packages/site/dist`.
 
-`npm run e2e` runs `run.mjs`, which checks the five ports are free, copies `fixtures/valid-render-subset` to `packages/e2e/.work/fixture` and again to `.work/fixture-accent`, where it sets `viewer.theme.primary` so the accent servers have a layer that declares one, gives each a context index and an export, starts the five servers, runs Playwright, and then takes down everything it started, followed by `.work/`. Nothing is written into `fixtures/`.
+`npm run e2e` runs `run.mjs`, which checks the seven ports are free and copies `fixtures/valid-render-subset` four times: to `packages/e2e/.work/fixture` as it stands, to `.work/fixture-accent`, where it sets `viewer.theme.primary` so the accent servers have a layer that declares one, and to `.work/fixture-light` and `.work/fixture-dark`, where it sets `viewer.theme.appearance` so the scheme servers have a layer that names its own. The first two get a context index and an export, the two stamped ones an index alone (they are served and never exported). It then starts the seven servers, runs Playwright, and takes down everything it started, followed by `.work/`. Nothing is written into `fixtures/`.
 
 Arguments reach Playwright, but option-shaped ones have to skip the root script, which npm would read them as flags of:
 
@@ -39,7 +39,7 @@ npm run e2e -w packages/e2e -- --headed --repeat-each=3
 
 ## The exit-path contract
 
-**What is guaranteed: the direct children.** The five servers and Playwright are each a direct child of `run.mjs`, and each is signalled by its own pid, through the handle Node holds for it: never a process group, never a pid read from the process table. So the set of processes this script can signal is exactly the set it spawned, by construction rather than by timing. Cleanup sends `SIGTERM` to each, waits up to three seconds for the sockets to close, then `SIGKILL`s whatever is still there and waits up to three seconds more. Both waits are bounded: a child that ignores both signals delays the exit but cannot hang it, and if one is still running at the end the run says so by name and pid.
+**What is guaranteed: the direct children.** The seven servers and Playwright are each a direct child of `run.mjs`, and each is signalled by its own pid, through the handle Node holds for it: never a process group, never a pid read from the process table. So the set of processes this script can signal is exactly the set it spawned, by construction rather than by timing. Cleanup sends `SIGTERM` to each, waits up to three seconds for the sockets to close, then `SIGKILL`s whatever is still there and waits up to three seconds more. Both waits are bounded: a child that ignores both signals delays the exit but cannot hang it, and if one is still running at the end the run says so by name and pid.
 
 That covers every exit path: a normal exit, a failing run, a Playwright crash or kill, a failure during preparation, and `Ctrl+C` or a `SIGTERM` to the script (exit `128 +` the signal number: `130` for `SIGINT`, `143` for `SIGTERM`). Cleanup runs exactly once whichever path reaches it, and exactly one path exits, so the code the caller sees is not a race.
 
@@ -47,7 +47,7 @@ That covers every exit path: a normal exit, a failing run, a Playwright crash or
 
 **On Windows**, `child.kill()` is `TerminateProcess`, which ends the child alone, so it is followed by `taskkill /T /F /PID` to take the tree with it. `taskkill`'s result is checked: anything other than success or "no such process" is printed, naming the child and its pid, rather than being assumed to have worked.
 
-**What cannot be covered, and is not claimed:** a `SIGKILL` of `run.mjs` itself, which gets no chance to act. Its five servers keep running and keep their ports, and Playwright and its browser may survive alongside them (those hold no port, so only the servers are reported by the next run). The next run does not paper over that: it refuses to start, naming the port that is held and why:
+**What cannot be covered, and is not claimed:** a `SIGKILL` of `run.mjs` itself, which gets no chance to act. Its seven servers keep running and keep their ports, and Playwright and its browser may survive alongside them (those hold no port, so only the servers are reported by the next run). The next run does not paper over that: it refuses to start, naming the port that is held and why:
 
 ```
 e2e: port 23922 (the static export server) is already in use. Another e2e run, or a
@@ -56,7 +56,7 @@ server left behind by one that was killed, is holding it; stop that process and 
 
 ## Servers and ports
 
-`run.mjs` starts five servers on fixed ports: the viewer (`leji viewer serve`) on 23921, the static export (`static-server.mjs`) on 23922, the site preview (`astro preview`) on 23923, and, over a second copy of the fixture that declares a custom accent, the viewer on 23924 and its static export on 23925. Each has to accept a connection within 60 seconds or the run stops with that server named. Playwright's own `webServer` is deliberately not used: it starts its servers before `globalSetup`, which is too early for a fixture that has to be built first, and it detaches each one into a session of its own, which puts them out of reach of any cleanup but its own.
+`run.mjs` starts seven servers on fixed ports: the viewer (`leji viewer serve`) on 23921, the static export (`static-server.mjs`) on 23922, the site preview (`astro preview`) on 23923, over a second copy of the fixture that declares a custom accent, the viewer on 23924 and its static export on 23925, and over the two copies that name a color scheme of their own, the viewer on 23926 (light) and 23927 (dark). Each has to accept a connection within 60 seconds or the run stops with that server named. Playwright's own `webServer` is deliberately not used: it starts its servers before `globalSetup`, which is too early for a fixture that has to be built first, and it detaches each one into a session of its own, which puts them out of reach of any cleanup but its own.
 
 The ports are checked before anything starts (each by a two-second bounded bind), so a second concurrent run on the same machine stops with the port named rather than sharing a server with the first.
 

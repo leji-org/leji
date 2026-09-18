@@ -976,9 +976,11 @@ code .token {
    four classes, and a new one has to be placed in a class before it is written:
 
    i.   typography: the three tones below and nothing else. Headings and emphasis
-        take --leji-text, all normal-size copy --leji-text-body, and --leji-text-muted
-        is declared for large-text use only (3.99:1 on white, below AA at normal
-        size), so it currently has no consumer.
+        take --leji-text, all normal-size copy --leji-text-body, and
+        --leji-text-muted the code-language label in the dark scheme, where its
+        value clears AA at that label's size. The light value is a large-text tone
+        (3.99:1 on white, below AA at normal size) and the light theme gives it no
+        consumer: the label there keeps the stock neutral.
    ii.  links and active chrome: --leji-link (the fixed AA body-link tone),
         --theme-color (the layer's accent, viewer.theme.primary), --leji-deep,
         --leji-brand.
@@ -987,8 +989,14 @@ code .token {
    iv.  code and syntax: the fenced-code text, the Prism .token.* colors, and the
         inline-code ground.
 
-   Surfaces (--leji-paper, --leji-line, --leji-code-bg) and icons (--leji-caret, the
-   group triangles) are not text and belong to none of the four.
+   Surfaces (--leji-page, --leji-paper, --leji-line, --leji-code-bg) and icons
+   (--leji-caret, the group triangles) are not text and belong to none of the four.
+
+   In the dark scheme --leji-link is a fixed mint and the accent leaves text: every
+   class-ii tone that rides --theme-color is re-pointed to --leji-link, and the
+   accent keeps only the surfaces it fills. Class i and class iv re-value through
+   the same tokens; class iii is unchanged, being inverse text on a ground that
+   carries its own color in both schemes.
 
    The legacy neutrals the stock docsify theme shipped are denied outright, in a
    unit test over this directory (packages/sdk/test/viewer-tones.test.ts). */
@@ -998,6 +1006,7 @@ code .token {
   --leji-link: #007d59; /* the accessible green for links and small text */
   --leji-deep: #164e42;
   --leji-accent: #78d7b5;
+  --leji-page: #ffffff; /* the content ground the shell and the stock theme paint */
   --leji-paper: #f7f8f5; /* the brand's light canvas: sidebar, chips, panels */
   --leji-text: #183b32; /* headings and emphasis */
   --leji-text-body: #4d5b56; /* every normal-size run of copy */

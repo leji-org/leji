@@ -125,9 +125,9 @@ const languageLabel = readingNow ? nav.language.replace('{language}', readingNow
 
 <style>
    .site-header-band {
-      border-bottom: 3px solid var(--leji-accent);
+      border-bottom: 3px solid var(--leji-accent-line);
       background: var(--leji-deep);
-      color: var(--leji-surface);
+      color: var(--leji-ink-on-deep);
       position: sticky;
       top: 0;
       /* the stuck ground swap on every page, and the flush variant's mint line */
@@ -176,7 +176,7 @@ const languageLabel = readingNow ? nav.language.replace('{language}', readingNow
       beneath it, so every page's at-rest look is untouched. Over the hero the
       monument's own dark ground makes the change visually silent. */
    .site-header-band[data-stuck] {
-      background: rgba(24, 61, 59, 0.85);
+      background: var(--leji-stuck-backdrop);
       /* -webkit- first, standard last: the build's CSS minifier collapses the
          pair to whichever comes last, and the standard property is the one to
          keep; Safari without it falls to the @supports rule below. */
@@ -201,7 +201,7 @@ const languageLabel = readingNow ? nav.language.replace('{language}', readingNow
       where the flush header stops sitting inside the monument and becomes the
       standard band. */
    .site-header-band.flush[data-past-hero] {
-      border-bottom-color: var(--leji-accent);
+      border-bottom-color: var(--leji-accent-line);
    }
    .header-row {
       display: flex;
@@ -220,7 +220,7 @@ const languageLabel = readingNow ? nav.language.replace('{language}', readingNow
       gap: 0.85rem;
    }
    .brand {
-      color: var(--leji-surface);
+      color: var(--leji-ink-on-deep);
       display: inline-flex;
    }
 
@@ -313,7 +313,7 @@ const languageLabel = readingNow ? nav.language.replace('{language}', readingNow
       padding: 0;
       background: none;
       border: none;
-      color: var(--leji-surface);
+      color: var(--leji-ink-on-deep);
       cursor: pointer;
    }
    .bars,
@@ -570,12 +570,10 @@ const languageLabel = readingNow ? nav.language.replace('{language}', readingNow
       const close = () => {
          nav.removeAttribute('data-open');
          toggle.setAttribute('aria-expanded', 'false');
-         toggle.setAttribute('aria-label', 'Open menu');
       };
       const open = () => {
          nav.setAttribute('data-open', '');
          toggle.setAttribute('aria-expanded', 'true');
-         toggle.setAttribute('aria-label', 'Close menu');
       };
 
       toggle.addEventListener('click', () => {

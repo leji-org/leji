@@ -611,6 +611,7 @@ def test_viewer_generates_viewer_and_sidebar(tmp_path: Path) -> None:
         ".leji/viewer/assets/source-sans-pro-600-vietnamese.woff2",
         ".leji/viewer/assets/third-party-licenses.txt",
         ".leji/viewer/assets/viewer-boot.js",
+        ".leji/viewer/assets/vue-dark.css",
         ".leji/viewer/assets/vue.css",
         ".leji/viewer/assets/zoom-image.min.js",
         "docs/overview.md",
@@ -1388,6 +1389,128 @@ def test_viewer_rejects_an_unusable_theme_color(tmp_path: Path) -> None:
     assert '"themeColor":"#ff0000"' in (layer / ".leji" / "viewer" / "index.html").read_text()
 
 
+# --- viewer.theme.appearance ------------------------------------------------
+#
+# The scheme a layer names reaches the reader through three places in one page: the
+# stamp on the root element (which the boot script reads and the reader's system
+# cannot move), the color-scheme meta (the browser's own canvas, form controls, and
+# scrollbars), and the link that loads the dark half of the palette. All three are
+# asserted together, for every value the field takes and for one it does not,
+# because a page carrying two of the three is a page whose chrome and content
+# disagree.
+
+
+def _appearance_surfaces(html: str) -> tuple[str, str, str]:
+    """The three surfaces read back off a generated page, so a case states what it
+    expects rather than matching substrings one at a time. The dark sheet's `media`
+    comes back empty for a page that links no dark sheet at all."""
+    stamp = re.search(r'<html[^>]*\sdata-appearance="([^"]*)"', html)
+    color_scheme = re.search(r'<meta name="color-scheme" content="([^"]*)" />', html)
+    assert color_scheme is not None, "the page declares a color-scheme meta"
+    assert '<link rel="stylesheet" href="assets/vue.css" />' in html
+    # Matched as the pair it is: the dark sheet's link immediately follows the light
+    # sheet's, which is the cascade position keeping their compensations at the weight
+    # the shell expects.
+    pair = re.search(
+        r'<link rel="stylesheet" href="assets/vue\.css" />\n'
+        r'      <link rel="stylesheet" href="assets/vue-dark\.css" media="([^"]*)" />\n',
+        html,
+    )
+    return (
+        stamp.group(1) if stamp else "",
+        color_scheme.group(1),
+        pair.group(1) if pair else "",
+    )
+
+
+def test_viewer_appearance_stamps_the_page_it_names(tmp_path: Path) -> None:
+    """A layer that names a color scheme stamps the page it names, in both flavors;
+    one that names none, or names a value the schema refuses, renders a page that
+    follows the reader's system. The last case is the enum's to refuse and every CLI
+    path validates before it generates, so reaching the generator anyway is the system
+    route and no finding."""
+    from leji import build_viewer
+
+    cases = [
+        # Absent and `system` are the same page: identical markup, which follows the
+        # reader's system rather than naming a scheme of its own.
+        (None, "absent", "", "light dark", "(prefers-color-scheme: dark)"),
+        ("system", "system", "", "light dark", "(prefers-color-scheme: dark)"),
+        # A named scheme is rendered on every system: light links no dark sheet, and
+        # dark links it unconditionally.
+        ("light", "light", "light", "light", ""),
+        ("dark", "dark", "dark", "dark", "all"),
+        ("midnight", "midnight", "", "light dark", "(prefers-color-scheme: dark)"),
+    ]
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    for declared, label, stamp, color_scheme, dark_sheet in cases:
+        manifest["viewer"] = {"theme": {} if declared is None else {"appearance": declared}}
+        # Both flavors come from one page builder, so both are read: an export that
+        # lost the stamp would be a viewer nobody could see through the served one.
+        result = generate_viewer(str(layer), manifest)
+        assert [f for f in result.findings if f.rule.startswith("viewer-theme")] == [], label
+        build_viewer(str(layer), manifest)
+        for flavor, page in (
+            ("served", layer / ".leji" / "viewer" / "index.html"),
+            ("exported", layer / ".leji" / "dist" / "index.html"),
+        ):
+            got = _appearance_surfaces(page.read_text())
+            assert got == (stamp, color_scheme, dark_sheet), f"{label}, {flavor}"
+
+
+def test_link_declaration_takes_the_shape_the_page_can_carry(tmp_path: Path) -> None:
+    """The guard measures the authored color against the light grounds and nothing
+    else, so what the page may do with an accepted color follows from the scheme it
+    renders in: a page that follows the reader's system keeps the tone behind the
+    light media query, a page that names light needs no query to hold it there, and a
+    page that names dark declares nothing, its link tone being fixed. The guard runs
+    on every page, so a refused value is reported whatever the scheme."""
+    brand_link = "#5A50F9"
+    cases = [
+        (
+            None,
+            "absent",
+            f"@media (prefers-color-scheme: light) {{ :root {{ --leji-link: {brand_link}; }} }}",
+        ),
+        (
+            "system",
+            "system",
+            f"@media (prefers-color-scheme: light) {{ :root {{ --leji-link: {brand_link}; }} }}",
+        ),
+        ("light", "light", f":root {{ --leji-link: {brand_link}; }}"),
+        ("dark", "dark", ""),
+    ]
+    layer = _copy(EXAMPLE, tmp_path)
+    manifest = load_manifest(str(layer)).manifest
+    for declared, label, declaration in cases:
+        theme: dict = {"link": brand_link}
+        if declared is not None:
+            theme["appearance"] = declared
+        manifest["viewer"] = {"theme": theme}
+        result = generate_viewer(str(layer), manifest)
+        warnings = [f for f in result.findings if f.rule == "viewer-theme-link-contrast"]
+        assert warnings == [], label
+        html = (layer / ".leji" / "viewer" / "index.html").read_text()
+        if declaration == "":
+            assert "--leji-link:" not in html, label
+        else:
+            assert declaration in html, label
+
+        # The finding is about the value the author wrote, not about whether this
+        # particular page would have had a use for it.
+        theme = {"link": "#767676"}
+        if declared is not None:
+            theme["appearance"] = declared
+        manifest["viewer"] = {"theme": theme}
+        result = generate_viewer(str(layer), manifest)
+        warnings = [f for f in result.findings if f.rule == "viewer-theme-link-contrast"]
+        assert len(warnings) == 1, label
+        assert warnings[0].severity == "warning", label
+        html = (layer / ".leji" / "viewer" / "index.html").read_text()
+        assert "--leji-link:" not in html, label
+
+
 def test_viewer_accent_is_hex_and_nothing_else(tmp_path: Path) -> None:
     """5 and 7 digits are no CSS color at all: they used to reach the page as an
     unusable accent with no warning, while the mermaid text color silently defaulted,
@@ -1552,7 +1675,12 @@ def test_viewer_link_that_clears_the_floor_reaches_the_page(tmp_path: Path) -> N
     manifest["viewer"] = {"theme": {"link": "#5A50F9"}}
     result = generate_viewer(str(layer), manifest)
     assert [f for f in result.findings if f.rule == "viewer-theme-link-contrast"] == []
-    assert "--leji-link: #5A50F9;" in (layer / ".leji" / "viewer" / "index.html").read_text()
+    # Scoped to the light scheme, and asserted whole: the wrapper is the contract,
+    # because the guard measures the authored color against the light grounds only.
+    assert (
+        "@media (prefers-color-scheme: light) { :root { --leji-link: #5A50F9; } }"
+        in (layer / ".leji" / "viewer" / "index.html").read_text()
+    )
 
     manifest["viewer"] = {"theme": {"link": "#9ad0c0"}}
     result = generate_viewer(str(layer), manifest)

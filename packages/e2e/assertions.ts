@@ -21,6 +21,14 @@ export const SITE_URL = 'http://127.0.0.1:23923';
 export const ACCENT_VIEWER_URL = 'http://127.0.0.1:23924';
 export const ACCENT_STATIC_URL = 'http://127.0.0.1:23925';
 
+// The same layer once more per scheme a layer can name through
+// `viewer.theme.appearance`, live. A stamped page renders its scheme on every
+// system, so judging it means a layer that names one and an emulated system that
+// says the opposite. Served only: what the stamp puts on the page is decided at
+// generation time and the SDK suites pin the exported flavor.
+export const LIGHT_VIEWER_URL = 'http://127.0.0.1:23926';
+export const DARK_VIEWER_URL = 'http://127.0.0.1:23927';
+
 /** The accent each fixture pair carries: the Leji default (no `viewer.theme`) and
  * the custom one the accent copy declares. Named here so a spec states which layer
  * it is judging instead of repeating a hex. */
@@ -185,7 +193,7 @@ export function rgb(hex: string): string {
 /** The color the browser actually paints an element, which is the only form of this
  * question worth asking: a stylesheet says many things about one element, and the
  * cascade decides which of them wins. */
-async function colorOf(locator: Locator): Promise<string> {
+export async function colorOf(locator: Locator): Promise<string> {
    await expect(locator).toBeVisible();
    return locator.evaluate((node) => getComputedStyle(node as Element).color);
 }
@@ -226,6 +234,195 @@ export async function assertTones(page: Page, base: string, { accent }: { accent
    expect(await colorOf(page.locator('.sidebar-nav li.active > a').first())).toBe(rgb(accent));
 }
 
+/**
+ * The grounds and tones one color scheme paints, named by what each one is for.
+ *
+ * Where `viewer.theme.appearance` is absent or `system`, the viewer follows the
+ * operating system and nothing else, so a scheme is not a state the page can be put
+ * into: it is judged by running the page under an emulated preference and reading
+ * what the browser paints. Most of these resolve through a token the stylesheet
+ * re-values, and two do not: the striped table row and the text inside a fenced
+ * block are stock literals in light, which the dark block has to override by
+ * selector.
+ */
+export interface SchemeTones {
+   /** The content ground, painted on `body`. */
+   page: string;
+   /** The sidebar and the panels that share its canvas. */
+   paper: string;
+   /** The striped table row. */
+   stripe: string;
+   /** The ground under a fenced block. */
+   codeBg: string;
+   /** Headings and emphasis. */
+   text: string;
+   /** Every normal-size run of copy, table cells included. */
+   body: string;
+   /** The text inside a fenced block. */
+   codeText: string;
+   /** Body links and inline code. */
+   link: string;
+}
+
+/** What 1.5.0 painted, which a reader on a light system still sees. */
+export const LIGHT_TONES: SchemeTones = {
+   page: '#FFFFFF',
+   paper: '#F7F8F5',
+   stripe: '#F8F8F8',
+   codeBg: '#E8F4EE',
+   text: '#183B32',
+   body: '#4D5B56',
+   codeText: '#525252',
+   link: '#007D59',
+};
+
+/** What a reader on a dark system sees instead. */
+export const DARK_TONES: SchemeTones = {
+   page: '#131A19',
+   paper: '#1B2422',
+   stripe: '#1B2422',
+   codeBg: '#161E1D',
+   text: '#F2F4F3',
+   body: '#C5CCCA',
+   codeText: '#C5CCCA',
+   link: '#70D8C2',
+};
+
+/**
+ * Every surface the scheme has to reach, judged as pixels.
+ *
+ * The surfaces are the ones a dark palette can leave behind: the content ground,
+ * the sidebar, a fenced block and its text, a table cell and the striped row under
+ * it, a body link, inline code, and a heading. A white ground surviving anywhere in
+ * dark, or a dark value leaking into light, fails here and names the surface.
+ */
+export async function assertSchemeSurfaces(
+   page: Page,
+   base: string,
+   tones: SchemeTones,
+   other: SchemeTones,
+): Promise<void> {
+   // The two palettes share no value, so asserting a surface is one scheme's tone is
+   // also a refutation of the other's. Stated once, rather than twice per surface.
+   for (const surface of Object.keys(tones) as (keyof SchemeTones)[]) {
+      expect(tones[surface], `${surface} differs between the two schemes`).not.toBe(other[surface]);
+   }
+
+   // Tables carry the most surfaces per page: cells, the stripe, inline code, and a
+   // body link, all on the content ground with the sidebar beside them.
+   await page.goto(`${base}/#/render/tables`);
+   const content = page.locator('.markdown-section');
+   expect(await backgroundOf(page.locator('body'))).toBe(rgb(tones.page));
+   expect(await backgroundOf(page.locator('.sidebar'))).toBe(rgb(tones.paper));
+   expect(await colorOf(content.locator('h1').first())).toBe(rgb(tones.text));
+   expect(await colorOf(content.locator('table td').first())).toBe(rgb(tones.body));
+   expect(await backgroundOf(content.locator('table tr:nth-child(2n)').first())).toBe(rgb(tones.stripe));
+   expect(await colorOf(content.getByRole('link', { name: 'the boot profile' }))).toBe(rgb(tones.link));
+   expect(await colorOf(content.locator('td code').first())).toBe(rgb(tones.link));
+
+   // The fenced-code panel is the one ground the tables page does not carry.
+   await page.goto(`${base}/#/render/code-blocks`);
+   const fenced = content.locator('pre').first();
+   expect(await backgroundOf(fenced)).toBe(rgb(tones.codeBg));
+   expect(await colorOf(fenced.locator('code'))).toBe(rgb(tones.codeText));
+}
+
+/**
+ * The fill of the first flowchart node's shape, or nothing while a re-render has
+ * the diagram out of the document.
+ *
+ * Mermaid bakes its palette into the SVG it writes, so a stylesheet cannot re-theme
+ * a rendered diagram and the shape's own fill is the only place a scheme change can
+ * land. The read is bounded, so the waiting happens in the poll around it rather
+ * than in one evaluation that would hold the whole test.
+ */
+async function diagramFill(page: Page): Promise<string> {
+   const shape = page.locator('.mermaid[data-processed] svg g.node rect').first();
+   return shape
+      .evaluate((node) => getComputedStyle(node as Element).fill, undefined, { timeout: 1_000 })
+      .catch(() => '');
+}
+
+/**
+ * A rendered diagram follows a scheme change, without a reload and without losing
+ * its content.
+ *
+ * Both halves matter and neither implies the other. A diagram whose fills never
+ * move has silently kept one scheme's palette on the other's page; a diagram
+ * re-rendered from an element whose source was consumed comes back empty, which is
+ * how a re-render that reads only the processed marker fails. So the fill is
+ * asserted at each of the three steps and the label is asserted to survive them.
+ *
+ * The nodes take the layer's own accent in light, and a fixed palette in dark,
+ * because an accent that reads on white need not read on the dark ground. That
+ * makes this an assertion about a layer with no `viewer.theme.primary` of its own.
+ */
+export async function assertDiagramFollowsScheme(page: Page, base: string): Promise<void> {
+   await page.emulateMedia({ colorScheme: 'light' });
+   await page.goto(`${base}/#/render/mermaid`);
+
+   const label = page.locator('.mermaid[data-processed] svg').first().getByText('Boot profile');
+   await expect(label).toBeVisible();
+   expect(await diagramFill(page)).toBe(rgb(DEFAULT_ACCENT));
+
+   await page.emulateMedia({ colorScheme: 'dark' });
+   await expect.poll(() => diagramFill(page)).toBe(rgb(DARK_TONES.paper));
+   await expect(label).toBeVisible();
+
+   await page.emulateMedia({ colorScheme: 'light' });
+   await expect.poll(() => diagramFill(page)).toBe(rgb(DEFAULT_ACCENT));
+   await expect(label).toBeVisible();
+}
+
+/**
+ * A layer that names its own color scheme paints that scheme, on a system saying
+ * the opposite, and keeps it when the system changes under the open page.
+ *
+ * Both halves are the claim. The surfaces say the scheme arrived; the diagram says
+ * it reached the one place CSS cannot go, mermaid having baked its palette into the
+ * SVG at render time. The switch afterwards is what separates a page that named a
+ * scheme from one that merely happens to agree with the system it loaded under: a
+ * stamped page has no listener to follow, and nothing on it moves.
+ */
+export async function assertStampedScheme(page: Page, base: string, stamped: 'light' | 'dark'): Promise<void> {
+   const tones = stamped === 'dark' ? DARK_TONES : LIGHT_TONES;
+   const other = stamped === 'dark' ? LIGHT_TONES : DARK_TONES;
+   // The nodes take the layer's accent in light and the fixed dark ground in dark,
+   // exactly as they do when the reader's system chooses; the fixture declares no
+   // accent of its own, so the light value is the Leji default.
+   const fill = rgb(stamped === 'dark' ? DARK_TONES.paper : DEFAULT_ACCENT);
+
+   await assertSchemeSurfaces(page, base, tones, other);
+   await page.goto(`${base}/#/render/mermaid`);
+   const label = page.locator('.mermaid[data-processed] svg').first().getByText('Boot profile');
+   await expect(label).toBeVisible();
+   expect(await diagramFill(page)).toBe(fill);
+
+   // The reader's system moves under the open page, to the opposite of whatever it
+   // started as: the flip is read off the page rather than assumed from `stamped`,
+   // because the describe block is what set the starting scheme and a flip computed
+   // from the wrong end lands back on it, leaving nothing switched and the
+   // assertions below true of a page that never moved.
+   const systemPrefersDark = (): Promise<boolean> =>
+      page.evaluate(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
+   const before = await systemPrefersDark();
+   await page.emulateMedia({ colorScheme: before ? 'light' : 'dark' });
+   expect(await systemPrefersDark(), 'the emulated system scheme actually changed').toBe(!before);
+
+   // A layer that named its scheme does not follow the system it now disagrees with,
+   // and the diagram is still the one it rendered.
+   //
+   // The wait is what makes that an assertion rather than a coincidence: a page that
+   // wrongly followed the system would re-render its diagram within about 130ms, so
+   // a read taken immediately can still be looking at the old fill and pass. Waiting
+   // past that window is how "nothing moved" is asked of a change that would arrive
+   // late, the mirror of the polling that asserts a change does arrive.
+   await page.waitForTimeout(1_000);
+   expect(await diagramFill(page)).toBe(fill);
+   await expect(label).toBeVisible();
+   await assertSchemeSurfaces(page, base, tones, other);
+}
+
 /** The generated Manifest page: chrome that lives outside the content tree and is
  * reached through it, so it is the one page a broken content mount still hides. */
 export async function assertManifestPage(page: Page, base: string): Promise<void> {
@@ -245,4 +442,113 @@ export async function assertDecisionsPage(page: Page, base: string): Promise<voi
    await expect(row).toHaveCount(1);
    await expect(row.getByRole('link', { name: 'Adopt the Leji context layer' })).toBeVisible();
    await expect(row).toContainText('accepted');
+}
+
+// --- the site, in both color schemes ---------------------------------------------
+//
+// leji.org follows the operating system too, through a dark sheet of its own linked
+// under a media query, and adds what the viewer has no reader to offer it: a control
+// that stores a scheme for the browser. Both are judged the way the viewer is, under
+// an emulated preference and, where a choice is stored, with the key seeded before
+// the page loads, by the color the browser actually paints. The palette is the
+// viewer's family on the site's own grounds, so the roles below are the site's
+// names for it, not a second copy of the viewer's set.
+
+/** The grounds and tones one color scheme paints on leji.org, by role. */
+export interface SiteTones {
+   /** The page itself. */
+   canvas: string;
+   /** Cards and panels lifted off the page. */
+   surface: string;
+   /** The recessed wash behind an info block, a tip, or a contents box. */
+   wash: string;
+   /** The deep-green bands: the header, the hero, and every code frame. */
+   deep: string;
+   /** Inline code. */
+   codeBg: string;
+   /** Headings and emphasis. */
+   text: string;
+   /** Running copy, table cells included. */
+   body: string;
+   /** Body links and small interactive labels. */
+   link: string;
+   /** Lettering on a deep band, which is deep in both schemes. */
+   inkOnDeep: string;
+}
+
+/** What 1.5.0 painted, which a reader on a light system still sees. */
+export const SITE_LIGHT_TONES: SiteTones = {
+   canvas: '#F7F8F5',
+   surface: '#FFFFFF',
+   wash: '#F6F1E0',
+   deep: '#183D3B',
+   codeBg: '#F1EDE2',
+   text: '#183B32',
+   body: '#4D5B56',
+   link: '#007D59',
+   inkOnDeep: '#FFFFFF',
+};
+
+/** What a reader on a dark system sees instead. */
+export const SITE_DARK_TONES: SiteTones = {
+   canvas: '#131A19',
+   surface: '#1B2422',
+   wash: '#161E1D',
+   deep: '#0E1413',
+   codeBg: '#0E1413',
+   text: '#F2F4F3',
+   body: '#C5CCCA',
+   link: '#70D8C2',
+   inkOnDeep: '#F2F4F3',
+};
+
+/**
+ * One surface a page carries: where it is, whether the scheme reaches it as a
+ * ground or as lettering, and which role its value has to be.
+ *
+ * A page is named by the surfaces it actually has rather than by a set every page
+ * must grow: the landing page has no prose table and a specification page has no
+ * hero, and a shared list would have to be the intersection, which is the page
+ * ground and nothing else.
+ */
+export interface SiteSurface {
+   /** What the surface is, so a failure names it. */
+   what: string;
+   /** Where it is on the page under test. */
+   at: (page: Page) => Locator;
+   /** Whether the read is the ground behind it or the text on it. */
+   paints: 'background' | 'color';
+   /** The role the painted value has to play in the scheme in force. */
+   role: keyof SiteTones;
+}
+
+/**
+ * Every surface a route carries, judged as pixels under the scheme in force.
+ *
+ * The scheme a page arrives in is arranged before it loads: the page is loaded under
+ * an emulated operating-system preference, with the key seeded first where the run is
+ * about a stored choice, and what the browser paints is the answer. A light ground
+ * surviving anywhere in dark, or a dark value leaking into light, fails here and
+ * names the surface it was read on.
+ */
+export async function assertSiteScheme(
+   page: Page,
+   route: string,
+   surfaces: readonly SiteSurface[],
+   tones: SiteTones,
+   other: SiteTones,
+): Promise<void> {
+   // The two palettes give every role a different value, so asserting a surface is
+   // one scheme's tone is also a refutation of the other's. Stated once, rather
+   // than twice per surface.
+   for (const { role } of surfaces) {
+      expect(tones[role], `${role} differs between the two schemes`).not.toBe(other[role]);
+   }
+
+   const response = await page.goto(`${SITE_URL}${route}`);
+   expect(response?.status(), route).toBe(200);
+   for (const { what, at, paints, role } of surfaces) {
+      const painted = paints === 'background' ? await backgroundOf(at(page)) : await colorOf(at(page));
+      expect(painted, `${route}: ${what}`).toBe(rgb(tones[role]));
+   }
 }

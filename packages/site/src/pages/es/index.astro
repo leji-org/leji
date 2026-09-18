@@ -14,7 +14,7 @@ import { translationStrings } from '../../data/i18n';
 import githubIcon from '../../assets/github.svg?raw';
 import lejiSyntaxTheme from '../../styles/shiki-leji.json';
 
-const source = '7acbb9a072d2b6210d2cdb83e952c5b49666ba1f';
+const source = '36bcf47882672f4531a8db2ca978572968ea09f3';
 const strings = translationStrings('es');
 
 // Captured verbatim from a real run, so it stays exactly as captured: a repo with
@@ -344,15 +344,15 @@ const peekJson = `{
       --grain: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='160'%20height='160'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.8'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20type='saturate'%20values='0'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url(%23n)'/%3E%3C/svg%3E");
       position: relative;
       overflow: hidden;
-      color: var(--leji-surface);
+      color: var(--leji-ink-on-deep);
       /* Depth, three layers deep: the linear runs deepest at both ends and opens
          to --leji-deep across the middle, so the band frames itself; a mint wash
          lights the top where the headline sits; and the brand green, centred
          below the band's own edge, lifts the ground under the terminal the way
          the retired composition lifted it from below. */
       background:
-         radial-gradient(120% 80% at 50% -20%, rgba(112, 216, 194, 0.16), transparent 55%),
-         radial-gradient(90% 60% at 50% 118%, rgba(0, 159, 113, 0.55), transparent 60%),
+         radial-gradient(120% 80% at 50% -20%, var(--leji-hero-glow-mint), transparent 55%),
+         radial-gradient(90% 60% at 50% 118%, var(--leji-hero-glow-brand), transparent 60%),
          linear-gradient(180deg, var(--leji-deepest) 0%, var(--leji-deep) 32%, var(--leji-deepest) 100%);
       padding-bottom: clamp(3.5rem, 8vh, 6rem);
       /* The banner is a sibling above this band, not a child, so <main> can be the
@@ -432,7 +432,7 @@ const peekJson = `{
       font-size: clamp(2.4rem, 5.2vw, 4.05rem);
       line-height: 1.06;
       letter-spacing: -0.02em;
-      color: var(--leji-surface);
+      color: var(--leji-ink-on-deep);
       margin: 0;
       max-width: 30ch;
    }
@@ -486,7 +486,7 @@ const peekJson = `{
       margin: 1.7rem 0 2.1rem;
    }
    .lede strong {
-      color: var(--leji-surface);
+      color: var(--leji-ink-on-deep);
       font-weight: 600;
    }
    .lede code {
@@ -537,7 +537,7 @@ const peekJson = `{
    }
    .hero-license .gh-icon {
       display: inline-flex;
-      color: var(--leji-surface);
+      color: var(--leji-ink-on-deep);
    }
    .hero-license .gh-icon :global(svg) {
       display: block;
@@ -573,16 +573,17 @@ const peekJson = `{
       its own, and the shadow already gives it the lift. */
    .btn.solid {
       /* the accessible green ground carries white at 5.15:1 at any size; the
-         vivid brand green is the hover moment */
+         vivid brand green is the hover moment. In dark the ground is the mint
+         and the label the deep ink, and the hover ground lifts to hold it. */
       background: var(--leji-brand-dark);
-      color: var(--leji-surface);
+      color: var(--leji-ink-on-cta);
       font-weight: 600;
       box-shadow:
          inset 0 1px 0 rgba(255, 255, 255, 0.45),
          0 10px 28px rgba(0, 159, 113, 0.32);
    }
    .btn.solid:hover {
-      background: var(--leji-brand);
+      background: var(--leji-cta-hover);
       transform: translateY(-2px);
       box-shadow:
          inset 0 1px 0 rgba(255, 255, 255, 0.55),
@@ -797,8 +798,9 @@ const peekJson = `{
       border-color: var(--leji-brand);
       box-shadow: 0 14px 34px rgba(24, 61, 59, 0.12);
    }
-   /* A light chip carrying dark text: mint ground, heading tone on it, 7.1:1.
-      Brand green here would force white text at 3.4:1 on a 15px numeral. */
+   /* A light chip carrying dark text: mint ground, the ink cut for it, 7.2:1 in
+      light and 10.3:1 in dark. Brand green here would force white text at 3.4:1
+      on a 15px numeral. */
    .ladder li::before {
       content: counter(ladder);
       position: absolute;
@@ -806,7 +808,7 @@ const peekJson = `{
       left: 1.1rem;
       font-family: var(--serif-display);
       font-weight: 620;
-      color: var(--leji-text);
+      color: var(--leji-ink-on-accent);
       background: var(--leji-accent);
       padding: 0.06rem 0.6rem;
       border-radius: 999px;
@@ -996,13 +998,13 @@ const peekJson = `{
       padding: clamp(3.5rem, 7vh, 5.5rem) 0 clamp(4rem, 8vh, 6rem);
       position: relative;
       overflow: hidden;
-      color: var(--leji-surface);
+      color: var(--leji-ink-on-deep);
       /* Travels the same direction as before, lighter to darker, so the band
          settles as the page ends: --leji-deep down to --leji-deepest, mint above
          the theses and brand green lifting the lower-left corner. */
       background:
-         radial-gradient(90% 70% at 85% -20%, rgba(112, 216, 194, 0.14), transparent 58%),
-         radial-gradient(80% 60% at 0% 120%, rgba(0, 159, 113, 0.5), transparent 60%),
+         radial-gradient(90% 70% at 85% -20%, var(--leji-band-glow-mint), transparent 58%),
+         radial-gradient(80% 60% at 0% 120%, var(--leji-band-glow-brand), transparent 60%),
          linear-gradient(180deg, var(--leji-deep), var(--leji-deepest));
    }
    .why-band::before {
@@ -1027,7 +1029,7 @@ const peekJson = `{
       z-index: 1;
    }
    .why-band .section-title {
-      color: var(--leji-surface);
+      color: var(--leji-ink-on-deep);
       margin-bottom: 1rem;
    }
    .why-lede {
@@ -1089,7 +1091,7 @@ const peekJson = `{
       font-weight: 560;
       font-size: 1.55rem;
       margin: 0 0 0.7rem;
-      color: var(--leji-surface);
+      color: var(--leji-ink-on-deep);
    }
    .thesis p {
       margin: 0;
