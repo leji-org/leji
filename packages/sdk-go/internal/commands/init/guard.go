@@ -150,7 +150,7 @@ func decodeOrderedValue(dec *json.Decoder) (any, error) {
 // (`.leji/work/hooks/`) and merges its PreToolUse entry into
 // .claude/settings.json (created if absent, other settings preserved).
 // Idempotent: an existing guard entry is left untouched. rootPath no longer
-// selects the workspace — it is one root-relative tree — and is kept only so the
+// selects the workspace (it is one root-relative tree) and is kept only so the
 // exported signature holds. ignoreContext is the invocation's notice state for the
 // self-managed `.leji/.gitignore`, which this function ensures because it creates
 // `.leji/work/hooks/`; omitted means a context local to this call.

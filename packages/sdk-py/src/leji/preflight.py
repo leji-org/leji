@@ -179,21 +179,25 @@ def _text_hook_external(target: str) -> str:
     return f"add it yourself; hooks run from {target}"
 
 
-# The closing line: who owes how many fixes, and that neither answer blocks entry.
+# The closing line: who owes how many fixes, and, when the run goes on to launch,
+# that neither answer blocks entry.
+_TEXT_SUMMARY_LAUNCH = "The agent starts either way."
+
+
 def _text_summary_fixes(n: int) -> str:
     return f"{n} fix" if n == 1 else f"{n} fixes"
 
 
 def _text_summary_you(fixes: str) -> str:
-    return f"{fixes} for you. The agent starts either way."
+    return f"{fixes} for you."
 
 
 def _text_summary_team(fixes: str) -> str:
-    return f"{fixes} for a maintainer. The agent starts either way."
+    return f"{fixes} for a maintainer."
 
 
 def _text_summary_both(fixes: str, team: int) -> str:
-    return f"{fixes} for you, {team} for a maintainer. The agent starts either way."
+    return f"{fixes} for you, {team} for a maintainer."
 
 
 # --- the version probe ----------------------------------------------------
@@ -295,7 +299,7 @@ class _ProbePlan:
     """How this repository's declared CLI would be asked for its version. ``direct`` is
     the installed Node shim, executed as a file; ``spawned`` is a manager or the ambient
     binary, found on the caller's PATH; ``absent`` is a Node repository whose install has
-    not produced the shim (not installed, or a Yarn PnP tree that has no bin directory) —
+    not produced the shim (not installed, or a Yarn PnP tree that has no bin directory),
     reported, never worked around by asking a package manager to run a script."""
 
     kind: str  # "direct" | "spawned" | "absent"
@@ -367,8 +371,8 @@ def _parse_version(stdout: str) -> Optional[tuple[str, int]]:
 def _probe_version(root: str, plan: _ProbePlan, io: HandoffIO) -> Optional[tuple[str, int]]:
     """Ask the CLI this repository would run for its version. Argv, never a shell; cwd
     pinned to the root; stdin closed; output and time bounded; a sanitized environment;
-    and never a package manager's script runner. Every failure mode — a missing
-    executable, a non-zero exit, a timeout, output that is not a version — comes back as
+    and never a package manager's script runner. Every failure mode (a missing
+    executable, a non-zero exit, a timeout, output that is not a version) comes back as
     None, because a probe that cannot answer is not evidence that the CLI is there."""
     if plan.kind == "absent" or io.run is None:
         return None
@@ -621,20 +625,24 @@ def color_decision(is_tty: bool, env: Mapping[str, str]) -> bool:
     return bool(is_tty) and "NO_COLOR" not in env and env.get("TERM") != "dumb"
 
 
-def _summary_line(you: int, team: int) -> str:
+def _summary_line(you: int, team: int, launch: bool) -> str:
+    if not you and not team:
+        return _TEXT_SUMMARY_COMPLETE
     if you and team:
-        return _text_summary_both(_text_summary_fixes(you), team)
-    if you:
-        return _text_summary_you(_text_summary_fixes(you))
-    if team:
-        return _text_summary_team(_text_summary_fixes(team))
-    return _TEXT_SUMMARY_COMPLETE
+        counts = _text_summary_both(_text_summary_fixes(you), team)
+    elif you:
+        counts = _text_summary_you(_text_summary_fixes(you))
+    else:
+        counts = _text_summary_team(_text_summary_fixes(team))
+    return f"{counts} {_TEXT_SUMMARY_LAUNCH}" if launch else counts
 
 
-def render_preflight(checks: list[Check], color: bool = False) -> str:
+def render_preflight(checks: list[Check], color: bool = False, launch: bool = True) -> str:
     """The Setup block: a heading, one fixed-column row per check with its fixes under
     it, and one closing line counting what is owed. The counts come from the labels the
-    rows already printed, so the block can never say something its own rows do not."""
+    rows already printed, so the block can never say something its own rows do not.
+    ``launch`` is whether an agent launches after the block (`leji start`); off for
+    `leji doctor`, whose closing line counts the fixes and promises nothing."""
     lines = [_HEADING, ""]
     you = 0
     team = 0
@@ -652,7 +660,7 @@ def render_preflight(checks: list[Check], color: bool = False) -> str:
         for fix in c.fix or []:
             lines.append(f"{_FIX_INDENT}{prompt}{fix}")
     lines.append("")
-    lines.append(f"{_MARGIN}{_summary_line(you, team)}")
+    lines.append(f"{_MARGIN}{_summary_line(you, team, launch)}")
     return "\n".join(lines)
 
 

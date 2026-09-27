@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { ensureCiWorkflow, ensureLocalHook } from '../dist/index.js';
-import { CI_PROVIDERS, HOOK_BODY, HUSKY_BLOCK, ciVariants, shQuote } from '../dist/commands/init.js';
+import { CI_PROVIDERS, HOOK_BODY, HUSKY_BLOCK, KNOWN_GENERATED, ciVariants, shQuote } from '../dist/commands/init.js';
 import { detectEcosystem, managerRunnerArgv, runnerArgv } from '../dist/lib/ecosystem.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -26,6 +26,15 @@ function plant(files: Record<string, string>): string {
    for (const [rel, body] of Object.entries(files)) fs.writeFileSync(path.join(dir, rel), body);
    return dir;
 }
+
+/** The providers that own a whole file, and the committed bytes of their earlier releases. */
+const WHOLE_FILE = ['github', 'circleci', 'azure'] as const;
+const HISTORICAL = (p: string) => [
+   `legacy-1.3-${p}-local.yml`,
+   `legacy-1.3-${p}-fallback.yml`,
+   `legacy-1.4-${p}-node-fallback.yml`,
+];
+const sha256 = (text: string) => crypto.createHash('sha256').update(text, 'utf8').digest('hex');
 
 const declaredPkg = (extra = {}) =>
    JSON.stringify({ name: 'demo', devDependencies: { '@leji-org/leji': '^1' }, ...extra }, null, 2) + '\n';
@@ -57,7 +66,8 @@ test('ci goldens: every generated variant matches its committed bytes', () => {
          `hook-${m}.sh`,
          `husky-${m}.sh`,
       ]),
-      ...['github', 'circleci', 'azure'].flatMap((p) => [`legacy-1.3-${p}-local.yml`, `legacy-1.3-${p}-fallback.yml`]),
+      ...WHOLE_FILE.flatMap((p) => HISTORICAL(p)),
+      'action-pins.json',
    ]);
    assert.deepEqual(fs.readdirSync(goldens).sort(), [...expected].sort());
 });
@@ -76,12 +86,99 @@ test('ci: the digests of this release, for the next release to append to KNOWN_G
    // Not an assertion about the registry's contents: the CURRENT variants are matched
    // by bytes, which is stronger than a digest. This prints what the NEXT release
    // must carry once these bytes are history.
-   const lines = ciVariants().map(
-      (v) => `   '${crypto.createHash('sha256').update(v.bytes, 'utf8').digest('hex')}', // ${v.provider} ${v.key}`,
-   );
+   const lines = ciVariants().map((v) => `   '${sha256(v.bytes)}', // ${v.provider} ${v.key}`);
    assert.equal(lines.length, 48);
    if (process.env.LEJI_PRINT_CI_DIGESTS) console.log(lines.join('\n'));
 });
+
+test('ci pins: every action the GitHub template uses carries the tag action-pins.json records', () => {
+   // The roster is the definition of "current": an action it does not name, a
+   // reference that is not a release tag, or a tag other than the recorded one fails.
+   // A floating major (`v7`) and an exact release (`v10.2.0`) are both tags, and the
+   // emitted one must equal the recorded one exactly, so neither turns into the other.
+   const { refreshed, ...pins } = JSON.parse(golden('action-pins.json')) as Record<string, string>;
+   assert.match(refreshed, /^\d{4}-\d{2}-\d{2}$/, 'the roster records the day it was refreshed');
+   let seen = 0;
+   for (const v of ciVariants().filter((v) => v.provider === 'github')) {
+      for (const line of v.bytes.split('\n').filter((l) => /\buses:/.test(l))) {
+         seen++;
+         const ref = /^\s*- uses: ([\w.-]+\/[\w.-]+)@(v\d+(?:\.\d+\.\d+)?)$/.exec(line);
+         assert.ok(
+            ref,
+            `github/${v.key}: malformed reference, want <owner>/<name>@v<major>[.<minor>.<patch>]: ${line}`,
+         );
+         const [, action, tag] = ref;
+         assert.ok(Object.hasOwn(pins, action), `github/${v.key}: ${action} is not in action-pins.json`);
+         assert.equal(
+            tag,
+            pins[action],
+            `github/${v.key}: ${action}@${tag}, but action-pins.json records ${pins[action]}`,
+         );
+      }
+   }
+   assert.ok(seen > 0, 'the GitHub template uses at least one action');
+});
+
+/** A registry's digests per provider, read from another SDK's source as text: only
+ * the lines inside the registry literal, each under the provider block it sits in. */
+function registryFromSource(file: string, opener: string): Record<string, string[]> {
+   const src = fs.readFileSync(path.join(repoRoot, file), 'utf8');
+   const start = src.indexOf(opener);
+   assert.ok(start >= 0, `${file}: the registry "${opener}" was not found`);
+   const out: Record<string, string[]> = {};
+   let provider: string | null = null;
+   for (const line of src.slice(start + opener.length, src.indexOf('\n}', start)).split('\n')) {
+      const key = /^\s*"(\w+)":/.exec(line);
+      if (key) out[(provider = key[1])] = [];
+      const digest = /^\s*"([0-9a-f]{64})",/.exec(line);
+      if (digest) {
+         assert.ok(provider, `${file}: a digest outside any provider block`);
+         out[provider].push(digest[1]);
+      }
+   }
+   return out;
+}
+
+test('ci registry: the three SDKs register the same digests per provider, every earlier release among them', () => {
+   const registries = {
+      python: registryFromSource('packages/sdk-py/src/leji/cigen.py', 'KNOWN_GENERATED: dict[str, list[str]] = {'),
+      go: registryFromSource(
+         'packages/sdk-go/internal/commands/init/cigen.go',
+         'var knownGenerated = map[string][]string{',
+      ),
+   };
+   for (const [sdk, registry] of Object.entries(registries)) {
+      assert.deepEqual(Object.keys(registry).sort(), [...CI_PROVIDERS].sort(), `${sdk}: the provider blocks`);
+      for (const provider of CI_PROVIDERS) {
+         assert.deepEqual(registry[provider].sort(), [...KNOWN_GENERATED[provider]].sort(), `${sdk}/${provider}`);
+      }
+   }
+   // Equal sets could be equally incomplete: each must hold every committed earlier file.
+   for (const provider of WHOLE_FILE) {
+      for (const earlier of HISTORICAL(provider)) {
+         assert.ok(
+            KNOWN_GENERATED[provider].includes(sha256(golden(earlier))),
+            `${provider}: ${earlier} is registered`,
+         );
+      }
+   }
+});
+
+test(
+   'ci registry: every whole file this release writes is registered, for the next release to recognize',
+   {
+      skip:
+         process.env.LEJI_CI_DIGESTS_PENDING === '1'
+            ? "LEJI_CI_DIGESTS_PENDING=1: this release's digests are appended at the release pre-flight"
+            : false,
+   },
+   () => {
+      const missing = ciVariants()
+         .filter((v) => v.provider !== 'gitlab' && !KNOWN_GENERATED[v.provider].includes(sha256(v.bytes)))
+         .map((v) => `${v.provider} ${v.key} ${sha256(v.bytes)}`);
+      assert.deepEqual(missing, [], 'append these to the registry in all three SDKs (LEJI_PRINT_CI_DIGESTS=1)');
+   },
+);
 
 // --- the table -------------------------------------------------------------
 
@@ -148,7 +245,7 @@ test('ci table: the bootstrap disclosure appears exactly once, only where a tool
       if (wantsNote) assert.match(v.bytes, note, `${v.provider}/${v.key}`);
    }
    // uv on GitHub uses its own setup action, so nothing is pip-installed there.
-   assert.match(golden('github-uv-local.yml'), /astral-sh\/setup-uv@v5/);
+   assert.match(golden('github-uv-local.yml'), /astral-sh\/setup-uv@v10\.2\.0/);
    assert.doesNotMatch(golden('github-uv-local.yml'), /pip install uv/);
    assert.match(golden('gitlab-uv-local.yml'), /pip install uv && uv sync --locked/);
 });
@@ -164,32 +261,18 @@ test('ci: the marker names the generator version on every whole file, and never 
    }
 });
 
-test('ci: the Node fallback job is the pre-1.4 job, line for line, plus the marker', () => {
-   // The one compatibility promise of this change: a repository that was getting the
-   // npx job keeps exactly that job. Only the ownership marker is new.
-   for (const provider of ['github', 'circleci', 'azure'] as const) {
-      const before = golden(`legacy-1.3-${provider}-fallback.yml`);
-      const now = golden(`${provider}-node-fallback.yml`);
-      assert.equal(now, `# generated by leji ci (managed) v2\n${before}`, provider);
-   }
-   assert.equal(
-      golden('gitlab-node-fallback.yml'),
-      fs.readFileSync(path.join(goldens, 'gitlab-node-fallback.yml'), 'utf8'),
-   );
-});
-
 // --- ownership -------------------------------------------------------------
 
 test('ci ownership: a file generated by an EARLIER release is upgraded, not abandoned', () => {
-   for (const provider of ['github', 'circleci', 'azure'] as const) {
-      for (const mode of ['local', 'fallback'] as const) {
+   for (const provider of WHOLE_FILE) {
+      for (const earlier of HISTORICAL(provider)) {
          const dir = plant(ROOTS.pnpm);
          const abs = path.join(dir, REL[provider]);
          fs.mkdirSync(path.dirname(abs), { recursive: true });
-         fs.writeFileSync(abs, golden(`legacy-1.3-${provider}-${mode}.yml`));
+         fs.writeFileSync(abs, golden(earlier));
          const r = ensureCiWorkflow(dir, provider);
-         assert.equal(r.action, 'updated', `${provider}/${mode}`);
-         assert.equal(fs.readFileSync(abs, 'utf8'), golden(`${provider}-pnpm-local.yml`), `${provider}/${mode}`);
+         assert.equal(r.action, 'updated', earlier);
+         assert.equal(fs.readFileSync(abs, 'utf8'), golden(`${provider}-pnpm-local.yml`), earlier);
       }
    }
 });
@@ -250,18 +333,21 @@ test('ci ownership: a manager change rewrites the job leji owns', () => {
 });
 
 test('ci ownership: an edited generated file and a foreign file are both left alone', () => {
-   for (const provider of ['github', 'circleci', 'azure'] as const) {
+   for (const provider of WHOLE_FILE) {
       // Edited: the marker is still there, the bytes are not ours. The edit IS the
-      // opt-out, so it is honored rather than overwritten.
-      const edited = plant(ROOTS.pnpm);
-      const eAbs = path.join(edited, REL[provider]);
-      fs.mkdirSync(path.dirname(eAbs), { recursive: true });
-      const mine = golden(`${provider}-pnpm-local.yml`);
-      fs.writeFileSync(eAbs, mine + '      - run: echo mine\n');
-      const eRes = ensureCiWorkflow(edited, provider);
-      assert.equal(eRes.action, 'manual', `${provider} edited`);
-      assert.ok(eRes.snippet, `${provider} edited: a snippet to merge by hand`);
-      assert.equal(fs.readFileSync(eAbs, 'utf8'), mine + '      - run: echo mine\n', `${provider}: untouched`);
+      // opt-out, so it is honored rather than overwritten, whether the file came from
+      // this release or an earlier one.
+      for (const base of [`${provider}-pnpm-local.yml`, `legacy-1.4-${provider}-node-fallback.yml`]) {
+         const edited = plant(ROOTS.pnpm);
+         const eAbs = path.join(edited, REL[provider]);
+         fs.mkdirSync(path.dirname(eAbs), { recursive: true });
+         const mine = golden(base) + '      - run: echo mine\n';
+         fs.writeFileSync(eAbs, mine);
+         const eRes = ensureCiWorkflow(edited, provider);
+         assert.equal(eRes.action, 'manual', `${base} edited`);
+         assert.ok(eRes.snippet, `${base} edited: a snippet to merge by hand`);
+         assert.equal(fs.readFileSync(eAbs, 'utf8'), mine, `${base}: untouched`);
+      }
 
       const foreign = plant(ROOTS.pnpm);
       const fAbs = path.join(foreign, REL[provider]);

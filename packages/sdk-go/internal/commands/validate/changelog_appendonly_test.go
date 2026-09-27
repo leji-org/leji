@@ -2,9 +2,11 @@ package validate_test
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/leji-org/leji/packages/sdk-go/internal/commands/validate"
@@ -35,13 +37,27 @@ func gitSeedExample(t *testing.T) string {
 	run("config", "user.email", "t@e.com")
 	run("config", "user.name", "T")
 	src := filepath.Join(repoRoot2(t), "examples", "monorepo")
-	if out, err := exec.Command("cp", "-r", src+"/.", dir).CombinedOutput(); err != nil {
-		t.Fatalf("cp: %v: %s", err, out)
+	if err := os.CopyFS(dir, withoutLeji{os.DirFS(src)}); err != nil {
+		t.Fatalf("copy example: %v", err)
 	}
 	run("add", "-A")
 	run("commit", "-qm", "seed")
 	return dir
 }
+
+// withoutLeji hides every entry named .leji. A local `leji view` leaves its
+// gitignored viewer build in the working tree, and a test copy that carried it would
+// change what the export, viewer, and conformance tests see.
+type withoutLeji struct{ fs.FS }
+
+func (f withoutLeji) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(f.FS, name)
+	return slices.DeleteFunc(entries, func(e fs.DirEntry) bool { return e.Name() == ".leji" }), err
+}
+
+// ReadLink and Lstat pass through, so a symlink in the source copies as a symlink.
+func (f withoutLeji) ReadLink(name string) (string, error)   { return fs.ReadLink(f.FS, name) }
+func (f withoutLeji) Lstat(name string) (fs.FileInfo, error) { return fs.Lstat(f.FS, name) }
 
 const clRel = "docs/context-changelog.json"
 
@@ -187,7 +203,7 @@ func TestChangelogAppendOnlyUnverifiableOutsideGit(t *testing.T) {
 	// No git repo: append-only cannot be verified.
 	dir := t.TempDir()
 	src := filepath.Join(repoRoot2(t), "examples", "monorepo")
-	if err := os.CopyFS(dir, os.DirFS(src)); err != nil {
+	if err := os.CopyFS(dir, withoutLeji{os.DirFS(src)}); err != nil {
 		t.Fatal(err)
 	}
 	// Non-strict: a warning.

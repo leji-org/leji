@@ -204,7 +204,10 @@ func textHookExternal(target string) string {
 	return "add it yourself; hooks run from " + target
 }
 
-// The closing line: who owes how many fixes, and that neither answer blocks entry.
+// The closing line: who owes how many fixes, and, when the run goes on to launch, that
+// neither answer blocks entry.
+const textSummaryLaunch = "The agent starts either way."
+
 func textSummaryFixes(n int) string {
 	if n == 1 {
 		return "1 fix"
@@ -213,15 +216,15 @@ func textSummaryFixes(n int) string {
 }
 
 func textSummaryYou(fixes string) string {
-	return fixes + " for you. The agent starts either way."
+	return fixes + " for you."
 }
 
 func textSummaryTeam(fixes string) string {
-	return fixes + " for a maintainer. The agent starts either way."
+	return fixes + " for a maintainer."
 }
 
 func textSummaryBoth(fixes string, team int) string {
-	return fixes + " for you, " + strconv.Itoa(team) + " for a maintainer. The agent starts either way."
+	return fixes + " for you, " + strconv.Itoa(team) + " for a maintainer."
 }
 
 func textOfferMcp(host string) string {
@@ -378,7 +381,7 @@ func parseVersion(stdout string) *foundVersion {
 // "direct" is the installed Node shim, executed as a file; "spawned" is a manager or
 // the ambient binary, found on the caller's PATH; "absent" is a Node repository whose
 // install has not produced the shim (not installed, or a Yarn PnP tree that has no
-// bin directory) — reported, never worked around by asking a package manager to run a
+// bin directory), reported, never worked around by asking a package manager to run a
 // script.
 type probePlan struct {
 	kind string // "direct" | "spawned" | "absent"
@@ -441,8 +444,8 @@ func planProbe(root string, report ecosystem.Report) probePlan {
 
 // probeVersion asks the CLI this repository would run for its version. Argv, never a
 // shell; cwd pinned to the root; stdin closed; output and time bounded; a sanitized
-// environment; and never a package manager's script runner. Every failure mode — a
-// missing executable, a non-zero exit, a timeout, output that is not a version — comes
+// environment; and never a package manager's script runner. Every failure mode (a
+// missing executable, a non-zero exit, a timeout, output that is not a version) comes
 // back as nil, because a probe that cannot answer is not evidence that the CLI is there.
 func probeVersion(root string, plan probePlan, hio *HandoffIO) *foundVersion {
 	if plan.kind == "absent" || hio == nil || hio.Run == nil {
@@ -728,23 +731,30 @@ func padRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-len(s))
 }
 
-func summaryLine(you, team int) string {
+func summaryLine(you, team int, launch bool) string {
+	var counts string
 	switch {
 	case you > 0 && team > 0:
-		return textSummaryBoth(textSummaryFixes(you), team)
+		counts = textSummaryBoth(textSummaryFixes(you), team)
 	case you > 0:
-		return textSummaryYou(textSummaryFixes(you))
+		counts = textSummaryYou(textSummaryFixes(you))
 	case team > 0:
-		return textSummaryTeam(textSummaryFixes(team))
+		counts = textSummaryTeam(textSummaryFixes(team))
+	default:
+		return textSummaryComplete
 	}
-	return textSummaryComplete
+	if launch {
+		return counts + " " + textSummaryLaunch
+	}
+	return counts
 }
 
 // RenderPreflight is the Setup block: a heading, one fixed-column row per check with
 // its fixes under it, and one closing line counting what is owed. The counts come from
 // the labels the rows already printed, so the block can never say something its own
-// rows do not.
-func RenderPreflight(checks []Check, color bool) string {
+// rows do not. launch is whether an agent launches after the block (`leji start`);
+// false for `leji doctor`, whose closing line counts the fixes and promises nothing.
+func RenderPreflight(checks []Check, color bool, launch bool) string {
 	lines := []string{startHeading, ""}
 	you, team := 0, 0
 	for _, c := range checks {
@@ -769,7 +779,7 @@ func RenderPreflight(checks []Check, color bool) string {
 			lines = append(lines, preflightFixIndent+prompt+fix)
 		}
 	}
-	lines = append(lines, "", preflightMargin+summaryLine(you, team))
+	lines = append(lines, "", preflightMargin+summaryLine(you, team, launch))
 	return strings.Join(lines, "\n")
 }
 

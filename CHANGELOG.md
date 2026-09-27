@@ -1,5 +1,74 @@
 # Changelog
 
+## 1.5.2 · 2026-09-27
+
+### Added
+
+- **`leji doctor`.** The clone-setup report `leji start` prints, as its own command: the
+  same four checks (the declared CLI, the MCP registration for the selected host, the
+  shared `.mcp.json`, the pre-commit hook), with nothing offered, written, or launched.
+  Exits 1 when the clone is not ready; `--json` carries the same document as `start --json`
+  apart from `command`. Requested in #20.
+- **`leji validate` warns on a leftover `docs/.leji/`.** A `.leji/` directory under the
+  context root that is not the repository's own `.leji/` (the tool tree's location before
+  1.4.0) is reported as the warning `legacy-leji-dir` at `<rootPath>/.leji`, with how to
+  remove it (`git rm -r --cached` first if tracked). A symlink to the root `.leji/` and a
+  `rootPath` of `.` never warn. Warning only: validate's exit, the conformance verdict, the
+  MCP tool's success, and the generated hook are unchanged. Requested in #21.
+- **Decision records carry their number in the viewer sidebar.** A record whose file name
+  starts with its number and a hyphen (`0001-slug.md`) and that declares a frontmatter
+  `title` is listed as `0001. Title`, so a reader holding a number finds the record without
+  the decisions page. A record labeled from its file name already shows the number and is
+  unchanged. Requested in #22.
+- **A "From 1.3.x" section in the README's migration notes**, with the seven steps and the
+  prompt to hand an agent.
+
+### Changed
+
+- **`leji ci` writes current pins.** The generated workflows use `actions/checkout`,
+  `actions/setup-node`, `actions/setup-python` and `actions/setup-go` at `@v7`, Node 24
+  (`node-version: '24'`, the `node:24` image on GitLab and CircleCI), and
+  `astral-sh/setup-uv@v10.2.0`, an exact release tag because that action no longer
+  publishes major tags. Azure Pipelines moves from the deprecated `NodeTool@0` to
+  `UseNode@1` with `version: '24.x'`. On GitHub Actions, CircleCI, and Azure Pipelines, a
+  workflow file an earlier release generated, unedited, is recognized and replaced with the
+  current one on the next `leji ci`, and an edited one is left alone with a snippet, as
+  before; on GitLab the generator owns a marked block inside the shared file and replaces
+  that block, edits inside it included. This supersedes the 1.4 promise that the Node
+  fallback job stays the 1.3.x job line for line. A committed list of the GitHub template's
+  action tags, checked in the test suite, fails the build when an emitted tag differs from
+  it. Requested in #23.
+- **An empty `viewer.theme.primary` now warns.** `primary: ""` raises the
+  `viewer-theme-invalid` warning and renders the default accent, as a blank string already
+  did and as an empty `link` is reported. A missing key stays silent. Requested in #24.
+- **Code comments and docstrings cleaned up** across the SDK sources and tests, the scripts,
+  the workflows, and the viewer template, to the house style. No behavior changes; the
+  viewer's `viewer-boot.js` differs only in those comments, so the export fixtures re-pin
+  it.
+- **leji.org and the issue templates.** In the light scheme, the primary button's hover
+  ground, links on the code chip, and the section-navigation glyphs clear WCAG AA; the ja
+  and zh-hans page templates render no space after full-width punctuation; the issue
+  templates share one heading shape; the manifest example's string arrays print on one
+  line on the six manifest pages.
+
+### Fixed
+
+- **The e2e runner's preview stays its own child** under an AI-agent environment (Astro
+  backgrounds it otherwise), so teardown stops it and a second `npm run e2e` no longer
+  refuses to start; after teardown every server's port must be free, or the run fails
+  naming the port.
+- **Go reads layer files containment-first at the seven single-outcome read sites**, five
+  of them through one `fsx.ReadTextWithin`, matching the TypeScript order.
+- **The TypeScript CLI sorts paths in byte order** in `status`, `init`, `changelog`, and
+  the mounts comparison, as Python and Go already did, so the status report's lists, the
+  scaffolded changelog entry's seeded-file list, and a compaction entry's `paths` union
+  agree across the three SDKs for names that UTF-16 code units and UTF-8 bytes order
+  differently.
+- **The three SDKs' test copies of examples and fixtures leave out a local `.leji/`**,
+  through one copy helper in TypeScript and in Python and one filter per Go test package,
+  so a viewer build left in a developer's checkout no longer changes what the export,
+  viewer, and conformance tests see.
+
 ## 1.5.1 · 2026-09-17
 
 ### Added

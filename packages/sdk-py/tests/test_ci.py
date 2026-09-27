@@ -61,7 +61,7 @@ GITLAB_BLOCK = (
     "# >>> leji ci (managed) >>>\n"
     "leji-validate:\n"
     "  stage: .pre\n"
-    "  image: node:22\n"
+    "  image: node:24\n"
     "  script:\n"
     "    - npx -y @leji-org/leji@1 validate\n"
     "    - npx -y @leji-org/leji@1 index --check\n"

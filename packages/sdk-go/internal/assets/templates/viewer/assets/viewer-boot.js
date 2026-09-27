@@ -38,15 +38,15 @@ function lejiMermaidTextColor(accent) {
 // Docsify's relativePath routing already resolves the markdown image form. Returns
 // the path under `contentBase` (query and fragment preserved) or null for a src that must be
 // left as authored: empty, fragment- or query-only, root-relative, backslash-led,
-// protocol-relative, any scheme reference, and any traversal escaping /content/ —
-// traversal is rejected rather than clamped, because the server canonicalizes and a
+// protocol-relative, any scheme reference, and any traversal escaping /content/.
+// Traversal is rejected rather than clamped, because the server canonicalizes and a
 // clamped path would quietly address the viewer chrome instead of the layer.
 // Containment is judged on the decoded, normalized path, not the literal one,
 // because the server canonicalizes percent-encoding and separators before it
-// routes — an encoded `..` reads as traversal there even though URL keeps it.
-// The value is first put through URL parsing's own input preprocessing — leading
+// routes: an encoded `..` reads as traversal there even though URL keeps it.
+// The value is first put through URL parsing's own input preprocessing (leading
 // and trailing C0-control-and-space characters trimmed, then ASCII tab, LF, and
-// CR removed anywhere in the value — so classification sees exactly what the
+// CR removed anywhere in the value), so classification sees exactly what the
 // parser sees; otherwise a padded or tab-split scheme reference slips past the
 // first-character and scheme checks and gets rewritten.
 function lejiResolveImgSrc(src, docDir, contentBase) {

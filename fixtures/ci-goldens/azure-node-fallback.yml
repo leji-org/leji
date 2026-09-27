@@ -4,9 +4,9 @@ trigger:
 pool:
   vmImage: ubuntu-latest
 steps:
-  - task: NodeTool@0
+  - task: UseNode@1
     inputs:
-      versionSpec: '22.x'
+      version: '24.x'
   - script: npx -y @leji-org/leji@1 validate
     displayName: leji validate
   - script: npx -y @leji-org/leji@1 index --check

@@ -605,6 +605,47 @@ def test_render_preflight_scenarios(name: str, checks: list[Check], expected: st
     assert "–" not in block and "—" not in block, "no en or em dash reaches the terminal"
 
 
+# Only this clone's own gaps: the user's registration and the per-clone hook.
+PERSONAL_ONLY = [
+    Check("cli", "ok", "1.4.0 (node_modules/.bin/leji)", None),
+    Check("mcp", "missing", "not registered for Claude Code", [MCP_USER_FIX]),
+    Check("mcp-shared", "ok", ".mcp.json committed", None),
+    Check("hook", "missing", "none yet (per clone)", ["leji ci --hooks"]),
+]
+
+# Nothing owed by anyone.
+COMPLETE = [
+    Check("cli", "ok", "1.4.0 (node_modules/.bin/leji)", None),
+    Check("mcp", "ok", "registered for Claude Code", None),
+    Check("mcp-shared", "ok", ".mcp.json committed", None),
+    Check("hook", "ok", "runs leji checks before each commit: .git/hooks/pre-commit", None),
+]
+
+# `leji doctor`'s closing line in each of the four summary branches: the counts alone,
+# because doctor launches nothing.
+DOCTOR_CLOSING = [
+    ("personal only", PERSONAL_ONLY, "  2 fixes for you."),
+    ("maintainer only", ALL_TEAM, "  3 fixes for a maintainer."),
+    ("mixed", PERSONAL_AND_TEAM_MCP, "  1 fix for you, 1 for a maintainer."),
+    ("complete", COMPLETE, "  Setup complete."),
+]
+
+
+@pytest.mark.parametrize("name,checks,closing", DOCTOR_CLOSING)
+def test_render_preflight_with_launch_off(name: str, checks: list[Check], closing: str) -> None:
+    doctor = render_preflight(checks, launch=False).split("\n")
+    start = render_preflight(checks).split("\n")
+    assert doctor[-1] == closing
+    # Every other line is start's, and start's closing line is this one plus the agent
+    # sentence (none when nothing is owed).
+    assert doctor[:-1] == start[:-1]
+    assert start[-1] == (
+        closing if name == "complete" else f"{closing} The agent starts either way."
+    )
+    # The default is start's block.
+    assert render_preflight(checks, launch=True).split("\n") == start
+
+
 def test_no_row_of_any_scenario_wraps_at_80_columns() -> None:
     for name, checks, _expected in SCENARIOS:
         for line in render_preflight(checks).split("\n"):

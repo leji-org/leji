@@ -47,7 +47,7 @@ type Report struct {
 	SkippedReadmes []ShadowedSelector
 	// Projection: would this layer, at HEAD, project completely if a host mounted
 	// it? Judged against the object store, so it sees what a host's hydrate would
-	// see — including a bound profile that exists on disk but is untracked.
+	// see, including a bound profile that exists on disk but is untracked.
 	// Report-only.
 	Projection mounts.SelfProjection
 }

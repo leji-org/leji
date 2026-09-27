@@ -35,7 +35,7 @@ func TestCheckBeforeActEntrySwappedToALinkBetweenTheJudgmentAndTheOpenIsRefused(
 	// trusts the open to pass, because the open resolves the link and verifies its
 	// target perfectly well. What refuses it is the descriptor's own identity against
 	// a fresh lstat of the NAME afterwards. Mutation that reddens: judge with lstat
-	// and take the bytes back by path name (the pre-change shape) — the decoy's
+	// and take the bytes back by path name (the pre-change shape): the decoy's
 	// packageManager and its declaration decide the answer.
 	dir := t.TempDir()
 	manifest := filepath.Join(dir, "package.json")
@@ -77,7 +77,7 @@ func TestCheckBeforeActEntrySwappedToALinkBetweenTheJudgmentAndTheOpenIsRefused(
 func TestCheckBeforeActANameRenamedAwayAndLinkedBackToItsOwnInodeIsRefused(t *testing.T) {
 	// The case every comparison against the FIRST lstat accepts: the entry the run
 	// judged is renamed and its old name becomes a link to that same inode, so each
-	// identity the open can see agrees — the resolve lands on that file, the
+	// identity the open can see agrees: the resolve lands on that file, the
 	// descriptor's stat is the judged inode, and the verified open's own recheck
 	// matches. Only a FRESH lstat of the NAME catches it, because a symlink's inode is
 	// never the inode of the file it points at, and a lockfile reached through a link
@@ -126,9 +126,9 @@ func TestCheckBeforeActANameRenamedAwayAndLinkedBackToItsOwnInodeIsRefused(t *te
 func TestAManifestThisRunCannotOpenIsUnreadableNotRefused(t *testing.T) {
 	// The other half of the verified-read composition: what the run could not COMPLETE
 	// on an entry it never saw contradicted is not a refusal. A regular file of this
-	// repository whose open is denied keeps the outcome it has always had — the
+	// repository whose open is denied keeps the outcome it has always had (the
 	// manifest is unreadable, so neither the lockfile nor the ecosystem default is
-	// consulted — while a swap stays refused-evidence above. Mutation that reddens:
+	// consulted), while a swap stays refused-evidence above. Mutation that reddens:
 	// collapse every failure in verify to refused, and this reports refused-evidence
 	// instead.
 	dir := t.TempDir()

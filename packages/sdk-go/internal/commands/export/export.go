@@ -1,6 +1,6 @@
 // Package export is `leji export` (and `leji viewer build`, its co-equal name for
 // the same operation): the static export pipeline, in its own package so its
-// transitive import set can be checked. Nothing here — and nothing it imports —
+// transitive import set can be checked. Nothing here (and nothing it imports)
 // pulls in `net`, `net/http`, `net/url` or any other network package; the local
 // preview server keeps all of that in `commands/serve`. The only subprocess the
 // pipeline reaches is `git`, through the mount status the manifest page renders,
@@ -119,7 +119,7 @@ var testHookAfterEnumerate func()
 // contract the local server serves (chrome at the web root, layer markdown under
 // /content/), so any static host serves it as-is. The pipeline is fixed: regenerate
 // the chrome (server flavor, always), run the pre-write checks, and only on a clean
-// result clear and write the target — so a failing check leaves a pre-existing export
+// result clear and write the target, so a failing check leaves a pre-existing export
 // byte-untouched. The exported index.html carries the protect-your-context warning as
 // a comment.
 func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options) (BuildResult, error) {
@@ -135,8 +135,8 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 		return BuildResult{}, err
 	}
 	// Every path below is resolved, root included, so the path a check judges is the
-	// path the write lands on: a symlinked component — or a case-variant spelling of a
-	// reserved role on a case-insensitive filesystem — resolves to its real name here,
+	// path the write lands on: a symlinked component (or a case-variant spelling of a
+	// reserved role on a case-insensitive filesystem) resolves to its real name here,
 	// before the reservation and containment rules are applied to it.
 	abs, err := filepath.Abs(root)
 	if err != nil {
@@ -171,7 +171,7 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 	// The ORIGINAL entry is judged before resolution, because a dangling symlink is a
 	// standing entry and never an absence: resolved first, `.leji/dist -> missing` hands
 	// every check below the link's MISSING destination, which reads as an unoccupied
-	// target the export then clears and creates — a write through the link. An lstat or
+	// target the export then clears and creates: a write through the link. An lstat or
 	// stat that fails for any other reason (permission, I/O, a symlink loop) is not an
 	// absence either; that path is refused by the resolution check just below.
 	if st, lerr := os.Lstat(requestedOut); lerr == nil && st.Mode()&os.ModeSymlink != 0 {
@@ -203,7 +203,7 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 		return BuildResult{Out: outDisplay, Findings: gen.Findings}, nil
 	}
 	// Check-before-act: the output target is validated against the write rule
-	// BEFORE any clean or write, UNCONDITIONALLY — the default `.leji/dist` and a
+	// BEFORE any clean or write, UNCONDITIONALLY: the default `.leji/dist` and a
 	// caller `--out` alike, with no empty-outRel fast path around it. It must resolve
 	// INSIDE the repository (a `.leji/dist` symlinked out of the tree is refused, not
 	// followed: the export folder is yours to copy wherever your host reads it from),
@@ -250,7 +250,7 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 	}
 	// The export reads the chrome by name; each file is realpath-checked against the
 	// servable whitelist in copyChrome below, and the generation pass above already
-	// refused a `.leji/viewer/` that does not resolve inside its own role — so the two
+	// refused a `.leji/viewer/` that does not resolve inside its own role, so the two
 	// vectors a separate identity check guarded are closed at their operations.
 	viewerAbs := layout.Abs(rootAbs, layout.ViewerRel)
 	outContent := filepath.Join(outAbs, "content")
@@ -298,8 +298,8 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 	}
 
 	// Check-before-act level-2 (boundary skip): a real, otherwise-servable read source withheld
-	// because its RESOLVED path lands in a private role says why exactly once — on
-	// stderr, never on stdout, never in the `--json` object — so the boundary answers
+	// because its RESOLVED path lands in a private role says why exactly once (on
+	// stderr, never on stdout, never in the `--json` object), so the boundary answers
 	// the "why isn't my doc showing?" question instead of dropping silently. A routine
 	// dot-entry or ordinary symlink stays silent (a clean build has dozens of those);
 	// this speaks only when the whitelist actually withheld something servable-looking.
@@ -312,7 +312,7 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 		fmt.Fprintf(os.Stderr, "skipped %s: resolves into %s/%s (private); not served or exported\n",
 			childRel, layout.LejiDir, layout.LejiRole(rootAbs, real))
 	}
-	// Enumerate the content root — every file and directory /content will carry —
+	// Enumerate the content root (every file and directory /content will carry),
 	// skipping ALL dotfiles/dot-dirs and symlinks: an export is a self-contained
 	// snapshot, and a symlink or dot-path (.git, .secret.md) must never leak into it.
 	// Explicit walk, not a blanket tree copy, so the default output dir under the
@@ -342,7 +342,7 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 			childAbs := filepath.Join(contentAbs, filepath.FromSlash(childRel))
 			// A symlink is never exported (snapshot semantics). An ordinary one is a
 			// routine, silent exclusion; one resolving into a private role is a boundary
-			// skip — a servable-looking source withheld, named once on stderr.
+			// skip: a servable-looking source withheld, named once on stderr.
 			if entry.Type()&os.ModeSymlink != 0 {
 				if real, ok := fsx.ResolvedPathUnder(rootAbs, childAbs); ok && !layout.ServablePath(rootAbs, real) {
 					boundarySkip(childRel, real)
@@ -391,13 +391,13 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 	}
 
 	// A carried source is BOUND to its bytes at the moment it is used, not trusted from
-	// the walk: between enumeration and use, the file — or any directory above it — can
+	// the walk: between enumeration and use, the file (or any directory above it) can
 	// become a symlink, and a read or copy by path then follows it past every check the
 	// walk made. So each source is resolved natively, the RESOLVED path is judged
 	// against the content root and the servable whitelist, and its bytes come from the
 	// descriptor fstat proved a regular file: check and use hold the same inode. A
 	// source that fails is dropped from the export with the same check-before-act semantics the walk
-	// applies — silent for an ordinary redirect or a vanished file, named once on stderr
+	// applies: silent for an ordinary redirect or a vanished file, named once on stderr
 	// when it resolves into a private role.
 	contentReal := contentAbs
 	if resolved, ok := fsx.ResolvedPath(contentAbs); ok {
@@ -420,8 +420,8 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 
 	// The rendering lint (`adoption/rendering.md`): every markdown document the export
 	// will carry under content/, governed and reference alike, since anything served
-	// can diverge across renderers. It reads the layer's own files — the author's bytes
-	// at the author's line numbers, which is what a finding must point at — never the
+	// can diverge across renderers. It reads the layer's own files (the author's bytes
+	// at the author's line numbers, which is what a finding must point at), never the
 	// generated chrome pages, which no one edits and every run rewrites. Each document
 	// is read EXACTLY ONCE, and the bytes read are the bytes exported below: the lint's
 	// verdict and the exported file are then the same document, with no window in which
@@ -453,13 +453,13 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 		lint = append(lint, renderlint.Findings(repoRel, string(bytes))...)
 	}
 	// Canonical order for the whole result: (path, line, rule, construct). The walk is
-	// directory order, so the sort is what makes two runs — and three SDKs — report the
+	// directory order, so the sort is what makes two runs (and three SDKs) report the
 	// same sequence.
 	all := findings.Sort(append(append([]findings.Finding{}, gen.Findings...), lint...))
 
 	// The `--strict` gate, and the last thing before the first byte moves: the refusals
 	// above are about the destination (exit 2, whatever the flags say), while strict is
-	// about the layer — a lint finding fails the run, and because the gate sits ahead of
+	// about the layer: a lint finding fails the run, and because the gate sits ahead of
 	// the clean below, a pre-existing export is left exactly as it was. The pipeline is
 	// regenerate -> check -> clear-and-write, in that order, so the promise holds for
 	// every check that lands in it later.
@@ -552,8 +552,8 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 	}
 	// One generated chrome file into the export. A symlink is not a generated file:
 	// lstat refuses it without following it, and the bytes come from the same guarded
-	// open the content copy uses — the resolved path judged by the whitelist, the
-	// descriptor proved to be that file — so nothing planted inside the chrome tree can
+	// open the content copy uses (the resolved path judged by the whitelist, the
+	// descriptor proved to be that file), so nothing planted inside the chrome tree can
 	// pull a private role's bytes along, and no copy reopens a checked path.
 	copyChrome := func(srcAbs, destAbs string) error {
 		refuse := func() error {
@@ -649,7 +649,7 @@ func BuildViewer(root string, m *manifest.Manifest, outRel string, opts Options)
 // copyFromDescriptor streams a source's bytes from the descriptor a check already
 // judged, rather than reopening its path: only the linted markdown is held in
 // memory, and the bytes still come from the checked inode. The destination is judged
-// and opened by the chokepoint, so the copy can never reopen — or redirect to — a
+// and opened by the chokepoint, so the copy can never reopen (or redirect to) a
 // path. io.Copy writes each chunk to completion, so a short write on an unusual
 // destination cannot truncate the file (the reference implementation loops its
 // writeSync for the same reason).

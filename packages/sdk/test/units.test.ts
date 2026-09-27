@@ -50,6 +50,7 @@ import { templatesDir } from '../dist/lib/schemas.js';
 import { excludedFromCategories, scanAgentProfiles, scanCategories, scanDecisionRecords } from '../dist/lib/layer.js';
 import { route } from '../dist/lib/route.js';
 import { buildDecisionsPage, buildSidebarGroups, mermaidTextColor } from '../dist/commands/viewer.js';
+import { copyTree } from './helpers/copytree.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const exampleDir = path.join(repoRoot, 'examples', 'monorepo');
@@ -108,7 +109,7 @@ function copyExample(): string {
 
 test('index resolves the default path when machine.indexPath is undeclared', () => {
    const dir = tmpdir('leji-noidx-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const { manifest } = loadManifest(dir);
    // rootPath is docs/, so the default index path is docs/context-index.json.
    // No file exists there yet: checkIndex reports index-required (missing file).
@@ -126,7 +127,7 @@ test('index resolves the default path when machine.indexPath is undeclared', () 
 
 test('no machine block: agents/decisions resolve to docs/agents/ and docs/decisions/', () => {
    const dir = tmpdir('leji-nomachine-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    // The fixture declares no machine block at all.
    const { manifest } = loadManifest(dir);
    assert.equal(manifest!.machine, undefined, 'fixture has no machine block');
@@ -197,7 +198,7 @@ test('corrupt changelog is artifact-parse', () => {
 test('changelog entry removal violates append-only', () => {
    const dir = tmpdir('leji-chrm-');
    execFileSync('git', ['init', '-q'], { cwd: dir });
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    execFileSync('git', ['add', '-A'], { cwd: dir });
    execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', 'seed'], { cwd: dir });
    const rel = path.join('docs', 'context-changelog.json');
@@ -240,7 +241,7 @@ test('slug collisions de-collide with the parent directory', () => {
 
 test('a category index entry may be a single file', () => {
    const dir = tmpdir('leji-file-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const manifestPath = path.join(dir, 'leji.json');
    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
    manifest.categories.system = { indexes: ['docs/context/system.md'] };
@@ -283,7 +284,7 @@ test('fsx helpers: walkMd on a file path, underPath edges', () => {
 
 test('audit: path traversal in declared paths is rejected by the manifest schema', () => {
    const dir = tmpdir('leji-trav-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const manifestPath = path.join(dir, 'leji.json');
    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
    manifest.machine = { indexPath: '../escape-index.json' };
@@ -301,7 +302,7 @@ test('audit: malformed changelog entries shape reports findings without crashing
 
 test('audit: decision records in a second mapped decisions path are found', () => {
    const dir = tmpdir('leji-dec2-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const manifestPath = path.join(dir, 'leji.json');
    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
    // List a second decisions location in the decisions index file.
@@ -345,7 +346,7 @@ test('audit: index --check rejects an unsupported schemaVersion', () => {
 test('audit: reordering keys in a committed changelog entry is not a violation', () => {
    const dir = tmpdir('leji-reord-');
    execFileSync('git', ['init', '-q'], { cwd: dir });
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    execFileSync('git', ['add', '-A'], { cwd: dir });
    execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', 'seed'], { cwd: dir });
    const rel = path.join(dir, 'docs', 'context-changelog.json');
@@ -359,7 +360,7 @@ test('audit: reordering keys in a committed changelog entry is not a violation',
 
 test('audit: empty rootPath produces no bogus paths-outside-root warnings', () => {
    const dir = tmpdir('leji-emptyroot-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const manifestPath = path.join(dir, 'leji.json');
    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
    manifest.rootPath = '';
@@ -542,7 +543,7 @@ test('quality: duplicate YAML keys in frontmatter are invalid', () => {
 function gitSeedExample(prefix: string): string {
    const dir = tmpdir(prefix);
    execFileSync('git', ['init', '-q'], { cwd: dir });
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    execFileSync('git', ['add', '-A'], { cwd: dir });
    execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', 'seed'], { cwd: dir });
    return dir;
@@ -624,7 +625,7 @@ const CHANGELOG_REL = 'docs/context-changelog.json';
 function seedWithEntries(prefix: string, count: number): string {
    const dir = tmpdir(prefix);
    execFileSync('git', ['init', '-q'], { cwd: dir });
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    const abs = path.join(dir, CHANGELOG_REL);
    const log = JSON.parse(fs.readFileSync(abs, 'utf8'));
    log.entries = Array.from({ length: count }, (_, i) => ({
@@ -857,7 +858,7 @@ test('compact refuses to write through a symlinked ancestor that escapes the roo
 
 test('seedChangelogIfMissing does not seed a core-level layer', () => {
    const dir = tmpdir('leji-seed-core-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const { manifest } = loadManifest(dir);
    const result = seedChangelogIfMissing(dir, manifest!);
    assert.equal(result, null);
@@ -866,7 +867,7 @@ test('seedChangelogIfMissing does not seed a core-level layer', () => {
 
 test('seedChangelogIfMissing writes a changelog for an indexed layer when missing', () => {
    const dir = tmpdir('leji-seed-indexed-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const mp = path.join(dir, 'leji.json');
    const m = JSON.parse(fs.readFileSync(mp, 'utf8'));
    m.conformance = { ...(m.conformance ?? {}), claimedLevel: 'indexed' };
@@ -883,7 +884,7 @@ test('seedChangelogIfMissing writes a changelog for an indexed layer when missin
 
 test('seedChangelogIfMissing does not re-seed when a changelog already exists', () => {
    const dir = tmpdir('leji-seed-present-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const mp = path.join(dir, 'leji.json');
    const m = JSON.parse(fs.readFileSync(mp, 'utf8'));
    m.conformance = { ...(m.conformance ?? {}), claimedLevel: 'indexed' };
@@ -902,7 +903,7 @@ test('seedChangelogIfMissing treats a dangling changelog link as present, never 
    // seed was created at the link's missing destination. The exclusive create judges the
    // ORIGINAL entry, so any standing entry is the same no-op an existing changelog is.
    const dir = tmpdir('leji-seed-dangling-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const mp = path.join(dir, 'leji.json');
    const m = JSON.parse(fs.readFileSync(mp, 'utf8'));
    m.conformance = { ...(m.conformance ?? {}), claimedLevel: 'indexed' };
@@ -924,7 +925,7 @@ test('seedChangelogIfMissing treats a dangling changelog link as present, never 
 
 test('seedChangelogIfMissing refuses a changelog link resolving outside the repository', () => {
    const dir = tmpdir('leji-seed-outlink-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-seed-outside-link-'));
    const mp = path.join(dir, 'leji.json');
    const m = JSON.parse(fs.readFileSync(mp, 'utf8'));
@@ -941,7 +942,7 @@ test('seedChangelogIfMissing refuses a changelog link resolving outside the repo
 
 test('seedChangelogIfMissing refuses a path escaping the root via a symlinked ancestor', () => {
    const dir = tmpdir('leji-seed-symesc-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-seed-outside-'));
    fs.symlinkSync(outside, path.join(dir, 'docs', 'evil'));
    const mp = path.join(dir, 'leji.json');
@@ -1412,7 +1413,7 @@ test('viewer: generates viewer + sidebar that reflect the layer', () => {
          '  - [Invariants](/system/invariants.md)',
          '- **🧭 Decisions**',
          '  - [Decisions index](/_decisions.md)',
-         '  - [Adopt the Leji context layer](/decisions/0001-adopt-leji.md)',
+         '  - [0001. Adopt the Leji context layer](/decisions/0001-adopt-leji.md)',
          '',
       ].join('\n'),
    );
@@ -1584,7 +1585,7 @@ test('viewer build: --out never resolves inside .leji/ except exactly .leji/dist
    assert.throws(() => buildViewer(dir, manifest!, '.leji/mounts'), /reserved for the tool's own roles/);
    assert.equal(fs.readFileSync(path.join(dir, '.leji', 'mounts', 'store', 'keep'), 'utf8'), 'private\n');
    // The reservation is exact, not a subtree: `.leji/dist` is a target a caller may
-   // name, and everything under it is not — the export owns that directory whole.
+   // name, and everything under it is not: the export owns that directory whole.
    for (const nested of ['.leji/dist/subdir', '.leji/dist/a/b']) {
       assert.throws(() => buildViewer(dir, manifest!, nested), /never a path inside it/, nested);
    }
@@ -1662,7 +1663,7 @@ test('viewer build: the export flavor is generated, and carries no root-absolute
    assert.ok(exported.includes('"basePath":"content/"'), 'the exported flavor mounts content relative to the page');
    assert.ok(!exported.includes('"basePath":"/content/"'), 'no export-flavored page keeps the app-root base');
    // The machine-checkable proxy gate for subpath hosting: nothing in the exported
-   // shell — attributes or config — addresses the server root. (Sidebar link
+   // shell (attributes or config) addresses the server root. (Sidebar link
    // destinations are route strings resolved against basePath, not fetch paths, and
    // live in _sidebar.md, not here.)
    const body = exported.slice(exported.indexOf('-->') + 3);
@@ -1811,6 +1812,10 @@ test('viewer: the accent is hex and nothing else', () => {
       // A trailing newline does not sneak a hex past the predicate, in any SDK:
       // the match is against the whole string, never up to a line end.
       ['#009F71\n', false],
+      // Only a missing key is absent: an empty or blank string is present and not a
+      // color, so it warns like any other, as viewer.theme.link does.
+      ['', false],
+      ['   ', false],
    ];
    for (const [accent, accepted] of vectors) {
       manifest!.viewer = { theme: { primary: accent } };
@@ -2645,7 +2650,7 @@ test('viewer: an unknown document route 404s, and there is no _404.md to chase',
 // document bytes alone. The rule is a pure function in the asset, pinned below by
 // golden vectors; that it ships is pinned on both the served and the built script.
 
-/** The canonical viewer boot script's text — the asset both modes ship verbatim. */
+/** The canonical viewer boot script's text: the asset both modes ship verbatim. */
 function bootAssetText(): string {
    return fs.readFileSync(path.join(templatesDir(), 'viewer', 'assets', 'viewer-boot.js'), 'utf8');
 }
@@ -2694,10 +2699,10 @@ test('viewer: the boot asset rewrites exactly the document-relative image srcs',
       // Traversal out of the content mount is refused, never clamped.
       ['../../../../etc/x.svg', 'notes/deep', null],
       // Containment vectors: the disguises that pass a literal prefix check but
-      // not the server's own canonicalization — encoded traversal, malformed
+      // not the server's own canonicalization: encoded traversal, malformed
       // encoding, and a scheme hidden behind whitespace (the entry preprocessing
-      // makes classification see what the URL parser sees — edge trim plus
-      // tab/LF/CR removed anywhere — so both the padded scheme and one split by
+      // makes classification see what the URL parser sees, edge trim plus
+      // tab/LF/CR removed anywhere, so both the padded scheme and one split by
       // an interior tab, LF, or CR are caught as schemes, including when they
       // name the synthetic origin the resolution base uses). Legitimate
       // encoding still rewrites, the emitted src keeps its encoded form, and a
@@ -2745,7 +2750,7 @@ test('viewer: the boot asset falls back to a WCAG-correct text color, and yields
       ['#0f7', '#1a1a1a'],
       ['#000', '#ffffff'],
       // The alpha forms, which only the generator composites, and everything no
-      // accent can be — a keyword, malformed hex, nothing — keep the dark default.
+      // accent can be (a keyword, malformed hex, nothing) keep the dark default.
       ['navy', '#1a1a1a'],
       ['#0007', '#1a1a1a'],
       ['#12345', '#1a1a1a'],
@@ -2792,8 +2797,8 @@ test('viewer: a nested document and the binary asset it links survive both modes
    const dir = copyExample();
    const { buildViewer } = await import('../dist/index.js');
    // A depth-2 document naming a sibling asset directory: the resolver rewrites
-   // that class at render time, in the browser, so the file on the way out — the
-   // document's markdown and the bytes behind the link alike — must be untouched.
+   // that class at render time, in the browser, so the file on the way out (the
+   // document's markdown and the bytes behind the link alike) must be untouched.
    // Real binary content (NUL and high bytes), so "identical" is a byte claim.
    const pdf = Buffer.concat([
       Buffer.from('%PDF-1.4\n'),
@@ -3120,7 +3125,7 @@ test('changelog: a new changelog not yet at HEAD is unverifiable, not verified',
 test('changelog: an unparseable HEAD baseline yields no baseline, so unverifiable', () => {
    const dir = tmpdir('leji-headbad-');
    execFileSync('git', ['init', '-q'], { cwd: dir });
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    const rel = path.join('docs', 'context-changelog.json');
    // Commit a NON-JSON changelog as the HEAD baseline, then replace the working
    // tree with a valid one. The HEAD JSON.parse throws and the check returns
@@ -3223,7 +3228,7 @@ test('checkIndex: a parseable but schema-invalid stored index reports artifact-s
 
 test('validate: a layer mapping neither domain nor system is categories-minimum', () => {
    const dir = tmpdir('leji-catmin-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const manifestPath = path.join(dir, 'leji.json');
    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
    // Drop domain, leaving only decisions: the domain-or-system requirement fails.
@@ -3235,13 +3240,67 @@ test('validate: a layer mapping neither domain nor system is categories-minimum'
 
 test('validate: a category index file that does not exist is category-index-missing', () => {
    const dir = tmpdir('leji-catmiss-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const manifestPath = path.join(dir, 'leji.json');
    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
    manifest.categories.domain.indexes = ['docs/context/ghost.md'];
    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
    const result = validateLayer(dir);
    assert.ok(result.findings.some((f) => f.rule === 'category-index-missing' && f.path === 'docs/context/ghost.md'));
+});
+
+test('validate: a .leji/ under the context root is one legacy-leji-dir warning, never the root tree', () => {
+   const legacy = {
+      rule: 'legacy-leji-dir',
+      severity: 'warning',
+      path: 'docs/.leji',
+      message:
+         "`docs/.leji` is the tool tree's location before Leji 1.4.0; the current tooling keeps its state under the root `.leji/` and writes nothing here. Delete it (run `git rm -r --cached docs/.leji` first if it is tracked).",
+   };
+   const legacyOf = (dir: string) => validateLayer(dir).findings.filter((f) => f.rule === 'legacy-leji-dir');
+   const dir = copyExample(); // rootPath docs/, validates with no findings
+   fs.mkdirSync(path.join(dir, 'docs', '.leji'));
+   fs.writeFileSync(path.join(dir, 'docs', '.leji', 'x'), '');
+   // The migration case: the old tree present, the root tree not yet created.
+   assert.deepEqual(validateLayer(dir).findings, [legacy]);
+   // A resolver that throws is a different tree, never a failure: a dangling root
+   // .leji symlink that disappears between lstat and readlink, simulated through the
+   // builtin's CJS binding plus the resync.
+   const rootLeji = path.join(dir, '.leji');
+   fs.symlinkSync('gone', rootLeji);
+   const nodeFs = createRequire(import.meta.url)('node:fs') as Record<string, unknown>;
+   const readlink = nodeFs.readlinkSync as (p: unknown, o?: unknown) => string;
+   let thrown = false;
+   nodeFs.readlinkSync = (p: unknown, o?: unknown): string => {
+      if (typeof p === 'string' && path.resolve(p) === rootLeji) {
+         thrown = true;
+         throw Object.assign(new Error(`ENOENT: no such file or directory, readlink '${p}'`), { code: 'ENOENT' });
+      }
+      return readlink(p, o);
+   };
+   Module.syncBuiltinESMExports();
+   try {
+      assert.deepEqual(validateLayer(dir).findings, [legacy], 'a throwing resolution still warns');
+   } finally {
+      nodeFs.readlinkSync = readlink;
+      Module.syncBuiltinESMExports();
+   }
+   assert.ok(thrown, 'the root side threw inside the resolution');
+   fs.rmSync(rootLeji);
+   fs.mkdirSync(path.join(dir, '.leji'));
+   assert.deepEqual(validateLayer(dir).findings, [legacy], 'the root .leji/ present');
+   fs.rmSync(path.join(dir, 'docs', '.leji'), { recursive: true });
+   assert.deepEqual(legacyOf(dir), [], 'none once removed');
+   // A symlink to the root tree is the live tree, not a leftover.
+   fs.symlinkSync(path.join('..', '.leji'), path.join(dir, 'docs', '.leji'));
+   assert.deepEqual(legacyOf(dir), [], 'none for a symlink to the root .leji/');
+   // A repository-root context: the root .leji/ is the live tree.
+   fs.rmSync(path.join(dir, 'docs', '.leji'));
+   const manifestPath = path.join(dir, 'leji.json');
+   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+   manifest.rootPath = '.';
+   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+   assert.deepEqual(legacyOf(dir), [], "none when rootPath is '.'");
 });
 
 // Changelog dates are UTC (machine-readable-surface.md req 6): a date-only value
@@ -3324,7 +3383,7 @@ test('joinUnderRoot treats "." and "" as the repo root (no hidden .context/)', (
 
 test('status reports unindexed reference, dangling entries, and stale index paths', () => {
    const dir = tmpdir('leji-status-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    const { manifest } = loadManifest(dir);
    writeIndex(dir, manifest!); // stored index is current with the tree
    // (a) a reference doc that no category index lists
@@ -3348,7 +3407,7 @@ test('status reports unindexed reference, dangling entries, and stale index path
 
 test('status flags an escaping index entry as dangling (so --strict fails)', () => {
    const dir = tmpdir('leji-status-escape-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
    fs.writeFileSync(
       path.join(dir, 'docs', 'context', 'domain.md'),
       '# Domain\n\n```leji-index\n- path: ../escape.md\n```\n',
@@ -3364,7 +3423,7 @@ test('status flags an escaping index entry as dangling (so --strict fails)', () 
 /** Generate (without writing) for a fixture dir, so fixtures stay pristine. */
 function writeIndexTo(dir: string, manifest: NonNullable<ReturnType<typeof loadManifest>['manifest']>) {
    const copy = tmpdir('leji-idx-copy-');
-   fs.cpSync(dir, copy, { recursive: true });
+   copyTree(dir, copy);
    return writeIndex(copy, manifest);
 }
 
@@ -3386,7 +3445,7 @@ test('records: valid-records fixture resolves kinds by block and file-selector o
 
 test('records: frontmatter kind overrides the block kind; an invalid kind is an error', () => {
    const dir = tmpdir('leji-kind-fm-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-records'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-records'), dir);
    fs.writeFileSync(
       path.join(dir, 'docs', 'records', 'pinned.md'),
       '---\nkind: intent\n---\n\n# Pinned\n\nA record-directory file declaring itself intent.\n',
@@ -3513,9 +3572,66 @@ test('records: the layer scans return paths in byte order, never UTF-16 code-uni
    );
 });
 
+// The status report's lists and the compaction entry's `paths` union reach canonical
+// output, so they sort by the same byte order as the scans above. The siblings are
+// spelled so no filesystem normalizes them (a precomposed letter such as `ü` is stored
+// decomposed on HFS+, which changes its order): plain ASCII, and U+E000 against
+// U+10000, the pair that tells UTF-16 code-unit order and byte order apart.
+const SIBLINGS = ['\u{10000}', 'zeta', '\u{E000}', 'alpha'];
+const SIBLINGS_BYTE_ORDER = ['alpha', 'zeta', '\u{E000}', '\u{10000}'];
+const siblingRels = (dirRel: string): string[] => SIBLINGS_BYTE_ORDER.map((n) => `${dirRel}/${n}.md`);
+
+test('status sorts paths in byte order, never UTF-16 code-unit order', (t) => {
+   assert.deepEqual([...SIBLINGS].sort(), ['alpha', 'zeta', '\u{10000}', '\u{E000}'], 'UTF-16 code units differ');
+   const dir = tmpdir('leji-status-byteorder-');
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
+   fs.mkdirSync(path.join(dir, 'docs', 'domain', 'old'));
+   fs.mkdirSync(path.join(dir, 'docs', 'notes'));
+   try {
+      SIBLINGS.forEach((n, i) => {
+         fs.writeFileSync(path.join(dir, 'docs', 'domain', 'old', `${n}.md`), `---\nid: sib-${i}\n---\n\n# ${n}\n`);
+         fs.writeFileSync(path.join(dir, 'docs', 'notes', `${n}.md`), `# ${n}\n`);
+      });
+   } catch {
+      t.skip('this filesystem refuses a U+E000 or U+10000 file name');
+      return;
+   }
+   const { manifest } = loadManifest(dir);
+   writeIndex(dir, manifest!);
+   // Moving the governed siblings leaves their stored paths stale and the new ones pending.
+   fs.renameSync(path.join(dir, 'docs', 'domain', 'old'), path.join(dir, 'docs', 'domain', 'new'));
+   const report = statusReport(dir, manifest!);
+   assert.deepEqual(report.unindexed, siblingRels('docs/notes'));
+   assert.deepEqual(report.stale, siblingRels('docs/domain/old'));
+   assert.deepEqual(report.pending, siblingRels('docs/domain/new'));
+});
+
+// The changelog's paths are plain strings, never files on disk, so this holds on every filesystem.
+test('compaction sorts the folded paths union in byte order, never UTF-16 code-unit order', () => {
+   const dir = tmpdir('leji-compact-byteorder-');
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), dir);
+   const [alpha, zeta, pua, astral] = siblingRels('docs/domain');
+   fs.writeFileSync(
+      path.join(dir, CHANGELOG_REL),
+      JSON.stringify({
+         schemaVersion: '1.0',
+         entries: [
+            { id: 'a1', date: '2026-01-01', type: 'added', summary: 'One.', paths: [zeta, astral] },
+            { id: 'a2', date: '2026-01-02', type: 'added', summary: 'Two.', paths: [pua, alpha] },
+            { id: 'a3', date: '2026-01-03', type: 'added', summary: 'Three.', paths: [zeta] },
+         ],
+      }),
+   );
+   const { manifest } = loadManifest(dir);
+   assert.equal(compactChangelog(dir, manifest!, { keep: 1 }).folded, 2);
+   const after = JSON.parse(fs.readFileSync(path.join(dir, CHANGELOG_REL), 'utf8'));
+   const compaction = after.entries.find((e: { type: string }) => e.type === 'compaction');
+   assert.deepEqual(compaction.paths, siblingRels('docs/domain'), 'the folded paths union is byte-ordered');
+});
+
 test('records: a fully displaced broad selector is reported as shadowed by status', () => {
    const dir = tmpdir('leji-shadow-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-records'), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-records'), dir);
    // Shrink the record directory to only the file the intent selector steals.
    fs.rmSync(path.join(dir, 'docs', 'records', '2026-07-03-status.md'));
    fs.rmSync(path.join(dir, 'docs', 'records', 'ledger.md'));

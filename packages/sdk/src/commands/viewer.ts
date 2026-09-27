@@ -88,7 +88,7 @@ const DEFAULT_THEME_COLOR = '#009F71';
  * an export, whose references then resolve against the page itself so the tree
  * hosts correctly under a subpath. It is a generation parameter, never a post-hoc
  * rewrite of emitted HTML: one code path, two invocations. `index.html` is the only
- * artifact that exists in two flavors — everything else under the chrome is
+ * artifact that exists in two flavors. Everything else under the chrome is
  * flavor-neutral.
  */
 export type ChromeBase = '/' | '';
@@ -106,10 +106,14 @@ function defaultLogo(base: ChromeBase): string {
 const SAFE_CSS_COLOR = /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 
 /** The viewer accent: viewer.theme.primary when it is a hex color, else the
- * Leji default with a warning. Never the authored value unchecked. */
+ * Leji default with a warning. Never the authored value unchecked.
+ *
+ * Only a MISSING key is absent. `primary: ""` and `primary: "   "` are strings the
+ * schema accepts, so they are present-but-not-a-color and warn like any other
+ * unusable value, as `link` does. */
 function resolveThemeColor(manifest: Manifest, findings: Finding[]): string {
    const configured = manifest.viewer?.theme?.primary;
-   if (configured === undefined || configured === '') return DEFAULT_THEME_COLOR;
+   if (configured === undefined) return DEFAULT_THEME_COLOR;
    if (SAFE_CSS_COLOR.test(configured)) return configured;
    findings.push(
       finding(
@@ -123,8 +127,8 @@ function resolveThemeColor(manifest: Manifest, findings: Finding[]): string {
 
 /** The ground the link tone is measured against: the inline-code background
  * (`--leji-code-bg` in assets/vue.css). Body links land on white and inline code on
- * this, and this is the narrower of the two — the fixed tone is 5.15:1 on white but
- * 4.56:1 here (packages/sdk/test/viewer-contrast.test.ts) — so a color clearing AA
+ * this, and this is the narrower of the two: the fixed tone is 5.15:1 on white but
+ * 4.56:1 here (packages/sdk/test/viewer-contrast.test.ts), so a color clearing AA
  * here clears white too, and one check covers both. */
 const LINK_GROUND = '#E8F4EE';
 
@@ -134,7 +138,7 @@ const LINK_CONTRAST_FLOOR = 4.5;
 type ViewerTheme = NonNullable<Manifest['viewer']>['theme'];
 
 /** The viewer's body-link tone: viewer.theme.link when it is a hex color that stays
- * readable on the ground above, else null — the stylesheet's fixed accessible tone
+ * readable on the ground above, else null: the stylesheet's fixed accessible tone
  * stands and nothing is emitted, so the layer renders exactly as it did without the
  * field. Either refusal warns, naming the value the author wrote.
  *
@@ -186,11 +190,11 @@ function resolveAppearance(theme: ViewerTheme | undefined): 'light' | 'dark' | n
 }
 
 /** The accent as opaque sRGB channels, or null for a value that names no color the
- * generator can resolve — a keyword, `currentColor`, a malformed hex. Accepts
+ * generator can resolve: a keyword, `currentColor`, a malformed hex. Accepts
  * 3/4/6/8-digit hex, the only form the accent can take; an accent carrying alpha is
  * composited over white, the viewer's content background, which is the only backdrop
  * knowable at generation time (the accent itself keeps its authored alpha everywhere
- * it is used — this composite decides text color, nothing that renders). */
+ * it is used: this composite decides text color, nothing that renders). */
 function parseAccentColor(value: string): { r: number; g: number; b: number } | null {
    const raw = value.trim().toLowerCase();
    if (!raw.startsWith('#')) return null;
@@ -228,7 +232,7 @@ function contrastRatio(a: number, b: number): number {
  * browser: the viewer's boot script sees only what the config block carries, while
  * this side can resolve every color form viewer.theme.primary accepts. Whichever of
  * #1a1a1a and #ffffff contrasts more with the accent, or #000000 when neither
- * clears WCAG AA (4.5:1) — a mid-gray accent, where the extra half-stop of black is
+ * clears WCAG AA (4.5:1): a mid-gray accent, where the extra half-stop of black is
  * the best text color available. An accent this cannot resolve keeps the dark
  * default, which is also the boot script's fallback.
  */
@@ -591,7 +595,7 @@ export function buildSidebarGroups(
          // One index file's contribution, ordered on its own: the declared
          // position first, then the path in byte order, which is the tiebreak
          // among the documents one directory entry expanded to (they share its
-         // single position). The position is spent here — what carries onward is
+         // single position). The position is spent here: what carries onward is
          // the member sequence itself.
          const claimed: { entry: SidebarEntry; order: number }[] = [];
          for (const [relPath, a] of assignments) {
@@ -600,7 +604,10 @@ export function buildSidebarGroups(
             if (!entry) continue;
             const rel = relativeToRoot(relPath, manifest.rootPath);
             if (rel === null) continue;
-            claimed.push({ entry: { rel, title: sidebarLabel(root, relPath, rel) }, order: a.order });
+            claimed.push({
+               entry: { rel, title: sidebarLabel(root, relPath, rel, category === 'decisions') },
+               order: a.order,
+            });
          }
          claimed.sort((x, y) => x.order - y.order || byteCompare(x.entry.rel, y.entry.rel));
          const members = claimed.map((c) => c.entry);
@@ -619,7 +626,7 @@ export function buildSidebarGroups(
       if (rel === null) continue;
       // A declared profiles directory can name a private role; its files are not
       // servable, so neither is the label lifted out of one. The route would 404
-      // anyway — this keeps the bytes out of the sidebar that links it.
+      // anyway. This keeps the bytes out of the sidebar that links it.
       if (!servableSource(root, p.relPath)) continue;
       const name = p.frontmatter?.name;
       const title = typeof name === 'string' && name.trim() !== '' ? name.trim() : sidebarLabel(root, p.relPath, rel);
@@ -686,12 +693,19 @@ function filenameLabel(rootRel: string): string {
  * the filename, cleaned up. Deliberately NOT the H1: hand-built sidebars use
  * short curated labels, and filenames are the curated short name a repository
  * already has. The H1 stays the document's title everywhere else (page, index).
+ *
+ * A decision record's title is prefixed with its number (`0001. Title`), so a
+ * reader holding the number finds the record in the sidebar. The filename label
+ * already carries the number, so it takes no prefix.
  */
-function sidebarLabel(root: string, relPath: string, rootRel: string): string {
+function sidebarLabel(root: string, relPath: string, rootRel: string, decision = false): string {
    const text = readText(path.join(root, relPath));
    const fm = parseFrontmatter(text);
    const title = fm.data?.title;
-   if (typeof title === 'string' && title.trim() !== '') return title.trim();
+   if (typeof title === 'string' && title.trim() !== '') {
+      const number = decision ? decisionNumber(relPath) : '';
+      return number === '' ? title.trim() : `${number}. ${title.trim()}`;
+   }
    return filenameLabel(rootRel);
 }
 
@@ -874,7 +888,7 @@ function mermaidLabel(s: string): string {
 
 /** The generated "Manifest" page: a human-friendly view of `leji.json` plus the
  * local federation diagnostics (hydration + pin drift) a reader can't get from the
- * raw JSON. Generated chrome like the sidebar — written to the gitignored
+ * raw JSON. Generated chrome like the sidebar: written to the gitignored
  * `.leji/viewer/`, regenerated every run, served via a dedicated route, never
  * committed. Declaration-driven (the manifest is truth; mount status is joined by
  * name). Deterministic by construction: declared values plus git-derived (never
@@ -1014,7 +1028,7 @@ export function buildManifestPage(manifest: Manifest, statuses: StatusResult[]):
 /**
  * The displayed decision number: the leading digit run of a `NNNN-slug.md` file
  * name, exactly as written, so a layer's conventional `0006` renders `0006` and a
- * deliberate gap in the series stays visible. Presentation only — `decisionNumberKey`
+ * deliberate gap in the series stays visible. Presentation only: `decisionNumberKey`
  * in `validate.ts` strips leading zeros so `0017` and `17` collide as one identity,
  * which is the wrong answer for a column people read. A file name that does not
  * carry the convention has no number and renders blank.
@@ -1035,7 +1049,7 @@ function decisionNumber(relPath: string): string {
  * text, an unescaped `]` closes the link early and the rest of the title lands as
  * page markdown. As a plain cell, an unescaped `[…](…)` IS a link, which would make
  * a status value, a date, an unresolvable id, or an unservable record's title
- * render as one — breaking the plain-text status contract and the rule that a
+ * render as one, breaking the plain-text status contract and the rule that a
  * record outside the context root is named and never linked. `esc` alone leaves
  * brackets intact, so every interpolation of authored text on this page goes
  * through here.
@@ -1062,13 +1076,13 @@ function supersessionCell(value: unknown, routeById: Map<string, string | null>)
 
 /**
  * The generated "Decisions" page: every decision record the layer carries, as one
- * table built from the records' own frontmatter — the set `leji validate` scans, so
+ * table built from the records' own frontmatter: the set `leji validate` scans, so
  * the page cannot drift from what the layer governs, and no layer hand-maintains a
  * summary table that silently lags its records.
  *
  * Deterministic by construction, like the Manifest page: declared values only, byte
  * order by file name, one escaping contract, so the three SDKs emit identical bytes.
- * Status is the frontmatter value as plain text — the schema's enum is validation's
+ * Status is the frontmatter value as plain text: the schema's enum is validation's
  * business, and a page that styled it would have to decide what an unknown value
  * means. A record whose frontmatter does not parse shows its file name and blank
  * cells; `leji validate` is where that defect is reported, not here.
@@ -1228,7 +1242,7 @@ function servableSource(root: string, repoRel: string): boolean {
 /**
  * A profile source read the way check-before-act requires: the requested path is judged, its
  * RESOLVED path is judged, and the bytes come from the descriptor opened on that
- * resolved path and proved a regular file — so nothing swapped between the check and
+ * resolved path and proved a regular file, so nothing swapped between the check and
  * the read (a file, or any directory above it, becoming a symlink) changes what is
  * composed into a served or exported page. Null for anything refused.
  */
@@ -1249,7 +1263,7 @@ function servableProfileText(rootAbs: string, repoRel: string): string | null {
 
 /**
  * The profile set as the viewer may render it: every source read through
- * `servableProfileText`, so no profile living in — or symlinked into — a private
+ * `servableProfileText`, so no profile living in (or symlinked into) a private
  * `.leji/` role is composed into a served page or an exported one, and the bytes
  * composed are the bytes that passed the check. Dropped silently, exactly as the
  * content walk drops unservable content; the scan itself stays total, so validation
@@ -1282,7 +1296,7 @@ export function resolvedProfilePage(root: string, manifest: Manifest, repoRel: s
       // The whitelist, judged before this file is read into a page: a profile that
       // resolves into a private `.leji/` role is not the viewer's to render. Null
       // hands the request back to the content walk, which refuses it the same way
-      // it refuses any unservable file — this branch never becomes the way in.
+      // it refuses any unservable file. This branch never becomes the way in.
       if (!servableSource(root, repoRel)) return null;
       if (!declaresInherits(root, repoRel)) return null;
       committed = true;
@@ -1577,7 +1591,7 @@ export function generateViewer(root: string, manifest: Manifest, ignoreContext?:
    const findings: Finding[] = [...result.findings, ...findingsEarly];
    const written: string[] = [];
 
-   // Check-before-act: the generation target — the `.leji/viewer/` role — is
+   // Check-before-act: the generation target (the `.leji/viewer/` role) is
    // realpath-resolved and validated BEFORE a single byte is written. A `.leji/viewer`
    // that resolves into a DIFFERENT private role (`.leji/work/`, `.leji/mounts/`, a
    // future role), or out of the repository altogether, is refused here, so a
@@ -1660,7 +1674,7 @@ export function generateViewer(root: string, manifest: Manifest, ignoreContext?:
    // document counts leaves this file exactly as its author last saved it. If the
    // markers are gone there is nowhere to render the map, which is a warning.
    //
-   // Check-before-act: overview.md is content — its target must resolve WITHIN
+   // Check-before-act: overview.md is content: its target must resolve WITHIN
    // the layer root AND never into a private `.leji/` role. It is judged on the
    // RESOLVED path (ownRole `null`: content has no `.leji/` role) BEFORE anything is
    // read or written, so an overview.md symlinked into `.leji/work/` or

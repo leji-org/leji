@@ -3,11 +3,11 @@ the gitignored cache under ``.leji/mounts/`` (distribution.md pattern 3).
 
 Mirrors packages/sdk/src/lib/mounts.ts byte-for-byte in behavior and output.
 
-Contracts (per the resolver-only mounts design):
+Contracts:
 - The pin is resolved from a git object store, never a working tree.
-- the projection extracts the sibling's leji.json, its rootPath tree, and its
-  agent-profiles path if outside rootPath; nothing else. Gitlinks are recorded
-  in metadata, never materialized; LFS pointers extract as the pointers they are.
+- the projection includes the closure ``spec/distribution.md`` defines for a
+  mount. Gitlinks are recorded in metadata, never materialized; LFS pointers
+  extract as the pointers they are.
 - Caches are keyed by sha256(source identity \\n pin \\n cache format version) and
   published by rename-if-absent under a ``complete`` marker; no global lock.
 - The sidecar is evidence, never proof: verification reads the object store.
@@ -237,8 +237,8 @@ def mounts_dir(root: str) -> str:
 def _establish_mounts_dir(
     root: str, dir_abs: str, ignore_context: LejiIgnoreContext | None = None
 ) -> str | None:
-    """Establish one mounts DESTINATION — a managed store, a cache entry, a staging
-    directory — through the write chokepoint, and hand back the RESOLVED directory it
+    """Establish one mounts DESTINATION (a managed store, a cache entry, a staging
+    directory) through the write chokepoint, and hand back the RESOLVED directory it
     was created at. None when the rule refuses it: a planted ``.leji/mounts`` symlink
     into another role or out of the repository is caught here, once, instead of being
     followed by every per-entry write underneath.
@@ -246,7 +246,7 @@ def _establish_mounts_dir(
     The per-entry protocol below (hashed identities, contained relative paths, the
     symlink-escape rules, publish-by-rename) is the declared exception to the
     chokepoint, and it holds only because every one of its acts happens under a root
-    this function checked and returned — never under a path re-joined from ``root``."""
+    this function checked and returned, never under a path re-joined from ``root``."""
     established = mkdirp_guarded(guard_root(root), dir_abs, MOUNTS_REL)
     if not established.ok:
         return None
@@ -382,7 +382,7 @@ def witness_ref_for(source_identity: str, tracking_ref: str) -> str:
 def pin_ref_for(source_identity: str, pin_oid: str) -> str:
     """The ref that retains a pin in the managed store:
     refs/leji-pin/v1/<source-key>/<oid>. A fetch leaves the pin reachable only
-    through FETCH_HEAD, which the witness fetch then overwrites — without this
+    through FETCH_HEAD, which the witness fetch then overwrites: without this
     ref, git maintenance may prune the version of record."""
     return f"{PIN_REF_NAMESPACE}/v1/{sha256_hex(source_identity)}/{pin_oid}"
 
@@ -450,7 +450,7 @@ def _retention_injected_failure(oid: str) -> bool:
     """Test-only fault injection for :func:`retain_pin_in_store`: with
     LEJI_TEST_FAIL_PIN_REF set to a commit id, retaining exactly that commit fails at
     the ref. It exists because the TARGET-retention refusal has no other reachable
-    path — by the time the target is retained, the comparison repository IS the
+    path: by the time the target is retained, the comparison repository IS the
     managed store and already holds the commit, so the fetch never runs and only the
     ref update can fail."""
     return os.environ.get("LEJI_TEST_FAIL_PIN_REF") == oid
@@ -587,7 +587,7 @@ def refresh_witness(store: str, mount: MountDecl, source_identity: str) -> Witne
             # A lost compare-and-swap is only a confirmed mismatch on <oldvalue>:
             # another writer published while we fetched, which is a valid outcome.
             # Permission, malformed-ref, lock and disk failures are not lost races,
-            # so the ref itself decides — a valid witness present means someone
+            # so the ref itself decides: a valid witness present means someone
             # published, anything else is an operational failure that must not read
             # as success.
             current = _ref_oid(store, witness_ref)
@@ -1455,8 +1455,8 @@ def hydrate_mounts(
 def verify_projection(root: str, mount: MountDecl) -> bool | None:
     """Verify a cached projection against a reachable object store: every projected
     file's bytes and mode against the pinned tree. Returns None when a prerequisite
-    for verifying is unavailable — no reachable object store, an unresolvable pin,
-    no writable temp dir — leaving the projection unverified rather than judged;
+    for verifying is unavailable (no reachable object store, an unresolvable pin,
+    no writable temp dir), leaving the projection unverified rather than judged;
     True/False otherwise."""
     identity = normalize_source(mount.source)
     if identity is None:
@@ -1478,7 +1478,7 @@ def verify_projection(root: str, mount: MountDecl) -> bool | None:
     # and pre-deleted: a guessed path is a path a concurrent verification is already
     # using, and deleting it is how one run made another fail. Cleanup is installed
     # the moment allocation succeeds. A failed allocation is one more unavailable
-    # prerequisite — unverifiable, never an error and never an in-tree fallback.
+    # prerequisite: unverifiable, never an error and never an in-tree fallback.
     try:
         staging = tempfile.mkdtemp(prefix="leji-verify-")
     except OSError:
@@ -1669,7 +1669,7 @@ class PinComparison:
 def compare_pins(repo: str, pin: str, tip_oid: str) -> PinComparison:
     """Where the pin stands against ONE witness snapshot, in ONE repository. Shared
     by ``status``, which reports it, and ``update-pin``, which additionally gates on
-    it — so the two can never describe the same pair of commits differently."""
+    it, so the two can never describe the same pair of commits differently."""
     incomplete = PinComparison(reason="mount-ancestry-incomplete")
     behind = _count_range(repo, pin, tip_oid)
     ahead = _count_range(repo, tip_oid, pin)
@@ -1828,7 +1828,7 @@ def resolve_default_ref(source: str) -> DefaultRef:
     """The ref a source advertises as its default branch: ``HEAD``'s symref target,
     read with ``ls-remote --symref``. The one lookup in this module that reaches the
     network without the caller having named a ref, so both failures stay
-    distinguishable — the source could not be reached at all, or it advertises no
+    distinguishable: the source could not be reached at all, or it advertises no
     symref to follow."""
     # The locator becomes argv here: anything option-shaped is refused, never passed.
     if source.startswith("-"):

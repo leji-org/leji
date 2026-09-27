@@ -190,9 +190,9 @@ func checkCategories(root string, m *manifest.Manifest, fs *[]findings.Finding) 
 
 // governedDocuments is the governed set the link gate walks: every markdown document
 // this layer answers for, deduplicated and in byte order of path. Composed here from
-// the scans that already define it — the boot profile, every indexed document under
+// the scans that already define it (the boot profile, every indexed document under
 // every category, the profile set (agentProfilesPath plus the profiles bound outside
-// it), and the decision records — rather than discovered by a walk of its own, so a
+// it), and the decision records) rather than discovered by a walk of its own, so a
 // document is link-checked exactly when the layer claims it. The category index files
 // are not in it: an index is the selector, and what it selects is what the layer
 // governs.
@@ -218,7 +218,7 @@ func governedDocuments(root string, m *manifest.Manifest) []string {
 }
 
 // checkLinks is the in-layer link gate: every governed document's markdown links
-// resolve to something the layer carries. Structural and always on — a dangling link
+// resolve to something the layer carries. Structural and always on: a dangling link
 // is a reference to context that is not there, which the --content lint's advisory
 // signals never are. A document that cannot be read here is one the structural pass
 // already reports as missing or escaping, so it contributes nothing twice.
@@ -260,12 +260,9 @@ func checkVendorAdapters(root string, m *manifest.Manifest, fs *[]findings.Findi
 	sort.Strings(candidates)
 	for _, rel := range candidates {
 		abs := filepath.Join(root, rel)
-		if !fsx.IsFile(abs) {
-			continue
-		}
 		// A vendor entrypoint that is a symlink resolving outside the layer root is
 		// not read (matches adopt, which treats such files as absent).
-		if !fsx.ResolvedWithinRoot(root, abs) {
+		if !fsx.ResolvedWithinRoot(root, abs) || !fsx.IsFile(abs) {
 			continue
 		}
 		text, _ := fsx.ReadText(abs)
@@ -338,17 +335,13 @@ func checkActors(root string, m *manifest.Manifest, fs *[]findings.Finding) {
 			continue
 		}
 		rel := m.Agents[role]
-		abs := filepath.Join(root, rel)
-		if !fsx.IsFile(abs) {
-			continue
-		}
 		// Containment-checked like the other two implementations: a profile symlink
 		// escaping the layer root must not be read, or a hostile link changes which
 		// actor-conflict findings appear.
-		if !fsx.ResolvedWithinRoot(root, abs) {
+		text, ok := fsx.ReadTextWithin(root, filepath.Join(root, rel))
+		if !ok {
 			continue
 		}
-		text, _ := fsx.ReadText(abs)
 		fm := frontmatter.Parse(text)
 		if fm.Data == nil {
 			continue
@@ -401,17 +394,39 @@ func checkBootAgentsDefault(root string, m *manifest.Manifest, fs *[]findings.Fi
 	if !ok || defaultRel == "" {
 		return
 	}
-	bootAbs := filepath.Join(root, m.BootProfilePath)
-	if !fsx.IsFile(bootAbs) || !fsx.ResolvedWithinRoot(root, bootAbs) {
-		return
-	}
-	boot, _ := fsx.ReadText(bootAbs)
-	if !strings.Contains(boot, defaultRel) {
+	boot, ok := fsx.ReadTextWithin(root, filepath.Join(root, m.BootProfilePath))
+	if !ok || !strings.Contains(boot, defaultRel) {
 		return
 	}
 	*fs = append(*fs, findings.New("boot-agents-default", findings.Warning,
 		"agents.default is bound but never auto-loaded; a boot profile that unconditionally loads it should be one canonical boot document (fold the default profile in)",
 		"leji.json"))
+}
+
+// checkLegacyLejiDir warns on a .leji/ directory under the context root that is not
+// the repository's own .leji/: the tool tree's location before 1.4.0, which nothing
+// current writes. A root context has only the live tree. The real paths are compared
+// so a symlink to the root tree is the live tree; an unresolvable side counts as
+// different, never a failure.
+func checkLegacyLejiDir(root string, m *manifest.Manifest, fs *[]findings.Finding) {
+	base := fsx.StripSlash(m.RootPath)
+	if base == "" || base == "." {
+		return
+	}
+	candidate := filepath.Join(root, base, ".leji")
+	if !fsx.IsDir(candidate) {
+		return
+	}
+	real, ok := fsx.ResolvedPath(candidate)
+	if ok && real != "" {
+		if rootReal, rok := fsx.ResolvedPath(filepath.Join(root, ".leji")); rok && rootReal == real {
+			return
+		}
+	}
+	rel := base + "/.leji"
+	*fs = append(*fs, findings.New("legacy-leji-dir", findings.Warning,
+		"`"+rel+"` is the tool tree's location before Leji 1.4.0; the current tooling keeps its state under the root `.leji/` and writes nothing here. Delete it (run `git rm -r --cached "+rel+"` first if it is tracked).",
+		rel))
 }
 
 func checkFederationMounts(root string, m *manifest.Manifest, fs *[]findings.Finding) {
@@ -510,14 +525,7 @@ func MountSurfacingFindings(root string, m *manifest.Manifest) []findings.Findin
 	rel := m.BootProfilePath
 	var fs []findings.Finding
 	rootAbs, _ := filepath.Abs(root)
-	abs := filepath.Join(root, rel)
-	text := ""
-	readable := fsx.IsFile(abs) && fsx.ResolvedWithinRoot(rootAbs, abs)
-	if readable {
-		var err error
-		text, err = fsx.ReadText(abs)
-		readable = err == nil
-	}
+	text, readable := fsx.ReadTextWithin(rootAbs, filepath.Join(root, rel))
 	if !readable {
 		// The structural pass already reports the missing or escaping boot profile;
 		// with mounts declared it is also a surfacing failure, which conformance reads.
@@ -1090,7 +1098,7 @@ func ContentFindings(root string, m *manifest.Manifest) []findings.Finding {
 	// Confine the read: a symlinked boot profile escaping root is skipped (the
 	// structural pass already flags it). Content lint is advisory.
 	bootAbs := filepath.Join(root, bootRel)
-	if fsx.IsFile(bootAbs) && fsx.ResolvedWithinRoot(root, bootAbs) {
+	if fsx.ResolvedWithinRoot(root, bootAbs) && fsx.IsFile(bootAbs) {
 		boot, _ := fsx.ReadText(bootAbs)
 		if placeholderRe.MatchString(boot) {
 			out = append(out, findings.New("content-placeholder", findings.Warning,
@@ -1184,6 +1192,7 @@ func ValidateLayer(root string, content bool) (Result, error) {
 			"context layer is not in a git repository; core conformance requires git (a degraded, no-git copy cannot claim conformance)",
 			"leji.json"))
 	}
+	checkLegacyLejiDir(root, m, &fs)
 
 	checkBootProfile(root, m, &fs)
 	checkCategories(root, m, &fs)

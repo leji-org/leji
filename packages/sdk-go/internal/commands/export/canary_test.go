@@ -2,7 +2,7 @@ package export
 
 // The check/use gap on the READ side, and the check-before-act answer to it. These need a mutation
 // landing at one exact moment inside a run, which no fixture can plant, so they are
-// constructed here — over the example layer, with the planted bytes in a private role.
+// constructed here, over the example layer, with the planted bytes in a private role.
 
 import (
 	"io"
@@ -75,11 +75,11 @@ func TestCheckBeforeActAncestorSwappedAfterEnumerationIsNeverFollowed(t *testing
 	// The content walk enumerates a real directory; before the export uses what it
 	// enumerated, that directory becomes a symlink into a private role. Every later
 	// read or copy BY PATH then goes through the link, with the walk's checks all
-	// behind it — and a revalidation that lstats the final component alone follows the
+	// behind it, and a revalidation that lstats the final component alone follows the
 	// swapped ancestor to a perfectly ordinary file. So a carried source is resolved,
 	// its RESOLVED path judged, and its bytes taken from the descriptor fstat proved a
 	// regular file: the check and the use hold one inode. Mutation that reddens:
-	// revalidate with Lstat and read/copy by path again — the planted bytes below are
+	// revalidate with Lstat and read/copy by path again: the planted bytes below are
 	// linted and land in the export.
 	dir := exampleCopy(t)
 	writeUnder(t, dir, "docs/domain/asset.txt", "an ordinary carried asset\n")
@@ -99,7 +99,7 @@ func TestCheckBeforeActAncestorSwappedAfterEnumerationIsNeverFollowed(t *testing
 	}
 
 	// The swap, at the one moment that matters: after the walk has enumerated the
-	// carried set and before any of it is used. Deterministic, not a race — the hook
+	// carried set and before any of it is used. Deterministic, not a race: the hook
 	// performs it inline, so the window is exercised on every run.
 	domainDir := filepath.Join(dir, "docs", "domain")
 	swapped := false

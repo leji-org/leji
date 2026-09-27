@@ -1,6 +1,6 @@
 // Package serve is the viewer's local preview server: the virtual mounts, the
 // route table, and the policy headers a browser sees. Every network import the CLI
-// makes lives here and nowhere else — the static export is a separate package whose
+// makes lives here and nowhere else: the static export is a separate package whose
 // transitive imports carry none of them, which is what makes the export's
 // no-network guarantee checkable rather than asserted.
 package serve
@@ -201,8 +201,8 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-// newHandler builds the virtual-mount handler and nothing else — the servable
-// roots: viewer chrome (root `.leji/viewer/`) at "/", the layer's markdown
+// newHandler builds the virtual-mount handler and nothing else (the servable
+// roots): viewer chrome (root `.leji/viewer/`) at "/", the layer's markdown
 // (rootPath/) under "/content/"; "/content/_sidebar.md" maps to the generated
 // sidebar in viewer/. Everything else under `.leji/` is denied by name, so the
 // private roles are unreachable however the request is spelled and whatever a
@@ -233,7 +233,7 @@ func newHandler(rootAbs, base, contentAbs, viewerAbs string, logf func(string), 
 	}
 	// Live-sidebar cache, invalidated by a tree fingerprint: one stat pass over
 	// leji.json + every markdown file under the content root (paths, mtimes,
-	// sizes — no content reads). The common unchanged-tree reload serves the
+	// sizes, no content reads). The common unchanged-tree reload serves the
 	// cached string at stat cost; any create, delete, or edit still lands on the
 	// very next fetch. WalkTree skips dotdirs, so the viewer's own artifacts
 	// never invalidate the cache.
@@ -565,7 +565,7 @@ func resolveRoot(root string) string {
 
 // urlPathToRel turns a request URL path into a clean relative route key.
 // Separators fold to "/" and the path is cleaned against a root, so one request
-// has one route key on any platform — filepath.Clean follows the host and
+// has one route key on any platform. filepath.Clean follows the host and
 // answered differently on Windows, missing every "content/" route test.
 // Canonicalization only; serveFrom enforces containment.
 func urlPathToRel(urlPath string) string {

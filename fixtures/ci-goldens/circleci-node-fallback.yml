@@ -3,7 +3,7 @@ version: 2.1
 jobs:
   leji-validate:
     docker:
-      - image: node:22
+      - image: node:24
     steps:
       - checkout
       - run: npx -y @leji-org/leji@1 validate

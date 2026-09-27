@@ -86,6 +86,17 @@ function inDark(token: string): string {
 }
 
 /**
+ * A token's value in the light scheme, followed through a `var()` alias: the palette
+ * may declare one token as another, and a pair is judged on the color the alias
+ * paints rather than refused as not a color.
+ */
+function inLight(token: string): string {
+   const light = lightTokens(PALETTE_CSS);
+   const alias = /^var\((--[\w-]+)\)$/.exec(light.get(token));
+   return alias === null ? light.get(token) : inLight(alias[1]);
+}
+
+/**
  * The `:root` declarations of the dark sheet's high-contrast block.
  *
  * Read here rather than through the shared parser, which reads the rule a sheet
@@ -189,8 +200,7 @@ test('the deep bands carry their lettering in both schemes', () => {
 });
 
 test('the ink tokens read on the grounds that do not follow the page', () => {
-   const light = lightTokens(PALETTE_CSS);
-   const value = { light: (token: string) => light.get(token), dark: inDark };
+   const value = { light: inLight, dark: inDark };
 
    // The mint is identity and holds its value in both schemes, so the text on it
    // is the thing that has to move: the skip link, the selection highlight, the
@@ -212,15 +222,54 @@ test('the ink tokens read on the grounds that do not follow the page', () => {
       );
    }
 
-   // That button's hover ground is lifted in dark rather than brightened, so the
-   // label still holds; in light the hover moment is the vivid brand green, which
-   // the landing page's own rule documents as a hover state and not a text pair.
-   const [label, hover] = [inDark('--leji-ink-on-cta'), inDark('--leji-cta-hover')];
-   const hoverRatio = contrast(label, hover);
-   assert.ok(
-      hoverRatio >= AA_NORMAL,
-      `dark: --leji-ink-on-cta (${label}) is ${hoverRatio.toFixed(2)}:1 on --leji-cta-hover (${hover})`,
+   // That button's hover ground: deeper in light and lifted rather than brightened
+   // in dark, so the label, which is small text, still holds under the pointer.
+   for (const scheme of ['light', 'dark'] as const) {
+      const [label, hover] = [value[scheme]('--leji-ink-on-cta'), value[scheme]('--leji-cta-hover')];
+      const ratio = contrast(label, hover);
+      assert.ok(
+         ratio >= AA_NORMAL,
+         `${scheme}: --leji-ink-on-cta (${label}) is ${ratio.toFixed(2)}:1 on --leji-cta-hover (${hover})`,
+      );
+   }
+});
+
+test('a link reads on the code chip, in both schemes', () => {
+   const value = { light: inLight, dark: inDark };
+
+   // Prose links a name set in code, and every inline `code` takes the chip ground
+   // and the color around it, so the link tone lands on the chip as well as on the page.
+   for (const scheme of ['light', 'dark'] as const) {
+      const [link, chip] = [value[scheme]('--leji-link'), value[scheme]('--leji-code-bg')];
+      const ratio = contrast(link, chip);
+      assert.ok(
+         ratio >= AA_NORMAL,
+         `${scheme}: --leji-link (${link}) is ${ratio.toFixed(2)}:1 on --leji-code-bg (${chip}), below AA`,
+      );
+   }
+});
+
+test('the section-nav bullet reads on the page, in both schemes', () => {
+   const value = { light: inLight, dark: inDark };
+
+   // The glyph before each unnumbered sidebar entry is lettering at the entry's own
+   // small size, so it is held to the text floor. Its token is read from the rule
+   // that paints it, so the rule moving back to a brand tone fails here too.
+   const rule = authoredRules().find(
+      ({ sheet, selector }) => sheet === 'styles/global.css' && selector === '.doc-nav ol.plain a::before',
    );
+   assert.ok(rule, 'global.css paints the section-nav bullet');
+   const color = rule.declarations.find(([property]) => property === 'color')?.[1] ?? '';
+   const token = /^var\((--[\w-]+)\)$/.exec(color)?.[1];
+   assert.ok(token, `the section-nav bullet is painted with a palette token, not ${color}`);
+   for (const scheme of ['light', 'dark'] as const) {
+      const [glyph, page] = [value[scheme](token), value[scheme]('--leji-canvas')];
+      const ratio = contrast(glyph, page);
+      assert.ok(
+         ratio >= AA_NORMAL,
+         `${scheme}: the section-nav bullet, ${token} (${glyph}), is ${ratio.toFixed(2)}:1 on --leji-canvas (${page}), below AA`,
+      );
+   }
 });
 
 /** AAA for normal-size text, which is what the preference is asking for. */

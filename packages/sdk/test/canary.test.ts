@@ -10,13 +10,14 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { buildViewer, generateViewer, loadManifest, serveViewer } from '../dist/index.js';
 import { snapshotTree } from './helpers/snapshot.ts';
+import { copyTree } from './helpers/copytree.ts';
 
 // The trust-domain boundary, driven from the shared fixtures: nothing under `.leji/`
 // except `viewer/` is servable, and no export carries a byte of it. The fixtures own
 // the request corpus (`trustCanary`) and the layout claims (`export.layout`), so all
 // three SDKs answer identical requests against identical bytes.
 //
-// Scope: the four layout fixtures — their layout roles, their golden export
+// Scope: the four layout fixtures: their layout roles, their golden export
 // bytes, and their canary corpus. The general `export`-block harness (findings,
 // `--strict` variants) takes every other fixture.
 const LAYOUT_FIXTURES = [
@@ -63,7 +64,7 @@ interface ExpectedCanary {
 }
 
 /** A fixture-declared path, as the README fixes it: repository-root-relative POSIX,
- * normalized, no `..` segment, never absolute. A violation is a harness error —
+ * normalized, no `..` segment, never absolute. A violation is a harness error:
  * the fixture is the contract, so a malformed one fails loudly rather than being
  * repaired here. */
 function fixtureRel(value: string, what: string): string {
@@ -99,7 +100,7 @@ function copySeed(from: string, to: string): void {
 /** A pristine working copy of the fixture with every declared seed materialized. */
 function materialize(name: string, seeds: Seed[]): string {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-canary-'));
-   fs.cpSync(path.join(fixturesDir, name), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, name), dir);
    const targets: string[] = [];
    for (const seed of seeds) {
       const from = fixtureRel(seed.from, 'seed.from');
@@ -179,7 +180,7 @@ function capture(): { restore: () => void; text: () => string } {
    };
 }
 
-/** Issue one request with the corpus's path EXACTLY as written — no URL parsing on
+/** Issue one request with the corpus's path EXACTLY as written: no URL parsing on
  * this side, or the encoded and malformed variants would be canonicalized before the
  * server ever saw them. */
 function request(port: number, urlPath: string): Promise<{ status: number; body: string }> {
@@ -276,7 +277,7 @@ for (const name of LAYOUT_FIXTURES) {
             );
          }
 
-         // Everything else — chrome, vendored assets, fonts — by digest and size. The
+         // Everything else (chrome, vendored assets, fonts) by digest and size. The
          // two sets are disjoint by construction and exhaustive by this comparison.
          const goldenManifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as {
             version: number;
@@ -348,7 +349,7 @@ for (const name of LAYOUT_FIXTURES) {
 // The one boundary a fixture cannot plant (a seed carries no symlinks) and the one
 // the dot convention cannot hold: under `rootPath: "."` the trust domain really is
 // inside the content mount, so a symlink there resolves INSIDE the mount root and
-// passes every containment check. Only the by-name whitelist refuses it — remove
+// passes every containment check. Only the by-name whitelist refuses it: remove
 // the `servablePath` calls in the serve path and this test serves the canary.
 test('the servable-roots whitelist refuses a content symlink into a private role', async () => {
    const dir = materialize('valid-trust-canary-dot-root', [{ from: '.leji-seed', to: '.leji' }]);
@@ -382,7 +383,7 @@ test('the servable-roots whitelist refuses a content symlink into a private role
 });
 
 // The vectors below share the reason the test above lives here rather than in a
-// fixture: they need a symlink (a seed carries none by contract — copySeed refuses
+// fixture: they need a symlink (a seed carries none by contract: copySeed refuses
 // one) or a hostile manifest, which is a per-SDK hazard rather than a shared
 // contract the fixtures publish. So they are constructed at runtime, over a
 // fixture's own layer and its own planted bytes, and they stay in this file because
@@ -406,7 +407,7 @@ test('the whitelist refuses a bound agent profile that resolves into a private r
    // A profile pair the resolver really composes: an ordinary base under the layer's
    // agents directory, and a derived half planted in the onboarding workspace, bound
    // into the roster by a symlink at the content root. Without the whitelist on the
-   // profile sources, the resolved page renders the planted half verbatim — the
+   // profile sources, the resolved page renders the planted half verbatim: the
    // overlay answers before the content mount ever judges the path.
    fs.mkdirSync(path.join(dir, 'agents'), { recursive: true });
    fs.writeFileSync(
@@ -461,7 +462,7 @@ test('the sidebar lifts no label out of a profiles directory that is a private r
    const dir = canaryLayer();
    // The same scan, reached the other way: a declared `agentProfilesPath` naming a
    // private role needs no symlink at all. The page itself was always refused, but
-   // the sidebar built its label from the file's frontmatter — bytes of a private
+   // the sidebar built its label from the file's frontmatter: bytes of a private
    // file, served in a 200 body and copied into the export.
    fs.writeFileSync(
       path.join(dir, '.leji', 'work', 'p.md'),
@@ -504,14 +505,14 @@ test('the sidebar lifts no label out of a profiles directory that is a private r
 
 // --- The check-before-act invariant on WRITE/CLEAR targets ----------------------------------
 // One structural rule: every location the tool writes into or clears is realpath-
-// resolved and validated against its role BEFORE the operation — never after, never
+// resolved and validated against its role BEFORE the operation, never after, never
 // conditionally. These pin the two write-side vectors that were not yet pinned.
 
 test('check-before-act: generation refuses a .leji/viewer aliased into a private role, before writing a byte', () => {
    const dir = canaryLayer();
    // Point the servable role at another private role, bytes of its own already there.
    // Before the check-before-act rule, generation wrote the chrome THROUGH the link into the trust domain and
-   // only the export's later identity check noticed — after the mutation. The aliased
+   // only the export's later identity check noticed, after the mutation. The aliased
    // directory is snapshotted WHOLE, so any pre-refusal write (not just an overwrite of
    // one planted file) is caught.
    const aliased = path.join(dir, '.leji', 'work', 'chrome');
@@ -546,7 +547,7 @@ test('check-before-act: a DEFAULT-output build refuses when .leji/dist resolves 
    const dir = canaryLayer();
    // The surviving default-bypass vector: the reservation used to be conditioned on a
    // caller --out, so a default .leji/dist redirected into the trust domain slipped
-   // through. Now the default is validated identically — before any clear or write.
+   // through. Now the default is validated identically, before any clear or write.
    const planted = path.join(dir, '.leji', 'mounts', 'store', 'x');
    fs.mkdirSync(planted, { recursive: true });
    fs.writeFileSync(path.join(planted, 'planted'), `${TOKEN}\n`);
@@ -571,7 +572,7 @@ test('check-before-act: a DEFAULT-output build refuses when .leji/dist resolves 
 test('check-before-act: an out-of-repository .leji/viewer or .leji/dist alias is REFUSED, and nothing is written outside', () => {
    // Containment is absolute: every write this tool makes lands inside the repository
    // it was pointed at. A `.leji/viewer` or `.leji/dist` symlinked to a real, empty
-   // destination outside the tree — once a supported relocate/publish alias — is a
+   // destination outside the tree (once a supported relocate/publish alias) is a
    // hard refusal now, with nothing written through it. A user who wants the export
    // elsewhere copies the finished folder there.
    const chromeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-chrome-'));
@@ -607,8 +608,8 @@ test('check-before-act: an out-of-repository .leji/viewer or .leji/dist alias is
 
 test('check-before-act level-2: the boundary skip warns once on stderr, and a clean build is silent', () => {
    // A servable-looking source (an .md at the content root) whose resolved path lands
-   // in a private role: withheld from serve and export, and — unlike an ordinary
-   // skip — it says why, exactly once, on stderr (never stdout, never --json).
+   // in a private role: withheld from serve and export, and (unlike an ordinary
+   // skip) it says why, exactly once, on stderr (never stdout, never --json).
    const dir = canaryLayer();
    fs.symlinkSync(path.join('.leji', 'work', 'proposal.md'), path.join(dir, 'leak.md'));
    const { manifest } = loadManifest(dir);
@@ -653,11 +654,11 @@ test('check-before-act: an ancestor swapped to a symlink AFTER enumeration is ne
    // The check/use gap on the READ side. The content walk enumerates a real directory;
    // before the export uses what it enumerated, that directory becomes a symlink into
    // a private role. Every later read or copy BY PATH then goes through the link, with
-   // the walk's checks all behind it — and a revalidation that lstats the final
+   // the walk's checks all behind it, and a revalidation that lstats the final
    // component alone follows the swapped ancestor to a perfectly ordinary file. So a
    // carried source is resolved, its RESOLVED path judged, and its bytes taken from the
    // descriptor `fstat` proved a regular file: the check and the use hold one inode.
-   // Mutation that reddens: revalidate with lstat and read/copy by path again — the
+   // Mutation that reddens: revalidate with lstat and read/copy by path again: the
    // planted bytes below are linted and land in the export.
    const dir = fs.realpathSync(canaryLayer());
    fs.writeFileSync(path.join(dir, 'domain', 'asset.txt'), 'an ordinary carried asset\n');
@@ -671,7 +672,7 @@ test('check-before-act: an ancestor swapped to a symlink AFTER enumeration is ne
    // The swap, at the one moment that matters: after the export walk has read
    // `domain/`'s entries and before it uses any of them. Generation runs first and
    // walks the same tree, so the hook arms only once the export resolves its own
-   // output target — the first thing the pipeline does after generating. Builtin ESM
+   // output target, the first thing the pipeline does after generating. Builtin ESM
    // bindings are snapshotted at link time, hence the CJS patch plus the resync (the
    // idiom the export suite's subprocess spy uses).
    const require = createRequire(import.meta.url);
@@ -734,11 +735,11 @@ test('check-before-act: an ancestor swapped between the check and the open is ca
    // The residual the descriptor pinning left: the swap lands AFTER the realpath that
    // authorized the source and BEFORE the open on it, so the open follows the new link
    // and the descriptor holds planted bytes while every check has already passed on the
-   // authorized path. `fstat` cannot see it — the decoy is a perfectly ordinary regular
+   // authorized path. `fstat` cannot see it: the decoy is a perfectly ordinary regular
    // file. The recheck after the open resolves the source once more and requires the
    // same location AND the same inode, so the bytes about to be read are proved to be
    // the ones the check judged. Mutation that reddens: drop the recheck and trust
-   // `fstat` alone — the planted bytes below land in the export.
+   // `fstat` alone: the planted bytes below land in the export.
    const dir = fs.realpathSync(canaryLayer());
    const decoy = path.join(dir, '.leji', 'work', 'swapped');
    fs.mkdirSync(decoy, { recursive: true });
@@ -750,9 +751,9 @@ test('check-before-act: an ancestor swapped between the check and the open is ca
 
    // The swap, at the one moment the recheck exists for: the source's realpath has
    // just been resolved and authorized, and the ancestor becomes a symlink before the
-   // open on that path. Deterministic, not a race — the patched resolver performs it
+   // open on that path. Deterministic, not a race: the patched resolver performs it
    // inline, so the window is exercised on every run. Generation runs first over the
-   // same tree, so — as in the enumeration canary — the hook arms only once the export
+   // same tree, so (as in the enumeration canary) the hook arms only once the export
    // resolves its own output target.
    const require = createRequire(import.meta.url);
    const nodeFs = require('node:fs') as Record<string, unknown>;
@@ -836,7 +837,7 @@ test('the export refuses an --out that resolves into a private role', () => {
 // that reddens it.
 
 /** Whether this directory sits on a filesystem that cannot tell `.leji` from
- * `.LEJI` — asked of the volume, so a case-variant assertion runs only where the
+ * `.LEJI`, asked of the volume, so a case-variant assertion runs only where the
  * fold is real. */
 function foldsCase(dir: string): boolean {
    const probe = path.join(dir, 'leji-case-probe');
@@ -853,7 +854,7 @@ test('check-before-act: generation refuses an overview.md SEED aliased into a pr
    // into a private role is contained (inside the repo) yet crosses the trust
    // boundary: containment-only was the gap. The target dangles, so the seed WOULD
    // create it inside the role. Mutation that reddens: revert the overview guard to
-   // resolvedWithinRoot-only (no writableTarget) — the seed writes through and
+   // resolvedWithinRoot-only (no writableTarget): the seed writes through and
    // .leji/work/new.md appears.
    for (const role of ['work', 'mounts'] as const) {
       const dir = canaryLayer();
@@ -904,7 +905,7 @@ test('check-before-act: the overview.md REFRESH refuses an alias into a private 
    // markers: the refresh branch (isFile true) used to resolvedWithinRoot-check, read
    // it, and rewrite the map block THROUGH the link. The check now runs on the
    // resolved path before the read. Mutation that reddens: revert to
-   // resolvedWithinRoot-only — the private file is read and its map block rewritten.
+   // resolvedWithinRoot-only: the private file is read and its map block rewritten.
    const dir = canaryLayer();
    const target = path.join(dir, '.leji', 'mounts', 'existing.md');
    fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -939,7 +940,7 @@ test('the export refuses a NESTED dangling --out whose intermediate component re
    // component and rebuild `redirect/export` lexically (outside .leji/), so the check
    // passed and a target created afterward raced the write into the role. The
    // resolver now follows the dangling intermediate link. Mutation that reddens:
-   // revert resolvedPath's intermediate-symlink follow (climb-past) — outAbs reads as
+   // revert resolvedPath's intermediate-symlink follow (climb-past): outAbs reads as
    // outside .leji/ and the build is not refused.
    const dir = materialize('valid-trust-canary-nested-root', [{ from: '.leji-seed', to: '.leji' }]);
    const { manifest } = loadManifest(dir);
@@ -977,7 +978,7 @@ test('the export refuses a NESTED dangling --out whose intermediate component re
 test('the export refuses a CHAINED dangling --out that ends in a private role', () => {
    // redirect -> hop -> .leji/work/ghost, every hop dangling: the resolver follows the
    // chain of intermediate dangling links to the real destination. Mutation that
-   // reddens: revert resolvedPath's intermediate-symlink follow — the chain is rebuilt
+   // reddens: revert resolvedPath's intermediate-symlink follow: the chain is rebuilt
    // lexically as outside .leji/ and the build is not refused.
    const dir = materialize('valid-trust-canary-nested-root', [{ from: '.leji-seed', to: '.leji' }]);
    const { manifest } = loadManifest(dir);
@@ -1001,7 +1002,7 @@ test('the export refuses a CHAINED dangling --out that ends in a private role', 
 test('the export treats an UNRESOLVABLE --out (permission/I/O) as a failure, not as absent', (t) => {
    // A non-ENOENT resolution failure (here an unreadable intermediate directory) must
    // FAIL the check, never be rebuilt lexically as a not-yet-created target. Mutation
-   // that reddens: make resolvedPath return the lexical path on a non-ENOENT error —
+   // that reddens: make resolvedPath return the lexical path on a non-ENOENT error:
    // the build proceeds instead of refusing. Skipped as root, which bypasses the mode.
    if (typeof process.getuid === 'function' && process.getuid() === 0) {
       t.skip('running as root bypasses directory permissions; the EACCES cannot be constructed');
@@ -1026,12 +1027,12 @@ test('the export treats an UNRESOLVABLE --out (permission/I/O) as a failure, not
 });
 
 test('the export refuses a DANGLING output entry, default or --out, and creates nothing', () => {
-   // A dangling symlink is a standing entry under both forms — never written through,
+   // A dangling symlink is a standing entry under both forms: never written through,
    // never read as absent. The output used to be resolved before anything judged it,
    // so `.leji/dist -> site` with `site` missing BECAME its own destination: statSync
    // reported absence, "clearable" followed, and the export created and filled the
    // link's target. The original entry is judged first now. Mutation that reddens:
-   // drop the lstat on the original entry — the build writes through the link.
+   // drop the lstat on the original entry: the build writes through the link.
    const dir = materialize('valid-trust-canary-nested-root', [{ from: '.leji-seed', to: '.leji' }]);
    const { manifest } = loadManifest(dir);
    assert.ok(manifest);

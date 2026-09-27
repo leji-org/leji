@@ -454,7 +454,7 @@ def _write_manifest_exclusive(root_abs: Path, abs_path: Path, content: str, mode
 
 
 def _ensure_leji_gitignored(root_abs: Path) -> None:
-    """Ensure the repository-root .gitignore ignores `.leji/` — the one line that
+    """Ensure the repository-root .gitignore ignores `.leji/`, the one line that
     covers every role of the unified tree (chrome, export output, onboarding
     workspace, mounts) and any role added later. Idempotent: creates the file if
     absent, appends the line only when not already present. Matches the line exactly,
@@ -487,7 +487,7 @@ def _assert_leji_workspace_private(root: str) -> None:
 def _write_file_once(root: Path, rel: str, content: str, written: list[str]) -> None:
     """Write a file this command owns, once: never over an existing one, and never
     through a standing entry it cannot verify. The skip is decided by the verified read
-    rather than a pathname check, because ``Path.exists()`` follows symlinks — a
+    rather than a pathname check, because ``Path.exists()`` follows symlinks: a
     dangling link at the target reads as absent and the guarded write then lands at the
     link's destination, a name this command never planned. Only ``absent`` is free; a
     regular file is the never-overwrite skip; anything else standing there is the
@@ -842,13 +842,13 @@ class HookReport:
     ``ownership`` says who owns the pre-commit hook this repository would get, decided
     by where the write would actually land rather than by the mechanism that would
     perform it: "personal" under git's own directories AND inside this working tree
-    (``.git/hooks``, a ``core.hooksPath`` resolving inside them) — per clone, never
+    (``.git/hooks``, a ``core.hooksPath`` resolving inside them): per clone, never
     committed, and safe to write; "shared" inside the working tree but not under git's
-    directories (husky, a ``githooks/`` hooks path) — committed, so a maintainer's call;
+    directories (husky, a ``githooks/`` hooks path): committed, so a maintainer's call;
     "outside-root" under git's directories but OUTSIDE this working tree (a linked
-    worktree, whose hooks live in the common git directory) — per clone, but the writer
+    worktree, whose hooks live in the common git directory): per clone, but the writer
     refuses to write outside the repository root, so it is reported; "external" anywhere
-    else (a global or ``$HOME`` hooks path, a symlink escaping the repository) —
+    else (a global or ``$HOME`` hooks path, a symlink escaping the repository):
     reported, never written; "no-git" when there is no repository to hang a hook on. ``state`` is what stands at that
     target: leji's own managed hook or block ("current"), nothing ("absent"), or a
     hook this tool did not write ("foreign")."""
@@ -879,7 +879,7 @@ def hook_status(root: str, runner: Optional[list[str]] = None) -> HookReport:
     """:func:`ensure_local_hook`'s resolve step, without the write: where the managed
     pre-commit hook would go for this repository, who owns that location, and what
     stands there now. The whole point is that a report can be produced without touching
-    anything — `leji start` prints it, and only a consented repair goes on to
+    anything: `leji start` prints it, and only a consented repair goes on to
     :func:`ensure_local_hook`."""
     root_abs = Path(root).resolve()
     argv = runner if runner is not None else runner_argv(detect_ecosystem(str(root_abs)))
@@ -928,7 +928,7 @@ def ensure_local_hook(root: str, runner: Optional[list[str]] = None) -> HookResu
     effective hooks dir (``rev-parse --git-path hooks``); core.hooksPath decides
     whether a husky repo gets a managed block in the user-editable ``.husky/pre-commit``
     (v8/v9) or a standalone managed hook is written. A hooks dir resolving outside the
-    repo (a global core.hooksPath) is never written — the snippet comes back for a
+    repo (a global core.hooksPath) is never written. The snippet comes back for a
     manual hand-add, as does an existing unmanaged hook."""
     root_abs = Path(root).resolve()
     hooks_dir = _git_hooks_dir(root_abs)
@@ -2019,8 +2019,8 @@ def adopt_layer(
 def _archive_path(root: Path, root_path: str, vendor_rel: str, doc: str) -> Optional[str]:
     """Where a vendor entrypoint's content is archived under ``governance/``: the
     first free ``imported-<slug>.md``, or None when this exact migration doc is
-    already on disk — the normal case, ``adopt`` having archived it on the first
-    pass. Mirrors the slug and disambiguation rules ``adopt_layer`` uses."""
+    already on disk (the normal case, ``adopt`` having archived it on the first
+    pass). Mirrors the slug and disambiguation rules ``adopt_layer`` uses."""
     base_slug = re.sub(
         r"^-|-$",
         "",
@@ -2040,8 +2040,8 @@ def _archive_path(root: Path, root_path: str, vendor_rel: str, doc: str) -> Opti
         # verified bytes: a pathname existence check follows symlinks, so a dangling
         # candidate link would read as free and the write would follow it to its missing
         # destination. Nothing standing is free; the identical archive is already on
-        # disk; anything else — different bytes, or a standing entry this run cannot
-        # verify — is occupied, and the next name is tried.
+        # disk; anything else (different bytes, or a standing entry this run cannot
+        # verify) is occupied, and the next name is tried.
         if nothing_stands_at(str(abs_path)):
             return rel
         standing = verified_target_read(root_real, str(abs_path), None)
@@ -2219,8 +2219,8 @@ class LaunchResult:
 @dataclass(frozen=True)
 class RunOptions:
     """Bounds for one child run. ``quiet`` suppresses child output (the MCP presence
-    check); ``capture`` reads stdout back instead — bounded by ``timeout_ms`` and
-    ``max_bytes``, with stdin closed and stderr discarded — which is what the preflight
+    check); ``capture`` reads stdout back instead (bounded by ``timeout_ms`` and
+    ``max_bytes``, with stdin closed and stderr discarded), which is what the preflight
     version probe needs; ``env`` adds the read-only, offline variables a probe runs
     under."""
 
@@ -2641,7 +2641,7 @@ def offer_mcp_install(opts: McpOfferOptions) -> McpOfferOutcome:
         # raise (the "never raises" contract); production always wires run.
         return outcome
     # Skip the offer when already registered (clean exit), so re-running init/adopt never
-    # re-nags — but say so: a silent skip is indistinguishable from the offer being
+    # re-nags, but say so: a silent skip is indistinguishable from the offer being
     # broken. A failed check (e.g. an older host CLI) falls through to the offer.
     if spec.mcp_check:
         chk = io.run(target.bin, spec.mcp_check, opts.root, RunOptions(quiet=True))
@@ -2794,7 +2794,7 @@ def ensure_approval_guard(
     """Write the guard script under the onboarding workspace (`.leji/work/hooks/`)
     and merge its PreToolUse entry into .claude/settings.json (created if absent,
     other settings preserved). Idempotent: an existing guard entry is left untouched.
-    ``root_path`` no longer selects the workspace — it is one root-relative tree —
+    ``root_path`` no longer selects the workspace (it is one root-relative tree)
     and is kept only so the exported signature holds. ``ignore_context`` is the
     invocation's notice state for the self-managed `.leji/.gitignore`, which this
     function ensures because it creates `.leji/work/hooks/`; None means a context local
@@ -2974,7 +2974,7 @@ def resolve_start_host(
 
 
 def start_hosts(detected: list[DetectedHost]) -> list[StartHost]:
-    """The detected hosts `leji start` could launch, ranked — what the preflight names
+    """The detected hosts `leji start` could launch, ranked: what the preflight names
     when several are present and none was picked."""
     return [h for h in (_exported(p) for p in _prompt_capable_hosts(detected)) if h is not None]
 

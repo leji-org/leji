@@ -104,7 +104,7 @@ def validate_manifest_object(data: object) -> ManifestLoad:
     findings: list[Finding] = []
     # Before anything reads a value: a manifest string that is not a well-formed
     # Unicode scalar sequence is refused whole, never carried into a hash, a sort,
-    # or output. The message quotes nothing back — echoing the offending text is
+    # or output. The message quotes nothing back: echoing the offending text is
     # exactly the outcome the check exists to prevent.
     if not all_strings_scalar(data):
         return ManifestLoad(

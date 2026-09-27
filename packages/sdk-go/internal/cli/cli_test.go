@@ -394,7 +394,7 @@ func TestCLIIndexJSONCarriesNoNudge(t *testing.T) {
 		t.Fatalf("unexpected payload: %s", out)
 	}
 	// The nudge is text-mode only. The count is not part of the index run's
-	// contract, so no consumer may start reading it off this document — not at
+	// contract, so no consumer may start reading it off this document: not at
 	// the top level, not tucked into summary or a later extra.
 	if hasKeyDeep(payload, "unindexed") {
 		t.Fatalf("--json must carry no unindexed field, got: %s", out)
@@ -607,7 +607,7 @@ func TestCLICiWritesIdempotentAndNoManifest(t *testing.T) {
 const gitlabBlock = "# >>> leji ci (managed) >>>\n" +
 	"leji-validate:\n" +
 	"  stage: .pre\n" +
-	"  image: node:22\n" +
+	"  image: node:24\n" +
 	"  script:\n" +
 	"    - npx -y @leji-org/leji@1 validate\n" +
 	"    - npx -y @leji-org/leji@1 index --check\n" +

@@ -1,6 +1,16 @@
 import * as path from 'node:path';
 import { type Finding, finding, sortFindings } from '../lib/findings.js';
-import { exists, isFile, readText, readTextWithin, resolvedWithinRoot, underPath } from '../lib/fsx.js';
+import {
+   exists,
+   isDir,
+   isFile,
+   readText,
+   readTextWithin,
+   resolvedPath,
+   resolvedWithinRoot,
+   stripSlash,
+   underPath,
+} from '../lib/fsx.js';
 import { parseFrontmatter } from '../lib/frontmatter.js';
 import { gitShowHead, gitToplevel } from '../lib/git.js';
 import {
@@ -211,9 +221,9 @@ function checkCategories(root: string, manifest: Manifest, findings: Finding[]):
 /**
  * The governed set the link gate walks: every markdown document this layer answers
  * for, deduplicated and in byte order of path. Composed here from the scans that
- * already define it — the boot profile, every indexed document under every category,
+ * already define it (the boot profile, every indexed document under every category,
  * the profile set (`agentProfilesPath` plus the profiles bound outside it), and the
- * decision records — rather than discovered by a walk of its own, so a document is
+ * decision records) rather than discovered by a walk of its own, so a document is
  * link-checked exactly when the layer claims it. The category index files are not in
  * it: an index is the selector, and what it selects is what the layer governs.
  */
@@ -227,7 +237,7 @@ function governedDocuments(root: string, manifest: Manifest): string[] {
 
 /**
  * The in-layer link gate: every governed document's markdown links resolve to
- * something the layer carries. Structural and always on — a dangling link is a
+ * something the layer carries. Structural and always on: a dangling link is a
  * reference to context that is not there, which the `--content` lint's advisory
  * signals never are. A document that cannot be read here is one the structural pass
  * already reports as missing or escaping, so it contributes nothing twice.
@@ -397,6 +407,34 @@ function checkBootAgentsDefault(root: string, manifest: Manifest, findings: Find
          'warning',
          'agents.default is bound but never auto-loaded; a boot profile that unconditionally loads it should be one canonical boot document (fold the default profile in)',
          'leji.json',
+      ),
+   );
+}
+
+/** Warn on a `.leji/` directory under the context root that is not the repository's own
+ * `.leji/`: the tool tree's location before 1.4.0, which nothing current writes. A root
+ * context has only the live tree. The real paths are compared so a symlink to the root
+ * tree is the live tree; an unresolvable side counts as different, never a failure. */
+function checkLegacyLejiDir(root: string, manifest: Manifest, findings: Finding[]): void {
+   const base = stripSlash(manifest.rootPath);
+   if (base === '' || base === '.') return;
+   const candidate = path.join(root, base, '.leji');
+   if (!isDir(candidate)) return;
+   let same = false;
+   try {
+      const real = resolvedPath(candidate);
+      same = real !== null && real === resolvedPath(path.join(root, '.leji'));
+   } catch {
+      // A resolver can still throw (a symlink removed mid-resolution): different.
+   }
+   if (same) return;
+   const rel = `${base}/.leji`;
+   findings.push(
+      finding(
+         'legacy-leji-dir',
+         'warning',
+         `\`${rel}\` is the tool tree's location before Leji 1.4.0; the current tooling keeps its state under the root \`.leji/\` and writes nothing here. Delete it (run \`git rm -r --cached ${rel}\` first if it is tracked).`,
+         rel,
       ),
    );
 }
@@ -849,7 +887,7 @@ export interface ChangelogCheckResult {
 /**
  * Append-only discipline: entries present at HEAD must survive unchanged; new
  * entries only append (oldest-end compaction excepted). Without a git baseline
- * this is unverifiable — warning, or error under --strict.
+ * this is unverifiable: warning, or error under --strict.
  */
 export function checkChangelogAppendOnly(root: string, rel: string, strict = false): ChangelogCheckResult {
    const findings: Finding[] = [];
@@ -1029,7 +1067,7 @@ function sectionBody(text: string, heading: string): string {
 
 /**
  * Opt-in content lint (`validate --content`): warning-only signals that a layer is
- * still a scaffold — placeholder text, generic boot identity, thin domain/system.
+ * still a scaffold: placeholder text, generic boot identity, thin domain/system.
  * Never errors or affects conformance level (conformance.md defines "populated"
  * structurally); this is guidance toward a layer worth reading.
  */
@@ -1144,7 +1182,7 @@ export function validateLayer(root: string, opts: { content?: boolean } = {}): V
 
    // Git is required at core and above (context-layer.md, Requirements): history,
    // currency, and append-only integrity derive from it. A non-git copy is a
-   // degraded read, not a canonical layer — warn rather than pass silently.
+   // degraded read, not a canonical layer: warn rather than pass silently.
    if (gitToplevel(root) === null) {
       findings.push(
          finding(
@@ -1155,6 +1193,7 @@ export function validateLayer(root: string, opts: { content?: boolean } = {}): V
          ),
       );
    }
+   checkLegacyLejiDir(root, manifest, findings);
 
    checkBootProfile(root, manifest, findings);
    checkCategories(root, manifest, findings);

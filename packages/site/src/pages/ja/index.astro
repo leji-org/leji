@@ -14,7 +14,7 @@ import { translationStrings } from '../../data/i18n';
 import githubIcon from '../../assets/github.svg?raw';
 import lejiSyntaxTheme from '../../styles/shiki-leji.json';
 
-const source = '36bcf47882672f4531a8db2ca978572968ea09f3';
+const source = '2eed9882fa772b20bb25669b164ba230b71d341a';
 const strings = translationStrings('ja');
 
 // Captured verbatim from a real run, so the transcript stays exactly as captured:
@@ -206,7 +206,7 @@ const peekJson = `{
                   つのレベルは段階的に積み上がります。自己評価による成熟度ではなく、実際に何が整っているかで判定されます。たいていのチームは{
                      ' '
                   }
-                  <code>governed</code> まで進み、そこで止めます。CLI が機械的に確認できる項目を検証し、残りはチームが確認します。
+                  <code>governed</code> まで進み、そこで止めるのがよいでしょう。CLI が機械的に確認できる項目を検証し、残りはチームが確認します。
                </p>
                <ol class="ladder">
                   <li>
@@ -267,9 +267,7 @@ const peekJson = `{
                      <h3>階層ではなく輪</h3>
                      <p>
                         人から人へ、人から AI へ、人から AI を経て人へ。この 3
-                        つはいずれも、ひとつの共有コンテキストレイヤーを中心とする主要な流れです。全員が読み、誰でも提案でき、人がプルリクエストを通じて承認します。{
-                           ' '
-                        }
+                        つはいずれも、ひとつの共有コンテキストレイヤーを中心とする主要な流れです。全員が読み、誰でも提案でき、人がプルリクエストを通じて承認します。
                         <a href="/ja/rationale/#階層ではなく輪">輪がうまくいく理由。</a>
                      </p>
                   </div>
@@ -279,9 +277,11 @@ const peekJson = `{
                   <div class="thesis-body">
                      <h3>善意ではなく仕組みを</h3>
                      <p>
-                        現実が変われば、共有コンテキストは古くなります。コードレビュー、機械的なずれの検査、鮮度の期限によって、保守が仕組み化されます。古くなったコンテキストが、黙って現行のものとして扱われることはありません。{
+                        現実が変われば、共有コンテキストは古くなります。コードレビュー、機械的なずれの検査、鮮度の期限によって、保守が仕組み化されます。レビューの期限を過ぎたコンテキストは{
                            ' '
                         }
+                        <code>leji freshness</code> と <code>leji route</code>{' '}
+                        によって示され、現行のものとして提示されることはありません。
                         <a href="/ja/rationale/#これがウィキではない理由">仕組みが効く理由。</a>
                      </p>
                   </div>
@@ -474,10 +474,6 @@ const peekJson = `{
       max-width: 50ch;
       margin: 1.7rem 0 2.1rem;
    }
-   .lede strong {
-      color: var(--leji-ink-on-deep);
-      font-weight: 600;
-   }
    .lede code {
       font-size: 0.84em;
       color: var(--white-strong);
@@ -562,7 +558,7 @@ const peekJson = `{
       its own, and the shadow already gives it the lift. */
    .btn.solid {
       /* the accessible green ground carries white at 5.15:1 at any size; the
-         vivid brand green is the hover moment. In dark the ground is the mint
+         hover ground deepens to hold it (--leji-cta-hover). In dark the ground is the mint
          and the label the deep ink, and the hover ground lifts to hold it. */
       background: var(--leji-brand-dark);
       color: var(--leji-ink-on-cta);

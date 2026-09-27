@@ -1,6 +1,6 @@
 """``leji export`` (and ``leji viewer build``, its co-equal name for the same
 operation): the static export pipeline, in its own module so its transitive import
-set can be checked. Nothing here — and nothing it imports — pulls in
+set can be checked. Nothing here (and nothing it imports) pulls in
 ``http.server``, ``socket``, ``socketserver`` or ``urllib.request``; the local
 preview server keeps all of that in ``serve_cmd``. The only subprocess the pipeline
 reaches is ``git``, through the mount status the manifest page renders, with lazy
@@ -139,7 +139,7 @@ def _copy_from_descriptor(fd: int, root_abs: Path, dest: Path) -> None:
     silently truncate the file.
 
     The destination is judged and opened by the chokepoint; the bytes then go into
-    that descriptor, so the copy can never reopen — or redirect to — a path."""
+    that descriptor, so the copy can never reopen (or redirect to) a path."""
     mode = os.fstat(fd).st_mode & 0o777
     opened = open_write_guarded(str(root_abs), str(dest), DIST_REL, mode)
     if not opened.ok or opened.fd is None:
@@ -190,7 +190,7 @@ def build_viewer(
     the local server serves (chrome at the web root, layer markdown under /content/),
     so any static host serves it as-is. The pipeline is fixed: regenerate the chrome
     (server flavor, always), run the pre-write checks, and only on a clean result
-    clear and write the target — so a failing check leaves a pre-existing export
+    clear and write the target, so a failing check leaves a pre-existing export
     byte-untouched. ``strict`` is the gate: a lint finding fails the run before the
     target is cleared, mirroring ``status --strict``. The exported index.html carries
     the protect-your-context warning as a comment. ``ignore_context`` is the
@@ -203,8 +203,8 @@ def build_viewer(
     ignore_context = ignore_context or new_leji_ignore_context()
     gen = generate_viewer(root, manifest, ignore_context)
     # Every path below is resolved, root included, so the path a check judges is the
-    # path the write lands on: a symlinked component — or a case-variant spelling of a
-    # reserved role on a case-insensitive filesystem — resolves to its real name here,
+    # path the write lands on: a symlinked component (or a case-variant spelling of a
+    # reserved role on a case-insensitive filesystem) resolves to its real name here,
     # before the reservation and containment rules are applied to it.
     requested_root = str(Path(root).resolve())
     root_abs = Path(resolved_path(requested_root) or requested_root)
@@ -220,7 +220,7 @@ def build_viewer(
     # The ORIGINAL entry is judged before resolution, because a dangling symlink is a
     # standing entry and never an absence: resolved first, `.leji/dist -> missing` hands
     # every check below the link's MISSING destination, which reads as an unoccupied
-    # target the export then clears and creates — a write through the link. An lstat or
+    # target the export then clears and creates: a write through the link. An lstat or
     # stat that fails for any other reason (permission, I/O, a symlink loop) is not an
     # absence either; that path is refused by the resolution check just below.
     dangling_out = False
@@ -256,7 +256,7 @@ def build_viewer(
     if any(f.severity == "error" for f in gen.findings):
         return BuildResult(out=out_display, findings=gen.findings, wrote=False)
     # Check-before-act: the output target is validated against the write rule
-    # BEFORE any clean or write, UNCONDITIONALLY — the default `.leji/dist` and a
+    # BEFORE any clean or write, UNCONDITIONALLY: the default `.leji/dist` and a
     # caller `--out` alike, with no out_rel-is-None fast path around it. It must resolve
     # INSIDE the repository (a `.leji/dist` symlinked out of the tree is refused, not
     # followed: the export folder is yours to copy wherever your host reads it from),
@@ -316,7 +316,7 @@ def build_viewer(
         )
     # The export reads the chrome by name; each file is realpath-checked against the
     # servable whitelist in _copy_chrome below, and the generation pass above already
-    # refused a `.leji/viewer/` that does not resolve inside its own role — so the two
+    # refused a `.leji/viewer/` that does not resolve inside its own role, so the two
     # vectors a separate identity check guarded are closed at their operations.
     viewer_abs = Path(role_abs(str(root_abs), VIEWER_REL))
     out_content = out_abs / "content"
@@ -337,8 +337,8 @@ def build_viewer(
             raise _refused_dest(root_abs, dest_abs, verdict)
 
     # Check-before-act level-2 (boundary skip): a real, otherwise-servable read source withheld
-    # because its RESOLVED path lands in a private role says why exactly once — on
-    # stderr, never on stdout, never in the `--json` object — so the boundary answers
+    # because its RESOLVED path lands in a private role says why exactly once (on
+    # stderr, never on stdout, never in the `--json` object), so the boundary answers
     # the "why isn't my doc showing?" question instead of dropping silently. A routine
     # dot-entry or ordinary symlink stays silent (a clean build has dozens of those);
     # this speaks only when the whitelist actually withheld something servable-looking.
@@ -353,7 +353,7 @@ def build_viewer(
             f"{LEJI_DIR}/{leji_role(str(root_abs), real)} (private); not served or exported\n"
         )
 
-    # Enumerate the content root — every file and directory /content will carry —
+    # Enumerate the content root (every file and directory /content will carry),
     # skipping ALL dotfiles/dot-dirs and symlinks: an export is a self-contained
     # snapshot, and a symlink or dot-path (.git, .secret.md) must never leak into it.
     # Explicit walk, not copytree, so the default output dir under the content root
@@ -373,7 +373,7 @@ def build_viewer(
             child_abs = content_abs / child_rel
             # A symlink is never exported (snapshot semantics). An ordinary one is a
             # routine, silent exclusion; one resolving into a private role is a
-            # boundary skip — a servable-looking source withheld, named once on stderr.
+            # boundary skip: a servable-looking source withheld, named once on stderr.
             if entry.is_symlink():
                 real = resolved_path_under(str(root_abs), str(child_abs))
                 if real is not None and not servable_path(str(root_abs), real):
@@ -405,13 +405,13 @@ def build_viewer(
     walk_content("")
 
     # A carried source is BOUND to its bytes at the moment it is used, not trusted from
-    # the walk: between enumeration and use, the file — or any directory above it — can
+    # the walk: between enumeration and use, the file (or any directory above it) can
     # become a symlink, and a read or copy by path then follows it past every check the
     # walk made. So each source is resolved natively, the RESOLVED path is judged
     # against the content root and the servable whitelist, and its bytes come from the
     # descriptor fstat proved a regular file: check and use hold the same inode. A
     # source that fails is dropped from the export with the same check-before-act semantics the walk
-    # applies — silent for an ordinary redirect or a vanished file, named once on stderr
+    # applies: silent for an ordinary redirect or a vanished file, named once on stderr
     # when it resolves into a private role.
     content_real = resolved_path_under(str(root_abs), str(content_abs)) or str(content_abs)
 
@@ -428,8 +428,8 @@ def build_viewer(
 
     # The rendering lint (`adoption/rendering.md`): every markdown document the export
     # will carry under content/, governed and reference alike, since anything served
-    # can diverge across renderers. It reads the layer's own files — the author's bytes
-    # at the author's line numbers, which is what a finding must point at — never the
+    # can diverge across renderers. It reads the layer's own files (the author's bytes
+    # at the author's line numbers, which is what a finding must point at), never the
     # generated chrome pages, which no one edits and every run rewrites. Each document
     # is read EXACTLY ONCE, and the bytes read are the bytes exported below: the lint's
     # verdict and the exported file are then the same document, with no window in which
@@ -451,13 +451,13 @@ def build_viewer(
         repo_rel = item.rel if root_dir == "." else f"{root_dir}/{item.rel}"
         lint.extend(render_lint_findings(repo_rel, data.decode("utf-8", "replace")))
     # Canonical order for the whole result: (path, line, rule, construct). The walk is
-    # directory order, so the sort is what makes two runs — and three SDKs — report the
+    # directory order, so the sort is what makes two runs (and three SDKs) report the
     # same sequence.
     findings = sort_findings([*gen.findings, *lint])
 
     # The `--strict` gate, and the last thing before the first byte moves: the refusals
     # above are about the destination (exit 2, whatever the flags say), while strict is
-    # about the layer — a lint finding fails the run, and because the gate sits ahead of
+    # about the layer: a lint finding fails the run, and because the gate sits ahead of
     # the clean below, a pre-existing export is left exactly as it was. The pipeline is
     # regenerate -> check -> clear-and-write, in that order, so the promise holds for
     # every check that lands in it later.
@@ -521,8 +521,8 @@ def build_viewer(
 
     # One generated chrome file into the export. A symlink is not a generated file:
     # lstat refuses it without following it, and the bytes come from the same guarded
-    # open the content copy uses — the resolved path judged by the whitelist, the
-    # descriptor proved to be that file — so nothing planted inside the chrome tree can
+    # open the content copy uses (the resolved path judged by the whitelist, the
+    # descriptor proved to be that file), so nothing planted inside the chrome tree can
     # pull a private role's bytes along, and no copy reopens a checked path.
     def copy_chrome(src_abs: Path, dest_abs: Path) -> None:
         def refuse() -> RuntimeError:

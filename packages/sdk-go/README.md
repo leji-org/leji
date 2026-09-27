@@ -24,6 +24,7 @@ leji viewer build       # export a self-contained static viewer folder
 leji view               # generate, serve, and open it in your browser
 leji detect             # find installed agent hosts
 leji start              # open the layer in a detected agent host
+leji doctor             # report this clone's setup without launching an agent
 leji adopt              # map an existing entrypoint into a context layer
 leji ci                 # add a validate workflow (--provider github|gitlab|circleci|azure)
 leji agent --name <n>   # bind an additional named agent into the layer
@@ -39,8 +40,9 @@ https://leji.org/cli/.
 
 In a Go repository that declares the tool, run the pinned copy with `go tool leji`.
 
-This is the Go reference SDK. It is behaviorally identical to the `@leji-org/leji` npm
-package and the `leji` Python package: same commands, same flags, same findings,
+This is the Go reference SDK. It is held to identical behavior with the `@leji-org/leji`
+npm package and the `leji` Python package by the shared `fixtures/` suite and the
+byte-level parity harness: same commands, same flags, same findings,
 same exit codes (0 clean, warnings included; 1 a check that did not pass, with
 or without a finding; 2 a usage error or an internal failure); the one
 runtime-specific behavior is the hand-off to a repository's pinned CLI, which
@@ -64,7 +66,7 @@ gofmt -l .         # prints nothing
 go test ./...      # all green, including the shared fixtures
 ```
 
-The SDK version is a build-time constant defaulting to `1.5.1`; override it with
+The SDK version is a build-time constant defaulting to `1.5.2`; override it with
 `-ldflags "-X github.com/leji-org/leji/packages/sdk-go/internal/schemas.SDKVersion=<v>"`.
 
 - Specification: https://leji.org

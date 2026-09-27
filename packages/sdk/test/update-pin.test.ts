@@ -17,9 +17,10 @@ import {
    selectComparison,
    witnessRefFor,
 } from '../dist/lib/mounts.js';
+import { copyTree } from './helpers/copytree.ts';
 
 // Three halves of one contract. First the pin-span scanner over its own byte
-// fixtures — the only artifact here that needs no git at all. Then the two
+// fixtures, the only artifact here that needs no git at all. Then the two
 // factorings out of `lib/mounts.ts`, checked against the callers they were taken
 // from. Then the shared fixtures' `updatePin` block, driven through the real CLI as
 // a process over a scaffold every SDK's harness builds identically
@@ -259,7 +260,7 @@ test('selectComparison and comparePins answer exactly what mountStatus reports',
       [OID.o, 'unrelated'],
    ] as const) {
       fs.rmSync(host, { recursive: true, force: true });
-      fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), host, { recursive: true });
+      copyTree(path.join(fixturesDir, 'warn-update-pin'), host);
       repin(host, pin, 'keep');
       buildStore(host, sibling, { pin, witnessRef: 'refs/heads/main', witnessOid: OID.b, depth: null });
       const { manifest } = loadManifest(host);
@@ -357,7 +358,7 @@ interface UpdatePinBlock {
 
 /** Apply a case's declaration rewrite: the pin it starts from, and whether the
  * tracking ref is declared at all. A raw-text splice, as the fixture's own contract
- * requires — the harness never reserializes a manifest either. */
+ * requires: the harness never reserializes a manifest either. */
 function repin(host: string, pin: string, trackingRef: string | null | 'keep'): void {
    const mp = path.join(host, 'leji.json');
    let text = fs.readFileSync(mp, 'utf8');
@@ -427,7 +428,7 @@ for (const name of fs.readdirSync(fixturesDir).sort()) {
             const sibling = path.join(dir, 'sibling');
             const host = path.join(dir, 'host');
             buildAcmeSibling(sibling);
-            fs.cpSync(path.join(fixturesDir, name), host, { recursive: true });
+            copyTree(path.join(fixturesDir, name), host);
             repin(host, c.pin, c.trackingRef === undefined ? 'keep' : c.trackingRef);
             if (c.store) buildStore(host, sibling, c.store);
             if (c.hint) {
@@ -546,7 +547,7 @@ test('a declaration that changes under the run is refused, not overwritten', () 
       const sibling = path.join(dir, 'sibling');
       const host = path.join(dir, 'host');
       buildAcmeSibling(sibling);
-      fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), host, { recursive: true });
+      copyTree(path.join(fixturesDir, 'warn-update-pin'), host);
       repin(host, OID.a, 'keep');
       buildStore(host, sibling, { pin: OID.a, witnessRef: 'refs/heads/main', witnessOid: OID.b, depth: null });
       const { manifest } = loadManifest(host);
@@ -570,7 +571,7 @@ test('a target that cannot be retained under --fetch refuses the move, manifest 
       const sibling = path.join(dir, 'sibling');
       const host = path.join(dir, 'host');
       buildAcmeSibling(sibling);
-      fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), host, { recursive: true });
+      copyTree(path.join(fixturesDir, 'warn-update-pin'), host);
       repin(host, OID.a, 'keep');
       fs.mkdirSync(path.join(host, '.leji'), { recursive: true });
       fs.writeFileSync(
@@ -580,8 +581,8 @@ test('a target that cannot be retained under --fetch refuses the move, manifest 
       const before = fs.readFileSync(path.join(host, 'leji.json'));
       // By the time the TARGET is retained the store already holds it, so the fetch
       // never runs and only the ref update can fail: the injection is the branch's
-      // one reachable path. It names the TARGET, so retaining the current pin — the
-      // act before the gate — still succeeds and the refusal is unambiguous.
+      // one reachable path. It names the TARGET, so retaining the current pin (the
+      // act before the gate) still succeeds and the refusal is unambiguous.
       const r = await runCliProc(['mounts', 'update-pin', 'product-context', '--fetch', '--root', host, '--json'], {
          ...routedEnv(sibling),
          LEJI_TEST_FAIL_PIN_REF: OID.b,
@@ -616,7 +617,7 @@ test('the same injected retention failure, aimed at the CURRENT pin, names that 
       const sibling = path.join(dir, 'sibling');
       const host = path.join(dir, 'host');
       buildAcmeSibling(sibling);
-      fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), host, { recursive: true });
+      copyTree(path.join(fixturesDir, 'warn-update-pin'), host);
       repin(host, OID.a, 'keep');
       // One hook, two acts: it names a commit, and each act retains its own, so the
       // pin's id aims it at the act before the gate rather than the one after it.
@@ -640,7 +641,7 @@ test('a current pin the source no longer serves refuses at that act, with the ro
       const source = path.join(dir, 'source');
       const host = path.join(dir, 'host');
       const { pin, target } = buildOrphanTargetSource(source);
-      fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), host, { recursive: true });
+      copyTree(path.join(fixturesDir, 'warn-update-pin'), host);
       repin(host, pin, 'keep');
       const before = fs.readFileSync(path.join(host, 'leji.json'));
       const argv = ['mounts', 'update-pin', 'product-context', '--fetch', '--root', host];
@@ -683,7 +684,7 @@ test('the route the current-pin refusal advertises: the hint moves the pin, --fe
       const { pin, target } = buildOrphanTargetSource(source);
       const held = buildOrphanTargetRepo(hint);
       assert.deepEqual(held, { pin, target }, 'the hint holds the same two commits');
-      fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), host, { recursive: true });
+      copyTree(path.join(fixturesDir, 'warn-update-pin'), host);
       repin(host, pin, 'keep');
       fs.mkdirSync(path.join(host, '.leji'), { recursive: true });
       fs.writeFileSync(
@@ -740,7 +741,7 @@ test('a tracking ref the source does not advertise refuses at the witness act', 
       const sibling = path.join(dir, 'sibling');
       const host = path.join(dir, 'host');
       buildAcmeSibling(sibling);
-      fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), host, { recursive: true });
+      copyTree(path.join(fixturesDir, 'warn-update-pin'), host);
       repin(host, OID.a, 'keep');
       // The store already holds the pin, so its retention needs no network at all and
       // the witness refresh is the only act left that can fail.
@@ -768,7 +769,7 @@ test('a target the manifest no longer pins from is refused by the scanner, at ex
       const sibling = path.join(dir, 'sibling');
       const host = path.join(dir, 'host');
       buildAcmeSibling(sibling);
-      fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), host, { recursive: true });
+      copyTree(path.join(fixturesDir, 'warn-update-pin'), host);
       repin(host, OID.a, 'keep');
       buildStore(host, sibling, { pin: OID.a, witnessRef: 'refs/heads/main', witnessOid: OID.b, depth: null });
       const { manifest } = loadManifest(host);
@@ -810,7 +811,7 @@ async function quiet<T>(fn: () => T | Promise<T>): Promise<T> {
 
 test('run: the mounts sub-guard accepts update-pin and still rejects everything else', async () => {
    const dir = tmpdir('leji-updatepin-cli-');
-   fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, 'warn-update-pin'), dir);
    // Accepted spellings reach their command (never the sub-guard's exit 2)…
    for (const sub of ['hydrate', 'status', 'locate', 'update-pin']) {
       const argv = [
@@ -831,7 +832,7 @@ test('run: the mounts sub-guard accepts update-pin and still rejects everything 
 
 test('run: update-pin takes exactly one positional, and only its declared flags', async () => {
    const dir = tmpdir('leji-updatepin-flags-');
-   fs.cpSync(path.join(fixturesDir, 'warn-update-pin'), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, 'warn-update-pin'), dir);
    // The positional budget gains this command's one name, as `mounts locate` has.
    assert.notEqual(await quiet(() => run(['mounts', 'update-pin', 'product-context', '--root', dir])), 2);
    assert.equal(await quiet(() => run(['mounts', 'update-pin', 'product-context', 'surplus', '--root', dir])), 2);

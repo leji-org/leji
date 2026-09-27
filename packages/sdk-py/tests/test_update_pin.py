@@ -1,7 +1,7 @@
 """`leji mounts update-pin` tests, mirroring packages/sdk/test/update-pin.test.ts.
 
 Three halves of one contract. First the pin-span scanner over its own byte
-fixtures — the only artifact here that needs no git at all. Then the two factorings
+fixtures, the only artifact here that needs no git at all. Then the two factorings
 out of ``leji/mounts.py``, checked against the callers they were taken from. Then the
 shared fixtures' ``updatePin`` block, driven through the real CLI as a process over a
 scaffold every SDK's harness builds identically (``fixtures/README.md`` -> "The
@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from helpers.copytree import copy_tree
 from leji.manifest import load_manifest, replace_mount_pin_in_manifest_text
 from leji.mounts import (
     MountDecl,
@@ -238,7 +239,7 @@ def build_store(host: Path, sibling: Path, spec: dict) -> None:
 def repin(host: Path, pin: str, tracking_ref) -> None:
     """Apply a case's declaration rewrite: the pin it starts from, and whether the
     tracking ref is declared at all. A raw-text splice, as the fixture's own contract
-    requires — the harness never reserializes a manifest either."""
+    requires: the harness never reserializes a manifest either."""
     mp = host / "leji.json"
     text = mp.read_text(encoding="utf-8")
     text = re.sub(r'("pin": ")[0-9a-f]{40}(")', rf"\g<1>{pin}\g<2>", text, count=1)
@@ -286,7 +287,7 @@ def test_select_comparison_and_compare_pins_answer_what_mount_status_reports(tmp
         (OID_O, "unrelated"),
     ):
         shutil.rmtree(host, ignore_errors=True)
-        shutil.copytree(FIXTURES / "warn-update-pin", host)
+        copy_tree(FIXTURES / "warn-update-pin", host)
         repin(host, pin, "keep")
         build_store(
             host,
@@ -413,7 +414,7 @@ def test_fixture_update_pin_block(fixture: str, block: dict, case: dict, tmp_pat
     sibling = tmp_path / "sibling"
     host = tmp_path / "host"
     build_acme_sibling(sibling)
-    shutil.copytree(FIXTURES / fixture, host)
+    copy_tree(FIXTURES / fixture, host)
     repin(host, case["pin"], case.get("trackingRef", "keep"))
     if case["store"]:
         build_store(host, sibling, case["store"])
@@ -518,7 +519,7 @@ def test_a_declaration_that_changes_under_the_run_is_refused(tmp_path) -> None:
     sibling = tmp_path / "sibling"
     host = tmp_path / "host"
     build_acme_sibling(sibling)
-    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    copy_tree(FIXTURES / "warn-update-pin", host)
     repin(host, OID_A, "keep")
     build_store(
         host,
@@ -561,7 +562,7 @@ def test_a_tracking_ref_that_appears_under_the_run_is_a_changed_declaration(
     sibling = tmp_path / "sibling"
     host = tmp_path / "host"
     build_acme_sibling(sibling)
-    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    copy_tree(FIXTURES / "warn-update-pin", host)
     # Absent at load; only --fetch can resolve the source's advertised default branch,
     # which is the one path that reaches the rewrite with no trackingRef declared.
     repin(host, OID_A, None)
@@ -586,7 +587,7 @@ def test_a_declaration_still_absent_at_the_reread_proceeds(tmp_path, monkeypatch
     sibling = tmp_path / "sibling"
     host = tmp_path / "host"
     build_acme_sibling(sibling)
-    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    copy_tree(FIXTURES / "warn-update-pin", host)
     repin(host, OID_A, None)
     for key, value in _routed_env(sibling).items():
         monkeypatch.setenv(key, value)
@@ -602,7 +603,7 @@ def test_a_target_that_cannot_be_retained_under_fetch_refuses_the_move(tmp_path)
     sibling = tmp_path / "sibling"
     host = tmp_path / "host"
     build_acme_sibling(sibling)
-    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    copy_tree(FIXTURES / "warn-update-pin", host)
     repin(host, OID_A, "keep")
     (host / ".leji").mkdir(parents=True, exist_ok=True)
     (host / ".leji" / "mounts.local.json").write_text(
@@ -612,8 +613,8 @@ def test_a_target_that_cannot_be_retained_under_fetch_refuses_the_move(tmp_path)
     before = (host / "leji.json").read_bytes()
     # By the time the TARGET is retained the store already holds it, so the fetch
     # never runs and only the ref update can fail: the injection is the branch's one
-    # reachable path. It names the TARGET, so retaining the current pin — the act
-    # before the gate — still succeeds and the refusal is unambiguous.
+    # reachable path. It names the TARGET, so retaining the current pin (the act
+    # before the gate) still succeeds and the refusal is unambiguous.
     env = _routed_env(sibling)
     env["LEJI_TEST_FAIL_PIN_REF"] = OID_B
     code, stdout = run_cli_proc(
@@ -655,7 +656,7 @@ def test_a_current_pin_the_source_no_longer_serves_refuses_at_that_act(tmp_path)
     source = tmp_path / "source"
     host = tmp_path / "host"
     pin, target = build_orphan_target_source(source)
-    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    copy_tree(FIXTURES / "warn-update-pin", host)
     repin(host, pin, "keep")
     before = (host / "leji.json").read_bytes()
     argv = ["mounts", "update-pin", "product-context", "--fetch", "--root", str(host)]
@@ -686,7 +687,7 @@ def test_the_same_injected_retention_failure_aimed_at_the_current_pin(tmp_path) 
     sibling = tmp_path / "sibling"
     host = tmp_path / "host"
     build_acme_sibling(sibling)
-    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    copy_tree(FIXTURES / "warn-update-pin", host)
     repin(host, OID_A, "keep")
     # One hook, two acts: it names a commit, and each act retains its own, so the
     # pin's id aims it at the act before the gate rather than the one after it.
@@ -709,7 +710,7 @@ def test_a_tracking_ref_the_source_does_not_advertise_refuses_at_the_witness_act
     sibling = tmp_path / "sibling"
     host = tmp_path / "host"
     build_acme_sibling(sibling)
-    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    copy_tree(FIXTURES / "warn-update-pin", host)
     repin(host, OID_A, "keep")
     # The store already holds the pin, so its retention needs no network at all and
     # the witness refresh is the only act left that can fail.
@@ -743,7 +744,7 @@ def test_a_hydrate_whose_source_no_longer_serves_the_pin_names_the_act(tmp_path)
     source = tmp_path / "source"
     host = tmp_path / "host"
     pin, _ = build_orphan_target_source(source)
-    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    copy_tree(FIXTURES / "warn-update-pin", host)
     repin(host, pin, "keep")
     env = _routed_env(source)
     code, stdout = run_cli_proc(
@@ -780,7 +781,7 @@ def test_the_route_the_current_pin_refusal_advertises(tmp_path) -> None:
     # holds the current pin and the orphan target with complete ancestry.
     pin, target = build_orphan_target_source(source)
     assert build_orphan_target_repo(hint) == (pin, target), "the hint holds the same two commits"
-    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    copy_tree(FIXTURES / "warn-update-pin", host)
     repin(host, pin, "keep")
     (host / ".leji").mkdir(parents=True, exist_ok=True)
     (host / ".leji" / "mounts.local.json").write_text(
@@ -828,7 +829,7 @@ def test_a_target_the_manifest_no_longer_pins_from_is_refused_by_the_scanner(tmp
     sibling = tmp_path / "sibling"
     host = tmp_path / "host"
     build_acme_sibling(sibling)
-    shutil.copytree(FIXTURES / "warn-update-pin", host)
+    copy_tree(FIXTURES / "warn-update-pin", host)
     repin(host, OID_A, "keep")
     build_store(
         host,
@@ -866,7 +867,7 @@ def test_the_mounts_sub_guard_accepts_update_pin_and_rejects_everything_else(
 ) -> None:
     from leji.cli import main
 
-    shutil.copytree(FIXTURES / "warn-update-pin", tmp_path / "layer")
+    copy_tree(FIXTURES / "warn-update-pin", tmp_path / "layer")
     layer = str(tmp_path / "layer")
     # Accepted spellings reach their command (never the sub-guard's exit 2)…
     for sub in ("hydrate", "status", "locate", "update-pin"):
@@ -885,7 +886,7 @@ def test_the_mounts_sub_guard_accepts_update_pin_and_rejects_everything_else(
 def test_update_pin_takes_one_positional_and_only_its_declared_flags(capsys, tmp_path) -> None:
     from leji.cli import main
 
-    shutil.copytree(FIXTURES / "warn-update-pin", tmp_path / "layer")
+    copy_tree(FIXTURES / "warn-update-pin", tmp_path / "layer")
     layer = str(tmp_path / "layer")
 
     def run(argv: list[str]) -> int:

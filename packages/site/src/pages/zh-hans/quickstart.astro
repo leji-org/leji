@@ -17,11 +17,11 @@ import TranslationNote from '../../components/TranslationNote.astro';
 import { translationStrings } from '../../data/i18n';
 import lejiSyntaxTheme from '../../styles/shiki-leji.json';
 
-const source = '1d85a2ee9d95b8dcb58708c54e093711d2d5ff27';
+const source = 'b0b0cac2e8a7af68d6ece52a9b80e8a7c07b2702';
 const strings = translationStrings('zh-hans');
 
 // Commands, flags, paths, and code stay unchanged; authored sample comments translate.
-const initCode = `leji adopt --dry-run    # 精确的写入计划；不会写入任何内容
+const initCode = `leji adopt --dry-run    # 脚手架的写入计划；不会写入任何内容
 leji adopt              # 接入既有仓库（新仓库使用 leji init）
                         # 然后提议打开 Claude Code 或 Codex
 
@@ -80,7 +80,7 @@ codex mcp add leji -- npx -y @leji-org/mcp`;
                   只需五条命令，即可完成安装和一致性评分。leji
                   的所有功能都随包发布，并在本地离线运行；只有你主动调用的操作才会访问网络。<code>leji init</code> 与 <code
                      >leji adopt</code
-                  > 中的依赖步骤，只在你同意时才运行你自己的包管理器；而联邦相关的抓取只与你所指明的那个仓库通信：{' '}
+                  > 中的依赖步骤，只在你同意时才运行你自己的包管理器；而联邦相关的抓取只与你所指明的那个仓库通信：
                   <code>leji mounts hydrate --fetch</code>、<code>leji mounts update-pin --fetch</code> 与{' '}
                   <code>leji conformance --federation=verify</code>。
                </p>
@@ -169,7 +169,7 @@ codex mcp add leji -- npx -y @leji-org/mcp`;
                   <div class="step-text">
                      <h2><span class="step-num">04</span>声明一个级别，再检查它</h2>
                      <p>
-                        部分接入是设计使然：从 <code>core</code> 开始，每一级都包含前一级。清单声明该级别；{' '}
+                        部分接入是设计使然：从 <code>core</code> 开始，每一级都包含前一级。清单声明该级别；
                         <code>leji conformance</code> 对照它为上下文层打分。
                      </p>
                      <p class="ladder-line">
@@ -211,7 +211,7 @@ codex mcp add leji -- npx -y @leji-org/mcp`;
                   <Code code={startCode} lang="bash" theme={lejiSyntaxTheme} wrap />
                   <p class="fine">
                      如果检测到多个宿主，它会询问你的选择。如果没有检测到宿主，或当前在脚本、CI
-                     中运行，它会输出应执行的命令，而不会自行猜测。{' '}
+                     中运行，它会输出应执行的命令，而不会自行猜测。
                      <a href="/zh-hans/adoption/#put-it-to-work">接入指南</a>讲了宿主参数透传标志与厂商文件的回落表。
                   </p>
                </div>

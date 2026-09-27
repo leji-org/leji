@@ -19,9 +19,10 @@ one coordinated version. This is the discipline for getting a port byte-identica
   enters. Improvements go back into the Node reference first, then port forward.
 - **Parity is byte-identical, not behaviorally-equivalent.** `npm run parity` (`scripts/parity-test.ts`)
   runs all three CLIs on identical inputs and asserts identical **stdout, stderr, exit code, and written
-  file tree** (bytes **+ mode + symlinks**). The only field allowed to differ is the context-index
-  `generatedAt` timestamp, which the harness normalizes field-aware. The viewer/serve output is not
-  byte-compared; everything else is. "Looks the same" is not the bar; the bytes are the bar.
+  file tree** (bytes **+ mode + symlinks**). The only fields allowed to differ are the declared
+  nondeterministic ones (`generatedAt`, `hydratedAt`, `observedAt`), which the harness normalizes
+  field-aware; only the long-running `viewer serve` is not byte-compared. "Looks the same" is not the
+  bar; the bytes are the bar.
 
 ## Divergences that bite
 
@@ -41,9 +42,9 @@ Standard libraries disagree on details that parity catches. Match the Node refer
   U+FE0F variation selector. Re-typing an emoji is how you lose (or gain) a code point and shift the bytes.
 - **File modes are part of the output.** Written files are non-executable (`0644`); the parity harness
   compares mode. Don't let a port write `0755` or inherit a different umask-driven mode.
-- **Directory order is `readdir().sort()`.** The written-files list and any directory walk follow sorted
-  filename order. Renaming a file changes its sort position, which shifts where it appears in emitted
-  lists; a rename is never just a rename for parity.
+- **Directory order is UTF-8 byte order (`byteCompare` in TypeScript).** The written-files list and
+  any directory walk follow sorted filename order. Renaming a file changes its sort position, which
+  shifts where it appears in emitted lists; a rename is never just a rename for parity.
 
 ## Vendored assets are synced, never hand-edited
 

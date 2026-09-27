@@ -2,11 +2,11 @@
 // layer projection into the gitignored cache under `.leji/mounts/`
 // (distribution.md pattern 3). Mirrors lib/mounts.ts.
 //
-// Contracts (per the resolver-only mounts design):
+// Contracts:
 //   - The pin is resolved from a git object store, never a working tree.
-//   - the projection extracts the sibling's leji.json, its rootPath tree, and its
-//     agent-profiles path if outside rootPath; nothing else. Gitlinks are recorded
-//     in metadata, never materialized; LFS pointers extract as the pointers they are.
+//   - the projection includes the closure `spec/distribution.md` defines for a
+//     mount. Gitlinks are recorded in metadata, never materialized; LFS pointers
+//     extract as the pointers they are.
 //   - Caches are keyed by sha256(source identity \n pin \n cache format version)
 //     and published by rename-if-absent under a `complete` marker; no global lock.
 //   - The sidecar is evidence, never proof: verification reads the object store.
@@ -67,8 +67,8 @@ const (
 
 // MaxTreeListingBytes is what one whole-tree listing may occupy in transport.
 //
-// This bounds tree *metadata* — one mode/type/oid/path record per entry in the
-// pinned commit — not projected content, which is what MaxProjectionBytes caps.
+// This bounds tree *metadata* (one mode/type/oid/path record per entry in the
+// pinned commit), not projected content, which is what MaxProjectionBytes caps.
 // The two are deliberately different numbers: the listing enumerates the entire
 // repository so that selection can happen in-process, so capping it at the content
 // limit would fail a large repository that holds a perfectly small valid
@@ -249,8 +249,8 @@ func MountsDir(root string) string {
 	return layout.Abs(root, layout.MountsRel)
 }
 
-// establishMountsDir establishes one mounts DESTINATION — a managed store, a cache
-// entry, a staging directory — through the write chokepoint, and hands back the
+// establishMountsDir establishes one mounts DESTINATION (a managed store, a cache
+// entry, a staging directory) through the write chokepoint, and hands back the
 // RESOLVED directory it was created at. ok is false when the rule refuses it: a
 // planted `.leji/mounts` symlink into another role or out of the repository is caught
 // here, once, instead of being followed by every per-entry write underneath.
@@ -258,7 +258,7 @@ func MountsDir(root string) string {
 // The per-entry protocol elsewhere in this package (hashed identities, contained
 // relative paths, the symlink-escape rules, publish-by-rename) is the declared
 // exception to the chokepoint, and it holds only because every one of its acts
-// happens under a root this function checked and returned — never under a path
+// happens under a root this function checked and returned, never under a path
 // re-joined from root.
 func establishMountsDir(root, dirAbs string, ignoreContext *lejiignore.Context) (string, bool, error) {
 	verdict, real, err := fsx.MkdirpGuarded(fsx.GuardRoot(root), dirAbs, layout.MountsRel)
@@ -281,28 +281,11 @@ func establishMountsDir(root, dirAbs string, ignoreContext *lejiignore.Context) 
 	return real, true, nil
 }
 
-// readTextWithin mirrors Node's readTextWithin: nil (ok=false) unless abs is a
-// regular file that resolves inside root.
-//
-// Containment is judged first and existence second, the order the link resolver
-// already uses, so the trust-boundary idiom reads the same way everywhere. Both
-// must pass, so the returned value is unchanged either way.
-func readTextWithin(root, abs string) (string, bool) {
-	if !fsx.ResolvedWithinRoot(root, abs) || !fsx.IsFile(abs) {
-		return "", false
-	}
-	text, err := fsx.ReadText(abs)
-	if err != nil {
-		return "", false
-	}
-	return text, true
-}
-
 // ReadHints reads the machine-local resolution hints (never committed):
 // .leji/mounts.local.json.
 func ReadHints(root string) map[string]string {
 	out := map[string]string{}
-	raw, ok := readTextWithin(root, filepath.Join(root, ".leji", "mounts.local.json"))
+	raw, ok := fsx.ReadTextWithin(root, filepath.Join(root, ".leji", "mounts.local.json"))
 	if !ok {
 		return out
 	}
@@ -492,7 +475,7 @@ func WitnessRefFor(sourceIdentity, trackingRef string) string {
 
 // PinRefFor is the ref that retains a pin in the managed store:
 // refs/leji-pin/v1/<source-key>/<oid>. A fetch leaves the pin reachable only
-// through FETCH_HEAD, which the witness fetch then overwrites — without this ref,
+// through FETCH_HEAD, which the witness fetch then overwrites: without this ref,
 // git maintenance may prune the version of record.
 func PinRefFor(sourceIdentity, pinOid string) string {
 	return PinRefNamespace + "/v1/" + Sha256Hex(sourceIdentity) + "/" + pinOid
@@ -505,7 +488,7 @@ var submoduleURLRe = regexp.MustCompile(`^\s*url\s*=\s*(.+?)\s*$`)
 // submoduleCandidates discovers host submodules whose .gitmodules URL normalizes
 // to the identity.
 func submoduleCandidates(root, sourceIdentity string) []string {
-	raw, ok := readTextWithin(root, filepath.Join(root, ".gitmodules"))
+	raw, ok := fsx.ReadTextWithin(root, filepath.Join(root, ".gitmodules"))
 	if !ok {
 		return nil
 	}
@@ -586,7 +569,7 @@ func FindObjectSource(root string, mount MountDecl, sourceIdentity string) Objec
 // retentionInjectedFailure is test-only fault injection for RetainPinInStore: with
 // LEJI_TEST_FAIL_PIN_REF set to a commit id, retaining exactly that commit fails at
 // the ref. It exists because the TARGET-retention refusal has no other reachable
-// path — by the time the target is retained, the comparison repository IS the
+// path: by the time the target is retained, the comparison repository IS the
 // managed store and already holds the commit, so the fetch never runs and only the
 // ref update can fail.
 func retentionInjectedFailure(oid string) bool {
@@ -710,7 +693,7 @@ func RefreshWitness(store string, mount MountDecl, sourceIdentity string) (ok bo
 			// A lost compare-and-swap is only a confirmed mismatch on <oldvalue>: another
 			// writer published while we fetched, which is a valid outcome. Permission,
 			// malformed-ref, lock and disk failures are not lost races, so the ref itself
-			// decides — a valid witness present means someone published, anything else is
+			// decides: a valid witness present means someone published, anything else is
 			// an operational failure that must not read as success.
 			published = refOid(store, witnessRef) != "" && refOid(store, witnessRef) != expected
 		}
@@ -875,7 +858,7 @@ func joinPosix(prefix, name string) string {
 // deterministic stand-in for it, it is a different traversal, and the difference is
 // observable: it decides which declaring artifact a shared missing path is
 // attributed to, and, when a sibling carries both a safety-class and an
-// availability-class defect, which one is reached first — so the same pinned tree
+// availability-class defect, which one is reached first, so the same pinned tree
 // exited 1 under Go and 0 under Node and Python. Duplicate keys keep their first
 // position, which is where JSON.parse and json.Unmarshal (last value wins) also
 // leave them.
@@ -1019,7 +1002,7 @@ type closureResult struct {
 // pinned tree fails the closure with a code naming the declaring artifact and the
 // missing path; an absent directory or an absent defaulted machine artifact
 // contributes nothing (git cannot represent an empty directory; a core layer has
-// no index). Everything runs against the object store only — no working tree, no
+// no index). Everything runs against the object store only: no working tree, no
 // network.
 //
 // Every failure is tagged with its class where it is created, so the caller decides
@@ -1187,7 +1170,7 @@ func computeClosure(repo, pin string) closureResult {
 		}
 	}
 	// Machine artifacts: included when present, whether their effective path was
-	// declared or defaulted — presence is the criterion, declaration is not.
+	// declared or defaulted: presence is the criterion, declaration is not.
 	indexDeclared := joinPosix(rootPrefix, "context-index.json")
 	if s, ok := machine["indexPath"].(string); ok {
 		indexDeclared = s
@@ -1840,7 +1823,7 @@ func HydrateMounts(root string, m *manifest.Manifest, opts HydrateOptions) (Hydr
 			}))
 			continue
 		}
-		hostManifestRaw, _ := readTextWithin(root, filepath.Join(root, "leji.json"))
+		hostManifestRaw, _ := fsx.ReadTextWithin(root, filepath.Join(root, "leji.json"))
 		metadata := newOrdered()
 		metadata.set("name", mount.Name)
 		metadata.set("sourceIdentity", identity)
@@ -1902,8 +1885,8 @@ func contains(list []string, s string) bool {
 
 // VerifyProjection verifies a cached projection against a reachable object
 // store: every projected file's bytes and mode against the pinned tree. Returns
-// nil when a prerequisite for verifying is unavailable — no reachable object
-// store, an unresolvable pin, no writable temp dir — leaving the projection
+// nil when a prerequisite for verifying is unavailable (no reachable object
+// store, an unresolvable pin, no writable temp dir), leaving the projection
 // unverified rather than judged; true/false otherwise. The error return carries
 // filesystem failures (TS exceptions).
 func VerifyProjection(root string, mount MountDecl) (*bool, error) {
@@ -1932,7 +1915,7 @@ func VerifyProjection(root string, mount MountDecl) (*bool, error) {
 	// and pre-deleted: a guessed path is a path a concurrent verification is already
 	// using, and deleting it is how one run made another fail. Cleanup is installed
 	// the moment allocation succeeds. A failed allocation is one more unavailable
-	// prerequisite — unverifiable, never an error and never an in-tree fallback.
+	// prerequisite: unverifiable, never an error and never an in-tree fallback.
 	staging, err := os.MkdirTemp("", "leji-verify-*")
 	if err != nil {
 		return nil, nil
@@ -2220,7 +2203,7 @@ type PinComparison struct {
 
 // ComparePins says where the pin stands against ONE witness snapshot, in ONE
 // repository. Shared by `status`, which reports it, and `update-pin`, which
-// additionally gates on it — so the two can never describe the same pair of commits
+// additionally gates on it, so the two can never describe the same pair of commits
 // differently.
 func ComparePins(repo, pin, tipOid string) PinComparison {
 	incomplete := PinComparison{Reason: "mount-ancestry-incomplete"}
@@ -2265,7 +2248,7 @@ func ComparePins(repo, pin, tipOid string) PinComparison {
 // ResolveDefaultRef returns the ref a source advertises as its default branch:
 // HEAD's symref target, read with `ls-remote --symref`. The one lookup in this
 // package that reaches the network without the caller having named a ref, so both
-// failures stay distinguishable — errKind is "unreachable" when the source could
+// failures stay distinguishable: errKind is "unreachable" when the source could
 // not be reached at all, "no-symref" when it advertises no symref to follow.
 func ResolveDefaultRef(source string) (ref string, errKind string) {
 	// The locator becomes argv here: anything option-shaped is refused, never passed.

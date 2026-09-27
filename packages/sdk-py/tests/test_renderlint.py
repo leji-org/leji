@@ -1,5 +1,5 @@
 """The rendering-subset scan, family by family over the edges the fixtures state in
-prose: what it reports, and — the half a lint lives or dies on — what it stays quiet
+prose: what it reports, and (the half a lint lives or dies on) what it stays quiet
 about. Ported from the reference suite's families, case for case; the shared render
 fixtures drive the same detector through the real command (test_render_fixtures.py).
 """
@@ -27,8 +27,8 @@ def lines(*parts: str) -> str:
 
 
 def test_family_html_blocks_report_once_at_the_opening_line() -> None:
-    # A block runs to the next blank line, so the tags inside it — the closing one
-    # included — are block content and not a second construct.
+    # A block runs to the next blank line, so the tags inside it (the closing one
+    # included) are block content and not a second construct.
     assert hits(
         lines("# Doc", "", '<div class="callout">', "   inner text", "</div>", "", "after")
     ) == ["3:raw-html"]
@@ -106,7 +106,7 @@ def test_family_frontmatter_boundary() -> None:
     # A `---` later in a document is a thematic break, so the text after it is scanned
     # like any other prose.
     assert hits(lines("# Doc", "", "---", "", "Prose with <div> in it.", "")) == ["5:raw-html"]
-    # A block that never closes is not frontmatter, so its content is prose — and
+    # A block that never closes is not frontmatter, so its content is prose, and
     # reported, which is the honest read of a document nothing will strip.
     assert hits(lines("---", "title: <div>", "", "# Doc", "")) == ["2:raw-html"]
     # Frontmatter opens the FILE or it is not frontmatter: a block one line down is a
@@ -118,7 +118,7 @@ def test_family_frontmatter_boundary() -> None:
 
 
 def test_family_overlaps_and_same_line_ordering() -> None:
-    # Three constructs on one line, reported in the closed set's alphabetical order —
+    # Three constructs on one line, reported in the closed set's alphabetical order:
     # the tie-breaker that keeps a same-line group deterministic across the SDKs.
     assert hits("All three: [^b], <i>italic</i>, and $$x + y$$ in one sentence.\n") == [
         "1:footnote",
@@ -170,7 +170,7 @@ def test_family_backslash_escapes() -> None:
 
 def test_family_block_forms_ending_mid_line() -> None:
     # CommonMark type 3: the block ends on the line carrying `?>`, and the WHOLE of
-    # that line belongs to it — so what follows the terminator there is block content
+    # that line belongs to it, so what follows the terminator there is block content
     # rather than a second construct, and the block reports once, at its opening line.
     assert hits(lines("<?php", "[^inside]", "?> [^after]")) == ["1:raw-html"]
     # Type 4 (a declaration) ends at the first `>`, type 5 (CDATA) at `]]>`; what
@@ -221,7 +221,7 @@ def test_family_mate_inside_an_excluded_span() -> None:
     assert hits("$$ open $$ tail\n") == ["1:math-block"]
     assert hits("`$$` and then a real pair $$x$$\n") == ["1:math-block"]
     # Straddling a span's edge, both ways: a footnote whose closing bracket is inside a
-    # code span still reports — the earliest start wins the overlap — while one that
+    # code span still reports (the earliest start wins the overlap), while one that
     # OPENS inside the span is span content.
     assert hits("[^one `] and text`\n") == ["1:footnote"]
     assert hits("`[^one` ] tail\n") == []
@@ -232,7 +232,7 @@ def test_family_mate_inside_an_excluded_span() -> None:
 
 def test_family_declaration_case_and_terminators() -> None:
     # `<!` plus an ASCII letter of EITHER case is a declaration, at block and inline
-    # positions alike — the rendering the vendored renderer actually produces, and
+    # positions alike: the rendering the vendored renderer actually produces, and
     # CommonMark's own character class. A block one runs to the next `>`, so what sits
     # inside the consumed span and what trails the terminator on its line are block
     # content rather than constructs of their own.

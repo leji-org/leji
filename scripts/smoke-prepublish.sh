@@ -186,6 +186,9 @@ npm i -g --prefix "$TMP/npm" "$ROOT/$TGZ_STEM.tgz" >/dev/null 2>&1 && ok "cold i
 chk 0 "npm validate (valid layer)"   -- "$NPM" validate --root "$EX"
 chk 1 "npm validate (invalid layer)" -- "$NPM" validate --root "$INV"
 chk 2 "npm bogus command"            -- "$NPM" bogus
+# The example declares no Leji CLI (it has no package manifest), so its `cli` row is
+# a shared gap whatever this machine has installed: not ready, exit 1.
+chk 1 "npm doctor (example not ready)" -- "$NPM" doctor --root "$EX"
 
 echo "== create-leji (cold, offline) =="
 # `npm create leji` is the first command a new adopter runs, and it is the one path
@@ -363,6 +366,9 @@ PY="$TMP/pyrun/bin/leji"
 chk 0 "py validate (valid layer)"   -- "$PY" validate --root "$EX"
 chk 1 "py validate (invalid layer)" -- "$PY" validate --root "$INV"
 chk 2 "py bogus command"            -- "$PY" bogus
+# The example declares no Leji CLI (it has no package manifest), so its `cli` row is
+# a shared gap whatever this machine has installed: not ready, exit 1.
+chk 1 "py doctor (example not ready)" -- "$PY" doctor --root "$EX"
 
 echo "== Go binary =="
 GO="$TMP/leji-go"
@@ -374,6 +380,9 @@ GO="$TMP/leji-go"
 chk 0 "go validate (valid layer)"   -- "$GO" validate --root "$EX"
 chk 1 "go validate (invalid layer)" -- "$GO" validate --root "$INV"
 chk 2 "go bogus command"            -- "$GO" bogus
+# The example declares no Leji CLI (it has no package manifest), so its `cli` row is
+# a shared gap whatever this machine has installed: not ready, exit 1.
+chk 1 "go doctor (example not ready)" -- "$GO" doctor --root "$EX"
 
 echo "== JSR (dry-run, no publish) =="
 ( cd packages/sdk && npx --yes jsr@0.14.3 publish --dry-run --allow-dirty >/dev/null 2>&1 ) && ok "jsr publish --dry-run" || no "jsr publish --dry-run"

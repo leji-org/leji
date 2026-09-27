@@ -1,10 +1,10 @@
 {
   "$schema": "https://leji.org/schemas/v1.0/context-index.schema.json",
   "schemaVersion": "1.0",
-  "generatedAt": "2026-08-25T23:11:39.546Z",
+  "generatedAt": "2026-09-27T13:13:25.143Z",
   "generator": {
     "name": "leji",
-    "version": "1.4.1"
+    "version": "1.5.2"
   },
   "rootPath": "docs/",
   "entries": [
@@ -97,8 +97,8 @@
       "category": "decisions",
       "kind": "record",
       "date": "2026-08-24",
-      "lastModified": "2026-08-25",
-      "contentHash": "sha256:421dabd4dea5c4c8"
+      "lastModified": "2026-09-27",
+      "contentHash": "sha256:eb503b14a1cb17b4"
     },
     {
       "id": "glossary",
@@ -120,8 +120,8 @@
       "category": "practice",
       "kind": "intent",
       "summary": "How to port a change from the TypeScript reference SDK to the Go and Python SDKs without breaking parity.",
-      "lastModified": "2026-07-30",
-      "contentHash": "sha256:6e8615c1dcd8e8aa",
+      "lastModified": "2026-09-27",
+      "contentHash": "sha256:83559d7314b0420f",
       "freshness": {
         "reviewAfter": "2026-12-21"
       }
@@ -133,8 +133,8 @@
       "category": "practice",
       "kind": "intent",
       "summary": "The two evidence channels for testing the leji CLI against real repositories, LIVE (linked source) and PACKED (installed artifact), and the discipline for using them.",
-      "lastModified": "2026-08-21",
-      "contentHash": "sha256:102eb93537b8d33e",
+      "lastModified": "2026-09-27",
+      "contentHash": "sha256:ada76a2d7ffac5e2",
       "freshness": {
         "reviewAfter": "2026-12-21"
       }
@@ -146,8 +146,8 @@
       "category": "practice",
       "kind": "intent",
       "summary": "What the leji CLI guarantees about where it writes and what it reads, and the one mechanism in each SDK that holds the guarantee.",
-      "lastModified": "2026-08-25",
-      "contentHash": "sha256:97482200455e816d",
+      "lastModified": "2026-09-27",
+      "contentHash": "sha256:1a849fe6e2f13e01",
       "freshness": {
         "reviewAfter": "2027-02-17"
       }

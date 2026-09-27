@@ -23,7 +23,7 @@ import { localizeSchema, readSchemaSources, schemaMap, schemaMapInputs } from '.
 import lejiSyntaxTheme from '../../styles/shiki-leji.json';
 import { REPO_ROOT, SITE_ROOT } from '../../repo-root';
 
-const source = 'f3e18af84beae4479599b3eb247f7e8ff97cb27c';
+const source = 'dc0b2b42f02a4c67591d53e8e36818f46b5028a3';
 const strings = translationStrings('pt-br');
 
 // Field rows are generated from the schema, so this page can't drift from it.
@@ -80,9 +80,11 @@ const exampleRaw = fs.readFileSync(path.join(SITE_ROOT, 'src', 'data', 'manifest
                uma associação nunca faz com que o perfil seja lido.
             </p>
             <p>
-               Um dos campos é condicional, não declarativo: <code>viewer.theme.link</code> colore os links do corpo e o código
-               em linha somente quando alcança 4,5:1 contra o fundo do código em linha do visualizador, e um valor que fica
-               abaixo desse limite gera um aviso, enquanto o tom acessível padrão é mantido.
+               Dois campos são condicionais, não declarativos: <code>viewer.theme.primary</code> só se aplica quando é uma
+               cor em hexadecimal, e qualquer outro valor, inclusive uma string vazia, gera um aviso, enquanto o verde Leji
+               é mantido; <code>viewer.theme.link</code> colore os links do corpo e o código em linha somente quando alcança
+               4,5:1 contra o fundo do código em linha do visualizador, e um valor que fica abaixo desse limite gera um aviso,
+               enquanto o tom acessível padrão é mantido.
             </p>
             <div class="manifest-example">
                <Code code={exampleRaw.trimEnd()} lang="json" theme={lejiSyntaxTheme} wrap />

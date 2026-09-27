@@ -49,5 +49,6 @@ dirty state). `npm run cli:packed` reinstalls the recorded artifact without rebu
 - **A PACKED adoption supplements the release gate, never replaces it.** The reproducible
   gate remains `scripts/smoke-prepublish.sh` (all registries' artifacts, cold-installed);
   a PACKED pass covers the npm artifact only.
-- **Version strings cannot distinguish the channels**: both print the same version.
-  Trust `cli:mode`'s resolved path and fingerprint, never the version banner.
+- **The version string is a hint, not the evidence**: LIVE prints `X.Y.Z+dev.<sha7>` and
+  PACKED the bare `X.Y.Z`, but a stale link reads the same. Trust `cli:mode`'s resolved
+  path and artifact fingerprint.

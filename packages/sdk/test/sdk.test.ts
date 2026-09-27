@@ -14,6 +14,7 @@ import {
    validateLayer,
    writeIndex,
 } from '../dist/index.js';
+import { copyTree } from './helpers/copytree.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const exampleDir = path.join(repoRoot, 'examples', 'monorepo');
@@ -44,7 +45,7 @@ function commitAll(dir: string): void {
 
 function copyExample(): string {
    const dir = gitTmpdir();
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    commitAll(dir);
    return dir;
 }
@@ -55,6 +56,17 @@ test('example monorepo validates clean', () => {
       result.findings.filter((f) => f.severity === 'error'),
       [],
    );
+});
+
+test('a test copy leaves out a stale .leji/ in its source', () => {
+   const src = tmpdir();
+   copyTree(exampleDir, src);
+   fs.mkdirSync(path.join(src, '.leji', 'viewer'), { recursive: true });
+   fs.writeFileSync(path.join(src, '.leji', 'viewer', 'x'), 'stale\n');
+   const dest = tmpdir();
+   copyTree(src, dest);
+   assert.ok(fs.existsSync(path.join(dest, 'leji.json')), 'the example itself is copied');
+   assert.equal(fs.existsSync(path.join(dest, '.leji')), false, 'the viewer build is left behind');
 });
 
 test('index round-trip: regenerate then check is current', () => {
@@ -178,7 +190,7 @@ test('changelog append-only detects a modified entry', () => {
    execFileSync('git', ['init', '-q'], { cwd: dir });
    execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: dir });
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    execFileSync('git', ['add', '-A'], { cwd: dir });
    execFileSync('git', ['commit', '-qm', 'seed'], { cwd: dir });
 

@@ -14,7 +14,7 @@ import { translationStrings } from '../../data/i18n';
 import githubIcon from '../../assets/github.svg?raw';
 import lejiSyntaxTheme from '../../styles/shiki-leji.json';
 
-const source = '36bcf47882672f4531a8db2ca978572968ea09f3';
+const source = '2eed9882fa772b20bb25669b164ba230b71d341a';
 const strings = translationStrings('es');
 
 // Captured verbatim from a real run, so it stays exactly as captured: a repo with
@@ -210,9 +210,9 @@ const peekJson = `{
                <h2 class="section-title levels-title">Declare un nivel y después compruébelo.</h2>
                <p class="levels-lede">
                   Cuatro niveles acumulativos, definidos por los requisitos implantados y no por una madurez
-                  autoevaluada. La mayoría de los equipos llegan a{' '}
-                  <code>governed</code> y se quedan ahí. La CLI comprueba lo que puede comprobar una máquina; de lo demás
-                  responde su equipo.
+                  autoevaluada. La mayoría de los equipos deberían llegar a{' '}
+                  <code>governed</code> y quedarse ahí. La CLI comprueba lo que puede comprobar una máquina; de lo demás responde
+                  su equipo.
                </p>
                <ol class="ladder">
                   <li>
@@ -296,9 +296,8 @@ const peekJson = `{
                      <p>
                         La realidad cambia y el contexto compartido se degrada. La revisión de código, las
                         comprobaciones automáticas de desviación y los horizontes de vigencia sistematizan el
-                        mantenimiento; el contexto desactualizado nunca se trata en silencio como si estuviera vigente.{
-                           ' '
-                        }
+                        mantenimiento; <code>leji freshness</code> y <code>leji route</code> señalan el contexto que ha superado
+                        su horizonte de revisión en lugar de presentarlo como vigente.{' '}
                         <a href="/es/rationale/#por-qué-esto-no-es-un-wiki">Por qué importan los mecanismos.</a>
                      </p>
                   </div>
@@ -485,10 +484,6 @@ const peekJson = `{
       max-width: 50ch;
       margin: 1.7rem 0 2.1rem;
    }
-   .lede strong {
-      color: var(--leji-ink-on-deep);
-      font-weight: 600;
-   }
    .lede code {
       font-size: 0.84em;
       color: var(--white-strong);
@@ -573,7 +568,7 @@ const peekJson = `{
       its own, and the shadow already gives it the lift. */
    .btn.solid {
       /* the accessible green ground carries white at 5.15:1 at any size; the
-         vivid brand green is the hover moment. In dark the ground is the mint
+         hover ground deepens to hold it (--leji-cta-hover). In dark the ground is the mint
          and the label the deep ink, and the hover ground lifts to hold it. */
       background: var(--leji-brand-dark);
       color: var(--leji-ink-on-cta);

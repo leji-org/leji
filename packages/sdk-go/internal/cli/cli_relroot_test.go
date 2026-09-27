@@ -24,7 +24,7 @@ func chdirTo(t *testing.T, dir string) {
 // Regression: run from the layer's own directory, every path the viewer judges and
 // writes arrives relative. filepath.EvalSymlinks hands a relative path back relative,
 // so fsx.ResolvedPathUnder canonicalized `docs/overview.md` from the VOLUME root and
-// returned `/docs/overview.md` — the check-before-act guard then approved that path (outside
+// returned `/docs/overview.md`. The check-before-act guard then approved that path (outside
 // `.leji/`) and the seed wrote through it, failing with `mkdir /docs: read-only file
 // system`. Node has no such mode: `realpathSync.native` absolutizes whatever it is
 // handed. Every existing test passed absolute `t.TempDir()` paths, so none saw it;

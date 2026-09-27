@@ -27,14 +27,14 @@ def is_contained(root: str, candidate: Path) -> bool:
     """True when ``candidate``'s real path stays under ``root``'s real path.
 
     The LENIENT containment form, and READ-side only: it never guards a write, a
-    clear, or any decision a write depends on — those go through
+    clear, or any decision a write depends on: those go through
     :func:`resolved_within_root` and the chokepoint, which fail closed. It survives
     where the reference SDK deleted its counterpart because the two resolvers are not
     equivalent here: Node's ``realpath.native`` reads a component's canonical spelling
     from the kernel, while this port must list the parent directory to recover it (see
     :func:`_real_name`). A directory that is traversable but not enumerable therefore
     makes the strict form unresolvable in Python where the reference resolves it
-    happily — and a layer's index files, read behind an existence check, must stay
+    happily, and a layer's index files, read behind an existence check, must stay
     readable there rather than reporting a layer that has no index at all."""
     try:
         real_root = Path(os.path.realpath(root))
@@ -59,7 +59,7 @@ def _real_name(directory: str, name: str) -> str:
     whole path is unresolvable: a directory can refuse to be listed while still
     allowing traversal and writes through it, and falling back to the caller's
     spelling would let a ``.LEJI/`` alias be judged as a location outside the roles it
-    actually opens. Mere nonexistence is not a failure — that is the not-yet-created
+    actually opens. Mere nonexistence is not a failure: that is the not-yet-created
     target the caller rebuilds lexically."""
     try:
         entries = os.listdir(directory)
@@ -78,8 +78,8 @@ def _canonical_case(base: str, abs_path: str) -> str:
     """``abs_path`` (existing and symlink-free) with each component below ``base``
     spelled as the filesystem holds it.
 
-    ``base`` is a prefix already known to be canonical — the resolved repository
-    root at every check-before-act call site — so the walk stays inside the tree the decision is
+    ``base`` is a prefix already known to be canonical (the resolved repository
+    root at every check-before-act call site), so the walk stays inside the tree the decision is
     about instead of reading every directory from the filesystem root down. An
     empty base, or a path outside it, canonicalizes from the volume root. The
     ``OSError`` a component's directory raises travels out: a spelling that cannot be
@@ -102,7 +102,7 @@ def _canonical_case(base: str, abs_path: str) -> str:
 def _native_realpath(base: str, abs_path: str) -> str:
     """Resolve every symlink in ``abs_path`` AND canonicalize the case of each
     component below ``base``, the two halves of Node's ``realpathSync.native``.
-    Raises ``OSError`` exactly as a strict resolution does — from either half, since
+    Raises ``OSError`` exactly as a strict resolution does: from either half, since
     either failing fails the whole resolution."""
     return _canonical_case(base, os.path.realpath(abs_path, strict=True))
 
@@ -121,7 +121,7 @@ def _resolve_link(abs_path: str) -> str:
 
 def resolved_path(abs_path: str) -> Optional[str]:
     """``abs_path`` with every symlink in it resolved, and with the filesystem's own
-    spelling of each existing component — so a case-variant path on a
+    spelling of each existing component, so a case-variant path on a
     case-insensitive filesystem comes back canonical. A path that does not exist yet
     resolves through its nearest existing ancestor, with the remainder re-appended,
     so a caller can judge a write target before anything is created under it. None
@@ -133,8 +133,8 @@ def resolved_path(abs_path: str) -> Optional[str]:
 
 
 def resolved_path_under(base: str, abs_path: str) -> Optional[str]:
-    """:func:`resolved_path` with a prefix already known to be canonical — the
-    resolved repository root, which every check-before-act call site holds — so only the
+    """:func:`resolved_path` with a prefix already known to be canonical (the
+    resolved repository root, which every check-before-act call site holds), so only the
     components below it are read back from the filesystem. Semantics are identical;
     a path that resolves outside ``base`` is canonicalized in full."""
     try:
@@ -145,12 +145,12 @@ def resolved_path_under(base: str, abs_path: str) -> Optional[str]:
         # Only genuine nonexistence is rebuilt lexically from the nearest existing
         # ancestor. A permission or I/O error (EACCES, EIO, ELOOP, ENOTDIR, …) means
         # the path exists but cannot be resolved: it FAILS the check rather than
-        # being reconstructed as if it were an absent write target — a resolved
+        # being reconstructed as if it were an absent write target: a resolved
         # decision and the write it guards must be about the same real path.
         return None
     # A dangling symlink at the final component: realpath cannot follow it to a
     # missing target, but a write WOULD follow it there, so resolve the link's target
-    # rather than treating the link's own name as the location — otherwise a symlink
+    # rather than treating the link's own name as the location. Otherwise a symlink
     # into a private role reads as its own path and slips the boundary. (realpath
     # already proved the chain has no loop; a loop raises and is refused above.) A
     # missing final component that is not a symlink falls through to the ancestor
@@ -158,12 +158,12 @@ def resolved_path_under(base: str, abs_path: str) -> Optional[str]:
     if os.path.islink(abs_path):
         return resolved_path_under(base, _resolve_link(abs_path))
     # Walk to the nearest existing ancestor. A dangling symlink in an INTERMEDIATE
-    # component is not "absent": a write would follow it, so follow it here too —
+    # component is not "absent": a write would follow it, so follow it here too:
     # resolve the link and re-root the remainder onto its target, rather than
     # climbing past it and rebuilding the link's own name lexically. Otherwise a
     # nested `redirect/export` whose `redirect` dangles into a private role reads as
     # `.../redirect/export` (outside `.leji/`) and a target created after the check
-    # lands the write inside the role — the check/use race this closes.
+    # lands the write inside the role: the check/use race this closes.
     p = os.path.dirname(abs_path)
     while not os.path.exists(p) and os.path.dirname(p) != p:
         try:
@@ -296,21 +296,21 @@ def guarded_write(
 ) -> TargetVerdict:
     """The single guarded-write chokepoint (check-before-act). Realpath-resolve
     ``target_abs``, run :func:`~leji.layout.writable_target` on the resolved path,
-    and perform the write or clear — through ``op``, on that resolved path — ONLY
+    and perform the write or clear (through ``op``, on that resolved path) ONLY
     when the target is allowed to land there, which means all of: it resolves at all;
     it resolves INSIDE the repository root, with no exceptions; and it lands outside
     root ``.leji/`` or inside the one role ``own_role_rel`` names. On refusal nothing
     is touched: the verdict is returned (unresolvable, outside the repository, or the
     private ``.leji/`` role the target crossed into) so the caller renders the
-    mandated hard refusal in its own channel — a generation ``Finding``, or a raised
-    build error — before any byte is written.
+    mandated hard refusal in its own channel (a generation ``Finding``, or a raised
+    build error) before any byte is written.
 
     ``root_abs`` must already be realpath-resolved (:func:`guard_root`).
     ``own_role_rel`` names the one ``.leji/`` role this write may legitimately land
     in, or None when the target has no ``.leji/`` role at all (user content such as
     overview.md). One home for every write whose target derives from
     user-influenceable input, so a new write site is guarded by construction rather
-    than by remembering to guard it — and the guarded conveniences below are how
+    than by remembering to guard it, and the guarded conveniences below are how
     command modules reach it, so no command spells a raw write primitive of its own.
 
     The recorded check-before-act limit (``docs/practice/trust-boundary.md``) stands:
@@ -338,8 +338,8 @@ def write_file_guarded(
     or followed through a planted symlink.
 
     An exclusive create is decided on the ORIGINAL directory entry before anything is
-    resolved: ANY standing entry — a regular file, a directory, a symlink whether it
-    dangles or not — is ``exists``. Resolving first would defeat the point, because a
+    resolved: ANY standing entry (a regular file, a directory, a symlink whether it
+    dangles or not) is ``exists``. Resolving first would defeat the point, because a
     dangling symlink resolves to its missing destination, and ``O_EXCL`` on that
     destination would happily create the file the link points at. Nothing stands
     there ⇒ the resolved path is judged (its parents included) and ``O_EXCL`` still
@@ -468,8 +468,8 @@ def write_file_atomic_guarded(
 ) -> TargetVerdict:
     """Write a guarded target atomically: a temp sibling in the same directory, then a
     rename onto the destination, so an interrupted write never leaves a partial file.
-    Both paths are judged before either is touched — a planted ``<target>.leji-tmp``
-    symlink would otherwise be written through before the rename — and the temp is
+    Both paths are judged before either is touched (a planted ``<target>.leji-tmp``
+    symlink would otherwise be written through before the rename), and the temp is
     removed when anything fails, so the whole compound operation lives here rather
     than being re-composed at each call site."""
     tmp_verdict, tmp_real = _judge_target(root_abs, target_abs + ".leji-tmp", own_role_rel)
@@ -518,7 +518,7 @@ def nothing_stands_at(abs_path: str) -> bool:
 @dataclass
 class VerifiedSource:
     """An opened source: the descriptor when the source passed every check (the
-    caller closes it), else None — with the resolved path, when it could be resolved
+    caller closes it), else None, with the resolved path, when it could be resolved
     at all, so a refusal can name where the source actually landed."""
 
     fd: Optional[int] = None
@@ -531,7 +531,7 @@ def open_verified_source(
     """The guarded-READ counterpart of :func:`guarded_write` (check-before-act),
     for every source whose bytes are about to be served, linted, or exported.
     Resolve ``abs_path``, judge the RESOLVED path with ``allow``, then open that path
-    and prove the DESCRIPTOR is a regular file with ``fstat`` — so the file the check
+    and prove the DESCRIPTOR is a regular file with ``fstat``, so the file the check
     judged is the file the read gets. A path-based check leaves two windows open: an
     ancestor directory swapped to a symlink after enumeration (an ``lstat`` of the
     final component follows it and reports an ordinary file), and the gap between any
@@ -542,7 +542,7 @@ def open_verified_source(
     the resolve above and the open makes the open follow the new link, and ``fstat``
     sees only an ordinary regular file. So the source is resolved ONCE MORE after the
     open and the descriptor is required to be that same location and that same file
-    identity (``os.path.samestat``, the portable (st_dev, st_ino) comparison) — the
+    identity (``os.path.samestat``, the portable (st_dev, st_ino) comparison): the
     bytes about to be read are then provably the ones ``allow`` judged. What remains
     is the recorded check-before-act limit: an attacker must swap AND revert within the
     open→recheck span to pass both resolutions. The reference implementation states
@@ -551,8 +551,8 @@ def open_verified_source(
     the observable behavior is the contract, and it must be identical in all three
     SDKs.
 
-    The caller closes ``fd`` when it is not None, and owns the refusal semantics — a
-    silent drop, a boundary warning, or an error — since only it knows which the
+    The caller closes ``fd`` when it is not None, and owns the refusal semantics (a
+    silent drop, a boundary warning, or an error), since only it knows which the
     source deserves. A source that vanished between the check and the open is one
     such refusal; any other I/O error on an allowed path is the filesystem failing
     rather than the boundary refusing, so it raises as a read by path always has.
@@ -624,7 +624,7 @@ def verified_target_read(
     shape every "look at what is there, then act on it" command needs, so none of
     them re-composes it.
 
-    The ORIGINAL directory entry decides the kind first — a socket, a FIFO, a device
+    The ORIGINAL directory entry decides the kind first: a socket, a FIFO, a device
     node or a directory standing at the target is refused rather than opened, and a
     symlink is settled on what it resolves TO, because the open would follow it.
     Then :func:`open_verified_source` judges the RESOLVED path against

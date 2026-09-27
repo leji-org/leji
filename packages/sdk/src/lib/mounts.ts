@@ -14,11 +14,11 @@ import { byteCompare } from './text.js';
  * The federation resolver: materializes a mount's pinned layer projection into
  * the gitignored cache under `.leji/mounts/` (distribution.md pattern 3).
  *
- * Contracts (per the resolver-only mounts design):
+ * Contracts:
  * - The pin is resolved from a git object store, never a working tree.
- * - the projection extracts the sibling's leji.json, its rootPath tree, and its
- *   agent-profiles path if outside rootPath; nothing else. Gitlinks are recorded
- *   in metadata, never materialized; LFS pointers extract as the pointers they are.
+ * - the projection includes the closure `spec/distribution.md` defines for a
+ *   mount. Gitlinks are recorded in metadata, never materialized; LFS pointers
+ *   extract as the pointers they are.
  * - Caches are keyed by sha256(source identity \n pin \n cache format version) and
  *   published by rename-if-absent under a `complete` marker; no global lock.
  * - The sidecar is evidence, never proof: verification reads the object store.
@@ -49,8 +49,8 @@ export const MAX_PROJECTION_PATH = 4096;
 /**
  * What one whole-tree listing may occupy in transport.
  *
- * This bounds tree *metadata* — one mode/type/oid/path record per entry in the
- * pinned commit — not projected content, which is what MAX_PROJECTION_BYTES caps.
+ * This bounds tree *metadata* (one mode/type/oid/path record per entry in the
+ * pinned commit), not projected content, which is what MAX_PROJECTION_BYTES caps.
  * The two are deliberately different numbers: the listing enumerates the entire
  * repository so that selection can happen in-process, so capping it at the
  * content limit would fail a large repository that holds a perfectly small valid
@@ -172,8 +172,8 @@ export function mountsDir(root: string): string {
 }
 
 /**
- * Establish one mounts DESTINATION — a managed store, a cache entry, a staging
- * directory — through the write chokepoint, and hand back the RESOLVED directory it
+ * Establish one mounts DESTINATION (a managed store, a cache entry, a staging
+ * directory) through the write chokepoint, and hand back the RESOLVED directory it
  * was created at. Null when the rule refuses it: a planted `.leji/mounts` symlink
  * into another role or out of the repository is caught here, once, instead of being
  * followed by every per-entry write underneath.
@@ -181,7 +181,7 @@ export function mountsDir(root: string): string {
  * The per-entry protocol below (hashed identities, contained relative paths, the
  * symlink-escape rules, publish-by-rename) is the declared exception to the
  * chokepoint, and it holds only because every one of its acts happens under a root
- * this function checked and returned — never under a path re-joined from `root`.
+ * this function checked and returned, never under a path re-joined from `root`.
  */
 function establishMountsDir(root: string, dirAbs: string, ignoreContext?: LejiIgnoreContext): string | null {
    const established = mkdirpGuarded(guardRoot(root), dirAbs, MOUNTS_REL);
@@ -305,7 +305,7 @@ export function witnessRefFor(sourceIdentity: string, trackingRef: string): stri
 /**
  * The ref that retains a pin in the managed store: refs/leji-pin/v1/<source-key>/<oid>.
  * A fetch leaves the pin reachable only through FETCH_HEAD, which the witness fetch
- * then overwrites — without this ref, git maintenance may prune the version of record.
+ * then overwrites: without this ref, git maintenance may prune the version of record.
  */
 export function pinRefFor(sourceIdentity: string, pinOid: string): string {
    return `${PIN_REF_NAMESPACE}/v1/${sha256Hex(sourceIdentity)}/${pinOid}`;
@@ -386,7 +386,7 @@ export function findObjectSource(
  * Test-only fault injection for {@link retainPinInStore}: with
  * LEJI_TEST_FAIL_PIN_REF set to a commit id, retaining exactly that commit fails at
  * the ref. It exists because the TARGET-retention refusal has no other reachable
- * path — by the time the target is retained, the comparison repository IS the
+ * path: by the time the target is retained, the comparison repository IS the
  * managed store and already holds the commit, so the fetch never runs and only the
  * ref update can fail.
  */
@@ -519,7 +519,7 @@ export function refreshWitness(
          // A lost compare-and-swap is only a confirmed mismatch on <oldvalue>: another
          // writer published while we fetched, which is a valid outcome. Permission,
          // malformed-ref, lock and disk failures are not lost races, so the ref itself
-         // decides — a valid witness present means someone published, anything else is
+         // decides: a valid witness present means someone published, anything else is
          // an operational failure that must not read as success.
          published = refOid(store, witnessRef) !== null && refOid(store, witnessRef) !== expected;
       }
@@ -657,7 +657,7 @@ interface ClosureResult {
    commit?: string;
    tree?: string;
    siblingName?: string;
-   /** Directory prefixes ('.' = whole tree) — the symlink-containment set. */
+   /** Directory prefixes ('.' = whole tree): the symlink-containment set. */
    prefixes?: Set<string>;
    /** Blob entries to materialize, deduplicated, path-validated. */
    writes?: { relPath: string; oid: string; mode: number }[];
@@ -676,7 +676,7 @@ interface ClosureResult {
  * tree fails the closure with a code naming the declaring artifact and the missing
  * path; an absent directory or an absent defaulted machine artifact contributes
  * nothing (git cannot represent an empty directory; a core layer has no index).
- * Everything runs against the object store only — no working tree, no network.
+ * Everything runs against the object store only: no working tree, no network.
  *
  * Every failure is tagged with its class where it is created, so the caller decides
  * unavailability from provenance rather than from the sentence it is about to print.
@@ -792,7 +792,7 @@ function computeClosure(repo: string, pin: string): ClosureResult {
       if (err !== null) return err;
    }
    // Machine artifacts: included when present, whether their effective path was
-   // declared or defaulted — presence is the criterion, declaration is not.
+   // declared or defaulted: presence is the criterion, declaration is not.
    const machineFiles: string[] = [];
    for (const raw of [
       sibling.machine?.indexPath ?? joinPosix(rootPrefix, 'context-index.json'),
@@ -1349,8 +1349,8 @@ export function hydrateMounts(
 /**
  * Verify a cached projection against a reachable object store: every projected
  * file's bytes and mode against the pinned tree. Returns null when a prerequisite
- * for verifying is unavailable — no reachable object store, an unresolvable pin,
- * no writable temp dir — leaving the projection unverified rather than judged;
+ * for verifying is unavailable (no reachable object store, an unresolvable pin,
+ * no writable temp dir), leaving the projection unverified rather than judged;
  * true/false otherwise.
  */
 export function verifyProjection(root: string, mount: MountDecl): boolean | null {
@@ -1370,7 +1370,7 @@ export function verifyProjection(root: string, mount: MountDecl): boolean | null
    // and pre-deleted: a guessed path is a path a concurrent verification is already
    // using, and deleting it is how one run made another fail. Cleanup is installed
    // the moment allocation succeeds. A failed allocation is one more unavailable
-   // prerequisite — unverifiable, never an error and never an in-tree fallback.
+   // prerequisite: unverifiable, never an error and never an in-tree fallback.
    let staging: string;
    try {
       staging = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-verify-'));
@@ -1392,8 +1392,8 @@ export function verifyProjection(root: string, mount: MountDecl): boolean | null
 }
 
 function treesEqual(a: string, b: string): boolean {
-   const listA = walkAll(a).sort();
-   const listB = walkAll(b).sort();
+   const listA = walkAll(a).sort(byteCompare);
+   const listB = walkAll(b).sort(byteCompare);
    if (listA.length !== listB.length || listA.some((p, i) => p !== listB[i])) return false;
    for (const rel of listA) {
       const fa = path.join(a, rel);
@@ -1419,7 +1419,7 @@ function treesEqual(a: string, b: string): boolean {
 
 function walkAll(dir: string, prefix = ''): string[] {
    const out: string[] = [];
-   for (const name of fs.readdirSync(dir).sort()) {
+   for (const name of fs.readdirSync(dir).sort(byteCompare)) {
       const abs = path.join(dir, name);
       const rel = prefix === '' ? name : `${prefix}/${name}`;
       if (fs.lstatSync(abs).isDirectory()) out.push(...walkAll(abs, rel));
@@ -1615,7 +1615,7 @@ export interface PinComparison {
 
 /**
  * Where the pin stands against ONE witness snapshot, in ONE repository. Shared by
- * `status`, which reports it, and `update-pin`, which additionally gates on it — so
+ * `status`, which reports it, and `update-pin`, which additionally gates on it, so
  * the two can never describe the same pair of commits differently.
  */
 export function comparePins(
@@ -1665,7 +1665,7 @@ function countRange(repo: string, from: string, to: string): number | null {
 /**
  * The ref a source advertises as its default branch: `HEAD`'s symref target, read
  * with `ls-remote --symref`. The one lookup in this module that reaches the network
- * without the caller having named a ref, so both failures stay distinguishable —
+ * without the caller having named a ref, so both failures stay distinguishable:
  * the source could not be reached at all, or it advertises no symref to follow.
  */
 export function resolveDefaultRef(source: string): { ref: string } | { error: 'unreachable' | 'no-symref' } {

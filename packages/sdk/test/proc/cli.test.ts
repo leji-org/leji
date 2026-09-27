@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { run } from '../../dist/index.js';
 import { displayVersion } from '../../dist/lib/schemas.js';
+import { copyTree } from '../helpers/copytree.ts';
 
 const execFileAsync = promisify(execFile);
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -108,7 +109,7 @@ test('cli validate --json emits the stable findings shape', async () => {
 
 test('cli validate flags a non-git layer with git-required', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cli-git-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    const result = await runCli(['validate', '--root', dir, '--json']);
    const payload = JSON.parse(result.stdout);
    assert.ok(
@@ -136,7 +137,7 @@ test('cli changelog without subcommand exits 2', async () => {
 
 test('cli changelog check --strict makes unverifiable an error', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cli-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    const lax = await runCli(['changelog', 'check', '--root', dir]);
    assert.equal(lax.code, 0);
    assert.match(lax.stdout, /changelog-unverifiable/);
@@ -207,7 +208,7 @@ test('cli init refusal surfaces as exit 2', async () => {
 
 test('cli index generate writes and reports entries', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cli-idx-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    const result = await runCli(['index', '--root', dir, '--json']);
    assert.equal(result.code, 0);
    const payload = JSON.parse(result.stdout);
@@ -223,7 +224,7 @@ const UNINDEXED_LINE = (n: number): string =>
 
 test('cli index generate reports the unindexed count as its last line', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cli-unindexed-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    // Two markdown files under the governed root that no category index lists.
    fs.mkdirSync(path.join(dir, 'docs', 'notes'), { recursive: true });
    fs.writeFileSync(path.join(dir, 'docs', 'notes', 'loose.md'), '# Loose\n');
@@ -237,7 +238,7 @@ test('cli index generate reports the unindexed count as its last line', async ()
 
 test('cli index generate is quiet when nothing is unindexed', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cli-indexed-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    const result = await runCli(['index', '--root', dir]);
    assert.equal(result.code, 0);
    assert.ok(!result.stdout.includes('unindexed'), `no nudge at zero, got: ${result.stdout}`);
@@ -247,7 +248,7 @@ test('cli index generate is quiet when nothing is unindexed', async () => {
 
 test('cli index --check is unaffected by the unindexed count', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cli-unindexed-check-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    fs.writeFileSync(path.join(dir, 'docs', 'stray.md'), '# Stray\n');
    const result = await runCli(['index', '--check', '--root', dir]);
    assert.equal(result.code, 0);
@@ -268,7 +269,7 @@ function hasKeyDeep(value: unknown, key: string): boolean {
 
 test('cli index --json carries no trailing nudge line', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cli-unindexed-json-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    fs.writeFileSync(path.join(dir, 'docs', 'stray.md'), '# Stray\n');
    const result = await runCli(['index', '--root', dir, '--json']);
    assert.equal(result.code, 0);
@@ -276,7 +277,7 @@ test('cli index --json carries no trailing nudge line', async () => {
    const payload = JSON.parse(result.stdout);
    assert.equal(payload.written, 'docs/context-index.json');
    // The nudge is text-mode only. The count is not part of the index run's
-   // contract, so no consumer may start reading it off this document — not at
+   // contract, so no consumer may start reading it off this document: not at
    // the top level, not tucked into summary or a later extra.
    assert.ok(!hasKeyDeep(payload, 'unindexed'), `--json must carry no unindexed field, got: ${result.stdout}`);
 });
@@ -285,7 +286,7 @@ test('cli index generate prints no nudge when the index write fails', async () =
    // Root bypasses permission bits, so the write would succeed; skip there.
    if (typeof process.getuid === 'function' && process.getuid() === 0) return;
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-cli-unindexed-denied-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    fs.writeFileSync(path.join(dir, 'docs', 'stray.md'), '# Stray\n');
    // The nudge would have something to say here: the count is nonzero, so the
    // silence below is the operational failure's doing and not an empty set.
@@ -343,6 +344,7 @@ test('cli.json documents exactly the commands the CLI accepts', async () => {
       'ci',
       'conformance',
       'detect',
+      'doctor',
       'export',
       'freshness',
       'index',

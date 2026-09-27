@@ -47,7 +47,7 @@ interface Resolved {
 }
 
 function resolve(): Resolved {
-   // The mode that matters is the GLOBAL install — what every other repository
+   // The mode that matters is the GLOBAL install: what every other repository
    // resolves. From inside this repo, npm puts the workspace's own .bin on
    // PATH, so `command -v` would self-report LIVE regardless; go straight to
    // the global prefix instead.
@@ -107,7 +107,7 @@ function verify(expected: 'LIVE' | 'PACKED'): void {
    const r = resolve();
    if (r.mode !== expected) {
       console.error(
-         `\ncli-mode: postcondition failed — wanted ${expected}, machine is ${r.mode} (${r.real ?? 'no bin'})`,
+         `\ncli-mode: postcondition failed: wanted ${expected}, machine is ${r.mode} (${r.real ?? 'no bin'})`,
       );
       process.exit(1);
    }
@@ -124,8 +124,8 @@ function live(): void {
 function refresh(): void {
    sh('npm run assets:check');
    // tsc never removes output for deleted sources; a stale dist would enter the
-   // tarball. The incremental buildinfo lives OUTSIDE dist, so it must go too —
-   // otherwise tsc believes everything is built and emits nothing, and the pack
+   // tarball. The incremental buildinfo lives OUTSIDE dist, so it must go too.
+   // Otherwise tsc believes everything is built and emits nothing, and the pack
    // ships a dist-less package whose bin npm silently refuses to link.
    fs.rmSync(path.join(sdkDir, 'dist'), { recursive: true, force: true });
    fs.rmSync(path.join(repoRoot, '.cache', 'tsc', 'sdk.tsbuildinfo'), { force: true });
@@ -170,14 +170,14 @@ function assertMode(want: string | undefined, wantSha: string | undefined): void
    }
    const r = printMode();
    if (r.mode !== expected) {
-      console.error(`\ncli-mode: ASSERT FAILED — wanted ${expected}, got ${r.mode}`);
+      console.error(`\ncli-mode: ASSERT FAILED: wanted ${expected}, got ${r.mode}`);
       process.exit(1);
    }
    if (expected === 'PACKED' && wantSha) {
       const sc = sidecar();
       if (!sc || sc.sha256 !== wantSha) {
          console.error(
-            `\ncli-mode: ASSERT FAILED — artifact fingerprint mismatch (wanted ${wantSha}, have ${sc?.sha256 ?? 'none'})`,
+            `\ncli-mode: ASSERT FAILED: artifact fingerprint mismatch (wanted ${wantSha}, have ${sc?.sha256 ?? 'none'})`,
          );
          process.exit(1);
       }

@@ -70,8 +70,8 @@ type Report struct {
 type commandPair struct {
 	add    []string
 	runner []string
-	// install is the manager's own plain install — what a joiner runs on a fresh
-	// clone so the declared CLI resolves — and is nil for a manager whose install
+	// install is the manager's own plain install (what a joiner runs on a fresh
+	// clone so the declared CLI resolves) and is nil for a manager whose install
 	// depends on which requirements file the repository uses.
 	install []string
 }
@@ -344,7 +344,7 @@ func ConsentCommand(command []string) string {
 	return Indent + strings.Join(command, " ")
 }
 
-// joinAnd renders `a`, `a and b`, `a, b and c` — the one list join every message
+// joinAnd renders `a`, `a and b`, `a, b and c`: the one list join every message
 // uses.
 func joinAnd(items []string) string {
 	switch len(items) {
@@ -395,13 +395,13 @@ var testHookAfterJudgment func(abs string)
 // followed, whatever it resolves to, because evidence reached through a link is not
 // this repository's evidence. That up-front lstat is the cheap refusal, and on its
 // own it leaves the entry free to become a link before the open, which the open
-// would then resolve and verify perfectly well — no swap back needed, and the name
+// would then resolve and verify perfectly well: no swap back needed, and the name
 // would have evidenced a manager it never stood for. So the name is opened through
 // fsx.OpenVerifiedSource, which resolves, opens, and proves the descriptor is the
 // file it judged, and the descriptor's own stat must then report the same regular
 // file a FRESH lstat of the NAME does. A symlink's inode is never the inode of the
 // file it points at, so an entry that is a link at that instant cannot pass, and
-// neither can one that has become a different file — including the name renamed away
+// neither can one that has become a different file, including the name renamed away
 // and linked back to its own inode, which every comparison against the FIRST lstat
 // accepts.
 //
@@ -410,10 +410,10 @@ var testHookAfterJudgment func(abs string)
 // hand a source out.
 //
 // The two failure classes are kept apart, and the three SDKs answer alike. What the
-// run can SEE contradicted — the identity or kind differs, the verified open handed
-// back no descriptor, nothing stands at the name any more — is refused, exactly as a
+// run can SEE contradicted (the identity or kind differs, the verified open handed
+// back no descriptor, nothing stands at the name any more) is refused, exactly as a
 // link or a directory is. What it merely could not COMPLETE on an entry still
-// standing and never contradicted — the open denied, a stat or read failure — leaves
+// standing and never contradicted (the open denied, a stat or read failure) leaves
 // the entry eligible and carries no bytes, which is the unreadable outcome this scan
 // has always reported for it. What remains is the recorded check-before-act window
 // (docs/practice/trust-boundary.md), which every verified fact on this path shares.
@@ -503,7 +503,7 @@ func (s *rootScan) refused(names []string) []string {
 
 // read returns the bytes of one probed name, or ok=false. Structurally gated: a
 // name that is not an eligible regular file inside the real root is never opened,
-// so no read can bypass the eligibility rule by being spelled at a new call site —
+// so no read can bypass the eligibility rule by being spelled at a new call site,
 // and the name is judged ONCE MORE immediately before its bytes are taken, so they
 // come from the descriptor this run proved rather than from a name a swap could have
 // retargeted since the scan classified it.
@@ -623,7 +623,7 @@ func strptr(s string) *string { return &s }
 // --- Node -----------------------------------------------------------------
 
 // packageManagerRe is corepack's grammar, <name>[@<version>[+<hash>]]. A value
-// that is present but does not parse is malformed — never a fall-through to a
+// that is present but does not parse is malformed, never a fall-through to a
 // lockfile or the default, because explicit repository evidence is never
 // overridden by a guess.
 var packageManagerRe = regexp.MustCompile(`^([a-z][a-z0-9-]*)(?:@([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)(?:\+([A-Za-z0-9._-]+))?)?$`)
@@ -710,8 +710,8 @@ func nodeResult(scan *rootScan) Result {
 	return selected("npm", "default")
 }
 
-// parsePackageJSON parses strict JSON after one BOM strip; anything else —
-// unparseable, or parsed to something that is not a JSON object — leaves the
+// parsePackageJSON parses strict JSON after one BOM strip; anything else
+// (unparseable, or parsed to something that is not a JSON object) leaves the
 // manifest unreadable, and locks and defaults are not consulted from incomplete
 // evidence.
 func parsePackageJSON(raw string) map[string]any {
@@ -723,7 +723,7 @@ func parsePackageJSON(raw string) map[string]any {
 		return nil
 	}
 	// Anything after the first value is not strict JSON: only a clean end of input
-	// is acceptable. A second value parses, and trailing garbage errors — both are
+	// is acceptable. A second value parses, and trailing garbage errors: both are
 	// input JSON.parse and Python's json.loads refuse, so both leave the manifest
 	// unreadable rather than being read as the value that happened to come first.
 	var extra any
@@ -971,7 +971,7 @@ func goDeclaresTool(text string) bool {
 // Deliberately not a TOML parser: a field-specific, stateful line scan that tracks
 // the current table, triple-quoted string state, and the bracket depth of the one
 // array it is inspecting. Only the listed fields are inspected, so a description, a
-// comment, or an unrelated table cannot produce a false positive — and a false
+// comment, or an unrelated table cannot produce a false positive, and a false
 // positive is the expensive error here, because it suppresses the only offer the
 // user gets.
 type tomlFields struct {
@@ -1266,7 +1266,7 @@ func RunnerArgv(report Report) []string {
 }
 
 // RenderBlock renders the always-printed human block: what was detected, and what
-// to run to declare the Leji CLI. Never a prompt, never a command run — the caller
+// to run to declare the Leji CLI. Never a prompt, never a command run: the caller
 // owns both.
 func RenderBlock(report Report) string {
 	return strings.Join(blockLines(report), "\n")

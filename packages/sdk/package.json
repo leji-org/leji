@@ -1,7 +1,7 @@
 {
   "name": "@leji-org/leji",
-  "version": "1.5.1",
-  "description": "Reference SDK and CLI for Leji, the open specification for the shared context layer of AI-native teams: validate, index, changelog, freshness, conformance, status, route, federation mounts, viewer, view, init, adopt, detect, start, ci, and agent.",
+  "version": "1.5.2",
+  "description": "Reference SDK and CLI for Leji, the open specification for the shared context layer of AI-native teams: validate, index, changelog, freshness, conformance, status, route, badge, federation mounts, viewer, view, export, init, adopt, detect, start, doctor, ci, and agent.",
   "keywords": [
     "leji",
     "ai-native",

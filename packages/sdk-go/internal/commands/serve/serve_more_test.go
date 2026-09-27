@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -25,11 +27,25 @@ func exampleCopy(t *testing.T) string {
 	wd, _ := os.Getwd()
 	src := filepath.Join(wd, "..", "..", "..", "..", "..", "examples", "monorepo")
 	dst := t.TempDir()
-	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+	if err := os.CopyFS(dst, withoutLeji{os.DirFS(src)}); err != nil {
 		t.Fatalf("copy example: %v", err)
 	}
 	return dst
 }
+
+// withoutLeji hides every entry named .leji. A local `leji view` leaves its
+// gitignored viewer build in the working tree, and a test copy that carried it would
+// change what the export, viewer, and conformance tests see.
+type withoutLeji struct{ fs.FS }
+
+func (f withoutLeji) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(f.FS, name)
+	return slices.DeleteFunc(entries, func(e fs.DirEntry) bool { return e.Name() == ".leji" }), err
+}
+
+// ReadLink and Lstat pass through, so a symlink in the source copies as a symlink.
+func (f withoutLeji) ReadLink(name string) (string, error)   { return fs.ReadLink(f.FS, name) }
+func (f withoutLeji) Lstat(name string) (fs.FileInfo, error) { return fs.Lstat(f.FS, name) }
 
 // writeUnder writes rel (forward-slashed, repo-relative) under dir, creating its
 // parent directories.
@@ -329,7 +345,7 @@ func TestServeRejectsForeignHost(t *testing.T) {
 }
 
 // --- link classes stay inside the router (serve half) ---
-// The generation half — sidebar destinations emitted app-root absolute — is pinned
+// The generation half (sidebar destinations emitted app-root absolute) is pinned
 // in viewer_more_test.go. These pin what the server answers: an untouched document
 // body, the routing config in the shipped boot script, the click paths off a nested
 // page, and the not-found contract.

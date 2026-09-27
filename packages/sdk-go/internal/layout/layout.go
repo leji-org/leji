@@ -1,15 +1,15 @@
 // Package layout holds the unified `.leji/` layout: one tree at the repository
 // root holding every role the tool owns, whatever `rootPath` the layer declares.
-// Roles are repository-root-relative by construction — a generated artifact never
+// Roles are repository-root-relative by construction: a generated artifact never
 // lives inside the context root, so the content walk and the served content mount
 // carry nothing of the tool's own.
 //
-//   - `mounts/` + `mounts.local.json` — the private federation domain (owned by
+//   - `mounts/` + `mounts.local.json`: the private federation domain (owned by
 //     internal/mounts, which spells the paths inside it; never servable, never
 //     exportable).
-//   - `viewer/` — generated chrome, the ONE servable role.
-//   - `dist/` — the default export output.
-//   - `work/` — the transient onboarding workspace.
+//   - `viewer/`: generated chrome, the ONE servable role.
+//   - `dist/`: the default export output.
+//   - `work/`: the transient onboarding workspace.
 package layout
 
 import (
@@ -56,8 +56,8 @@ func under(dir, abs string) bool {
 
 // ServablePath is the servable-roots whitelist: a path may be served or exported
 // only when it lies outside root `.leji/` entirely, or inside `.leji/viewer/`.
-// Every other role under `.leji/` — the private mounts domain, the export output,
-// the onboarding workspace, and any role added later — is denied by name, so a
+// Every other role under `.leji/` (the private mounts domain, the export output,
+// the onboarding workspace, and any role added later) is denied by name, so a
 // new role is born unservable and no relaxation of the dot-segment refusal (kept
 // as defense in depth) can open the trust domain as a side effect.
 //
@@ -85,7 +85,7 @@ func LejiRole(rootAbs, abs string) string {
 }
 
 // TargetVerdict is the verdict of WritableTarget: whether a tool-owned target may
-// be written or cleared, and — when refused — that it landed outside the
+// be written or cleared, and (when refused) that it landed outside the
 // repository, the private role it crossed into, that the path could not be resolved
 // at all (permission/I/O, not mere absence), or that an exclusive create found the
 // file already there.
@@ -109,8 +109,8 @@ type TargetVerdict struct {
 //     makes lands in the repository it was pointed at, with no exceptions: a
 //     `.leji/` role symlinked out of the tree is refused rather than followed. A
 //     user who wants the export somewhere else copies the finished folder there.
-//  2. A target under root `.leji/` is refused — that tree is the tool's own trust
-//     domain — UNLESS ownRoleRel is given and the target lies under that one role.
+//  2. A target under root `.leji/` is refused (that tree is the tool's own trust
+//     domain) UNLESS ownRoleRel is given and the target lies under that one role.
 //  3. Anything else inside the repository is ordinary content and is allowed.
 //
 // Both rootAbs and resolvedAbs must be realpath-resolved, so a redirecting symlink
@@ -120,7 +120,7 @@ type TargetVerdict struct {
 // ownRoleRel names the ONE `.leji/` role the target may land in, as a lexical path
 // under the resolved root; pass "" when the target has no legitimate `.leji/` role
 // at all (user content such as overview.md, which lives under the content root,
-// never inside `.leji/`) — then any `.leji/` landing is refused.
+// never inside `.leji/`). Then any `.leji/` landing is refused.
 func WritableTarget(rootAbs, resolvedAbs, ownRoleRel string) TargetVerdict {
 	if !under(rootAbs, resolvedAbs) {
 		return TargetVerdict{OutsideRoot: true}

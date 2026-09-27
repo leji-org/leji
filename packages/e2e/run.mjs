@@ -14,6 +14,14 @@
 // exactly as far as it goes: a grandchild (a browser under Playwright) is the
 // child's to end, and the README says so rather than claiming otherwise.
 //
+// That guarantee holds only while each server stays the process this script
+// spawned. Astro moves `astro preview` into a detached session of its own when it
+// detects an AI agent, and the child this script holds then exits at once, so its
+// spawn sets `ASTRO_PREVIEW_BACKGROUND=1`, which keeps the preview in the
+// foreground as the direct child. The variable is Astro's and unversioned, so the
+// teardown checks the result: every server's port has to be free within five
+// seconds of it, or the run fails naming the port and the pid it signalled.
+//
 // Nothing is written into `fixtures/`: the repository's fixture is copied out four
 // times (as it stands, with a custom `viewer.theme.primary`, and once for each
 // scheme a layer can name), and each copy is what gets its own server or servers.
@@ -62,6 +70,10 @@ const READY_TIMEOUT_MS = 60_000;
 const TERM_GRACE_MS = 3_000;
 /** How long a port check gets to answer before the run gives up on it. */
 const PORT_CHECK_TIMEOUT_MS = 2_000;
+/** How long a server's port gets to come free after teardown, and how often it is
+ * asked. */
+const PORT_RELEASE_MS = 5_000;
+const PORT_RELEASE_POLL_MS = 100;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -73,9 +85,12 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // the only way to be certain a signal lands on this script's own work is to send
 // it through the child handle Node keeps: `child.kill()` addresses the pid Node
 // spawned, and Node will not send to it once it has reaped it. Narrower than a
-// group signal, and true by construction rather than by timing.
+// group signal, and true by construction rather than by timing. What it cannot
+// reach is a server that left the child it was spawned as, which is why the Astro
+// preview is kept in the foreground and why `teardown` then waits for the ports.
 
-/** `{ name, child, alive, failure, exited }` for each child, in start order. */
+/** `{ name, child, alive, failure, exited }` for each child, in start order, plus
+ * `port` for a server. */
 const owned = [];
 
 /** Track a child: its liveness, the error if it never started, and a promise of
@@ -165,6 +180,33 @@ async function terminateOwned() {
    if (stubborn.length > 0) console.error(`e2e: still running after SIGKILL: ${stubborn.join(', ')}`);
 }
 
+/** Wait for every server's port to come free, polling up to five seconds each. A
+ * port still bound after that belongs to a process the signals above did not reach,
+ * and the next run would refuse to start on it, so this run fails now and says
+ * which port and which pid it signalled. */
+async function requirePortsReleased() {
+   for (const record of owned) {
+      if (record.port === undefined) continue;
+      const deadline = Date.now() + PORT_RELEASE_MS;
+      while (!(await portFree(record.port))) {
+         if (Date.now() >= deadline) {
+            throw new Error(
+               `port ${record.port} (the ${record.name} server, pid ${record.child.pid}) is still in use ` +
+                  `${PORT_RELEASE_MS / 1000}s after teardown; the next run would refuse to start on it.`,
+            );
+         }
+         await delay(PORT_RELEASE_POLL_MS);
+      }
+   }
+}
+
+/** Take down every child this script started and confirm the servers' ports are
+ * free again. */
+export async function teardown() {
+   await terminateOwned();
+   await requirePortsReleased();
+}
+
 function removeWork() {
    fs.rmSync(work, { recursive: true, force: true });
 }
@@ -183,8 +225,11 @@ let cleanupOnce = null;
 function cleanup() {
    if (cleanupOnce === null) {
       cleanupOnce = (async () => {
-         await terminateOwned();
-         removeWork();
+         try {
+            await teardown();
+         } finally {
+            removeWork();
+         }
       })();
    }
    return cleanupOnce;
@@ -194,21 +239,19 @@ function cleanup() {
  * `process.exit`, and the handler exits with the signal's status. */
 let terminating = false;
 
-for (const signal of ['SIGINT', 'SIGTERM']) {
-   process.on(signal, () => {
-      if (terminating) return;
-      terminating = true;
-      const code = 128 + (os.constants.signals[signal] ?? 0);
-      // The signal owns the exit code either way: a cleanup failure is reported,
-      // never allowed to turn a 130 or 143 into an unhandled rejection.
-      void cleanup().then(
-         () => process.exit(code),
-         (error) => {
-            console.error(`cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
-            process.exit(code);
-         },
-      );
-   });
+function onSignal(signal) {
+   if (terminating) return;
+   terminating = true;
+   const code = 128 + (os.constants.signals[signal] ?? 0);
+   // The signal owns the exit code either way: a cleanup failure is reported,
+   // never allowed to turn a 130 or 143 into an unhandled rejection.
+   void cleanup().then(
+      () => process.exit(code),
+      (error) => {
+         console.error(`cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+         process.exit(code);
+      },
+   );
 }
 
 // --- running things -------------------------------------------------------
@@ -251,7 +294,7 @@ function tagOutput(name, child) {
  * like every other wait here: a bind that neither succeeds nor fails within two
  * seconds is not an answer, and the run stops rather than hanging on the check
  * that exists to stop it hanging. */
-function portFree(port) {
+export function portFree(port) {
    return new Promise((resolve, reject) => {
       const probe = net.createServer();
       const timer = setTimeout(() => {
@@ -321,20 +364,28 @@ async function waitForPort(record, port) {
    throw new Error(`the ${record.name} server did not listen on ${port} within ${READY_TIMEOUT_MS / 1000}s`);
 }
 
-/** Start one server as an owned child and wait until it answers on its port. */
-async function startServer({ name, port, args, cwd }) {
-   const child = spawn(process.execPath, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+/** Start one server as an owned child and wait until it answers on its port.
+ * Resolves with the child's record, whose `port` the teardown checks. */
+export async function startServer({ name, port, args, cwd, env = {} }) {
+   const child = spawn(process.execPath, args, {
+      cwd,
+      env: { ...process.env, ...env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+   });
    // A spawn failure is recorded by `adopt` and reported by the readiness wait,
    // which sees the child is not alive and says why.
    const record = adopt(name, child);
+   record.port = port;
    tagOutput(name, child);
    await waitForPort(record, port);
+   return record;
 }
 
 /** The seven servers, as commands. Astro is resolved the way the site workspace
  * resolves it and run directly, so the preview is this script's own child rather
  * than an npm wrapper's grandchild. */
-function serverPlan() {
+export function serverPlan() {
    const siteRoot = path.join(repoRoot, 'packages/site');
    const astroPackage = createRequire(path.join(siteRoot, 'package.json')).resolve('astro/package.json');
    const astroBin = path.resolve(
@@ -361,6 +412,9 @@ function serverPlan() {
          port: SITE_PORT,
          args: [astroBin, 'preview', '--root', siteRoot, '--port', String(SITE_PORT), '--host', '127.0.0.1'],
          cwd: repoRoot,
+         // Astro's own switch for the process it backgrounds: set, the preview
+         // stays in the foreground under an AI agent too, as this script's child.
+         env: { ASTRO_PREVIEW_BACKGROUND: '1' },
       },
       {
          name: 'viewer (accent)',
@@ -446,23 +500,38 @@ async function prepare() {
    }
 }
 
-let code = 1;
-try {
-   // Before anything is built: a bound port is somebody else's server, and the
-   // run has to stop while it can still say so plainly.
-   await requirePortsFree();
-   await prepare();
-   for (const server of serverPlan()) await startServer(server);
-   const playwrightCli = createRequire(import.meta.url).resolve('@playwright/test/cli');
-   code = exitStatus(
-      await run('playwright', process.execPath, [playwrightCli, 'test', ...process.argv.slice(2)], { cwd: here }),
-   );
-} catch (error) {
-   console.error(`e2e: ${error instanceof Error ? error.message : String(error)}`);
-} finally {
-   await cleanup();
+// Guarded so a test can import the functions above and drive one server through
+// them without running the suite. Paths are compared rather than reading
+// `import.meta.main`, which older Node reads as "imported".
+const invokedDirectly =
+   process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (invokedDirectly) {
+   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => onSignal(signal));
+   let code = 1;
+   try {
+      // Before anything is built: a bound port is somebody else's server, and the
+      // run has to stop while it can still say so plainly.
+      await requirePortsFree();
+      await prepare();
+      for (const server of serverPlan()) await startServer(server);
+      const playwrightCli = createRequire(import.meta.url).resolve('@playwright/test/cli');
+      code = exitStatus(
+         await run('playwright', process.execPath, [playwrightCli, 'test', ...process.argv.slice(2)], { cwd: here }),
+      );
+   } catch (error) {
+      console.error(`e2e: ${error instanceof Error ? error.message : String(error)}`);
+   } finally {
+      // A port the teardown could not free fails the run, whatever Playwright
+      // said: the next run would refuse to start on it. Under a signal, the
+      // handler reports the failure and owns the exit.
+      await cleanup().catch((error) => {
+         if (terminating) return;
+         console.error(`e2e: ${error instanceof Error ? error.message : String(error)}`);
+         if (code === 0) code = 1;
+      });
+   }
+   // Only when no signal has claimed the exit. If one has, its handler is awaiting
+   // the same cleanup and exits with `128 + signal`; this path stands down rather
+   // than racing it for the code the caller sees.
+   if (!terminating) process.exit(code);
 }
-// Only when no signal has claimed the exit. If one has, its handler is awaiting
-// the same cleanup and exits with `128 + signal`; this path stands down rather
-// than racing it for the code the caller sees.
-if (!terminating) process.exit(code);

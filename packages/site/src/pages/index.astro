@@ -190,7 +190,7 @@ const peekJson = `{
                <h2 class="section-title levels-title">Claim a level, then check it.</h2>
                <p class="levels-lede">
                   Four cumulative levels, graded by what is in place rather than self-assessed maturity. Most teams
-                  reach{' '}
+                  should reach{' '}
                   <code>governed</code> and stop. The CLI checks what a machine can; your team stands behind the rest.
                </p>
                <ol class="ladder">
@@ -262,7 +262,8 @@ const peekJson = `{
                      <h3>Mechanism over goodwill</h3>
                      <p>
                         Reality changes and shared context decays. Code review, mechanical drift checks, and freshness
-                        horizons make maintenance mechanical; stale context is never silently treated as current.{' '}
+                        horizons make maintenance mechanical; context past its review horizon is surfaced by{' '}
+                        <code>leji freshness</code> and <code>leji route</code>, not presented as current.{' '}
                         <a href="/rationale/#why-this-is-not-a-wiki">Why mechanisms matter.</a>
                      </p>
                   </div>
@@ -426,10 +427,6 @@ const peekJson = `{
       max-width: 50ch;
       margin: 1.7rem 0 2.1rem;
    }
-   .lede strong {
-      color: var(--leji-ink-on-deep);
-      font-weight: 600;
-   }
    .lede code {
       font-size: 0.84em;
       color: var(--white-strong);
@@ -514,7 +511,7 @@ const peekJson = `{
       its own, and the shadow already gives it the lift. */
    .btn.solid {
       /* the accessible green ground carries white at 5.15:1 at any size; the
-         vivid brand green is the hover moment. In dark the ground is the mint
+         hover ground deepens to hold it (--leji-cta-hover). In dark the ground is the mint
          and the label the deep ink, and the hover ground lifts to hold it. */
       background: var(--leji-brand-dark);
       color: var(--leji-ink-on-cta);

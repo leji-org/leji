@@ -33,7 +33,7 @@ export function isScalarString(s: string): boolean {
  * The one line-wrapper behind every terminal help surface, so the three SDKs emit
  * the same bytes: whitespace runs collapse to one space, the first line is indented
  * by `indentFirst` and every continuation by `indentRest`, and width is counted in
- * Unicode CODE POINTS — never UTF-16 units, which would measure an astral character
+ * Unicode CODE POINTS, never UTF-16 units, which would measure an astral character
  * as two and wrap a line early in JavaScript alone. A token that cannot fit the
  * remaining width takes a line of its own, unbroken (URLs and flag spellings stay
  * copyable). Returns the finished lines, indents included; empty text yields none.
@@ -67,8 +67,8 @@ export function wrap(text: string, width: number, indentFirst: number, indentRes
 /**
  * One row of a two-column help block: a label on the left, its prose on the right,
  * the prose hanging under itself at `col`. A label that would leave no gap before
- * its summary — one at least as wide as the column, which the option column's clamp
- * makes reachable — takes the line alone and its summary starts on the next line at
+ * its summary (one at least as wide as the column, which the option column's clamp
+ * makes reachable) takes the line alone and its summary starts on the next line at
  * the same column, so a long flag never concatenates into the text describing it.
  * Width is counted in code points, like `wrap` itself.
  */
@@ -92,7 +92,7 @@ export function helpRow(label: string, col: number, text: string, width = HELP_W
  * inside a band so one long label cannot push every summary to the right edge, and
  * measured in CODE POINTS. Past the band's top the label outgrows the column and
  * `helpRow` gives it its own line. Every dynamic label class in terminal help resolves
- * its column here — the bounds are the class's contract, identical in all three SDKs.
+ * its column here: the bounds are the class's contract, identical in all three SDKs.
  */
 export function boundedColumn(labels: string[], gap: number, min: number, max: number): number {
    const longest = Math.max(0, ...labels.map((l) => [...l].length));

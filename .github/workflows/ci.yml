@@ -15,7 +15,7 @@ permissions:
 jobs:
   assets:
     name: Asset sync (no drift across SDKs)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -26,7 +26,7 @@ jobs:
 
   secret-scan:
     name: Secret scan (TruffleHog)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,7 +53,7 @@ jobs:
     # whole record: it is checked on the pull request, where it can still be
     # fixed by rewriting the branch (CONTRIBUTING.md, "Contributor terms").
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -75,7 +75,7 @@ jobs:
 
   lint:
     name: Prettier
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -86,7 +86,7 @@ jobs:
 
   version:
     name: Version coherence (manifests + prose)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -98,7 +98,7 @@ jobs:
 
   release-pins:
     name: Release-path pins (checker + self-test)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The hook that runs this locally is bypassable with --no-verify, so the
@@ -110,7 +110,7 @@ jobs:
 
   release-version:
     name: Release version (packages/sdk/package.json)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.read.outputs.version }}
     steps:
@@ -140,7 +140,7 @@ jobs:
 
   node-sdk:
     name: Node SDK (build + test, Node ${{ matrix.node-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -179,7 +179,7 @@ jobs:
       # tests, and asserted by pass count: a pattern matching nothing also exits 0,
       # so a green job on its own is no evidence that anything ran. The count pins
       # the shape too: a rename selects nothing, and splitting one of these into
-      # subtests counts every subtest — both land here, as an edit someone had to mean.
+      # subtests counts every subtest. Both land here, as an edit someone had to mean.
       - name: Platform regressions, by name
         working-directory: packages/sdk
         run: |
@@ -212,7 +212,7 @@ jobs:
 
   mcp:
     name: MCP server (build + test, Node ${{ matrix.node-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -234,7 +234,7 @@ jobs:
 
   python-sdk:
     name: Python SDK (lint + type + test, Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -272,7 +272,7 @@ jobs:
 
   go-sdk:
     name: Go SDK (fmt + vet + test)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -311,7 +311,7 @@ jobs:
 
   parity:
     name: Cross-SDK parity (golden CLI output)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -341,7 +341,7 @@ jobs:
 
   offline-export:
     name: Export fixtures with no network (all three SDKs)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -379,7 +379,7 @@ jobs:
       # An export is a static site a user hosts anywhere: it must be produced with
       # no network at all, and the fixtures' committed goldens say what "produced"
       # means byte for byte. `unshare -rn` gives the run its own network namespace,
-      # which holds nothing but a loopback interface — brought up because the same
+      # which holds nothing but a loopback interface, brought up because the same
       # fixtures also serve the layer to themselves. If a runner image ever refuses
       # unprivileged namespaces, the replacement is a container run with
       # `--network none`; this leg is release-blocking, so it fails, never skips.
@@ -406,7 +406,7 @@ jobs:
 
   site:
     name: Site (build)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -419,7 +419,7 @@ jobs:
 
   ui-smoke:
     name: UI smoke (viewer, export, and site in a browser)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -432,6 +432,8 @@ jobs:
       - run: npm run build -w packages/site
       - run: npm run browsers -w packages/e2e
       - run: npm run e2e -w packages/e2e
+      # The runner's own teardown test needs the site build above and a browserless preview.
+      - run: npm test -w packages/e2e
       # Traces and screenshots are retained only for failures, so a red job is
       # inspectable without a rerun and a green one uploads nothing.
       - name: Playwright report and traces
@@ -445,7 +447,7 @@ jobs:
 
   dogfood:
     name: Dogfood (repo conforms to its own spec)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

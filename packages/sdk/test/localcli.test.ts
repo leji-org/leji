@@ -12,6 +12,7 @@ import {
    launchLocalCli,
    resolveLocalCli,
 } from '../dist/lib/localcli.js';
+import { copyTree } from './helpers/copytree.ts';
 
 // The hand-off decision and the launch that follows it, unit level: the resolver over
 // the committed `fixtures/handoff/` family with the installed state written here, and
@@ -120,7 +121,7 @@ function installShim(dir: string, entry: string, shape: ShimShape): string {
  */
 function seed(name: string): string {
    const dir = tmpdir();
-   fs.cpSync(path.join(fixturesDir, name), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, name), dir);
    switch (name) {
       case 'node-eligible':
       case 'node-undeclared':
@@ -335,7 +336,7 @@ test('resolve (win32): the declared entry runs under this Node, inside the packa
 
 test('resolve (win32): a bin string, not only a map, names the entry', () => {
    const dir = tmpdir();
-   fs.cpSync(path.join(fixturesDir, 'node-eligible'), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, 'node-eligible'), dir);
    install(dir, { bin: 'dist/cli.js' });
    const resolved = resolveLocalCli(['--root', dir], {}, 'win32', NOT_SELF);
    assert.equal(resolved.kind, 'handoff');
@@ -351,7 +352,7 @@ test('an entry that is not a regular file is refused on every platform', () => {
 
 test('resolve (win32): an entry escaping the package directory is refused', () => {
    const dir = tmpdir();
-   fs.cpSync(path.join(fixturesDir, 'node-eligible'), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, 'node-eligible'), dir);
    install(dir, { bin: { leji: '../../../elsewhere.js' } });
    fs.writeFileSync(path.join(dir, 'elsewhere.js'), MARKER, { mode: 0o755 });
    assert.equal(resolveLocalCli(['--root', dir], {}, 'win32', NOT_SELF).kind, 'none');
@@ -359,14 +360,14 @@ test('resolve (win32): an entry escaping the package directory is refused', () =
 
 test('resolve (win32): a missing bin field is refused', () => {
    const dir = tmpdir();
-   fs.cpSync(path.join(fixturesDir, 'node-eligible'), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, 'node-eligible'), dir);
    install(dir, { bin: null });
    assert.equal(resolveLocalCli(['--root', dir], {}, 'win32', NOT_SELF).kind, 'none');
 });
 
 test('resolve: package metadata past the read bound is refused', () => {
    const dir = tmpdir();
-   fs.cpSync(path.join(fixturesDir, 'node-eligible'), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, 'node-eligible'), dir);
    const padded = JSON.stringify({
       name: '@leji-org/leji',
       version: '1.4.0',
@@ -482,7 +483,7 @@ test('effectiveRoot: the pinned cases', () => {
  */
 test('effectiveRoot: the parser lands on the root the wrapper computed', async (t) => {
    const layer = tmpdir('leji-handoff-layer-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), layer, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), layer);
    fs.rmSync(path.join(layer, 'expected.json'), { force: true });
    const empty = tmpdir('leji-handoff-empty-');
    const cases: string[][] = [

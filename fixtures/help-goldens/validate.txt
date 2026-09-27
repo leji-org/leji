@@ -11,7 +11,9 @@ resolves inside the layer, and (per the claimed conformance level) the index is
 current and the changelog is append-only. One of the two gates the generated CI
 runs, beside `leji index --check`. With --content it also runs a warning-only
 content lint (placeholder text, generic boot identity, thin categories) that
-never errors and never affects a conformance level.
+never errors and never affects a conformance level. A `.leji/` directory under
+the context root other than the repository's own is the tool tree's location
+before Leji 1.4.0, reported as the warning `legacy-leji-dir`: delete it.
 
 Options:
    --content             Also run the warning-only content lint (placeholders,

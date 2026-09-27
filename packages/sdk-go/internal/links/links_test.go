@@ -134,7 +134,7 @@ func TestInvalidLinkEscapesRootDotDotAndASymlinkAreBothUnresolved(t *testing.T) 
 	}
 	layerRootAbs := filepath.Join(root, "docs")
 
-	// The symlink resolves to a file that exists — outside the layer — so existence
+	// The symlink resolves to a file that exists (outside the layer), so existence
 	// alone would pass it. Containment is what refuses it.
 	symlink := filepath.Join(root, "docs", "domain", "outside-link.md")
 	info, err := os.Lstat(symlink)

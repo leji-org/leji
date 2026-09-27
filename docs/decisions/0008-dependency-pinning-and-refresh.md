@@ -43,7 +43,7 @@ shipped dependency surface nor a schedule anyone committed to.
 
 - **Build and publish toolchain, GitHub Actions, JavaScript runtime
   dependencies: exact.** Actions are pinned to full commit SHAs with the version
-  in a trailing comment. The `^1.4.0` ranges between packages inside this
+  in a trailing comment. The caret ranges (`^X.Y.Z`) between packages inside this
   monorepo are the one deliberate exception; they are aligned to the released
   version at every release.
 - **Python runtime dependencies: compatible ranges** (`jsonschema>=4.18,<5`,

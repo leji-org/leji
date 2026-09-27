@@ -610,6 +610,22 @@ for (const [scheme, tones, other] of [
    });
 }
 
+// The primary button's hover ground is a state only a pointer reaches, so no scheme
+// read above sees it. The unit test holds the token to its floor under the label;
+// this holds the landing page to the token.
+test.describe('site (the primary button under the pointer)', () => {
+   test.use({ colorScheme: 'light' });
+
+   test('the primary button deepens its ground under the pointer', async ({ page }) => {
+      const response = await page.goto(`${SITE_URL}/`);
+      expect(response?.status()).toBe(200);
+      const button = page.locator('.hero').getByRole('link', { name: 'Quickstart' });
+      await button.hover();
+      // Retried, because the ground eases into its hover value rather than switching.
+      await expect(button).toHaveCSS('background-color', rgb('#006F4F'));
+   });
+});
+
 // --- the reader's own choice ------------------------------------------------------
 //
 // A reader may keep a scheme of their own, in one key per browser, and the runs below

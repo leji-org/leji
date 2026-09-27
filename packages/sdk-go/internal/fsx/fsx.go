@@ -38,8 +38,8 @@ func GuardRoot(root string) string {
 // isNoEntry reports the errors a FOLLOWING stat treats as "nothing is there", which
 // is what the reference's `statSync(path, {throwIfNoEntry: false})` returns undefined
 // for: the entry is missing (ENOENT), or the path runs through something that is not
-// a directory (ENOTDIR), so there is no entry to have a kind. Anything else — a
-// permission denial, a symlink loop, an I/O error — is the filesystem failing and
+// a directory (ENOTDIR), so there is no entry to have a kind. Anything else (a
+// permission denial, a symlink loop, an I/O error) is the filesystem failing and
 // travels out. The reference's lstat of the ORIGINAL entry is deliberately NOT this
 // lenient (it throws ENOTDIR), and neither is this port: a target path that runs
 // through a file is a failure, while a LINK that points through one is a standing
@@ -57,15 +57,15 @@ func under(dir, abs string) bool {
 // rootAbs, even when abs does not yet exist: a non-existent target is checked via
 // its nearest existing ancestor, so a symlinked ancestor that escapes root is caught
 // before a write creates the file under it. It is the ONE within-root primitive, and
-// it fails CLOSED — an unresolvable root or target (permission or I/O error, not
+// it fails CLOSED: an unresolvable root or target (permission or I/O error, not
 // mere absence) is false, never rebuilt from its spelling and allowed.
 //
 // Both sides come through the same resolver, or a root resolved one way and a child
 // the other would differ in spelling alone and read as an escape. Containment is a
 // prefix question and re-spelling components cannot move a path out from under its
 // prefix, so the first pass compares the paths as the filesystem's symlinks leave
-// them; only when that says "outside" — where a case-variant of the ROOT could still
-// be hiding a contained path — are both sides read back component by component. The
+// them; only when that says "outside" (where a case-variant of the ROOT could still
+// be hiding a contained path) are both sides read back component by component. The
 // content walks run this check per entry, and the reference's native resolver answers
 // it without reading a single directory.
 func ResolvedWithinRoot(rootAbs, abs string) bool {
@@ -85,8 +85,8 @@ func ResolvedWithinRoot(rootAbs, abs string) bool {
 		return true
 	}
 	// Not under the root as the caller spelled it. That is where a spelling can still
-	// decide the answer — a link into the tree through a case-variant of the root
-	// itself — so both sides are canonicalized before the check refuses.
+	// decide the answer (a link into the tree through a case-variant of the root
+	// itself), so both sides are canonicalized before the check refuses.
 	canonical, err := canonicalCase("", linked)
 	if err != nil {
 		return false
@@ -107,7 +107,7 @@ func ResolvedWithinRoot(rootAbs, abs string) bool {
 // unresolvable: a directory can refuse to be listed while still allowing traversal
 // and writes through it, and falling back to the caller's spelling would let a
 // `.LEJI/` alias be judged as a location outside the roles it actually opens. Mere
-// nonexistence is not a failure — that is the not-yet-created target the caller
+// nonexistence is not a failure: that is the not-yet-created target the caller
 // rebuilds lexically.
 func realName(dir, name string) (string, error) {
 	entries, err := os.ReadDir(dir)
@@ -134,8 +134,8 @@ func realName(dir, name string) (string, error) {
 
 // canonicalCase rewrites an existing, symlink-free absolute path with each
 // component below `base` spelled as the filesystem holds it. `base` is a prefix
-// already known to be canonical — the resolved repository root at every check-before-act call
-// site — so the walk stays inside the tree the decision is about instead of reading
+// already known to be canonical (the resolved repository root at every check-before-act call
+// site), so the walk stays inside the tree the decision is about instead of reading
 // every directory from the filesystem root down. An empty base, or a path outside
 // it, canonicalizes from the volume root. The error a component's directory raises
 // travels out: a spelling that cannot be read back is not a spelling to decide on.
@@ -182,7 +182,7 @@ func canonicalUnder(base string) spelling {
 
 // asGiven is the spelling the caller supplied. Containment is a prefix question, and
 // re-spelling components below the prefix cannot move a path out from under it, so
-// the containment primitive asks for this one — which also means a directory that
+// the containment primitive asks for this one, which also means a directory that
 // refuses enumeration does not make every path beneath it unresolvable, matching the
 // reference, whose native resolver reads no directory to answer.
 func asGiven(abs string) (string, error) { return abs, nil }
@@ -199,7 +199,7 @@ func nativeRealpath(spell spelling, abs string) (string, error) {
 }
 
 // ResolvedPath is abs with every symlink in it resolved, and with the filesystem's
-// own spelling of each existing component — so a case-variant path on a
+// own spelling of each existing component, so a case-variant path on a
 // case-insensitive filesystem comes back canonical. A path that does not exist yet
 // resolves through its nearest existing ancestor, with the remainder re-appended,
 // so a caller can judge a write target before anything is created under it. ok is
@@ -211,8 +211,8 @@ func ResolvedPath(abs string) (string, bool) {
 	return ResolvedPathUnder("", abs)
 }
 
-// ResolvedPathUnder is ResolvedPath with a prefix already known to be canonical —
-// the resolved repository root, which every check-before-act call site holds — so only the
+// ResolvedPathUnder is ResolvedPath with a prefix already known to be canonical
+// (the resolved repository root, which every check-before-act call site holds), so only the
 // components below it are read back from the filesystem. Semantics are identical;
 // a path that resolves outside base is canonicalized in full.
 func ResolvedPathUnder(base, abs string) (string, bool) {
@@ -224,7 +224,7 @@ func resolvedPath(spell spelling, abs string) (string, bool) {
 	// Node's `realpathSync.native` returns an absolute path whatever it is handed, so
 	// the TS resolver absolutizes inherently; filepath.EvalSymlinks hands a relative
 	// path back relative, and the canonical-case walk would then re-root it at the
-	// volume root (`docs/overview.md` → `/docs/overview.md`) — a decision, and the
+	// volume root (`docs/overview.md` → `/docs/overview.md`): a decision, and the
 	// write it guards, about a location nobody named. Absolutize against the working
 	// directory on entry so every caller gets the same contract as TS. An already
 	// absolute path is left exactly as given (filepath.Abs would also Clean it); when
@@ -244,14 +244,14 @@ func resolvedPath(spell spelling, abs string) (string, bool) {
 	// Only genuine nonexistence is rebuilt lexically from the nearest existing
 	// ancestor. A permission or I/O error (EACCES, EIO, ELOOP, ENOTDIR, …) means the
 	// path exists but cannot be resolved: it FAILS the check rather than being
-	// reconstructed as if it were an absent write target — a resolved decision and
+	// reconstructed as if it were an absent write target: a resolved decision and
 	// the write it guards must be about the same real path.
 	if !os.IsNotExist(err) {
 		return "", false
 	}
 	// A dangling symlink at the final component: EvalSymlinks cannot follow it to a
 	// missing target, but a write WOULD follow it there, so resolve the link's target
-	// rather than treating the link's own name as the location — otherwise a symlink
+	// rather than treating the link's own name as the location. Otherwise a symlink
 	// into a private role reads as its own path and slips the boundary. (EvalSymlinks
 	// already proved the chain has no loop; a loop is refused as unresolvable above.)
 	// A missing final component that is not a symlink falls through to the ancestor
@@ -260,12 +260,12 @@ func resolvedPath(spell spelling, abs string) (string, bool) {
 		return resolvedPath(spell, resolveLink(abs))
 	}
 	// Walk to the nearest existing ancestor. A dangling symlink in an INTERMEDIATE
-	// component is not "absent": a write would follow it, so follow it here too —
+	// component is not "absent": a write would follow it, so follow it here too:
 	// resolve the link and re-root the remainder onto its target, rather than climbing
 	// past it and rebuilding the link's own name lexically. Otherwise a nested
 	// `redirect/export` whose `redirect` dangles into a private role reads as
 	// `.../redirect/export` (outside `.leji/`) and a target created after the check
-	// lands the write inside the role — the check/use race this closes.
+	// lands the write inside the role: the check/use race this closes.
 	p := filepath.Dir(abs)
 	for !Exists(p) && filepath.Dir(p) != p {
 		st, lerr := os.Lstat(p)
@@ -362,20 +362,20 @@ func judgeTarget(rootAbs, targetAbs, ownRoleRel string) (verdict layout.TargetVe
 
 // GuardedWrite is the single guarded-write chokepoint (check-before-act).
 // Realpath-resolve targetAbs, run layout.WritableTarget on the resolved path, and
-// perform the write or clear — through op, on that resolved path — ONLY when the
+// perform the write or clear (through op, on that resolved path) ONLY when the
 // target is allowed to land there, which means all of: it resolves at all; it
 // resolves INSIDE the repository root, with no exceptions; and it lands outside root
 // `.leji/` or inside the one role ownRoleRel names. On refusal nothing is touched:
 // the verdict is returned (unresolvable, outside the repository, or the private
 // `.leji/` role the target crossed into) so the caller renders the mandated hard
-// refusal in its own channel — a generation finding, or a build error — before any
+// refusal in its own channel (a generation finding, or a build error) before any
 // byte is written.
 //
 // rootAbs must already be realpath-resolved (GuardRoot). ownRoleRel names the one
 // `.leji/` role this write may legitimately land in, or "" when the target has no
 // `.leji/` role at all (user content such as overview.md). One home for every write
 // whose target derives from user-influenceable input, so a new write site is guarded
-// by construction rather than by remembering to guard it — and the guarded
+// by construction rather than by remembering to guard it, and the guarded
 // conveniences below are how command packages reach it, so no command spells a raw
 // write primitive of its own.
 func GuardedWrite(rootAbs, targetAbs, ownRoleRel string, op func(resolved string) error) (layout.TargetVerdict, error) {
@@ -399,8 +399,8 @@ type WriteOptions struct {
 // only when the write itself happens (a refused run establishes nothing).
 //
 // An exclusive create is decided on the ORIGINAL directory entry before anything is
-// resolved: ANY standing entry — a regular file, a directory, a symlink whether it
-// dangles or not — is Exists. Resolving first would defeat the point, because a
+// resolved: ANY standing entry (a regular file, a directory, a symlink whether it
+// dangles or not) is Exists. Resolving first would defeat the point, because a
 // dangling symlink resolves to its missing destination, and O_EXCL on that
 // destination would happily create the file the link points at. Nothing stands there
 // ⇒ the resolved path is judged (its parents included) and O_EXCL still closes the
@@ -522,8 +522,8 @@ func OpenWriteGuarded(rootAbs, targetAbs, ownRoleRel string, mode fs.FileMode) (
 
 // WriteFileAtomicGuarded writes a guarded target atomically: a temp sibling in the
 // same directory, then a rename onto the destination, so an interrupted write never
-// leaves a partial file. Both paths are judged before either is touched — a planted
-// `<target>.leji-tmp` symlink would otherwise be written through before the rename —
+// leaves a partial file. Both paths are judged before either is touched (a planted
+// `<target>.leji-tmp` symlink would otherwise be written through before the rename),
 // and the temp is removed when anything fails, so the whole compound operation lives
 // here rather than being re-composed at each call site.
 func WriteFileAtomicGuarded(rootAbs, targetAbs, ownRoleRel string, bytes []byte) (layout.TargetVerdict, error) {
@@ -566,7 +566,7 @@ func maybeInjectWriteFailure() error {
 }
 
 // VerifiedSource is an opened source: the file when it passed every check (the
-// caller closes it), else nil — with the resolved path, when it could be resolved
+// caller closes it), else nil, with the resolved path, when it could be resolved
 // at all, so a refusal can name where the source actually landed.
 type VerifiedSource struct {
 	File *os.File
@@ -578,7 +578,7 @@ type VerifiedSource struct {
 // OpenVerifiedSource is the guarded-READ counterpart of GuardedWrite
 // (check-before-act), for every source whose bytes are about to be served, linted, or
 // exported. Resolve abs, judge the RESOLVED path with allow, then open that path and
-// prove the DESCRIPTOR is a regular file with fstat — so the file the check judged is
+// prove the DESCRIPTOR is a regular file with fstat, so the file the check judged is
 // the file the read gets. A path-based check leaves two windows open: an ancestor
 // directory swapped to a symlink after enumeration (an lstat of the final component
 // follows it and reports an ordinary file), and the gap between any check and a later
@@ -589,7 +589,7 @@ type VerifiedSource struct {
 // resolve above and the open makes the open follow the new link, and fstat sees only an
 // ordinary regular file. So the source is resolved ONCE MORE after the open and the
 // descriptor is required to be that same location and that same file identity (os.SameFile,
-// the portable (dev, ino) comparison) — the bytes about to be read are then provably the
+// the portable (dev, ino) comparison): the bytes about to be read are then provably the
 // ones allow judged. What remains is the recorded check-before-act limit
 // (docs/practice/trust-boundary.md): an attacker must swap AND revert within the
 // open→recheck span to pass both resolutions. The reference
@@ -597,8 +597,8 @@ type VerifiedSource struct {
 // resolve→open→fstat→recheck order rather than reaching for a platform openat: the
 // observable behavior is the contract, and it must be identical in all three SDKs.
 //
-// The caller closes File when it is non-nil, and owns the refusal semantics — a silent
-// drop, a boundary warning, or an error — since only it knows which the source deserves.
+// The caller closes File when it is non-nil, and owns the refusal semantics (a silent
+// drop, a boundary warning, or an error), since only it knows which the source deserves.
 // A source that vanished between the check and the open is one such refusal; any other
 // I/O error on an allowed path is the filesystem failing rather than the boundary
 // refusing, so it is returned as an error, as a read by path always has been.
@@ -607,7 +607,7 @@ func OpenVerifiedSource(abs string, allow func(resolved string) bool) (VerifiedS
 }
 
 // openVerifiedSourceUnder is OpenVerifiedSource with a prefix already known to be
-// canonical — the resolved repository root the write rule is about — so only the
+// canonical (the resolved repository root the write rule is about), so only the
 // components below it are read back from the filesystem. Semantics are identical.
 func openVerifiedSourceUnder(base, abs string, allow func(resolved string) bool) (VerifiedSource, error) {
 	real, ok := ResolvedPathUnder(base, abs)
@@ -635,7 +635,7 @@ func openVerifiedSourceUnder(base, abs string, allow func(resolved string) bool)
 	}
 	// The recheck. A refusal names where the source resolves NOW, not where it resolved
 	// before the swap, so the caller's boundary message points at the role the bytes
-	// would actually have come from — but only where that is a place at all. The
+	// would actually have come from, but only where that is a place at all. The
 	// recheck path is stat'd FIRST, exactly as the reference implementation does: a
 	// path that cannot be resolved, or that resolves to a dangling target no stat can
 	// reach, names no location for a refusal to carry, so the originally allowed path
@@ -689,7 +689,7 @@ const (
 // TargetRead is what stood at a read-then-act target, judged by the same rule the
 // write will be: nothing (ReadAbsent), a regular file whose verified bytes are
 // carried along (ReadRegular), or a standing entry this run refuses to act through
-// (ReadRefused, with the reason and — when it resolved at all, Resolved — where it
+// (ReadRefused, with the reason and, when it resolved at all, Resolved: where it
 // resolved).
 type TargetRead struct {
 	Status   ReadStatus
@@ -703,7 +703,7 @@ type TargetRead struct {
 // itself: the shape every "look at what is there, then act on it" command needs, so
 // none of them re-composes it.
 //
-// The ORIGINAL directory entry decides the kind first — a socket, a FIFO, a device
+// The ORIGINAL directory entry decides the kind first: a socket, a FIFO, a device
 // node or a directory standing at the target is refused rather than opened, and a
 // symlink is settled on what it resolves TO, because the open would follow it. Then
 // OpenVerifiedSource judges the RESOLVED path against layout.WritableTarget for this
@@ -731,8 +731,8 @@ func VerifiedTargetRead(rootAbs, targetAbs, ownRoleRel string) (TargetRead, erro
 	if lerr == nil && entry.Mode()&os.ModeSymlink != 0 {
 		// A symlink is settled on what it resolves TO, because the open follows it: a
 		// link to a socket would raise exactly the escaping error this check prevents.
-		// A link that resolves to NO entry — dangling, or through a component that is
-		// not a directory — has no kind to settle, so it continues and the resolver
+		// A link that resolves to NO entry (dangling, or through a component that is
+		// not a directory) has no kind to settle, so it continues and the resolver
 		// below refuses it as unverifiable. Only a genuine operational failure
 		// (permission, an I/O error, a symlink loop) travels out.
 		followed, serr := os.Stat(targetAbs)
@@ -811,6 +811,23 @@ func ReadText(abs string) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// ReadTextWithin mirrors Node's readTextWithin: ok is false unless abs is a regular
+// file that resolves inside root and reads cleanly.
+//
+// Containment is judged first and existence second, the order the link resolver
+// already uses, so the trust-boundary idiom reads the same way everywhere. Both
+// must pass, so the returned value is unchanged either way.
+func ReadTextWithin(root, abs string) (string, bool) {
+	if !ResolvedWithinRoot(root, abs) || !IsFile(abs) {
+		return "", false
+	}
+	text, err := ReadText(abs)
+	if err != nil {
+		return "", false
+	}
+	return text, true
 }
 
 // WalkMd collects markdown under a declared path (file or directory), as sorted

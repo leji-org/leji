@@ -32,8 +32,8 @@ const SIDEBAR = {
          label: '🧭 Decisions',
          entries: [
             'Decisions index',
-            'Adopt the Leji context layer',
-            'Adopt existing agent instructions into the context layer',
+            '0001. Adopt the Leji context layer',
+            '0002. Adopt existing agent instructions into the context layer',
          ],
       },
    ],

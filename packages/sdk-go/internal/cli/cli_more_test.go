@@ -15,7 +15,7 @@ func example(t *testing.T) string {
 func copyExample(t *testing.T) string {
 	t.Helper()
 	dst := t.TempDir()
-	if err := os.CopyFS(dst, os.DirFS(example(t))); err != nil {
+	if err := os.CopyFS(dst, withoutLeji{os.DirFS(example(t))}); err != nil {
 		t.Fatalf("copy example: %v", err)
 	}
 	return dst
@@ -313,7 +313,7 @@ func TestCLIOperationalReadFailuresExitTwoOnTheGenericErrorPath(t *testing.T) {
 	// An operational read failure on an allowed, contained artifact is the filesystem
 	// failing rather than the boundary refusing: the reference throws it, the CLI
 	// prints `leji: <msg>` and exits 2. Every command that reads an artifact it is
-	// about to act on reports it the same way — never as a finding, never as a
+	// about to act on reports it the same way: never as a finding, never as a
 	// silently degraded run. Mutation that reddens: swallow the error in
 	// LoadStoredIndex, CompactChangelog or clearableExport.
 	if os.Geteuid() == 0 {

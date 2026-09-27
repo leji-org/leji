@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { validateLayer } from '../dist/index.js';
+import { copyTree } from './helpers/copytree.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const minimal = path.join(repoRoot, 'fixtures', 'valid-minimal-core');
@@ -13,7 +14,7 @@ const minimal = path.join(repoRoot, 'fixtures', 'valid-minimal-core');
  * given (filename -> frontmatter-fields) map. Returns the layer root. */
 function layerWithDecisions(records: Record<string, string>): string {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-sup-'));
-   fs.cpSync(minimal, dir, { recursive: true });
+   copyTree(minimal, dir);
    const decisions = path.join(dir, 'docs', 'decisions');
    for (const f of fs.readdirSync(decisions)) fs.rmSync(path.join(decisions, f));
    for (const [name, fields] of Object.entries(records)) {

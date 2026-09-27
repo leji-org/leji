@@ -14,6 +14,7 @@ import { resolvedWithinRoot, walkMd } from '../dist/lib/fsx.js';
 import { schemaErrors } from '../dist/lib/schemas.js';
 import { gitLastModified, gitShowHead, gitToplevel } from '../dist/lib/git.js';
 import { readJsonArtifact } from '../dist/lib/layer.js';
+import { copyTree } from './helpers/copytree.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const exampleDir = path.join(repoRoot, 'examples', 'monorepo');
@@ -22,7 +23,7 @@ const exampleDir = path.join(repoRoot, 'examples', 'monorepo');
 const tmpdir = (prefix: string): string => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 const copyExample = (): string => {
    const d = tmpdir('leji-cov-');
-   fs.cpSync(exampleDir, d, { recursive: true });
+   copyTree(exampleDir, d);
    return d;
 };
 

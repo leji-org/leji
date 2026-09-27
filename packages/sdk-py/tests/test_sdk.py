@@ -1,12 +1,12 @@
 """Behavioral tests mirroring packages/sdk/test/sdk.test.ts."""
 
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from helpers.copytree import copy_tree
 from leji import (
     check_index,
     conformance_report,
@@ -24,7 +24,7 @@ EXAMPLE = REPO_ROOT / "examples" / "monorepo"
 @pytest.fixture()
 def example_copy(tmp_path: Path) -> Path:
     dest = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, dest)
+    copy_tree(EXAMPLE, dest)
     _git_init(dest)
     _git_commit_all(dest)
     return dest
@@ -52,6 +52,17 @@ def _git_init(path: Path) -> None:
 def test_example_monorepo_validates_clean() -> None:
     result = validate_layer(str(EXAMPLE))
     assert [f for f in result.findings if f.severity == "error"] == []
+
+
+def test_copy_leaves_out_stale_leji(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    copy_tree(EXAMPLE, src)
+    (src / ".leji" / "viewer").mkdir(parents=True)
+    (src / ".leji" / "viewer" / "x").write_text("stale\n")
+    dest = tmp_path / "dest"
+    copy_tree(src, dest)
+    assert (dest / "leji.json").is_file(), "the example itself is copied"
+    assert not (dest / ".leji").exists(), "the viewer build is left behind"
 
 
 def test_index_round_trip(example_copy: Path) -> None:
@@ -149,7 +160,7 @@ def test_indexed_init_no_machine_key_yet_writes_index_and_changelog(tmp_path: Pa
 
 def test_changelog_append_only_detects_modified_entry(tmp_path: Path) -> None:
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     subprocess.run(["git", "init", "-q"], cwd=layer, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=layer, check=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=layer, check=True)

@@ -1,11 +1,11 @@
 [build-system]
-requires = ["hatchling==1.32.0"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
 name = "leji"
-version = "1.5.1"
-description = "Reference SDK and CLI for Leji, the open specification for the shared context layer of AI-native teams: validate, index, changelog, freshness, conformance, status, route, federation mounts, viewer, view, init, adopt, detect, start, ci, and agent."
+version = "1.5.2"
+description = "Reference SDK and CLI for Leji, the open specification for the shared context layer of AI-native teams: validate, index, changelog, freshness, conformance, status, route, badge, federation mounts, viewer, view, export, init, adopt, detect, start, doctor, ci, and agent."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -34,7 +34,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest==9.1.1",
-    "ruff==0.16.8",
+    "ruff==0.16.9",
     "mypy==2.3.1",
     "coverage==7.16.1",
     "build==1.6.1",

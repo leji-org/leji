@@ -41,7 +41,7 @@
     "templates/viewer/assets/source-sans-pro-600-latin.woff2": "sha256:156650610835fe32914722ecfc8dab0ebbb84795e201b842158afa0ea873cfa4",
     "templates/viewer/assets/source-sans-pro-600-vietnamese.woff2": "sha256:615c0d875de2ec25e22bba41b5cd0e1184517a90916cfac8a4be8467539a5c8f",
     "templates/viewer/assets/third-party-licenses.txt": "sha256:010843d18dd532c01a574a44e86699966ca633fd5bbafe79125bb4c9e247f5b6",
-    "templates/viewer/assets/viewer-boot.js": "sha256:823679af2b7aa74395da41f94a0bc0d9afa5ba5601e624cfc5c49cef726685ae",
+    "templates/viewer/assets/viewer-boot.js": "sha256:8ef8c274ef53b50c5c5823f95ab4e0cd2a0e3d6328666fbe6b92d213eb233dbc",
     "templates/viewer/assets/vue-dark.css": "sha256:05b2b84e79937edaaa0c45c3a5d694363100ba2dfbe9a0b13f1ccdabefeabbea",
     "templates/viewer/assets/vue.css": "sha256:e5d3d25c16c2f67054226e45ea728f251aaa249fe85ef36ae69a528046d8aed6",
     "templates/viewer/assets/zoom-image.min.js": "sha256:c142e32432c4fd0d47ea1a6d5640a66d4ffa9a331496a5bdb45c0449f6d381f9",

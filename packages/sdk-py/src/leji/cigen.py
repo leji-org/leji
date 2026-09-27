@@ -79,8 +79,8 @@ CI_FALLBACK_GO_INSTALL = "go install github.com/leji-org/leji/packages/sdk-go/cm
 def resolve_ci_job(report: EcosystemReport, provider: str) -> CiJob:
     """Which job this repository gets. Local-first: a repository that DECLARES the CLI
     and has the manager's lock evidence installs its own locked dependencies and runs
-    the local binary. Everything else — undeclared, unlocked, ambiguous, unsupported,
-    unreadable, refused evidence, several ecosystems, none — takes the fallback for its
+    the local binary. Everything else (undeclared, unlocked, ambiguous, unsupported,
+    unreadable, refused evidence, several ecosystems, none) takes the fallback for its
     ecosystem, which needs no manifest and no lockfile."""
     selected = report.selected
     cell = CI_MANAGERS.get(selected.manager) if selected is not None and selected.manager else None
@@ -133,22 +133,22 @@ def _github_setup(job: CiJob) -> list[str]:
     """GitHub Actions setup steps for a runtime, already at the steps' indentation."""
     if job.runtime == "node":
         return [
-            "      - uses: actions/setup-node@v4",
+            "      - uses: actions/setup-node@v7",
             "        with:",
-            "          node-version: '22'",
+            "          node-version: '24'",
         ]
     if job.runtime == "bun":
         return ["      - uses: oven-sh/setup-bun@v2"]
     if job.runtime == "python":
         lines = [
-            "      - uses: actions/setup-python@v5",
+            "      - uses: actions/setup-python@v7",
             "        with:",
             "          python-version: '3.12'",
         ]
         if job.uv_action:
-            lines.append("      - uses: astral-sh/setup-uv@v5")
+            lines.append("      - uses: astral-sh/setup-uv@v10.2.0")
         return lines
-    return ["      - uses: actions/setup-go@v5", "        with:", "          go-version: '1.24'"]
+    return ["      - uses: actions/setup-go@v7", "        with:", "          go-version: '1.24'"]
 
 
 def build_github_workflow(job: CiJob) -> str:
@@ -162,7 +162,7 @@ def build_github_workflow(job: CiJob) -> str:
         "  validate:",
         "    runs-on: ubuntu-latest",
         "    steps:",
-        "      - uses: actions/checkout@v4",
+        "      - uses: actions/checkout@v7",
         *_github_setup(job),
         *([f"      {note}"] if note else []),
         *[f"      - run: {cmd}" for cmd in job.install],
@@ -174,7 +174,7 @@ def build_github_workflow(job: CiJob) -> str:
 
 def _ci_image(runtime: str) -> str:
     """The container image a job runs in on the image-based providers."""
-    return {"node": "node:22", "bun": "oven/bun:1", "python": "python:3.12"}.get(
+    return {"node": "node:24", "bun": "oven/bun:1", "python": "python:3.12"}.get(
         runtime, "golang:1.24"
     )
 
@@ -235,12 +235,12 @@ def build_circleci_snippet(job: CiJob) -> str:
 def _azure_setup(job: CiJob) -> list[str]:
     """Azure Pipelines setup tasks for a runtime, at the steps' indentation."""
     if job.runtime == "node":
-        return ["  - task: NodeTool@0", "    inputs:", "      versionSpec: '22.x'"]
+        return ["  - task: UseNode@1", "    inputs:", "      version: '24.x'"]
     if job.runtime == "bun":
         return [
-            "  - task: NodeTool@0",
+            "  - task: UseNode@1",
             "    inputs:",
-            "      versionSpec: '22.x'",
+            "      version: '24.x'",
             "  - script: npm install -g bun",
             "    displayName: install bun",
         ]
@@ -339,9 +339,10 @@ def ci_variants() -> list[tuple[str, str, str]]:
 #
 # Seeded with the pre-1.4 (1.3.x) variants, which carry no marker at all: two per
 # whole-file provider, the local-install job and the `npx @leji-org/leji@1` fallback.
-# Each release since appends its own twelve at pre-flight, enumerated by ci_variants()
-# and printed by a test, so the next release still recognizes them; while a release is
-# current its variants are also compared by bytes, which is strictly stronger.
+# Each release since appends at pre-flight the digests of its whole-file variants not
+# yet registered (GitLab registers none), enumerated by ci_variants() and printed by a
+# test, so the next release still recognizes them; while a release is current its
+# variants are also compared by bytes, which is strictly stronger.
 KNOWN_GENERATED: dict[str, list[str]] = {
     # 1.3.x GitHub Actions: local install, then the npx fallback.
     "github": [
@@ -360,6 +361,19 @@ KNOWN_GENERATED: dict[str, list[str]] = {
         "ae3385d9deac83936000100621078011b1918a66237d4ae1ef72770dc677914a",  # node-fallback
         "b0be130068ad150eb7f59a2166a4fc22601e10ec961d2144d4c158602fde1f9c",  # python-fallback
         "91b37a1c14fcc6f237d9600b8f49bb936eb2091f418fe8932fc94cdbfe91454f",  # go-fallback
+        # 1.5.2: the variants whose bytes changed, in ciVariants() order.
+        "a3423a83e5d672296abaf2f30719225c6f6549b26bdc0c88b78338a1eaad167a",  # npm-local
+        "19e84949c43d62eb870962680ddc09b31e7e767202f9a4f2b8752bd80fe2c669",  # pnpm-local
+        "e3ef7ad848e83d02ee269b53f15a5963ec6449afcc2f87d0d19418866b76da52",  # yarn-local
+        "f8b37cd81e9aebc9381adababf42420bd0b242111b2a2f5ef82905f5941483f3",  # bun-local
+        "fdb1d4c56a82e2f66277710377c60640d020d0895c6e7187b33d9c062b937ac1",  # uv-local
+        "de5b52ec185d8c0dc2382c6a42bfe824e556ebc2811b2d7102524e72c3f3b4a2",  # poetry-local
+        "dfc90f59d4e7f9255be487c8932b7faed96f652c2b67e82c4eaad941f000213e",  # pdm-local
+        "46a68d7597e3f79518652fc61329373939126095cf87625b5e50373ef0e48819",  # pipenv-local
+        "c137793dade3e890d6ef8fd1b8bb01994f1f4e1db94c431cbd8fefbcbed9cbdc",  # go-local
+        "c875b8ed8744937546c3782b66b5c53791c9bbe9a3a29084cbb0ab5215bef50f",  # node-fallback
+        "899b37940bb82da053beff7482c2c82823d3bb4f7d08fb44f780982e54783b28",  # python-fallback
+        "39f4e23caaa4b8f3e3de513437bf591cca8c0403fdee2539c0d2bf2eed7a08be",  # go-fallback
     ],
     # GitLab owns a marked block inside a shared file, never a whole file, so it
     # recognizes its own output by the markers and registers no digests.
@@ -380,6 +394,11 @@ KNOWN_GENERATED: dict[str, list[str]] = {
         "b82f65f616ec46445e43b8c1680618428cce89ee17e69f0a1e2b94b4ace2fc9b",  # node-fallback
         "0d2135d41e50be5fa6811bdc9aa85fc0ce4110ec918e17c139cd969087834e4b",  # python-fallback
         "704a4b3c3f8880c505e181eed154234e4640cdad5d13a3c9dfe5b4cdcdfbd3d9",  # go-fallback
+        # 1.5.2: the variants whose bytes changed, in ciVariants() order.
+        "3e60201c032974ad9ffb652741c6e355a635ef933af4e367766bbce5b6f5763c",  # npm-local
+        "3514fc7b3edaa77975399253115e387995523f45fcead919787bfc24514a3647",  # pnpm-local
+        "aa295426fee81a4742ef91d8e280de5f28e76615b003720155ae468e935ae6fa",  # yarn-local
+        "500d6445cf4c117d11177d8d16c548f08d384bfc43f00d8f1f2a0a7c92546c8b",  # node-fallback
     ],
     "azure": [
         "71fb19e18660e84ec4a2b9364ea6a9dea0ca7aff8bb52ede8d5c3f4d77c68669",
@@ -397,6 +416,12 @@ KNOWN_GENERATED: dict[str, list[str]] = {
         "1a4167a0b4b3a5b7528d7a6d0bcefeabd37f617b02f82772fd6c74c148d9e17e",  # node-fallback
         "c9cd3d115cb4f4d9db1b3f523cfbbf1397923df6142c58e5e6c8562ff57fa908",  # python-fallback
         "23679c491cbd53e39ffc5d940de7b97865f1b944bf55ad1bd7e73b8c57520606",  # go-fallback
+        # 1.5.2: the variants whose bytes changed, in ciVariants() order.
+        "c2e14d6c076c63e6058aa3c13f9389204a0377d83b54d39da37340efe8d16f64",  # npm-local
+        "91d78164b559bb47376de4f8de1e37b025251d4a0b84abe5c5e704844a63be79",  # pnpm-local
+        "d274d6a580ed136846e40761b5d6ed4d08fef72b97ca96cc8f7bbeff211aaa16",  # yarn-local
+        "f055ee28d9b2ece1acaa7abd38929345bbf4c2d755af0e19ab7094994d037218",  # bun-local
+        "b0155bcf2499e23f734bc2d635415be4ad2c46ba63eb539249f09e9a212bcb23",  # node-fallback
     ],
 }
 
@@ -404,7 +429,7 @@ KNOWN_GENERATED: dict[str, list[str]] = {
 def is_leji_generated(provider: str, text: str) -> bool:
     """Is this file leji's to replace? Yes when its bytes are one this generator can
     write right now, or when its digest is one an earlier release wrote. A file the
-    user edited matches neither, and is left alone with a snippet — editing a generated
+    user edited matches neither, and is left alone with a snippet: editing a generated
     file, or deleting its marker, is the explicit opt-out, and it is honored."""
     for prov, _key, body in ci_variants():
         if prov == provider and body == text:
@@ -424,7 +449,7 @@ HUSKY_MARKER_END = "# <<< leji hooks (managed) <<<"
 
 def sh_quote(word: str) -> str:
     """One argv element, quoted for ``sh``. Single quotes take everything literally,
-    and an embedded quote is closed, escaped, and reopened (``'\\''``) — the one escape
+    and an embedded quote is closed, escaped, and reopened (``'\\''``), the one escape
     a POSIX shell accepts inside them. The runner comes from the repository's own
     package manager, so it is never interpolated raw into generated shell."""
     return "'" + word.replace("'", "'\\''") + "'"

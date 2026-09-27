@@ -6,12 +6,12 @@ against the documented contract, not merely line-touched.
 """
 
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from helpers.copytree import copy_tree
 from leji import (
     check_changelog_append_only,
     check_index,
@@ -33,7 +33,7 @@ FIXTURES = REPO_ROOT / "fixtures"
 
 def _copy(src: Path, tmp_path: Path) -> Path:
     dest = tmp_path / "layer"
-    shutil.copytree(src, dest)
+    copy_tree(src, dest)
     return dest
 
 

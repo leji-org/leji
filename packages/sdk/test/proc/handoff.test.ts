@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { displayVersion } from '../../dist/lib/schemas.js';
+import { copyTree } from '../helpers/copytree.ts';
 
 // The hand-off end to end, through the real bin: a seeded repository from
 // `fixtures/handoff/`, the installed CLI a marker that prints the argv it received,
@@ -77,7 +78,7 @@ function installShim(dir: string, entry: string, shape: ShimShape): void {
 
 function seed(name: string, body = MARKER, entryIsSelf = false, shim: ShimShape = 'symlink'): string {
    const dir = tmpdir();
-   fs.cpSync(path.join(fixturesDir, name), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, name), dir);
    if (name !== 'node-declared-missing' && name !== 'go-tool') install(dir, body, entryIsSelf, shim);
    return dir;
 }
@@ -211,7 +212,7 @@ function installRealCli(dir: string, shim: ShimShape): void {
    // is what makes an entry runnable (npm chmods the bin target executable when it
    // links the shim). A symlink shim IS that file, so without this the shim points at
    // something no POSIX exec will run, the eligibility check declines it, and the
-   // global answers — which is not this test's subject and looks like a passing
+   // global answers, which is not this test's subject and looks like a passing
    // suite anywhere the working tree still carries the bit from an earlier install.
    fs.chmodSync(path.join(pkgDir, 'dist', 'cli.js'), 0o755);
    fs.cpSync(path.join(pkgRoot, 'cli.json'), path.join(pkgDir, 'cli.json'));
@@ -235,7 +236,7 @@ const LOCAL_VERSION = '1.4.0-local';
 
 test('the real local CLI, behind a script shim, answers exactly once', () => {
    const dir = tmpdir();
-   fs.cpSync(path.join(fixturesDir, 'node-shim-script'), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, 'node-shim-script'), dir);
    installRealCli(dir, 'script');
    const r = leji(['--version'], { cwd: dir });
    // One line, from the local copy: a second hand-off would print it again, and an
@@ -247,7 +248,7 @@ test('the real local CLI, behind a script shim, answers exactly once', () => {
 
 test('the real local CLI, behind a symlink shim, answers exactly once', () => {
    const dir = tmpdir();
-   fs.cpSync(path.join(fixturesDir, 'node-shim-symlink'), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, 'node-shim-symlink'), dir);
    installRealCli(dir, 'symlink');
    const r = leji(['--version'], { cwd: dir });
    assert.equal(r.stdout, `${LOCAL_VERSION}\n`);

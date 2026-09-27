@@ -187,7 +187,7 @@ func pathsOverlap(a, b string) bool {
 //
 // The second result is false for a path with no root-relative form: an absolute
 // path, or one whose `..` segments climb above the root. Callers reject those
-// rather than pass them through — an unnormalized task path silently fails to
+// rather than pass them through: an unnormalized task path silently fails to
 // match the declared side, which is how `--federation=required` used to pass open
 // on `./docs/x.md` and on `docs/x.md/` while failing correctly on `docs/x.md`.
 //
@@ -284,7 +284,7 @@ func Route(root string, m *manifest.Manifest, input RouteInput) (RouteResult, er
 
 	// Two category sets (spec: Task routing, item 3). A category the task NAMES is
 	// expanded: it loads its intent documents and record candidates. A task path that
-	// is itself a governed document contributes its category to signalled only — a
+	// is itself a governed document contributes its category to signalled only: a
 	// matching signal for decisions and mounts that loads nothing. The governed-document
 	// test is exact equality, never containment: an ancestor directory of a governed
 	// document is not itself governed, and inferring from one would reopen the corpus
@@ -309,7 +309,7 @@ func Route(root string, m *manifest.Manifest, input RouteInput) (RouteResult, er
 	// returned separately as dated candidates. A record is required only when the
 	// task's paths select it directly.
 	// A record or document is DIRECTLY selected when a task path contains it under the
-	// lexical rule — collected independently of category, because a path scope selects
+	// lexical rule, collected independently of category, because a path scope selects
 	// no category at all and the entry would otherwise be dropped here.
 	directlySelected := func(p string) bool {
 		for _, tp := range taskPaths {

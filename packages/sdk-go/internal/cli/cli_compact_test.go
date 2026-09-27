@@ -39,7 +39,7 @@ func findingsOf(payload map[string]any) []map[string]any {
 // A core layer with no machine.indexPath writes to the default and reports it.
 func TestCLICoreLayerWritesDefaultIndex(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.CopyFS(dir, os.DirFS(fixture(t, "valid-minimal-core"))); err != nil {
+	if err := os.CopyFS(dir, withoutLeji{os.DirFS(fixture(t, "valid-minimal-core"))}); err != nil {
 		t.Fatalf("copy fixture: %v", err)
 	}
 	code, payload, errs := runJSON(t, []string{"index", "--root", dir, "--json"})

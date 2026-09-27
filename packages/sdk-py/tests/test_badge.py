@@ -19,6 +19,7 @@ from typing import Optional
 
 import pytest
 
+from helpers.copytree import copy_tree
 from helpers.snapshot import snapshot_tree
 from leji import badge_markdown, badge_run, render_badge
 from leji.cli import main
@@ -37,7 +38,7 @@ def _committed_fixture(name: str) -> Path:
     rather than pytest's, whose paths are long enough to exceed the unix-socket path
     limit the containment tests bind at."""
     directory = Path(tempfile.mkdtemp(prefix="leji-badge-")).resolve()
-    shutil.copytree(FIXTURES / name, directory, dirs_exist_ok=True)
+    copy_tree(FIXTURES / name, directory, dirs_exist_ok=True)
     subprocess.run(["git", "init", "-q"], cwd=directory, check=True)
     subprocess.run(["git", "add", "-A"], cwd=directory, check=True)
     subprocess.run(
@@ -108,7 +109,7 @@ def test_every_level_renders_the_canonical_badge_byte_for_byte() -> None:
 def test_the_claim_is_structural_not_drawn() -> None:
     for level in LEVELS:
         claim = f"Leji 1.0 · {level} · self-attested"
-        # The markdown fixture — the alt text an adopter pastes into a README — carries
+        # The markdown fixture (the alt text an adopter pastes into a README) carries
         # the whole claim, which is what lets the face drop it.
         md = (GOLDEN_DIR / f"{level}.md").read_text(encoding="utf-8")
         assert f"[![{claim}]" in md, f"{level}.md must carry the full alt claim"
@@ -486,11 +487,11 @@ BADGE_FIXTURES = sorted(
 
 
 def _expected_document(block: dict, target_rel: str) -> tuple[list[dict], dict]:
-    """The findings and the summary a `badge` block PINS — fixed by the block alone, never
+    """The findings and the summary a `badge` block PINS: fixed by the block alone, never
     read off the document being judged, so a different rule, an extra finding or a missing
     one fails. Three outcomes exhaust the block: a success reports nothing; an exit-2
     refusal names the foreign file it would not overwrite; an exit-1 run reports the
-    conformance error that left nothing honest to state — the claim gate when this run
+    conformance error that left nothing honest to state: the claim gate when this run
     verified a level below the claim, `badge-unverified` when it verified no level."""
     if block["exit"] == 0:
         return [], {"errors": 0, "warnings": 0}
@@ -507,7 +508,7 @@ def _expected_document(block: dict, target_rel: str) -> tuple[list[dict], dict]:
 
 def _assert_badge_document(stdout: str, block: dict, target_rel: str, where: str) -> None:
     """The whole `--json` document against the block: the exact key set, and every value
-    the block fixes — including the findings and the summary, pinned above rather than
+    the block fixes, including the findings and the summary, pinned above rather than
     derived from the document, which is what makes a wrong rule or a stray finding fail
     here. The summary's exact key set, its agreement with the findings beside it, and
     `ok`'s agreement with both follow from comparing the pinned pair, so they are asserted
@@ -578,7 +579,7 @@ def test_fixture_badge_block(name: str, capsys) -> None:
             written = directory.joinpath(*block["out"].split("/")).read_bytes()
             assert written == golden, "the written bytes"
         # `written: false` is two claims in one: the target does not exist after the run,
-        # or — when `preseed` planted it — its planted bytes are still there.
+        # or (when `preseed` planted it) its planted bytes are still there.
         if block.get("written") is False:
             if planted is None:
                 assert not target.exists(), f"{target_rel} was never created"

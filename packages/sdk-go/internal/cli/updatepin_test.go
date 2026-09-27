@@ -266,7 +266,7 @@ func itoa(n int) string {
 
 // repin applies a case's declaration rewrite: the pin it starts from, and whether
 // the tracking ref is declared at all. A raw-text splice, as the fixture's own
-// contract requires — the harness never reserializes a manifest either.
+// contract requires: the harness never reserializes a manifest either.
 func repin(t *testing.T, host, pin string, dropTrackingRef bool) {
 	t.Helper()
 	mp := filepath.Join(host, "leji.json")
@@ -285,7 +285,7 @@ func repin(t *testing.T, host, pin string, dropTrackingRef bool) {
 
 func copyFixture(t *testing.T, name, dst string) {
 	t.Helper()
-	if err := os.CopyFS(dst, os.DirFS(fixture(t, name))); err != nil {
+	if err := os.CopyFS(dst, withoutLeji{os.DirFS(fixture(t, name))}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -782,7 +782,7 @@ func TestUpdatePinDeclarationChangedUnderTheRunIsRefused(t *testing.T) {
 
 // TestUpdatePinTrackingRefPresenceIsPartOfTheDeclaration pins the half of the
 // freshness gate a Go string cannot hold on its own: an ABSENT `trackingRef` that
-// reappears — as `null`, as `""`, or as a real ref — is a changed declaration, and
+// reappears (as `null`, as `""`, or as a real ref) is a changed declaration, and
 // so is a declared one that disappears. Splicing the pin into any of them would
 // write a mount the schema no longer accepts, or one compared against a ref it
 // never spelled.
@@ -793,7 +793,7 @@ func TestUpdatePinTrackingRefPresenceIsPartOfTheDeclaration(t *testing.T) {
 
 	// Absent at load, present on the verified reread: three spellings, all refused.
 	// The run needs --fetch, because an absent ref is what the advertised default is
-	// resolved for — which is the only way this branch is reachable at all.
+	// resolved for, which is the only way this branch is reachable at all.
 	for _, spelling := range []string{"null", `""`, `"refs/heads/main"`} {
 		t.Run("absent then "+spelling, func(t *testing.T) {
 			host := filepath.Join(dir, "reappears-"+strings.Map(func(r rune) rune {
@@ -911,8 +911,8 @@ func TestUpdatePinTargetRetentionFailureRefusesWithTheManifestUntouched(t *testi
 	}
 	// By the time the TARGET is retained the store already holds it, so the fetch
 	// never runs and only the ref update can fail: the injection is the branch's one
-	// reachable path. It names the TARGET, so retaining the current pin — the act
-	// before the gate — still succeeds and the refusal is unambiguous.
+	// reachable path. It names the TARGET, so retaining the current pin (the act
+	// before the gate) still succeeds and the refusal is unambiguous.
 	t.Setenv("LEJI_TEST_FAIL_PIN_REF", oidB)
 	var code int
 	var stdout string

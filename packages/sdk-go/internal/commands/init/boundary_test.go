@@ -124,7 +124,7 @@ func TestInitRefusesAGitignoreSymlinkedOutOfTheRepository(t *testing.T) {
 
 func TestInitRefusesADanglingScaffoldTarget(t *testing.T) {
 	// A stat follows symlinks, so a dangling target read as absent and the guarded
-	// write landed at the link's destination — inside the root, but under a name init
+	// write landed at the link's destination, inside the root, but under a name init
 	// never planned. The verified read refuses the standing entry instead.
 	dir := t.TempDir()
 	target := filepath.Join(dir, "docs", "boot-profile.md")
@@ -390,9 +390,9 @@ func TestCiRefusesAWorkflowTargetThatIsNotARegularFile(t *testing.T) {
 func TestAdoptPropagatesANonENOENTLstatWhilePickingNames(t *testing.T) {
 	// Occupancy is decided on the standing entry, and an lstat that fails for any
 	// reason other than absence answers neither "free" nor "occupied": the name cannot
-	// be judged, so the run fails rather than quietly moving to an alternate — exactly
+	// be judged, so the run fails rather than quietly moving to an alternate, exactly
 	// as the reference's lstat throws for anything but ENOENT. Mutation that reddens:
-	// have nothingStandsAt read a failed lstat as "occupied" — adopt scaffolds the
+	// have nothingStandsAt read a failed lstat as "occupied": adopt scaffolds the
 	// alternate name instead of reporting the failure.
 	if os.Geteuid() == 0 {
 		t.Skip("running as root bypasses directory permissions; the lstat cannot be made to fail")

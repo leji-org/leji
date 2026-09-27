@@ -17,7 +17,7 @@ import { translationStrings } from '../../data/i18n';
 import githubIcon from '../../assets/github.svg?raw';
 import lejiSyntaxTheme from '../../styles/shiki-leji.json';
 
-const source = '36bcf47882672f4531a8db2ca978572968ea09f3';
+const source = '2eed9882fa772b20bb25669b164ba230b71d341a';
 const strings = translationStrings('zh-hans');
 
 // Captured verbatim from a real run, so the transcript stays exactly as captured:
@@ -196,8 +196,8 @@ const peekJson = `{
                <p class="eyebrow is-kicker">一致性</p>
                <h2 class="section-title levels-title">声明一个级别，再检查它。</h2>
                <p class="levels-lede">
-                  四个逐级累加的级别，衡量已经具备哪些能力，而不是由团队自评成熟度。多数团队达到{' '}
-                  <code>governed</code> 就停下。CLI 检查机器能检查的部分；其余由你的团队自己背书。
+                  四个逐级累加的级别，衡量已经具备哪些能力，而不是由团队自评成熟度。多数团队应当达到{' '}
+                  <code>governed</code> 并就此停下。CLI 检查机器能检查的部分；其余由你的团队自己背书。
                </p>
                <ol class="ladder">
                   <li>
@@ -258,9 +258,7 @@ const peekJson = `{
                      <h3>是圆环，不是层级</h3>
                      <p>
                         人对人、人对 AI、人对 AI
-                        再对人，这三种工作流都围绕同一个共享上下文层，地位同等。所有人都可以读取，任何参与者都可以提议，再由人通过拉取请求批准。{
-                           ' '
-                        }
+                        再对人，这三种工作流都围绕同一个共享上下文层，地位同等。所有人都可以读取，任何参与者都可以提议，再由人通过拉取请求批准。
                         <a href="/zh-hans/rationale/#a-circle-not-a-tier">圆环为什么奏效。</a>
                      </p>
                   </div>
@@ -270,9 +268,11 @@ const peekJson = `{
                   <div class="thesis-body">
                      <h3>机制重于善意</h3>
                      <p>
-                        现实不断变化，共享上下文也会逐渐失效。代码评审、自动化漂移检查和复核期限，将维护落实为机制；过期的上下文绝不会被悄悄当作当前有效。{
+                        现实不断变化，共享上下文也会逐渐失效。代码评审、自动化漂移检查和复核期限，将维护落实为机制；超过复核期限的上下文会由{
                            ' '
                         }
+                        <code>leji freshness</code> 和 <code>leji route</code>{' '}
+                        标示出来，而不会被当作当前有效的内容呈现。
                         <a href="/zh-hans/rationale/#why-this-is-not-a-wiki">机制为什么重要。</a>
                      </p>
                   </div>
@@ -457,10 +457,6 @@ const peekJson = `{
       max-width: 50ch;
       margin: 1.7rem 0 2.1rem;
    }
-   .lede strong {
-      color: var(--leji-ink-on-deep);
-      font-weight: 600;
-   }
    .lede code {
       font-size: 0.84em;
       color: var(--white-strong);
@@ -545,7 +541,7 @@ const peekJson = `{
       its own, and the shadow already gives it the lift. */
    .btn.solid {
       /* the accessible green ground carries white at 5.15:1 at any size; the
-         vivid brand green is the hover moment. In dark the ground is the mint
+         hover ground deepens to hold it (--leji-cta-hover). In dark the ground is the mint
          and the label the deep ink, and the hover ground lifts to hold it. */
       background: var(--leji-brand-dark);
       color: var(--leji-ink-on-cta);

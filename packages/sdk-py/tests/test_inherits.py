@@ -8,12 +8,12 @@ schema's conditional requirement, and the viewer's fail-closed rendering.
 from __future__ import annotations
 
 import json
-import shutil
 import threading
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
+from helpers.copytree import copy_tree
 from leji.findings import Finding
 from leji.layer import (
     ScannedProfile,
@@ -39,7 +39,7 @@ POSTURE_YAML = "requiredRead:\n  - docs/boot-profile.md\nmustAskWhen:\n  - alway
 
 def copy_example(tmp_path: Path, name: str = "layer") -> Path:
     dest = tmp_path / name
-    shutil.copytree(EXAMPLE, dest)
+    copy_tree(EXAMPLE, dest)
     return dest
 
 

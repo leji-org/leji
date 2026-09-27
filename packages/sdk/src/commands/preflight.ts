@@ -131,14 +131,15 @@ const START_TEXT = {
       external: (target: string): string => `add it yourself; hooks run from ${target}`,
       noGit: 'not a git repository',
    },
-   /** The closing line: who owes how many fixes, and that neither answer blocks entry. */
+   /** The closing line: who owes how many fixes, and, when the run goes on to launch,
+    * that neither answer blocks entry. */
    summary: {
       complete: 'Setup complete.',
       fixes: (n: number): string => `${n} ${n === 1 ? 'fix' : 'fixes'}`,
-      you: (fixes: string): string => `${fixes} for you. The agent starts either way.`,
-      team: (fixes: string): string => `${fixes} for a maintainer. The agent starts either way.`,
-      both: (fixes: string, team: number): string =>
-         `${fixes} for you, ${team} for a maintainer. The agent starts either way.`,
+      you: (fixes: string): string => `${fixes} for you.`,
+      team: (fixes: string): string => `${fixes} for a maintainer.`,
+      both: (fixes: string, team: number): string => `${fixes} for you, ${team} for a maintainer.`,
+      launch: 'The agent starts either way.',
    },
    offer: {
       mcp: (host: string): string => `Register the Leji MCP server for ${host} for your user?`,
@@ -264,8 +265,8 @@ function parseVersion(stdout: string): { text: string; major: number } | null {
  * How this repository's declared CLI would be asked for its version. `direct` is the
  * installed Node shim, executed as a file; `spawned` is a manager or the ambient
  * binary, found on the caller's PATH; `absent` is a Node repository whose install has
- * not produced the shim (not installed, or a Yarn PnP tree that has no bin directory)
- * — reported, never worked around by asking a package manager to run a script.
+ * not produced the shim (not installed, or a Yarn PnP tree that has no bin directory),
+ * reported, never worked around by asking a package manager to run a script.
  */
 type ProbePlan =
    | { kind: 'direct'; bin: string; args: string[]; env: Record<string, string> }
@@ -320,8 +321,8 @@ function probePlan(root: string, report: EcosystemReport): ProbePlan {
 /**
  * Ask the CLI this repository would run for its version. Argv, never a shell; cwd
  * pinned to the root; stdin closed; output and time bounded; a sanitized environment;
- * and never a package manager's script runner. Every failure mode — a missing
- * executable, a non-zero exit, a timeout, output that is not a version — comes back
+ * and never a package manager's script runner. Every failure mode (a missing
+ * executable, a non-zero exit, a timeout, output that is not a version) comes back
  * as null, because a probe that cannot answer is not evidence that the CLI is there.
  */
 function probeVersion(root: string, plan: ProbePlan, io: HandoffIo): { text: string; major: number } | null {
@@ -574,14 +575,17 @@ export function colorDecision(isTTY: boolean, env: NodeJS.ProcessEnv): boolean {
 export interface RenderPreflightOptions {
    /** Off unless the boundary says otherwise. */
    color?: boolean;
+   /** Whether an agent launches after the block (`leji start`). Off for `leji doctor`,
+    * whose closing line counts the fixes and promises nothing. Default: on. */
+   launch?: boolean;
 }
 
-function summaryLine(you: number, team: number): string {
+function summaryLine(you: number, team: number, launch: boolean): string {
    const s = START_TEXT.summary;
-   if (you > 0 && team > 0) return s.both(s.fixes(you), team);
-   if (you > 0) return s.you(s.fixes(you));
-   if (team > 0) return s.team(s.fixes(team));
-   return s.complete;
+   if (you === 0 && team === 0) return s.complete;
+   const counts =
+      you > 0 && team > 0 ? s.both(s.fixes(you), team) : you > 0 ? s.you(s.fixes(you)) : s.team(s.fixes(team));
+   return launch ? `${counts} ${s.launch}` : counts;
 }
 
 /**
@@ -604,7 +608,7 @@ export function renderPreflight(checks: Check[], options: RenderPreflightOptions
       const prompt = (c.fixKind ?? 'command') === 'command' ? '$ ' : '';
       for (const fix of c.fix ?? []) lines.push(`${FIX_INDENT}${prompt}${fix}`);
    }
-   lines.push('', `${MARGIN}${summaryLine(you, team)}`);
+   lines.push('', `${MARGIN}${summaryLine(you, team, options.launch !== false)}`);
    return lines.join('\n');
 }
 

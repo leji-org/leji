@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,29 +48,7 @@ const versionStub = "echo 1.4.0"
 
 func copyTree(t *testing.T, src, dst string) {
 	t.Helper()
-	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, p)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		b, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(target, b, info.Mode().Perm())
-	})
-	if err != nil {
+	if err := os.CopyFS(dst, withoutLeji{os.DirFS(src)}); err != nil {
 		t.Fatalf("copy %s: %v", src, err)
 	}
 }

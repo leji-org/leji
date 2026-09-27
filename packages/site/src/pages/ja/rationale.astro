@@ -17,7 +17,7 @@ import CircleChart from '../../components/CircleChart.astro';
 import { translationStrings } from '../../data/i18n';
 import { markdownRenderOptions } from '../../markdown-options';
 
-const source = '0ddffffc1603fd1aec577a54e9674ba6f9a226ac';
+const source = '0bb7708dccd5de8cbb2c20a8a3621ddd2d9f58aa';
 const strings = translationStrings('ja');
 
 const before = `
@@ -98,7 +98,10 @@ const afterHtml = (await processor.render(after)).code;
                <CircleChart />
                <figcaption class="figure-note">
                   <span class="flows">人から人へ · 人から AI へ · 人から AI を経て人へ</span>
-                  全員が読みます。誰でも提案できます。承認するのは人です。古くなったコンテキストが、黙っていまのものとして扱われることはありません。
+                  全員が読みます。誰でも提案できます。承認するのは人です。レビューの期限を過ぎたコンテキストは <code
+                     >leji freshness</code
+                  > と{' '}
+                  <code>leji route</code> によって示され、現行のものとして提示されることはありません。
                </figcaption>
             </figure>
             <Fragment set:html={afterHtml} />

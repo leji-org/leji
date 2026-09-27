@@ -17,6 +17,7 @@ from typing import NoReturn, Optional
 
 import pytest
 
+from helpers.copytree import copy_tree
 import leji.ecosystem
 import leji.localcli
 from leji.cli import effective_root, main
@@ -118,7 +119,7 @@ def seed(name: str, tmp_path: Path) -> Path:
     installed state its name declares. Every fixture is seeded by a file copy and a
     write here; nothing is produced by running a CLI."""
     root = tmp_path / "repo"
-    shutil.copytree(FIXTURES / name, root)
+    copy_tree(FIXTURES / name, root)
     venv = root / ".venv"
     if name in {
         "python-eligible",
@@ -222,7 +223,7 @@ def test_go_and_node_roots_are_not_this_runtimes(tmp_path: Path) -> None:
     nothing there: same-runtime only, never across ecosystems."""
     for name in ("node-eligible", "go-tool"):
         root = tmp_path / name
-        shutil.copytree(FIXTURES / name, root)
+        copy_tree(FIXTURES / name, root)
         assert resolve_local_cli(["--root", str(root)], {}, HOST, NOT_SELF) is None
 
 
@@ -230,7 +231,7 @@ def test_polyglot_hands_off_on_its_own_record(tmp_path: Path) -> None:
     """A repository declaring both runtimes is decided on THIS runtime's record, never
     on the report's overall verdict, which is `multiple-ecosystems`."""
     root = tmp_path / "polyglot"
-    shutil.copytree(FIXTURES / "polyglot", root)
+    copy_tree(FIXTURES / "polyglot", root)
     install(root / ".venv")
     resolved = resolve_local_cli(["--root", str(root)], {}, HOST, NOT_SELF)
     assert resolved is not None
@@ -745,7 +746,7 @@ def test_effective_root_agrees_with_the_parser(tmp_path: Path, capsys, monkeypat
     root cannot produce the same exit code. The cases that are usage errors assert the
     usage exit, which is what a None effective root means."""
     layer = tmp_path / "layer"
-    shutil.copytree(REPO_ROOT / "fixtures" / "valid-minimal-core", layer)
+    copy_tree(REPO_ROOT / "fixtures" / "valid-minimal-core", layer)
     (layer / "expected.json").unlink(missing_ok=True)
     empty = tmp_path / "empty"
     empty.mkdir()
@@ -943,7 +944,7 @@ def test_console_runs_the_global_where_the_repository_does_not_qualify(tmp_path:
     for name in ("python-undeclared", "python-no-env", "python-below-minimum", "go-tool"):
         root = tmp_path / name
         if name == "go-tool":
-            shutil.copytree(FIXTURES / name, root)
+            copy_tree(FIXTURES / name, root)
         else:
             root = seed(name, tmp_path / name)
         result = run_console(["--version"], cwd=root)
@@ -986,7 +987,7 @@ def test_console_runs_the_global_on_unreadable_eligibility_state(tmp_path: Path)
 @console_only
 def test_console_fails_closed_when_the_target_cannot_run(tmp_path: Path) -> None:
     root = tmp_path / "repo"
-    shutil.copytree(FIXTURES / "python-eligible", root)
+    copy_tree(FIXTURES / "python-eligible", root)
     install(root / ".venv", body=UNRUNNABLE)
     result = run_console(["validate"], cwd=root)
     assert result.returncode == 2
@@ -1002,7 +1003,7 @@ def test_console_ends_by_the_childs_signal(tmp_path: Path) -> None:
     """With `execv` the parent IS the child, so a child that dies by a signal ends this
     process by that signal with nothing to forward."""
     root = tmp_path / "repo"
-    shutil.copytree(FIXTURES / "python-eligible", root)
+    copy_tree(FIXTURES / "python-eligible", root)
     install(
         root / ".venv",
         body=f"#!{sys.executable}\nimport os, signal\nos.kill(os.getpid(), signal.SIGTERM)\n",

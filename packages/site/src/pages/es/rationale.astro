@@ -15,7 +15,7 @@ import TranslationNote from '../../components/TranslationNote.astro';
 import { translationStrings } from '../../data/i18n';
 import { markdownRenderOptions } from '../../markdown-options';
 
-const source = '0ddffffc1603fd1aec577a54e9674ba6f9a226ac';
+const source = '0bb7708dccd5de8cbb2c20a8a3621ddd2d9f58aa';
 const strings = translationStrings('es');
 
 // The h1 and the canonical note are rendered by the template, so the note sits
@@ -103,8 +103,10 @@ const afterHtml = after ? (await processor.render(after)).code : '';
                <CircleChart />
                <figcaption class="figure-note">
                   <span class="flows">persona-a-persona · persona-a-IA · persona-a-IA-a-persona</span>
-                  Todos leen. Cualquiera propone. Las personas aprueban. El contexto desactualizado nunca se trata en silencio
-                  como si estuviera vigente.
+                  Todos leen. Cualquiera propone. Las personas aprueban. <code>leji freshness</code> y <code
+                     >leji route</code
+                  >{' '}
+                  señalan el contexto que ha superado su horizonte de revisión en lugar de presentarlo como vigente.
                </figcaption>
             </figure>
             <Fragment set:html={afterHtml} />

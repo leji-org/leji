@@ -14,8 +14,8 @@
   - [Operating Rules](/governance/operating-rules.md)
 - **🧭 Decisions**
   - [Decisions index](/_decisions.md)
-  - [Adopt the Leji context layer](/decisions/0001-adopt-leji.md)
-  - [Adopt existing agent instructions into the context layer](/decisions/0002-adopt-existing-agent-context.md)
+  - [0001. Adopt the Leji context layer](/decisions/0001-adopt-leji.md)
+  - [0002. Adopt existing agent instructions into the context layer](/decisions/0002-adopt-existing-agent-context.md)
 
 ---
 

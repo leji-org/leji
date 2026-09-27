@@ -165,7 +165,7 @@ kbd {
 }
 .doc-nav ol.plain a::before {
    content: '·  ';
-   color: var(--leji-brand);
+   color: var(--leji-brand-dark);
 }
 /* the one-page view follows the numbered reading order without joining it */
 .doc-nav ol + ol.plain {
@@ -203,7 +203,7 @@ kbd {
    transition: transform 0.15s;
 }
 .doc-nav summary:hover .chev {
-   color: var(--leji-brand);
+   color: var(--leji-brand-dark);
 }
 .doc-nav details[open] > summary .chev {
    transform: rotate(90deg);

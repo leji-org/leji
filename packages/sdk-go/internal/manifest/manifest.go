@@ -67,7 +67,10 @@ type Conformance struct {
 }
 
 type Theme struct {
-	Primary string `json:"primary,omitempty"`
+	// Primary is a pointer so an absent key stays distinguishable from
+	// `primary: ""`, as Link's is: the schema accepts the empty string, and the
+	// viewer must warn about it rather than read it as an unset field.
+	Primary *string `json:"primary,omitempty"`
 	// Link is a pointer so an absent key stays distinguishable from `link: ""`: the
 	// schema accepts the empty string, and the viewer's guard must warn about it
 	// rather than read it as an unset field (a plain string collapses both to "").
@@ -213,7 +216,7 @@ func LoadManifest(root string) Load {
 	}
 	// Before anything reads a value: a manifest string that is not a well-formed
 	// Unicode scalar sequence is refused whole, never carried into a hash, a sort,
-	// or output. The message quotes nothing back — echoing the offending text is
+	// or output. The message quotes nothing back: echoing the offending text is
 	// exactly the outcome the check exists to prevent.
 	if !AllStringsScalar([]byte(text)) {
 		return Load{Manifest: nil, Findings: []findings.Finding{
@@ -391,7 +394,7 @@ func EffectiveAgentProfilesPath(m *Manifest) string {
 
 // EffectiveViewerTitle is the display title every generated surface uses:
 // viewer.title when the manifest declares one, else the layer name. Present-or-name,
-// never truthy-or-name — a declared empty title is a declared title, and the three
+// never truthy-or-name: a declared empty title is a declared title, and the three
 // SDKs must agree on the bytes it produces.
 func EffectiveViewerTitle(m *Manifest) string {
 	if m.Viewer != nil && m.Viewer.Title != nil {

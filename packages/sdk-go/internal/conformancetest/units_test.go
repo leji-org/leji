@@ -5,11 +5,13 @@ package conformancetest
 // viewer, init).
 
 import (
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,9 +42,8 @@ func exampleDir(t *testing.T) string {
 func copyTree(t *testing.T, src string) string {
 	t.Helper()
 	dst := t.TempDir()
-	cmd := exec.Command("cp", "-r", src+"/.", dst)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("cp failed: %v: %s", err, out)
+	if err := os.CopyFS(dst, withoutLeji{os.DirFS(src)}); err != nil {
+		t.Fatalf("copy %s: %v", src, err)
 	}
 	// Conformance evaluates the directory it is given, so a layer outside a git
 	// repository fails core's git requirement. Any test asserting a verified level
@@ -50,6 +51,41 @@ func copyTree(t *testing.T, src string) string {
 	gitInit(t, dst)
 	gitCommitAll(t, dst)
 	return dst
+}
+
+// withoutLeji hides every entry named .leji. A local `leji view` leaves its
+// gitignored viewer build in the working tree, and a test copy that carried it would
+// change what the export, viewer, and conformance tests see.
+type withoutLeji struct{ fs.FS }
+
+func (f withoutLeji) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(f.FS, name)
+	return slices.DeleteFunc(entries, func(e fs.DirEntry) bool { return e.Name() == ".leji" }), err
+}
+
+// ReadLink and Lstat pass through, so a symlink in the source copies as a symlink.
+func (f withoutLeji) ReadLink(name string) (string, error)   { return fs.ReadLink(f.FS, name) }
+func (f withoutLeji) Lstat(name string) (fs.FileInfo, error) { return fs.Lstat(f.FS, name) }
+
+func TestCopyTreeLeavesOutStaleLeji(t *testing.T) {
+	src := t.TempDir()
+	if err := os.CopyFS(src, withoutLeji{os.DirFS(exampleDir(t))}); err != nil {
+		t.Fatal(err)
+	}
+	viewer := filepath.Join(src, ".leji", "viewer")
+	if err := os.MkdirAll(viewer, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(viewer, "x"), []byte("stale\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := copyTree(t, src)
+	if _, err := os.Stat(filepath.Join(dst, "leji.json")); err != nil {
+		t.Fatalf("the example itself is copied: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, ".leji")); !os.IsNotExist(err) {
+		t.Fatalf("the viewer build is left behind; stat .leji: %v", err)
+	}
 }
 
 func gitInit(t *testing.T, dir string) {
@@ -328,7 +364,8 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 	// flips the mermaid node text to white, end to end through the generator.
 	darkDir := copyTree(t, exampleDir(t))
 	darkM := loadM(t, darkDir)
-	darkM.Viewer = &manifest.Viewer{Theme: &manifest.Theme{Primary: "#164E42"}}
+	darkAccent := "#164E42"
+	darkM.Viewer = &manifest.Viewer{Theme: &manifest.Theme{Primary: &darkAccent}}
 	if _, err := viewer.GenerateViewer(darkDir, darkM); err != nil {
 		t.Fatalf("GenerateViewer (configured accent): %v", err)
 	}
@@ -346,7 +383,7 @@ func TestViewerGeneratesSidebar(t *testing.T) {
 		"- **🤖 Agents**\n  - [Agent Core](/agents/core.md)\n  - [Thought Partner (Codex)](/agents/thought-partner.md)\n" +
 		"- **📖 Domain**\n  - [Glossary](/domain/glossary.md)\n" +
 		"- **⚙️ System**\n  - [Invariants](/system/invariants.md)\n" +
-		"- **🧭 Decisions**\n  - [Decisions index](/_decisions.md)\n  - [Adopt the Leji context layer](/decisions/0001-adopt-leji.md)\n"
+		"- **🧭 Decisions**\n  - [Decisions index](/_decisions.md)\n  - [0001. Adopt the Leji context layer](/decisions/0001-adopt-leji.md)\n"
 	if string(sidebar) != want {
 		t.Fatalf("sidebar mismatch:\n got=%q\nwant=%q", sidebar, want)
 	}
@@ -364,9 +401,10 @@ func TestViewerBrandConfig(t *testing.T) {
 	dir := copyTree(t, exampleDir(t))
 	m := loadM(t, dir)
 	brandTitle := "Acme Billing"
+	brandAccent := "#FF6600"
 	m.Viewer = &manifest.Viewer{
 		Logo:    "assets/brand.svg",
-		Theme:   &manifest.Theme{Primary: "#FF6600"},
+		Theme:   &manifest.Theme{Primary: &brandAccent},
 		Title:   &brandTitle,
 		Favicon: "assets/icon.svg",
 		Pins:    []manifest.ViewerPin{{Path: "docs/domain/glossary.md"}, {Path: "docs/nope.md"}},

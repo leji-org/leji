@@ -18,6 +18,7 @@ import subprocess
 from pathlib import Path
 from typing import Union
 
+from helpers.copytree import copy_tree
 from leji.cli import main
 from leji.manifest import load_manifest
 from leji.mounts import cache_key_for, hydrate_mounts, normalize_source, self_projection
@@ -557,7 +558,7 @@ def test_the_status_projection_sees_an_untracked_bound_profile(tmp_path, capsys)
     root = tmp_path / "selfproj"
     fixture = REPO_ROOT / "fixtures" / "valid-actors"
     profile_rel = Path("docs") / "agents" / "reviewer.md"
-    shutil.copytree(fixture, root)
+    copy_tree(fixture, root)
     (root / profile_rel).unlink()
     git(root, "init", "-q", "-b", "main")
     git(root, "add", "-A")
@@ -584,7 +585,7 @@ def test_the_status_projection_is_ok_on_a_committed_layer_and_no_commit_before(
     assert len(ok["commit"]) == 40 and all(c in "0123456789abcdef" for c in ok["commit"])
     # An unborn HEAD has nothing to judge, and the section says so rather than failing.
     fresh = tmp_path / "unborn"
-    shutil.copytree(SIBLING_EXAMPLE, fresh)
+    copy_tree(SIBLING_EXAMPLE, fresh)
     git(fresh, "init", "-q", "-b", "main")
     assert main(["status", "--json", "--root", str(fresh)]) == 0
     assert json.loads(capsys.readouterr().out)["projection"] == {"state": "no-commit"}

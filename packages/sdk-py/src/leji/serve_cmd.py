@@ -1,6 +1,6 @@
 """The viewer's local preview server: the virtual mounts, the route table, and the
 policy headers a browser sees. Every network import the CLI makes lives here and
-nowhere else — the static export is a separate module whose transitive imports carry
+nowhere else: the static export is a separate module whose transitive imports carry
 none of them, which is what makes the export's no-network guarantee checkable rather
 than asserted. Mirrors the Node SDK's `commands/serve.ts`.
 """
@@ -107,7 +107,7 @@ def _url_path_to_rel(url_path: str) -> str:
     """A request URL path as a clean relative route key.
 
     Separators fold to "/" and the path is cleaned against a root, so one request
-    has one route key on any platform — os.path.normpath follows the host and
+    has one route key on any platform. os.path.normpath follows the host and
     answered differently on Windows, missing every "content/" route test.
     Canonicalization only; the mount enforces containment.
     """
@@ -259,7 +259,7 @@ class _SafeViewerHandler(BaseHTTPRequestHandler):
     @classmethod
     def _tree_fingerprint(cls) -> str:
         """One stat pass over leji.json + every markdown file under the content
-        root (paths, mtimes, sizes — no content reads). walk_tree skips dotdirs,
+        root (paths, mtimes, sizes, no content reads). walk_tree skips dotdirs,
         so the viewer's own artifacts never invalidate the cache."""
         parts: list[str] = []
 
@@ -420,7 +420,7 @@ class _SafeViewerHandler(BaseHTTPRequestHandler):
             return
         try:
             # A malformed percent-encoding throws; answer 400 rather than crash. A
-            # `%` not followed by two hex digits is malformed too — Node's
+            # `%` not followed by two hex digits is malformed too: Node's
             # decodeURIComponent and Go's PathUnescape both reject it, while Python's
             # unquote passes it through as a literal, so it is rejected explicitly.
             raw_path = urlsplit(self.path).path
@@ -571,7 +571,7 @@ def serve_viewer(
     entries: Optional[list[dict]] = None,
 ) -> ThreadingHTTPServer:
     """Serve the viewer at the web root, bound to 127.0.0.1 (local preview, never
-    hosting). Two virtual mounts and nothing else — the servable roots: chrome
+    hosting). Two virtual mounts and nothing else (the servable roots): chrome
     (`.leji/viewer/`) at `/`, the layer's markdown (rootPath/) under `/content/`.
     Everything else under `.leji/` is denied by name, so the private roles are
     unreachable however the request is spelled and whatever a symlink under the

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { type ConformanceLevel, badgeMarkdown, badgeRun, renderBadge } from '../dist/index.js';
 import { snapshotTree } from './helpers/snapshot.ts';
+import { copyTree } from './helpers/copytree.ts';
 
 // Two halves of one contract. First the constants: every level rendered and
 // byte-compared against `fixtures/badge/`, the sole oracle, plus the `--out`
@@ -44,7 +45,7 @@ test('every level renders the canonical badge byte for byte', () => {
 test('the claim is structural: absent from the badge face, present in title, aria-label and alt', () => {
    for (const level of LEVELS) {
       const claim = `Leji 1.0 · ${level} · self-attested`;
-      // The markdown fixture — the alt text an adopter pastes into a README — carries
+      // The markdown fixture (the alt text an adopter pastes into a README) carries
       // the whole claim, which is what lets the face drop it.
       const md = fs.readFileSync(path.join(goldenDir, `${level}.md`), 'utf8');
       assert.ok(md.includes(`[![${claim}]`), `${level}.md must carry the full alt claim`);
@@ -74,7 +75,7 @@ test('the markdown carries the canonical --out value, not the default', () => {
  * in HEAD (`fixtures/README.md` -> "The `badge` block"). */
 function committedFixture(name: string): string {
    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'leji-badge-')));
-   fs.cpSync(path.join(fixturesDir, name), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, name), dir);
    const git = (...a: string[]): void => {
       execFileSync('git', a, { cwd: dir, env: { ...process.env, GIT_DIR: undefined }, stdio: 'ignore' });
    };
@@ -495,7 +496,7 @@ interface BadgeDocument {
 
 /** A finding as `fixtures/README.md` -> "Matching rules" compares one: the triple
  * (rule, severity, path). Message text is implementation-specific and is never
- * compared — everything that identifies the finding is here. */
+ * compared: everything that identifies the finding is here. */
 interface FindingKey {
    rule: string;
    severity: string;
@@ -503,11 +504,11 @@ interface FindingKey {
 }
 
 /**
- * The findings and the summary a `badge` block PINS — fixed by the block alone,
+ * The findings and the summary a `badge` block PINS: fixed by the block alone,
  * never read off the document being judged, so a different rule, an extra finding
  * or a missing one fails. Three outcomes exhaust the block: a success reports
  * nothing; an exit-2 refusal names the foreign file it would not overwrite; an
- * exit-1 run reports the conformance error that left nothing honest to state — the
+ * exit-1 run reports the conformance error that left nothing honest to state: the
  * claim gate when this run verified a level below the claim, `badge-unverified`
  * when it verified no level at all.
  */
@@ -528,7 +529,7 @@ function expectedDocument(
 }
 
 /** The whole `--json` document against the block: the exact key set, and every
- * value the block fixes — including the findings and the summary, pinned above
+ * value the block fixes, including the findings and the summary, pinned above
  * rather than derived from the document, which is what makes a wrong rule or a
  * stray finding fail here. The summary's exact key set, its agreement with the
  * findings beside it, and `ok`'s agreement with both follow from comparing the
@@ -604,7 +605,7 @@ for (const name of fs.readdirSync(fixturesDir).sort()) {
             assert.deepEqual(fs.readFileSync(path.join(dir, ...block.out!.split('/'))), golden, 'the written bytes');
          }
          // `written: false` is two claims in one: the target does not exist after the
-         // run, or — when `preseed` planted it — its planted bytes are still there.
+         // run, or (when `preseed` planted it) its planted bytes are still there.
          if (block.written === false) {
             if (planted === null) assert.ok(!fs.existsSync(target), `${targetRel} was never created`);
             else assert.deepEqual(fs.readFileSync(target), planted, `${targetRel} is byte-untouched`);

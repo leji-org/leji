@@ -7,8 +7,8 @@ import ts from 'typescript';
 
 // The acceptance check for the write boundary: no production source file of this SDK
 // reaches a raw filesystem mutation, or a subprocess that could perform one, except at
-// a symbol named below. Every other write goes through `lib/fsx.ts` — the chokepoint
-// and its guarded conveniences — so a new write site is contained by construction
+// a symbol named below. Every other write goes through `lib/fsx.ts` (the chokepoint
+// and its guarded conveniences), so a new write site is contained by construction
 // rather than by remembering to contain it, and a reviewer can read the exceptions
 // instead of re-deriving them. `docs/practice/trust-boundary.md` mirrors both lists.
 //
@@ -20,7 +20,7 @@ import ts from 'typescript';
 // module all resolve to the same `@types/node` declaration and are all caught. On top of
 // that: the unmistakable synchronous names are still matched as identifiers (a
 // belt-and-braces layer that needs no type at all), and `require()` or a dynamic
-// `import()` of an fs or child_process module is banned outright — the SDK is ESM, so
+// `import()` of an fs or child_process module is banned outright: the SDK is ESM, so
 // either is a laundering attempt rather than a style.
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
@@ -68,7 +68,7 @@ const SYNC_MUTATORS: ReadonlySet<string> = new Set([
 /**
  * The callback and promise forms. Their names are ordinary English words that any
  * object may carry (`process.stderr.write`, `res.write`, a RegExp's `exec`), so they
- * count only when the call RESOLVES to a declaration in Node's `fs` typings — which no
+ * count only when the call RESOLVES to a declaration in Node's `fs` typings, which no
  * amount of rebinding can hide, and which `process.stderr.write` never does.
  */
 const FS_MUTATORS: ReadonlySet<string> = new Set([
@@ -116,7 +116,7 @@ const SUBPROCESS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The write allow-list, by `file#symbol` — never by whole module, so a future raw
+ * The write allow-list, by `file#symbol`, never by whole module, so a future raw
  * mutation elsewhere in an allowed file still fails. An entry that matches nothing
  * fails too: a stale exception is an exception nobody is checking.
  */
@@ -173,7 +173,7 @@ function compilerOptions(): ts.CompilerOptions {
 const OPTIONS = compilerOptions();
 
 /** Where `@types/node` declares the fs and child_process modules, taken from the
- * program's own ambient module declarations rather than guessed from a path — so the
+ * program's own ambient module declarations rather than guessed from a path, so the
  * audit fails loudly if the typings ever move instead of silently seeing nothing. */
 function moduleDeclarationFiles(checker: ts.TypeChecker, names: ReadonlySet<string>): ReadonlySet<string> {
    const files = new Set<string>();
@@ -194,7 +194,7 @@ interface Typings {
 
 /** The nearest named FUNCTION containing `node`: the declaration, method, or named
  * arrow a reader would cite when arguing the exception. An anonymous callback is
- * transparent — a raw primitive inside one belongs to the function that owns it, not
+ * transparent: a raw primitive inside one belongs to the function that owns it, not
  * to the variable the enclosing call happens to be assigned to. */
 function enclosingSymbol(node: ts.Node): string {
    for (let n: ts.Node | undefined = node; n !== undefined; n = n.parent) {
@@ -294,9 +294,9 @@ function scan(
            : null;
       if (literal !== null && SYNC_MUTATORS.has(literal)) record(writes, node, literal);
       if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
-         // What does this call actually call? However the binding was obtained —
-         // namespace, named, aliased, destructured, re-exported, `fs.promises.*`,
-         // element access — the declaration it lands on is the same one.
+         // What does this call actually call? However the binding was obtained
+         // (namespace, named, aliased, destructured, re-exported, `fs.promises.*`,
+         // element access), the declaration it lands on is the same one.
          for (const callee of resolveCallee(node, checker)) {
             if (typings.fs.has(callee.file) && MUTATORS.has(callee.name)) {
                if ((callee.name === 'open' || callee.name === 'openSync') && readOnlyOpen(node)) continue;
@@ -687,7 +687,7 @@ test('the role rule has exactly one declared exception, constructed at one named
 /**
  * The laundering corpus, permanent. Each file below is a way of reaching an fs mutator
  * that a binding-following scanner misses; they are compiled as production source
- * would be — same options, same `@types/node` — and fed to the same analyzer, so the
+ * would be (same options, same `@types/node`) and fed to the same analyzer, so the
  * audit's reach is asserted rather than assumed. The last file is the control: two
  * ordinary `write`/`exec` calls that share their names with the mutator list and must
  * never be flagged.

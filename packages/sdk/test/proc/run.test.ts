@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { run, serveViewer, generateViewer, loadManifest } from '../../dist/index.js';
 import { displayVersion } from '../../dist/lib/schemas.js';
+import { copyTree } from '../helpers/copytree.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const exampleDir = path.join(repoRoot, 'examples', 'monorepo');
@@ -87,7 +88,7 @@ test('run validate on a missing manifest', async () => {
 
 test('run index and index --check against a temp copy', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-run-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    const gen = await runInProcess(['index', '--root', dir, '--json']);
    assert.equal(gen.code, 0);
    assert.equal(JSON.parse(gen.out).entries, 3);
@@ -159,7 +160,7 @@ test('run changelog check without a declared changelog path', async () => {
 
 test('run index on a core layer with no machine.indexPath writes the default and reports it', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-run-coreidx-'));
-   fs.cpSync(fixture('valid-minimal-core'), dir, { recursive: true });
+   copyTree(fixture('valid-minimal-core'), dir);
    const r = await runInProcess(['index', '--root', dir, '--json']);
    assert.equal(r.code, 0, r.out + r.err);
    const payload = JSON.parse(r.out);
@@ -192,7 +193,7 @@ test('run changelog compact without --keep or --before exits 2', async () => {
 
 test('run changelog compact --keep folds the oldest and reports counts', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-run-compact-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    const source = JSON.parse(fs.readFileSync(path.join(exampleDir, 'docs', 'context-changelog.json'), 'utf8'));
    const n = source.entries.length;
    assert.ok(n >= 2, `the example changelog needs at least 2 entries, has ${n}`);
@@ -212,7 +213,7 @@ test('run changelog check on the example layer', async () => {
 
 test('run freshness human output and strict', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-run-fresh-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    const invariants = path.join(dir, 'docs', 'system', 'invariants.md');
    fs.writeFileSync(
       invariants,
@@ -325,7 +326,7 @@ test('conformance marks failing core items', async () => {
 
 test('run viewer generates the viewer and prints the serve hint', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-run-viewer-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    const r = await runInProcess(['viewer', '--root', dir]);
    assert.equal(r.code, 0);
    assert.match(r.out, /serve: leji view/);
@@ -344,7 +345,7 @@ test('run viewer against a missing manifest', async () => {
 // contention. (The CLI-process + SIGINT path is the separate test below.)
 test('viewer serve binds an in-process server that serves the viewer chrome', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-run-serve-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    const { manifest } = loadManifest(dir);
    assert.ok(manifest);
    // Mermaid is not under test here; disabling it skips copying the 3MB+ vendored
@@ -368,7 +369,7 @@ test('viewer serve binds an in-process server that serves the viewer chrome', as
 // so the spawned CLI does the least possible work.
 test('viewer serve runs as a CLI process that stays up and exits on SIGINT', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-run-sigint-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    const manifestPath = path.join(dir, 'leji.json');
    const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
    m.viewer = { ...m.viewer, mermaid: false };
@@ -400,7 +401,7 @@ test('viewer serve runs as a CLI process that stays up and exits on SIGINT', asy
 
 test('bare viewer rejects --open (a serve-only flag)', async () => {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-run-open-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    // --open belongs to `viewer serve`/`view`, not bare `viewer` (which only generates).
    const r = await runInProcess(['viewer', '--open', '--root', dir]);
    assert.equal(r.code, 2, r.out + r.err);
@@ -439,7 +440,7 @@ test('ci: writes the workflow when absent, is idempotent, and exits 1 with no ma
 const GITLAB_BLOCK = `# >>> leji ci (managed) >>>
 leji-validate:
   stage: .pre
-  image: node:22
+  image: node:24
   script:
     - npx -y @leji-org/leji@1 validate
     - npx -y @leji-org/leji@1 index --check
@@ -451,7 +452,7 @@ version: 2.1
 jobs:
   leji-validate:
     docker:
-      - image: node:22
+      - image: node:24
     steps:
       - checkout
       - run: npx -y @leji-org/leji@1 validate
@@ -465,7 +466,7 @@ workflows:
 const CIRCLE_SNIPPET = `jobs:
   leji-validate:
     docker:
-      - image: node:22
+      - image: node:24
     steps:
       - checkout
       - run: npx -y @leji-org/leji@1 validate
@@ -482,9 +483,9 @@ trigger:
 pool:
   vmImage: ubuntu-latest
 steps:
-  - task: NodeTool@0
+  - task: UseNode@1
     inputs:
-      versionSpec: '22.x'
+      version: '24.x'
   - script: npx -y @leji-org/leji@1 validate
     displayName: leji validate
   - script: npx -y @leji-org/leji@1 index --check
