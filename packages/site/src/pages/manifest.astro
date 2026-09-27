@@ -45,9 +45,10 @@ const exampleRaw = fs.readFileSync(path.join(SITE_ROOT, 'src', 'data', 'manifest
       than a load order, so binding one never causes it to be read.
    </p>
    <p>
-      One field is conditional rather than declarative: <code>viewer.theme.link</code> colors body links and inline code only
-      when it reaches 4.5:1 against the viewer's inline-code background, and a value that misses the floor is reported as
-      a warning while the fixed accessible tone stays.
+      Two fields are conditional rather than declarative: <code>viewer.theme.primary</code> applies only when it is a hex
+      color, and any other value, an empty string included, is reported as a warning while Leji green stays;{' '}
+      <code>viewer.theme.link</code> colors body links and inline code only when it reaches 4.5:1 against the viewer's inline-code
+      background, and a value that misses the floor is reported as a warning while the fixed accessible tone stays.
    </p>
    <div class="manifest-example">
       <Code code={exampleRaw.trimEnd()} lang="json" theme={lejiSyntaxTheme} wrap />

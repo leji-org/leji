@@ -13,7 +13,7 @@ import PageHeader from '../../components/PageHeader.astro';
 import TranslationNote from '../../components/TranslationNote.astro';
 import { translationStrings } from '../../data/i18n';
 
-const source = '521aed1784f59b213d781aaa912fdc8ea02a2a86';
+const source = 'bae1375bfe86ca446e0b9006d73f1edc5000d08d';
 const strings = translationStrings('ja');
 ---
 
@@ -126,8 +126,11 @@ const strings = translationStrings('ja');
             <details class="fold">
                <summary><h3>AI ネイティブなチームは、コンテキストレイヤーが古びるのをどう防ぎますか？</h3></summary>
                <p>
-                  コンテキストレイヤーへの変更は、コードと同じレビューのゲートを通ります。鮮度の期限によって古くなったコンテキストが識別され、ツールがそれを黙って現行の情報として扱うことはありません。AI
-                  ネイティブなチームは仕事の一部としてコンテキストレイヤーを更新するため、古さが気づかれないまま蓄積せず、早い段階で表面化します。
+                  コンテキストレイヤーへの変更は、コードと同じレビューのゲートを通ります。鮮度の期限によって古くなったコンテキストが識別されます。レビューの期限を過ぎたコンテキストは{
+                     ' '
+                  }
+                  <code>leji freshness</code> と <code>leji route</code>{' '}
+                  によって示され、現行の情報として提示されることはありません。AI ネイティブなチームは仕事の一部としてコンテキストレイヤーを更新するため、古さが気づかれないまま蓄積せず、早い段階で表面化します。
                </p>
             </details>
 

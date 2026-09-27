@@ -6,9 +6,11 @@ package export
 // of each pairing stays with the generator.
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,11 +23,25 @@ func exampleCopy(t *testing.T) string {
 	wd, _ := os.Getwd()
 	src := filepath.Join(wd, "..", "..", "..", "..", "..", "examples", "monorepo")
 	dst := t.TempDir()
-	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+	if err := os.CopyFS(dst, withoutLeji{os.DirFS(src)}); err != nil {
 		t.Fatalf("copy example: %v", err)
 	}
 	return dst
 }
+
+// withoutLeji hides every entry named .leji. A local `leji view` leaves its
+// gitignored viewer build in the working tree, and a test copy that carried it would
+// change what the export, viewer, and conformance tests see.
+type withoutLeji struct{ fs.FS }
+
+func (f withoutLeji) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(f.FS, name)
+	return slices.DeleteFunc(entries, func(e fs.DirEntry) bool { return e.Name() == ".leji" }), err
+}
+
+// ReadLink and Lstat pass through, so a symlink in the source copies as a symlink.
+func (f withoutLeji) ReadLink(name string) (string, error)   { return fs.ReadLink(f.FS, name) }
+func (f withoutLeji) Lstat(name string) (fs.FileInfo, error) { return fs.Lstat(f.FS, name) }
 
 // writeUnder writes rel (forward-slashed, repo-relative) under dir, creating its
 // parent directories.
@@ -262,7 +278,7 @@ func TestBuildViewerOutNeverResolvesInsideALejiRoleButDist(t *testing.T) {
 		t.Fatalf("expected the export at the dist role: %v", err)
 	}
 	// EXACT: the reservation names the directory the role is, never a path underneath
-	// it — relative or absolute, since a caller may spell either.
+	// it, relative or absolute, since a caller may spell either.
 	for _, target := range []string{".leji/dist/site", filepath.Join(dir, ".leji", "dist", "site")} {
 		if _, err := BuildViewer(dir, m, target, Options{}); err == nil ||
 			!strings.Contains(err.Error(), "is the reserved export target itself, never a path inside it") {
@@ -366,7 +382,7 @@ func TestBuildViewerExportFlavorCarriesNoRootAbsoluteURL(t *testing.T) {
 		t.Fatal("no export-flavored page may keep the app-root base")
 	}
 	// The machine-checkable proxy gate for subpath hosting: nothing in the exported
-	// shell — attributes or config — addresses the server root. (Sidebar link
+	// shell (attributes or config) addresses the server root. (Sidebar link
 	// destinations are route strings resolved against basePath, not fetch paths, and
 	// live in _sidebar.md, not here.)
 	body := string(exported)
@@ -406,9 +422,9 @@ var (
 func TestClearableExportPropagatesAnOperationalReadFailure(t *testing.T) {
 	// The marker that authorizes clearing a previous export is read through the
 	// verified read. A refusal is "not a previous export"; an operational failure on
-	// an allowed path is the filesystem failing, and the reference lets it throw — so
+	// an allowed path is the filesystem failing, and the reference lets it throw, so
 	// it travels out as an error rather than deciding the delete either way. Mutation
-	// that reddens: swallow the error in clearableExport — the run reports the
+	// that reddens: swallow the error in clearableExport: the run reports the
 	// occupied-target refusal instead of the read failure.
 	if os.Geteuid() == 0 {
 		t.Skip("running as root bypasses permission bits; the read cannot be made to fail")

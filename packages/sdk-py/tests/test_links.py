@@ -88,7 +88,7 @@ def test_invalid_link_escapes_root_dotdot_and_a_symlink_are_both_unresolved() ->
     root_abs = str(root)
     layer_root_abs = os.path.join(root_abs, "docs")
 
-    # The symlink resolves to a file that exists — outside the layer — so existence
+    # The symlink resolves to a file that exists (outside the layer), so existence
     # alone would pass it. Containment is what refuses it.
     symlink = root / "docs/domain/outside-link.md"
     assert symlink.is_symlink(), "the fixture plants a symlink"

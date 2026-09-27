@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { generateViewer, loadManifest } from '../dist/index.js';
 import { lightTokens, sheetTokens } from './css-tokens.ts';
+import { copyTree } from './helpers/copytree.ts';
 
 // The viewer's text tones, judged by the contrast formula rather than by eye.
 //
@@ -91,7 +92,7 @@ test('the typography tones carry their sizes on the content ground', () => {
 // --- viewer.theme.link, the one tone a layer may move ---------------------------
 //
 // The guard measures against the code ground only, because that ground is the
-// narrower one: the assertions below are the two halves of that claim — a color
+// narrower one: the assertions below are the two halves of that claim: a color
 // the single check refuses that a white-only check would have admitted, and the
 // color the fixture ships, which clears both.
 
@@ -123,7 +124,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 /** A throwaway copy of a fixture layer, so generateViewer writes somewhere disposable. */
 function copyFixture(name: string): string {
    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'leji-link-')));
-   fs.cpSync(path.join(repoRoot, 'fixtures', name), dir, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', name), dir);
    return dir;
 }
 
@@ -147,7 +148,7 @@ test('a viewer.theme.link that names no color is refused by name, not by ratio',
 });
 
 test('an empty or blank viewer.theme.link is a bad value, not an absent one', () => {
-   // The schema accepts `link: ""`, so it is a present value the guard must judge —
+   // The schema accepts `link: ""`, so it is a present value the guard must judge:
    // reading it as "unset" would let the one input most likely to arrive from a
    // half-filled manifest pass without the warning the design promises.
    for (const blank of ['', '   ', '\t', '\n']) {

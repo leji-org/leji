@@ -58,8 +58,8 @@ type Summary struct {
 
 // Sort orders findings by (path, line, rule, construct), message last as the final
 // tie-break; stable to mirror JS sort. The line and construct keys carry the
-// rendering lint's ordering — two constructs reported on one line stay in the same
-// order in all three SDKs — and change nothing for a rule that locates neither.
+// rendering lint's ordering (two constructs reported on one line stay in the same
+// order in all three SDKs) and change nothing for a rule that locates neither.
 func Sort(in []Finding) []Finding {
 	out := make([]Finding, len(in))
 	copy(out, in)

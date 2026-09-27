@@ -49,8 +49,8 @@ func wrap(text string, width, indentFirst, indentRest int) []string {
 
 // helpRow renders one row of a two-column help block: a label on the left, its prose
 // on the right, the prose hanging under itself at col. A label that would leave no gap
-// before its summary — one at least as wide as the column, which the option column's
-// clamp makes reachable — takes the line alone and its summary starts on the next line
+// before its summary (one at least as wide as the column, which the option column's
+// clamp makes reachable) takes the line alone and its summary starts on the next line
 // at the same column, so a long flag never concatenates into the text describing it.
 // Mirrors helpRow() in lib/text.ts.
 func helpRow(label string, col int, text string) []string {

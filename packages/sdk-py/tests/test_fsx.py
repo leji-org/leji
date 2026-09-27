@@ -383,7 +383,7 @@ def test_verified_target_read_a_symlink_through_a_regular_file(
     # packages/sdk/dist over this exact tree, and end to end (`leji ci --provider
     # gitlab` with a `.gitlab-ci.yml` shaped this way exits 2 in both SDKs with the
     # same byte). Mutation that reddens: propagate NotADirectoryError from the
-    # symlink-follow stat — this port then raises where the reference refuses.
+    # symlink-follow stat: this port then raises where the reference refuses.
     root = _repo(tmp_path_factory)
     (root / "somefile").write_text("x\n", encoding="utf-8")
     (root / "link").symlink_to(root / "somefile" / "child")

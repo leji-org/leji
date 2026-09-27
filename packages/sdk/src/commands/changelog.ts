@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import { type Finding, finding } from '../lib/findings.js';
 import { guardRoot, verifiedTargetRead, writeFileGuarded } from '../lib/fsx.js';
 import { type Manifest, claimedLevel, effectiveChangelogPath, levelAtLeast } from '../lib/manifest.js';
+import { byteCompare } from '../lib/text.js';
 
 interface ChangelogEntry {
    id?: string;
@@ -42,12 +43,9 @@ export interface CompactResult {
  * unique so the pair is a total order.
  */
 function compareByDateId(a: ChangelogEntry, b: ChangelogEntry): number {
-   const ad = String(a.date ?? '');
-   const bd = String(b.date ?? '');
-   if (ad !== bd) return ad < bd ? -1 : 1;
-   const ai = String(a.id ?? '');
-   const bi = String(b.id ?? '');
-   return ai < bi ? -1 : ai > bi ? 1 : 0;
+   return (
+      byteCompare(String(a.date ?? ''), String(b.date ?? '')) || byteCompare(String(a.id ?? ''), String(b.id ?? ''))
+   );
 }
 
 /** Schema field order for a serialized changelog entry, mirrored by the Python SDK. */
@@ -71,7 +69,7 @@ function orderedEntry(entry: ChangelogEntry): Record<string, unknown> {
       if (entry[key] !== undefined) out[key] = entry[key];
    }
    // Preserve any extra keys (deterministic order) rather than dropping data.
-   for (const key of Object.keys(entry).sort()) {
+   for (const key of Object.keys(entry).sort(byteCompare)) {
       if (!(key in out) && entry[key] !== undefined) out[key] = entry[key];
    }
    return out;
@@ -82,7 +80,7 @@ export function serializeChangelog(log: Changelog): string {
    const out: Record<string, unknown> = {};
    if (log.$schema !== undefined) out.$schema = log.$schema;
    out.schemaVersion = log.schemaVersion ?? '1.0';
-   for (const key of Object.keys(log).sort()) {
+   for (const key of Object.keys(log).sort(byteCompare)) {
       if (key === '$schema' || key === 'schemaVersion' || key === 'entries') continue;
       out[key] = log[key];
    }
@@ -217,7 +215,7 @@ export function compactChangelog(root: string, manifest: Manifest, opts: Compact
 
    const oldest = folded[0];
    const newest = folded[folded.length - 1];
-   const pathsUnion = [...new Set(folded.flatMap((e) => (Array.isArray(e.paths) ? e.paths : [])))].sort();
+   const pathsUnion = [...new Set(folded.flatMap((e) => (Array.isArray(e.paths) ? e.paths : [])))].sort(byteCompare);
 
    // De-dupe the compaction id against existing ids (-2, -3, …).
    const existingIds = new Set(original.map((e) => e.id));

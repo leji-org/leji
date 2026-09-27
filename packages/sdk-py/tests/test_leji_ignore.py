@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from helpers.copytree import copy_tree
 from leji import (
     LEJI_IGNORE_CONTENT,
     LEJI_IGNORE_NOTICE,
@@ -82,7 +83,7 @@ def _git_fixture(directory: Path, name: str, seeds: list[dict]) -> Path:
     """A pristine working copy of the fixture with every declared seed materialized,
     committed to its own git repository: ``git status --porcelain`` is one half of what
     these scenarios assert, and it answers nothing useful over an uncommitted tree."""
-    shutil.copytree(FIXTURES / name, directory, dirs_exist_ok=True)
+    copy_tree(FIXTURES / name, directory, dirs_exist_ok=True)
     for seed in seeds:
         to = _fixture_rel(seed["to"], "seed.to")
         to_abs = _fixture_abs(directory, to)
@@ -194,7 +195,7 @@ def test_leji_ignore_fixture_scenario(
 
 def _fresh_copy(directory: Path) -> Path:
     """The smallest layer these unit tests drive, copied out of the fixture family."""
-    shutil.copytree(FIXTURES / "valid-leji-ignore-fresh", directory, dirs_exist_ok=True)
+    copy_tree(FIXTURES / "valid-leji-ignore-fresh", directory, dirs_exist_ok=True)
     (directory / "expected.json").unlink(missing_ok=True)
     return directory
 

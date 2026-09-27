@@ -6,8 +6,11 @@ Usage: leji ci [--provider <github|gitlab|circleci|azure>] [--hooks] [--root
 
 Adds a CI job that runs `leji validate` and `leji index --check` on every
 change, so your context layer stays honest in CI (the same two gates the
-`--hooks` pre-commit runs locally). Idempotent: a Leji workflow already in place
-is left untouched.
+`--hooks` pre-commit runs locally). A whole workflow file (GitHub, CircleCI,
+Azure) is left as it is when its bytes are current, replaced when it is an older
+file Leji generated, and left untouched with a snippet to add by hand when it
+was edited or is not Leji's; GitLab's managed block is merged inside its
+markers.
 
 Details:
    - The provider is inferred from the `origin` remote (a github.com host

@@ -63,7 +63,7 @@ func seedLayer(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	src := filepath.Join(repoRoot(t), "examples", "monorepo")
-	if err := os.CopyFS(dir, os.DirFS(src)); err != nil {
+	if err := os.CopyFS(dir, withoutLeji{os.DirFS(src)}); err != nil {
 		t.Fatalf("copy example layer: %v", err)
 	}
 	return dir

@@ -3,7 +3,7 @@
 // consumers live in their own packages, so what each one drags in is visible in the
 // import graph rather than buried in one file: `commands/serve` keeps the local
 // preview server and every network import with it, and `commands/export` writes the
-// static site — its transitive import set carries no network package at all, which
+// static site. Its transitive import set carries no network package at all, which
 // is the structural half of the export's no-network guarantee and is asserted as
 // such.
 package viewer
@@ -97,7 +97,7 @@ const defaultThemeColor = "#009F71"
 // an export, whose references then resolve against the page itself so the tree
 // hosts correctly under a subpath. It is a generation parameter, never a post-hoc
 // rewrite of emitted HTML: one code path, two invocations. index.html is the only
-// artifact that exists in two flavors — everything else under the chrome is
+// artifact that exists in two flavors. Everything else under the chrome is
 // flavor-neutral.
 const (
 	servedBase = "/"
@@ -117,18 +117,22 @@ var mermaidAssets = map[string]bool{
 // length CSS actually defines (#RGB, #RGBA, #RRGGBB, #RRGGBBAA). The accent reaches
 // a stylesheet as a custom-property value, so anything with punctuation in it is a
 // CSS-injection sink, not a color; hex-only also keeps one canonical form across the
-// three SDKs and the schema. `$` here is end of text — Go's default, no multiline
-// flag — so a trailing newline does not slip a hex through.
+// three SDKs and the schema. `$` here is end of text (Go's default, no multiline
+// flag), so a trailing newline does not slip a hex through.
 var safeCSSColor = regexp.MustCompile(`^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$`)
 
 // resolveThemeColor returns the viewer accent: viewer.theme.primary when it is a
 // hex color, else the Leji default with a warning. Never the authored value
 // unchecked. Mirrors the Node SDK's resolveThemeColor, warning included.
+//
+// Only a MISSING key is absent. `primary: ""` and `primary: "   "` are strings the
+// schema accepts, so they are present-but-not-a-color and warn like any other
+// unusable value, as `link` does.
 func resolveThemeColor(m *manifest.Manifest, fnds *[]findings.Finding) string {
-	if m.Viewer == nil || m.Viewer.Theme == nil || m.Viewer.Theme.Primary == "" {
+	if m.Viewer == nil || m.Viewer.Theme == nil || m.Viewer.Theme.Primary == nil {
 		return defaultThemeColor
 	}
-	configured := m.Viewer.Theme.Primary
+	configured := *m.Viewer.Theme.Primary
 	if safeCSSColor.MatchString(configured) {
 		return configured
 	}
@@ -139,8 +143,8 @@ func resolveThemeColor(m *manifest.Manifest, fnds *[]findings.Finding) string {
 
 // linkGround is the ground the link tone is measured against: the inline-code
 // background (`--leji-code-bg` in assets/vue.css). Body links land on white and
-// inline code on this, and this is the narrower of the two — the fixed tone is
-// 5.15:1 on white but 4.56:1 here — so a color clearing AA here clears white too,
+// inline code on this, and this is the narrower of the two: the fixed tone is
+// 5.15:1 on white but 4.56:1 here, so a color clearing AA here clears white too,
 // and one check covers both. Mirrors the Node SDK's LINK_GROUND.
 const linkGround = "#E8F4EE"
 
@@ -148,13 +152,13 @@ const linkGround = "#E8F4EE"
 const linkContrastFloor = 4.5
 
 // resolveThemeLink returns the viewer's body-link tone: viewer.theme.link when it is
-// a hex color that stays readable on the ground above, else the empty string — the
+// a hex color that stays readable on the ground above, else the empty string: the
 // stylesheet's fixed accessible tone stands and nothing is emitted, so the layer
 // renders exactly as it did without the field. Either refusal warns, naming the value
 // the author wrote. Mirrors the Node SDK's resolveThemeLink, rule name and messages
 // included.
 //
-// Only a MISSING key is absent — hence the pointer on manifest.Theme.Link. The schema
+// Only a MISSING key is absent, hence the pointer on manifest.Theme.Link. The schema
 // accepts `link: ""` and `link: "   "` as strings, so they are present-but-not-a-color:
 // they take the predicate like any other unusable value and warn, rather than passing
 // silently as an unset field.
@@ -212,11 +216,11 @@ var hexDigits = regexp.MustCompile(`^[0-9a-f]+$`)
 type srgb struct{ r, g, b int }
 
 // parseAccentColor resolves the accent to opaque sRGB channels, reporting false for
-// a value that names no color the generator can resolve — a keyword, `currentColor`,
+// a value that names no color the generator can resolve: a keyword, `currentColor`,
 // a malformed hex. Accepts 3/4/6/8-digit hex, the only form the accent can take; an
 // accent carrying alpha is composited over white, the viewer's content background,
 // which is the only backdrop knowable at generation time (the accent itself keeps
-// its authored alpha everywhere it is used — this composite decides text color,
+// its authored alpha everywhere it is used: this composite decides text color,
 // nothing that renders).
 func parseAccentColor(value string) (srgb, bool) {
 	raw := strings.ToLower(strings.TrimSpace(value))
@@ -273,7 +277,7 @@ func contrastRatio(a, b float64) float64 {
 // rather than in the browser: the viewer's boot script sees only what the config
 // block carries, while this side can resolve every color form viewer.theme.primary
 // accepts. Whichever of #1a1a1a and #ffffff contrasts more with the accent, or
-// #000000 when neither clears WCAG AA (4.5:1) — a mid-gray accent, where the extra
+// #000000 when neither clears WCAG AA (4.5:1): a mid-gray accent, where the extra
 // half-stop of black is the best text color available. An accent this cannot
 // resolve keeps the dark default, which is also the boot script's fallback.
 // Mirrors the Node SDK's mermaidTextColor.
@@ -748,7 +752,7 @@ func BuildSidebarGroups(root string, m *manifest.Manifest, entries []indexgen.In
 			// One index file's contribution, ordered on its own: the declared
 			// position first, then the path in byte order (Go string comparison),
 			// which is the tiebreak among the documents one directory entry expanded
-			// to (they share its single position). The position is spent here — what
+			// to (they share its single position). The position is spent here: what
 			// carries onward is the member sequence itself.
 			type claimedEntry struct {
 				entry SidebarEntry
@@ -768,7 +772,7 @@ func BuildSidebarGroups(root string, m *manifest.Manifest, entries []indexgen.In
 					continue
 				}
 				claimed = append(claimed, claimedEntry{
-					entry: SidebarEntry{Rel: rel, Title: sidebarLabel(root, relPath, rel)},
+					entry: SidebarEntry{Rel: rel, Title: sidebarLabel(root, relPath, rel, category == "decisions")},
 					order: a.Order,
 				})
 			}
@@ -803,7 +807,7 @@ func BuildSidebarGroups(root string, m *manifest.Manifest, entries []indexgen.In
 		}
 		// A declared profiles directory can name a private role; its files are not
 		// servable, so neither is the label lifted out of one. The route would 404
-		// anyway — this keeps the bytes out of the sidebar that links it.
+		// anyway. This keeps the bytes out of the sidebar that links it.
 		if !servableSource(root, p.RelPath) {
 			continue
 		}
@@ -814,7 +818,7 @@ func BuildSidebarGroups(root string, m *manifest.Manifest, entries []indexgen.In
 			}
 		}
 		if title == "" {
-			title = sidebarLabel(root, p.RelPath, rel)
+			title = sidebarLabel(root, p.RelPath, rel, false)
 		}
 		agentMembers = append(agentMembers, SidebarEntry{Rel: rel, Title: title})
 	}
@@ -933,11 +937,20 @@ func filenameLabel(rootRel string) string {
 // hand-built sidebars use short curated labels, and filenames are the curated
 // short name a repository already has. The H1 stays the document's title
 // everywhere else (page, index).
-func sidebarLabel(root, relPath, rootRel string) string {
+//
+// A decision record's title is prefixed with its number (`0001. Title`), so a
+// reader holding the number finds the record in the sidebar. The filename label
+// already carries the number, so it takes no prefix.
+func sidebarLabel(root, relPath, rootRel string, decision bool) string {
 	text, _ := fsx.ReadText(filepath.Join(root, relPath))
 	fm := frontmatter.Parse(text)
 	if fm.Data != nil {
 		if t, ok := fm.Data["title"].(string); ok && strings.TrimSpace(t) != "" {
+			if decision {
+				if number := decisionNumber(relPath); number != "" {
+					return number + ". " + strings.TrimSpace(t)
+				}
+			}
 			return strings.TrimSpace(t)
 		}
 	}
@@ -1013,7 +1026,7 @@ func referenceTree(root string, m *manifest.Manifest, governedPaths map[string]b
 		if !ok {
 			continue
 		}
-		nodes = append(nodes, TreeNode{Rel: r, Title: sidebarLabel(root, rel, r)})
+		nodes = append(nodes, TreeNode{Rel: r, Title: sidebarLabel(root, rel, r, false)})
 	}
 	return nodes
 }
@@ -1212,7 +1225,7 @@ func jsIsSpace(r rune) bool {
 func jsTrim(s string) string { return strings.TrimFunc(s, jsIsSpace) }
 
 // manifestNormalize collapses control chars and whitespace to single spaces, then
-// trims — the shared prefix of esc, codeSpan, and mermaidLabel.
+// trims (the shared prefix of esc, codeSpan, and mermaidLabel).
 func manifestNormalize(s string) string {
 	s = manifestCtrlRe.ReplaceAllString(s, " ")
 	s = manifestWsRe.ReplaceAllString(s, " ")
@@ -1296,8 +1309,8 @@ func mermaidLabel(s string) string {
 // leji.json plus the local federation diagnostics (hydration + pin drift). Written as
 // generated chrome to the gitignored .leji/viewer/, regenerated every run, never
 // committed. Declaration-driven (the manifest is truth; mount status is joined by
-// name). Deterministic by construction — declared values plus git-derived (never
-// wall-clock, never networked) state — so the three SDKs emit identical bytes.
+// name). Deterministic by construction: declared values plus git-derived (never
+// wall-clock, never networked) state, so the three SDKs emit identical bytes.
 func buildManifestPage(m *manifest.Manifest, statuses []mounts.StatusResult) string {
 	title := manifest.EffectiveViewerTitle(m)
 	lines := []string{
@@ -1505,7 +1518,7 @@ func buildManifestPage(m *manifest.Manifest, statuses []mounts.StatusResult) str
 // decisionNumberDisplayRe matches the leading digit run of a `NNNN-slug.md` file
 // name. The displayed decision number is that run exactly as written, so a layer's
 // conventional `0006` renders `0006` and a deliberate gap in the series stays
-// visible. Presentation only — validate's DecisionNumberKey strips leading zeros so
+// visible. Presentation only: validate's DecisionNumberKey strips leading zeros so
 // `0017` and `17` collide as one identity, which is the wrong answer for a column
 // people read. A file name that does not carry the convention has no number and
 // renders blank. Same shape as the TS reference's regex.
@@ -1530,7 +1543,7 @@ var inertBracketRe = regexp.MustCompile(`[\[\]]`)
 // As link text, an unescaped `]` closes the link early and the rest of the title
 // lands as page markdown. As a plain cell, an unescaped `[…](…)` IS a link, which
 // would make a status value, a date, an unresolvable id, or an unservable record's
-// title render as one — breaking the plain-text status contract and the rule that a
+// title render as one, breaking the plain-text status contract and the rule that a
 // record outside the context root is named and never linked. esc alone leaves
 // brackets intact, so every interpolation of authored text on that page comes
 // through here.
@@ -1569,13 +1582,13 @@ func supersessionCell(value any, routeByID map[string]string) string {
 }
 
 // buildDecisionsPage renders the generated "Decisions" page: every decision record
-// the layer carries, as one table built from the records' own frontmatter — the set
+// the layer carries, as one table built from the records' own frontmatter: the set
 // `leji validate` scans, so the page cannot drift from what the layer governs, and
 // no layer hand-maintains a summary table that silently lags its records.
 //
 // Deterministic by construction, like the Manifest page: declared values only, byte
 // order by file name, one escaping contract, so the three SDKs emit identical bytes.
-// Status is the frontmatter value as plain text — the schema's enum is validation's
+// Status is the frontmatter value as plain text: the schema's enum is validation's
 // business, and a page that styled it would have to decide what an unknown value
 // means. A record whose frontmatter does not parse shows its file name and blank
 // cells; `leji validate` is where that defect is reported, not here.
@@ -1826,7 +1839,7 @@ func servableSource(root, repoRel string) bool {
 
 // servableProfileText is a profile source read the way check-before-act requires: the requested
 // path is judged, its RESOLVED path is judged, and the bytes come from the descriptor
-// opened on that resolved path and proved a regular file — so nothing swapped between
+// opened on that resolved path and proved a regular file, so nothing swapped between
 // the check and the read (a file, or any directory above it, becoming a symlink)
 // changes what is composed into a served or exported page. ok is false for anything
 // refused.
@@ -1851,7 +1864,7 @@ func servableProfileText(rootAbs, repoRel string) (string, bool) {
 }
 
 // servableProfileSet is the profile set as the viewer may render it: every source
-// read through servableProfileText, so no profile living in — or symlinked into — a
+// read through servableProfileText, so no profile living in (or symlinked into) a
 // private `.leji/` role is composed into a served page or an exported one, and the
 // bytes composed are the bytes that passed the check. Dropped silently, exactly as
 // the content walk drops unservable content; the scan itself stays total, so
@@ -1896,7 +1909,7 @@ func ResolvedProfilePage(root string, m *manifest.Manifest, repoRel string) (str
 	// The whitelist, judged before this file is read into a page: a profile that
 	// resolves into a private `.leji/` role is not the viewer's to render. Falling
 	// through hands the request back to the content walk, which refuses it the same
-	// way it refuses any unservable file — this branch never becomes the way in.
+	// way it refuses any unservable file. This branch never becomes the way in.
 	if !servableSource(root, repoRel) {
 		return "", false
 	}
@@ -2113,7 +2126,7 @@ func AssembleSidebar(root string, m *manifest.Manifest, entries []indexgen.Index
 			pinnedRootRel[rel] = true
 			title := pin.Label
 			if title == "" {
-				title = sidebarLabel(root, repoRel, rel)
+				title = sidebarLabel(root, repoRel, rel, false)
 			}
 			pins = append(pins, SidebarEntry{Rel: rel, Title: title})
 		}
@@ -2369,7 +2382,7 @@ func GenerateViewer(root string, m *manifest.Manifest, ignoreContext ...*lejiign
 	findingList := append([]findings.Finding{}, result.Findings...)
 	findingList = append(findingList, findingsEarly...)
 
-	// Check-before-act: the generation target — the `.leji/viewer/` role — is
+	// Check-before-act: the generation target (the `.leji/viewer/` role) is
 	// realpath-resolved and validated BEFORE a single byte is written. A `.leji/viewer`
 	// that resolves into a DIFFERENT private role (`.leji/work/`, `.leji/mounts/`, a
 	// future role), or out of the repository altogether, is refused here, so a symlinked
@@ -2447,7 +2460,7 @@ func GenerateViewer(root string, m *manifest.Manifest, ignoreContext ...*lejiign
 	// document counts leaves this file exactly as its author last saved it. If the
 	// markers are gone there is nowhere to render the map, which is a warning.
 	//
-	// Check-before-act: overview.md is content — its target must resolve WITHIN
+	// Check-before-act: overview.md is content: its target must resolve WITHIN
 	// the layer root AND never into a private `.leji/` role. It is judged on the
 	// RESOLVED path (no `.leji/` role of its own) BEFORE anything is read or written,
 	// so an overview.md symlinked into `.leji/work/` or `.leji/mounts/` is refused

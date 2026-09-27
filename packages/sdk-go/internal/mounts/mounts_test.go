@@ -54,10 +54,24 @@ func copyDir(t *testing.T, src, dst string) {
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", dst, err)
 	}
-	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+	if err := os.CopyFS(dst, withoutLeji{os.DirFS(src)}); err != nil {
 		t.Fatalf("copy %s -> %s: %v", src, dst, err)
 	}
 }
+
+// withoutLeji hides every entry named .leji. A local `leji view` leaves its
+// gitignored viewer build in the working tree, and a test copy that carried it would
+// change what the export, viewer, and conformance tests see.
+type withoutLeji struct{ fs.FS }
+
+func (f withoutLeji) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(f.FS, name)
+	return slices.DeleteFunc(entries, func(e fs.DirEntry) bool { return e.Name() == ".leji" }), err
+}
+
+// ReadLink and Lstat pass through, so a symlink in the source copies as a symlink.
+func (f withoutLeji) ReadLink(name string) (string, error)   { return fs.ReadLink(f.FS, name) }
+func (f withoutLeji) Lstat(name string) (fs.FileInfo, error) { return fs.Lstat(f.FS, name) }
 
 // setPin swaps the mount pin in the host manifest by raw-text replacement
 // (never a parse -> mutate -> serialize round-trip, which would reorder keys).
@@ -1184,7 +1198,7 @@ func writeDenied(dir string) bool {
 // treeSnapshot records paths, types, modes, symlink targets, content and
 // directory mtimes: the whole of what "the tree is byte-for-byte what it was"
 // has to mean here. Content alone would miss a staging directory created and
-// removed between the two reads — its parent's mtime is the only trace that
+// removed between the two reads: its parent's mtime is the only trace that
 // survives.
 func treeSnapshot(t *testing.T, dir, prefix string) []string {
 	t.Helper()
@@ -1264,7 +1278,7 @@ func newVerifyResidue(t *testing.T, before map[string]bool) []string {
 func TestMountsCheckIntegrityVerifiesAWriteDeniedHostTreeTwiceWithoutTouchingIt(t *testing.T) {
 	// `mounts status --check-integrity` staged its comparison tree inside the
 	// host's own .leji/mounts/, so the read-only diagnostic wrote into the tree it
-	// was diagnosing — and could not run at all where that tree is not writable.
+	// was diagnosing, and could not run at all where that tree is not writable.
 	host, _, _ := mountedPair(t)
 	m := loadHost(t, host)
 	if _, err := mounts.HydrateMounts(host, m, mounts.HydrateOptions{}); err != nil {
@@ -1334,7 +1348,7 @@ func TestMountsTwoVerificationsAtOnceInOneProcessDoNotCollide(t *testing.T) {
 	// Both halves earn their place. Without the rendezvous the goroutines drift into
 	// taking turns and never overlap; with the rendezvous alone they run identical
 	// work in lockstep, and two of them staging the same content into one shared
-	// directory at the same instant still agree — the interleaving that a shared
+	// directory at the same instant still agree: the interleaving that a shared
 	// staging directory cannot survive is one goroutine starting while the other is
 	// mid-verification. One process, so a staging name derived from the pid is one
 	// name for both of them.
@@ -1469,8 +1483,8 @@ func TestMountsAReachableStoreWithoutThePinIsUnverifiableAndNamesThePrerequisite
 		t.Fatalf("hydrate: %v", err)
 	}
 	// A real repository, reachable, that simply does not contain this pin. The
-	// published projection stays published — its cache key comes from the
-	// declaration, not from whichever store happens to be reachable — so the only
+	// published projection stays published (its cache key comes from the
+	// declaration, not from whichever store happens to be reachable), so the only
 	// missing prerequisite is the commit the comparison would be made against.
 	other := filepath.Join(filepath.Dir(host), "other")
 	if err := os.MkdirAll(other, 0o755); err != nil {
@@ -1522,11 +1536,11 @@ func TestMountsAReachableStoreWithoutThePinIsUnverifiableAndNamesThePrerequisite
 
 func TestMountsHydrateRefusesAStoreDestinationPlantedOutOfTheRepository(t *testing.T) {
 	// `.leji/mounts` was a lexical join, so a planted symlink redirected every
-	// per-entry write of the federation protocol — into another private role, or clean
+	// per-entry write of the federation protocol: into another private role, or clean
 	// out of the repository. The store, cache entry and staging destinations are
 	// established through the write chokepoint now, and every inner act works from the
 	// RESOLVED root it returned. Mutation that reddens: mkdir the destination directly
-	// again — the projection materializes through the link.
+	// again: the projection materializes through the link.
 	for _, c := range []struct {
 		name   string
 		plant  func(t *testing.T, host string) string

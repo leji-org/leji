@@ -142,7 +142,7 @@ func strArray(v any) []string {
 // on. It is read through the verified read, not by pathname: generation carries ids
 // out of these bytes into the index it writes back to this same path, so the file
 // that was judged must be the file that is read. Absent, unparsable, or a standing
-// entry that cannot be verified all mean "no stored index" — nothing is carried, and
+// entry that cannot be verified all mean "no stored index": nothing is carried, and
 // the write chokepoint judges the destination again on its own.
 func LoadStoredIndex(root string, m *manifest.Manifest) (map[string]any, error) {
 	rel := manifest.EffectiveIndexPath(m)

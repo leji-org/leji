@@ -87,7 +87,7 @@ def _skip_spaces(text: str, i: int) -> int:
 
 def _destination_at(text: str, i: int) -> Optional[_Span]:
     """A destination at ``i``, as written, and the offset just past it; None when
-    none can be read there — an empty run, an unterminated angle form, a newline
+    none can be read there: an empty run, an unterminated angle form, a newline
     inside either, or parentheses nested past the one level a destination may
     carry."""
     if i < len(text) and text[i] == "<":
@@ -188,7 +188,7 @@ def _inline_link_at(text: str, i: int) -> Optional[_Span]:
 def _reference_definition_at(text: str, i: int) -> Optional[_Span]:
     """A reference definition opening at ``i``, which is known to be a line start:
     its destination and the offset just past the line, or None. The remainder of the
-    line must be empty or one title — ``[^1]: a footnote's prose`` is neither, and is
+    line must be empty or one title: ``[^1]: a footnote's prose`` is neither, and is
     prose."""
     newline = text.find("\n", i)
     line = text[i:] if newline == -1 else text[i:newline]
@@ -265,7 +265,7 @@ def resolve_link_target(
     an empty destination. A leading ``/`` resolves against the layer's ``rootPath``,
     which is how the viewer resolves one; everything else resolves against the
     linking document's own directory. Escapes come off first, then ``#fragment`` and
-    ``?query``, then percent-encoding — an undecodable target stays as written rather
+    ``?query``, then percent-encoding. An undecodable target stays as written rather
     than being dropped, so a mistyped escape is reported rather than silently
     passed."""
     if target == "" or target.startswith("#") or _SCHEME.match(target) is not None:
@@ -302,7 +302,7 @@ def _target_resolves(root_abs: str, abs_path: Path) -> bool:
 def link_findings(root_abs: str, layer_root_abs: str, rel_path: str, text: str) -> list[Finding]:
     """The scan as findings for one governed document. Containment is checked before
     existence and with the same realpath-aware primitive the write guards use, so a
-    target reaching outside the layer — by ``..``, or through a symlink inside it —
+    target reaching outside the layer (by ``..``, or through a symlink inside it)
     is unresolved whether or not something happens to sit there."""
     findings: list[Finding] = []
     for target, line in scan_links(text):

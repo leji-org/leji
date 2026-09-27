@@ -8,6 +8,7 @@
   "scripts": {
     "browsers": "playwright install --with-deps chromium",
     "e2e": "node run.mjs",
+    "test": "node --test test/*.test.mjs",
     "report": "playwright show-report report"
   },
   "devDependencies": {

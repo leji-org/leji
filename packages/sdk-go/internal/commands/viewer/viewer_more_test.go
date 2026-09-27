@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -23,11 +25,25 @@ func exampleCopy(t *testing.T) string {
 	wd, _ := os.Getwd()
 	src := filepath.Join(wd, "..", "..", "..", "..", "..", "examples", "monorepo")
 	dst := t.TempDir()
-	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+	if err := os.CopyFS(dst, withoutLeji{os.DirFS(src)}); err != nil {
 		t.Fatalf("copy example: %v", err)
 	}
 	return dst
 }
+
+// withoutLeji hides every entry named .leji. A local `leji view` leaves its
+// gitignored viewer build in the working tree, and a test copy that carried it would
+// change what the export, viewer, and conformance tests see.
+type withoutLeji struct{ fs.FS }
+
+func (f withoutLeji) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(f.FS, name)
+	return slices.DeleteFunc(entries, func(e fs.DirEntry) bool { return e.Name() == ".leji" }), err
+}
+
+// ReadLink and Lstat pass through, so a symlink in the source copies as a symlink.
+func (f withoutLeji) ReadLink(name string) (string, error)   { return fs.ReadLink(f.FS, name) }
+func (f withoutLeji) Lstat(name string) (fs.FileInfo, error) { return fs.Lstat(f.FS, name) }
 
 // writeUnder writes rel (forward-slashed, repo-relative) under dir, creating its
 // parent directories.
@@ -457,7 +473,7 @@ func TestGenerateViewerRejectsUnsafeThemeColor(t *testing.T) {
 		m.Viewer = &manifest.Viewer{}
 	}
 	injection := "red; } body { display: none } /*"
-	m.Viewer.Theme = &manifest.Theme{Primary: injection}
+	m.Viewer.Theme = &manifest.Theme{Primary: &injection}
 	res, err := GenerateViewer(dir, m)
 	if err != nil {
 		t.Fatalf("GenerateViewer: %v", err)
@@ -476,7 +492,8 @@ func TestGenerateViewerRejectsUnsafeThemeColor(t *testing.T) {
 	if warnings[0].Message != themeWarning(injection) {
 		t.Errorf("message = %q, want %q", warnings[0].Message, themeWarning(injection))
 	}
-	m.Viewer.Theme = &manifest.Theme{Primary: "#ff0000"}
+	plain := "#ff0000"
+	m.Viewer.Theme = &manifest.Theme{Primary: &plain}
 	if _, err := GenerateViewer(dir, m); err != nil {
 		t.Fatalf("GenerateViewer: %v", err)
 	}
@@ -492,7 +509,7 @@ func TestGenerateViewerRejectsUnsafeThemeColor(t *testing.T) {
 // The accent is hex and nothing else: 5 and 7 digits are no CSS color at all, and
 // used to reach the page as an unusable accent with no warning while the mermaid
 // text color silently defaulted. Keywords are not the contract either, however real
-// the name — that acceptance fell out of the injection guard, never design.
+// the name: that acceptance fell out of the injection guard, never design.
 func TestGenerateViewerAccentIsHexOnly(t *testing.T) {
 	dir := exampleCopy(t)
 	m := manifest.LoadManifest(dir).Manifest
@@ -517,8 +534,13 @@ func TestGenerateViewerAccentIsHexOnly(t *testing.T) {
 		// Go's `$` is end of text without multiline mode, which is what makes it
 		// true here.
 		{"#009F71\n", false},
+		// Only a missing key is absent: an empty or blank string is present and not
+		// a color, so it warns like any other, as viewer.theme.link does.
+		{"", false},
+		{"   ", false},
 	} {
-		m.Viewer.Theme = &manifest.Theme{Primary: tc.accent}
+		accent := tc.accent
+		m.Viewer.Theme = &manifest.Theme{Primary: &accent}
 		res, err := GenerateViewer(dir, m)
 		if err != nil {
 			t.Fatalf("GenerateViewer(%q): %v", tc.accent, err)
@@ -571,7 +593,7 @@ func wcagContrast(a, b string) float64 {
 
 // The mermaid node-text color is computed from the accent over every form
 // viewer.theme.primary accepts: the generator resolves what the boot script's
-// fallback cannot — the alpha forms, composited over the viewer's white content
+// fallback cannot: the alpha forms, composited over the viewer's white content
 // ground. Mirrors the Node SDK's vectors.
 func TestMermaidTextColorOverEveryAcceptedForm(t *testing.T) {
 	for _, tc := range []struct{ accent, want string }{
@@ -754,7 +776,7 @@ func TestGenerateViewerRefusesALinkThatNamesNoColor(t *testing.T) {
 	}
 }
 
-// The schema accepts `link: ""`, so it is a present value the guard must judge —
+// The schema accepts `link: ""`, so it is a present value the guard must judge:
 // reading it as "unset" would let the one input most likely to arrive from a
 // half-filled manifest pass without the warning the design promises.
 func TestGenerateViewerTreatsABlankLinkAsABadValue(t *testing.T) {

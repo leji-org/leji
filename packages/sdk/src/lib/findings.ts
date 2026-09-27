@@ -35,7 +35,7 @@ export function finding(rule: string, severity: Severity, message: string, path?
 
 /** Findings in canonical order: (path, line, rule, construct), message last as the
  * final tie-break. The line and construct keys carry the rendering lint's ordering
- * — two constructs reported on one line stay in the same order in all three SDKs —
+ * (two constructs reported on one line stay in the same order in all three SDKs)
  * and change nothing for a rule that locates neither. */
 export function sortFindings(findings: Finding[]): Finding[] {
    return [...findings].sort((a, b) => {

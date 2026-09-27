@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { snapshotTree } from './helpers/snapshot.ts';
+import { copyTree } from './helpers/copytree.ts';
 
 // The shared fixture is the byte contract for the snapshot helper, and these goldens
 // are the frozen bytes the Go and Python ports assert against too. The walked payload
@@ -49,7 +50,7 @@ function copySeed(from: string, to: string): void {
  * git cannot track (an empty directory, a symlink) created here. */
 function materialize(): string {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-snapshot-'));
-   fs.cpSync(fixtureDir, dir, { recursive: true });
+   copyTree(fixtureDir, dir);
    for (const seed of declaration.seeds) {
       const toAbs = path.join(dir, ...seed.to.split('/'));
       assert.ok(!fs.existsSync(toAbs), `seed target already exists: ${seed.to}`);

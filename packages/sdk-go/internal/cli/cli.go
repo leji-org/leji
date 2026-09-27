@@ -95,8 +95,8 @@ type flags struct {
 var fullOidRe = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 
 // quoteTopic renders s the way Node's JSON.stringify(s) does. jsonenc covers the
-// ordinary escapes; a lone surrogate — the only reason this message is ever
-// printed — arrives as its three-byte WTF-8 encoding, which jsonenc would decode
+// ordinary escapes; a lone surrogate (the only reason this message is ever
+// printed) arrives as its three-byte WTF-8 encoding, which jsonenc would decode
 // to U+FFFD, so it is emitted here as the `\udXXX` escape a well-formed
 // JSON.stringify writes.
 func quoteTopic(s string) string {
@@ -448,10 +448,10 @@ func printUnindexedNudge(count int) {
 // runExport is the one export run, reached by both of its names: `leji export`
 // (the front door) and `leji viewer build` (the viewer subsystem's name for the same
 // operation, beside `viewer serve`). One code path, so the two are byte-identical by
-// construction — same default output, same JSON document, same exits.
+// construction: same default output, same JSON document, same exits.
 //
-// Exits: 0 written (warnings allowed), 1 an error finding — or, under `--strict`, a
-// lint finding — with the target left byte-untouched, 2 a usage error or a refusal.
+// Exits: 0 written (warnings allowed), 1 an error finding (or, under `--strict`, a
+// lint finding) with the target left byte-untouched, 2 a usage error or a refusal.
 func runExport(f flags, ignoreContext *lejiignore.Context) int {
 	load := manifest.LoadManifest(f.root)
 	out := ""
@@ -819,6 +819,64 @@ func allowedFlagsFor(command, sub string) (map[string]bool, bool) {
 		}
 	}
 	return allowed, true
+}
+
+// setupResult is everything the Setup report found, for the caller to print and then
+// act on.
+type setupResult struct {
+	manifest  *manifest.Manifest
+	detected  []detect.DetectedHost
+	eco       ecosystem.Report
+	hio       *initcmd.HandoffIO
+	host      *initcmd.StartHost
+	preflight initcmd.PreflightResult
+}
+
+// setupReport is the part of `leji start` that runs before anything launches, and the
+// whole of `leji doctor`: load the manifest, check the boot profile, resolve the host,
+// run the checks. It returns a nil result and the exit code when there is nothing to
+// report (no manifest, no boot profile, a usage error), otherwise the report.
+func setupReport(command string, f flags, interactive bool) (*setupResult, int) {
+	load := manifest.LoadManifest(f.root)
+	if load.Manifest == nil {
+		return nil, emit(command, load.Findings, f.json, nil)
+	}
+	detected := detect.DetectHosts(detect.Options{Root: f.root})
+	// The repository's own ecosystem, read once: the preflight probes the runner it
+	// names, and the JSON document reports it.
+	eco := ecosystem.Detect(f.root)
+	// The boot profile is checked first, before any report or prompt: a context layer
+	// whose entrypoint is missing has nothing to enter.
+	if !initcmd.BootProfileReady(f.root, load.Manifest) {
+		if f.json {
+			o := newJSONObj()
+			o.set("command", command)
+			o.set("ok", false)
+			o.set("ready", false)
+			o.set("error", "boot-missing")
+			o.set("checks", []any{})
+			o.set("ecosystem", ecosystemJSON(eco))
+			var buf bytes.Buffer
+			o.encode(&buf, "", "  ")
+			fmt.Println(buf.String())
+		} else {
+			fmt.Fprintf(os.Stderr, "leji: boot profile %s is missing or invalid; run leji validate\n", load.Manifest.BootProfilePath)
+		}
+		return nil, 1
+	}
+	hio := initcmd.DefaultHandoffIO(os.Stdin, os.Stdout)
+	// The host is resolved BEFORE the report, so the MCP rows answer for the host this
+	// run actually targets. An --agent naming no launchable host errors here, exactly
+	// as it did inside EnterLayer: a usage error.
+	host, err := initcmd.ResolveStartHost(detected, f.agent, interactive, hio, os.Stdout)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
+		return nil, 2
+	}
+	preflight := initcmd.RunPreflight(initcmd.PreflightOptions{
+		Root: f.root, Manifest: load.Manifest, Host: host, Detected: detected, Report: eco,
+	}, hio)
+	return &setupResult{manifest: load.Manifest, detected: detected, eco: eco, hio: hio, host: host, preflight: preflight}, 0
 }
 
 func Run(argv []string) int {
@@ -1886,48 +1944,14 @@ func Run(argv []string) int {
 		}
 		return 0
 	case "start":
-		load := manifest.LoadManifest(f.root)
-		if load.Manifest == nil {
-			return emit("start", load.Findings, f.json, nil)
-		}
-		detected := detect.DetectHosts(detect.Options{Root: f.root})
-		// The repository's own ecosystem, read once: the preflight probes the runner
-		// it names, and the JSON document reports it.
-		startEco := ecosystem.Detect(f.root)
 		// --json is a single-document mode, so it is never interactive: nothing
 		// prompts, nothing launches, and no repair can run under it.
 		interactive := !f.yes && !f.json && stdinIsTTY()
-		// The boot profile is checked first, before any report or prompt: a layer
-		// whose entrypoint is missing has nothing to enter.
-		if !initcmd.BootProfileReady(f.root, load.Manifest) {
-			if f.json {
-				o := newJSONObj()
-				o.set("command", "start")
-				o.set("ok", false)
-				o.set("ready", false)
-				o.set("error", "boot-missing")
-				o.set("checks", []any{})
-				o.set("ecosystem", ecosystemJSON(startEco))
-				var buf bytes.Buffer
-				o.encode(&buf, "", "  ")
-				fmt.Println(buf.String())
-			} else {
-				fmt.Fprintf(os.Stderr, "leji: boot profile %s is missing or invalid; run leji validate\n", load.Manifest.BootProfilePath)
-			}
-			return 1
+		report, code := setupReport("start", f, interactive)
+		if report == nil {
+			return code
 		}
-		hio := initcmd.DefaultHandoffIO(os.Stdin, os.Stdout)
-		// The host is resolved BEFORE the report, so the MCP rows answer for the host
-		// this run actually targets. An --agent naming no launchable host errors here,
-		// exactly as it did inside EnterLayer: a usage error.
-		host, err := initcmd.ResolveStartHost(detected, f.agent, interactive, hio, os.Stdout)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "leji: %s\n", err.Error())
-			return 2
-		}
-		preflight := initcmd.RunPreflight(initcmd.PreflightOptions{
-			Root: f.root, Manifest: load.Manifest, Host: host, Detected: detected, Report: startEco,
-		}, hio)
+		startEco, hio, host, preflight := report.eco, report.hio, report.host, report.preflight
 		if f.json {
 			// Report only: the launch-selection arguments are accepted and have no
 			// effect, and a gap is reported rather than blocking (`ready` is the
@@ -1946,13 +1970,13 @@ func Run(argv []string) int {
 		// The one place color is decided: a terminal question, asked at the boundary and
 		// injected, so the block itself never consults the process.
 		color := initcmd.ColorDecision(stdoutIsTTY(), os.LookupEnv)
-		fmt.Println("\n" + initcmd.RenderPreflight(preflight.Checks, color))
+		fmt.Println("\n" + initcmd.RenderPreflight(preflight.Checks, color, true))
 		initcmd.OfferPreflightFixes(initcmd.PreflightOfferOptions{
 			Root: f.root, Host: host, Result: preflight, Runner: ecosystem.RunnerArgv(startEco),
 			Interactive: interactive,
 		}, hio, os.Stdout)
 		outcome, err := initcmd.EnterLayer(initcmd.StartOptions{
-			Root: f.root, Manifest: load.Manifest, Detected: detected, Agent: f.agent, Interactive: interactive,
+			Root: f.root, Manifest: report.manifest, Detected: report.detected, Agent: f.agent, Interactive: interactive,
 			HostArgs: f.hostArgs, Host: host, HostResolved: true,
 		}, hio, os.Stdout)
 		if err != nil {
@@ -1960,9 +1984,36 @@ func Run(argv []string) int {
 			return 2
 		}
 		if outcome == initcmd.StartFallback {
-			fmt.Println(initcmd.EnteringViaBoot(load.Manifest, f.hostArgs))
+			fmt.Println(initcmd.EnteringViaBoot(report.manifest, f.hostArgs))
 		}
 		return 0
+	case "doctor":
+		// The report `start` prints before it launches, as a command of its own. It is
+		// never interactive: nothing prompts, nothing is offered, nothing launches.
+		report, code := setupReport("doctor", f, false)
+		if report == nil {
+			return code
+		}
+		if f.json {
+			// The document `start --json` prints, apart from `command`: `ok` says the
+			// report was produced, and `ready` (with the exit status) is the verdict.
+			o := newJSONObj()
+			o.set("command", "doctor")
+			o.set("ok", true)
+			o.set("ready", report.preflight.Ready)
+			o.set("checks", preflightChecksJSON(report.preflight.Checks))
+			o.set("ecosystem", ecosystemJSON(report.eco))
+			var buf bytes.Buffer
+			o.encode(&buf, "", "  ")
+			fmt.Println(buf.String())
+		} else {
+			color := initcmd.ColorDecision(stdoutIsTTY(), os.LookupEnv)
+			fmt.Println("\n" + initcmd.RenderPreflight(report.preflight.Checks, color, false))
+		}
+		if report.preflight.Ready {
+			return 0
+		}
+		return 1
 	case "ci":
 		// One detection for the whole command: the hook and the CI job both run what
 		// a clean install of this repository provides.
@@ -2256,7 +2307,7 @@ func nullableStr(p *string) any {
 
 // mountFindings is what `mounts hydrate` and `mounts status` emit: what this run
 // observed and nothing beyond it. The row-level warnings describe the run that is
-// happening, never a remembered one, and all are visibility rather than failure —
+// happening, never a remembered one, and all are visibility rather than failure:
 // `hydrate` stays best-effort, so none moves the exit code.
 // reasons carries the resolver's reason for the one `--fetch` act that failed, per
 // mount: the finding names the act, the reason says what the act ran into.
@@ -2450,7 +2501,7 @@ func reportUpdatePin(f flags, r updatepin.Result) int {
 	}
 	rep := r.PinReport
 	if rep != nil && rep.State != "unknown" && r.Mount.To != nil && r.Mount.From != nil {
-		// Offline, the witness is the last one successfully observed — never a claim
+		// Offline, the witness is the last one successfully observed, never a claim
 		// that the source was looked at during this run.
 		observed := " (last observed witness; run with --fetch to observe the source)"
 		if f.fetch {

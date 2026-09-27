@@ -6,7 +6,7 @@ package conformancetest
 // (`export.layout`), so all three SDKs answer identical requests against identical
 // bytes.
 //
-// Scope: the four layout fixtures — their layout roles, their golden export
+// Scope: the four layout fixtures: their layout roles, their golden export
 // bytes, and their canary corpus. The general `export`-block harness (findings,
 // `--strict` variants) takes every other fixture.
 
@@ -92,7 +92,7 @@ type layoutExpectation struct {
 
 // fixtureRel checks a fixture-declared path as the README fixes it:
 // repository-root-relative POSIX, normalized, no `..` segment, never absolute. A
-// violation is a harness error — the fixture is the contract, so a malformed one
+// violation is a harness error: the fixture is the contract, so a malformed one
 // fails loudly rather than being repaired here.
 func fixtureRel(t *testing.T, value, what string) string {
 	t.Helper()
@@ -266,7 +266,7 @@ func serveLayer(t *testing.T, dir string, m *manifest.Manifest) (string, func())
 	return "http://" + ln.Addr().String(), func() { _ = srv.Close() }
 }
 
-// requestRaw issues one request with the corpus's path EXACTLY as written — no URL
+// requestRaw issues one request with the corpus's path EXACTLY as written: no URL
 // parsing on this side, or the encoded and malformed variants would be
 // canonicalized before the server ever saw them.
 func requestRaw(t *testing.T, addr, urlPath string) (int, string) {
@@ -500,7 +500,7 @@ func mustLoad(t *testing.T, dir string) *manifest.Manifest {
 // The one boundary a fixture cannot plant (a seed carries no symlinks) and the one
 // the dot convention cannot hold: under `rootPath: "."` the trust domain really is
 // inside the content mount, so a symlink there resolves INSIDE the mount root and
-// passes every containment check. Only the by-name whitelist refuses it — remove the
+// passes every containment check. Only the by-name whitelist refuses it: remove the
 // ServablePath calls in the serve path and this test serves the canary.
 func TestWhitelistRefusesContentSymlinkIntoPrivateRole(t *testing.T) {
 	dir := canaryLayer(t)
@@ -543,7 +543,7 @@ func TestWhitelistRefusesContentSymlinkIntoPrivateRole(t *testing.T) {
 }
 
 // The vectors below share the reason the test above lives here rather than in a
-// fixture: they need a symlink (a seed carries none by contract — copySeed refuses
+// fixture: they need a symlink (a seed carries none by contract: copySeed refuses
 // one) or a hostile manifest, which is a per-SDK hazard rather than a shared contract
 // the fixtures publish. So they are constructed at runtime, over a fixture's own
 // layer and its own planted bytes.
@@ -553,7 +553,7 @@ func TestWhitelistRefusesBoundProfileInPrivateRole(t *testing.T) {
 	// A profile pair the resolver really composes: an ordinary base under the layer's
 	// agents directory, and a derived half planted in the onboarding workspace, bound
 	// into the roster by a symlink at the content root. Without the whitelist on the
-	// profile sources, the resolved page renders the planted half verbatim — the
+	// profile sources, the resolved page renders the planted half verbatim: the
 	// overlay answers before the content mount ever judges the path.
 	if err := os.MkdirAll(filepath.Join(dir, "agents"), 0o755); err != nil {
 		t.Fatal(err)
@@ -608,7 +608,7 @@ func TestSidebarLiftsNoLabelOutOfAPrivateProfilesDir(t *testing.T) {
 	dir := canaryLayer(t)
 	// The same scan, reached the other way: a declared `agentProfilesPath` naming a
 	// private role needs no symlink at all. The page itself was always refused, but the
-	// sidebar built its label from the file's frontmatter — bytes of a private file,
+	// sidebar built its label from the file's frontmatter: bytes of a private file,
 	// served in a 200 body and copied into the export.
 	planted := strings.Join([]string{
 		"---", "id: planted", "name: " + token, "role: planted",
@@ -641,14 +641,14 @@ func TestSidebarLiftsNoLabelOutOfAPrivateProfilesDir(t *testing.T) {
 
 // --- The check-before-act invariant on WRITE/CLEAR targets ----------------------------------
 // One structural rule: every location the tool writes into or clears is realpath-
-// resolved and validated against its role BEFORE the operation — never after, never
+// resolved and validated against its role BEFORE the operation, never after, never
 // conditionally. These pin the two write-side vectors that were not yet pinned.
 
 func TestCheckBeforeActGenerationRefusesViewerAliasedIntoPrivateRole(t *testing.T) {
 	dir := canaryLayer(t)
 	// Point the servable role at another private role, bytes of its own already there.
 	// Before the check-before-act rule, generation wrote the chrome THROUGH the link
-	// into the trust domain and only the export's later identity check noticed — after
+	// into the trust domain and only the export's later identity check noticed, after
 	// the mutation. The aliased directory is snapshotted WHOLE, so any pre-refusal write
 	// (not just an overwrite of one planted file) is caught.
 	aliased := filepath.Join(dir, ".leji", "work", "chrome")
@@ -699,7 +699,7 @@ func TestCheckBeforeActDefaultOutputRefusesDistIntoPrivateRole(t *testing.T) {
 	dir := canaryLayer(t)
 	// The surviving default-bypass vector: the reservation used to be conditioned on a
 	// caller --out, so a default .leji/dist redirected into the trust domain slipped
-	// through. Now the default is validated identically — before any clear or write.
+	// through. Now the default is validated identically, before any clear or write.
 	planted := filepath.Join(dir, ".leji", "mounts", "store", "x")
 	if err := os.MkdirAll(planted, 0o755); err != nil {
 		t.Fatal(err)
@@ -728,7 +728,7 @@ func TestCheckBeforeActDefaultOutputRefusesDistIntoPrivateRole(t *testing.T) {
 func TestCheckBeforeActOutOfRepositoryViewerOrDistAliasIsRefused(t *testing.T) {
 	// Containment is absolute: every write this tool makes lands inside the repository
 	// it was pointed at. A `.leji/viewer` or `.leji/dist` symlinked to a real, empty
-	// destination outside the tree — once a supported relocate/publish alias — is a
+	// destination outside the tree (once a supported relocate/publish alias) is a
 	// hard refusal now, with nothing written through it. A user who wants the export
 	// elsewhere copies the finished folder there.
 	chromeHome := t.TempDir()
@@ -768,7 +768,7 @@ func TestCheckBeforeActOutOfRepositoryViewerOrDistAliasIsRefused(t *testing.T) {
 
 func TestCheckBeforeActBoundarySkipWarnsOnceAndCleanBuildIsSilent(t *testing.T) {
 	// A servable-looking source (an .md at the content root) whose resolved path lands
-	// in a private role: withheld from serve and export, and — unlike an ordinary skip —
+	// in a private role: withheld from serve and export, and (unlike an ordinary skip)
 	// it says why, exactly once, on stderr (never stdout, never --json).
 	dir := canaryLayer(t)
 	if err := os.Symlink(filepath.Join(".leji", "work", "proposal.md"), filepath.Join(dir, "leak.md")); err != nil {
@@ -855,7 +855,7 @@ func TestCheckBeforeActOverviewSeedRefusedIntoPrivateRole(t *testing.T) {
 	// into a private role is contained (inside the repo) yet crosses the trust boundary:
 	// containment-only was the gap. The target dangles, so the seed WOULD create it
 	// inside the role. Mutation that reddens: revert the overview guard to
-	// ResolvedWithinRoot-only (no WritableTarget) — the seed writes through and
+	// ResolvedWithinRoot-only (no WritableTarget): the seed writes through and
 	// .leji/work/new.md appears.
 	for _, role := range []string{"work", "mounts"} {
 		dir := canaryLayer(t)
@@ -933,7 +933,7 @@ func TestCheckBeforeActOverviewStandingAsANonRegularEntryIsRefused(t *testing.T)
 	// refreshed from bytes read by pathname: a dangling link resolves nowhere while
 	// still standing, and a directory is not a page. Both are the verified read's
 	// refusal, reported as a finding with nothing written. Mutation that reddens:
-	// decide the seed with a stat again — the dangling case writes the link's
+	// decide the seed with a stat again: the dangling case writes the link's
 	// destination.
 	for _, c := range []struct {
 		name  string
@@ -984,7 +984,7 @@ func TestCheckBeforeActOverviewRefreshRefusesAliasIntoPrivateRole(t *testing.T) 
 	// overview.md is a symlink to an EXISTING private file carrying the generated-map
 	// markers: the refresh branch (isFile true) used to containment-check, read it, and
 	// rewrite the map block THROUGH the link. The check now runs on the resolved path
-	// before the read. Mutation that reddens: revert to ResolvedWithinRoot-only — the private
+	// before the read. Mutation that reddens: revert to ResolvedWithinRoot-only: the private
 	// file is read and its map block rewritten.
 	dir := canaryLayer(t)
 	target := filepath.Join(dir, ".leji", "mounts", "existing.md")
@@ -1026,7 +1026,7 @@ func TestExportRefusesNestedDanglingOutIntoPrivateRole(t *testing.T) {
 	// and rebuild `redirect/export` lexically (outside .leji/), so the check passed and a
 	// target created afterward raced the write into the role. The resolver now follows
 	// the dangling intermediate link. Mutation that reddens: revert ResolvedPath's
-	// intermediate-symlink follow (climb-past) — outAbs reads as outside .leji/ and the
+	// intermediate-symlink follow (climb-past): outAbs reads as outside .leji/ and the
 	// build is not refused.
 	dir := materialize(t, "valid-trust-canary-nested-root", []seed{{From: ".leji-seed", To: ".leji"}})
 	m := mustLoad(t, dir)
@@ -1061,7 +1061,7 @@ func TestExportRefusesNestedDanglingOutIntoPrivateRole(t *testing.T) {
 func TestExportRefusesChainedDanglingOutIntoPrivateRole(t *testing.T) {
 	// redirect -> hop -> .leji/work/ghost, every hop dangling: the resolver follows the
 	// chain of intermediate dangling links to the real destination. Mutation that
-	// reddens: revert ResolvedPath's intermediate-symlink follow — the chain is rebuilt
+	// reddens: revert ResolvedPath's intermediate-symlink follow: the chain is rebuilt
 	// lexically as outside .leji/ and the build is not refused.
 	dir := materialize(t, "valid-trust-canary-nested-root", []seed{{From: ".leji-seed", To: ".leji"}})
 	m := mustLoad(t, dir)
@@ -1084,7 +1084,7 @@ func TestExportRefusesChainedDanglingOutIntoPrivateRole(t *testing.T) {
 func TestExportTreatsUnresolvableOutAsFailure(t *testing.T) {
 	// A non-ENOENT resolution failure (here an unreadable intermediate directory) must
 	// FAIL the check, never be rebuilt lexically as a not-yet-created target. Mutation
-	// that reddens: make ResolvedPath return the lexical path on a non-ENOENT error —
+	// that reddens: make ResolvedPath return the lexical path on a non-ENOENT error:
 	// the build proceeds instead of refusing. Skipped as root, which bypasses the mode.
 	if os.Geteuid() == 0 {
 		t.Skip("running as root bypasses directory permissions; the EACCES cannot be constructed")
@@ -1106,12 +1106,12 @@ func TestExportTreatsUnresolvableOutAsFailure(t *testing.T) {
 }
 
 func TestExportRefusesADanglingOutputEntry(t *testing.T) {
-	// A dangling symlink is a standing entry under both forms — never written through,
+	// A dangling symlink is a standing entry under both forms: never written through,
 	// never read as absent. The output used to be resolved before anything judged it,
 	// so `.leji/dist -> site` with `site` missing BECAME its own destination: the stat
 	// reported absence, "clearable" followed, and the export created and filled the
 	// link's target. The original entry is judged first now. Mutation that reddens:
-	// drop the lstat on the original entry — the build writes through the link.
+	// drop the lstat on the original entry: the build writes through the link.
 	dir := materialize(t, "valid-trust-canary-nested-root", []seed{{From: ".leji-seed", To: ".leji"}})
 	m := mustLoad(t, dir)
 	// Settle the internal chrome first: every build regenerates it, so the comparison
@@ -1157,11 +1157,11 @@ func TestCheckBeforeActRefusesCaseVariantAliasThroughNonEnumerableDirectory(t *t
 	// The composition the separate case-fold and unresolvable cases left open: a
 	// `.LEJI/` spelling of the role tree reached through a directory that is
 	// traversable and writable but NOT enumerable. The canonical spelling is read back
-	// from the directory, so denying enumeration denies case recovery — and falling
+	// from the directory, so denying enumeration denies case recovery, and falling
 	// back to the caller's spelling made the resolved target compare as outside
 	// `.leji/`, so the write and the clear were permitted straight into a private role.
 	// An enumeration failure now makes the path unresolvable, which refuses both.
-	// Mutation that reddens: return the given name from realName on a ReadDir error —
+	// Mutation that reddens: return the given name from realName on a ReadDir error:
 	// generation writes the chrome into .leji/work and the export clears and writes
 	// into .leji/mounts.
 	if os.Geteuid() == 0 {
@@ -1266,7 +1266,7 @@ func patchManifest(t *testing.T, dir string, mutate func(map[string]any)) {
 }
 
 // foldsCase reports whether this directory sits on a filesystem that cannot tell
-// `.leji` from `.LEJI` — asked of the volume, so a case-variant assertion runs only
+// `.leji` from `.LEJI`, asked of the volume, so a case-variant assertion runs only
 // where the fold is real.
 func foldsCase(t *testing.T, dir string) bool {
 	t.Helper()

@@ -13,7 +13,7 @@ Adopting Leji takes a repository from scaffold to a useful context layer. You wi
 - An `AGENTS.md` pointer when none exists.
 
 ```bash
-leji adopt --dry-run       # preview every write; nothing is written
+leji adopt --dry-run       # the write plan for the scaffold; nothing is written
 leji adopt                 # existing repo: scaffold around what you already have
 leji init                  # new repo: scaffold leji.json, a boot profile, category seeds, a first decision
 leji adopt --wire-adapters # finish an adoption over a vendor entrypoint (CLAUDE.md, AGENTS.md)

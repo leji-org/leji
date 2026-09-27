@@ -91,7 +91,7 @@ func escaped(text string, i int) bool {
 }
 
 // destinationAt is a destination at i, as written, and the offset just past it; not
-// ok when none can be read there — an empty run, an unterminated angle form, a
+// ok when none can be read there: an empty run, an unterminated angle form, a
 // newline inside either, or parentheses nested past the one level a destination may
 // carry.
 func destinationAt(text string, i int) (span, bool) {
@@ -221,7 +221,7 @@ func inlineLinkAt(text string, i int) (span, bool) {
 
 // referenceDefinitionAt is a reference definition opening at i, which is known to be
 // a line start: its destination and the offset just past the line, or not ok. The
-// remainder of the line must be empty or one title — `[^1]: a footnote's prose` is
+// remainder of the line must be empty or one title: `[^1]: a footnote's prose` is
 // neither, and is prose.
 func referenceDefinitionAt(text string, i int) (span, bool) {
 	line := text[i:]
@@ -325,7 +325,7 @@ func unescapeMarkdown(target string) string {
 // or an empty destination. A leading `/` resolves against the layer's rootPath, which
 // is how the viewer resolves one; everything else resolves against the linking
 // document's own directory. Escapes come off first, then #fragment and ?query, then
-// percent-encoding — an undecodable target stays as written rather than being
+// percent-encoding. An undecodable target stays as written rather than being
 // dropped, so a mistyped escape is reported rather than silently passed.
 func ResolveTarget(rootAbs, layerRootAbs, fromRelPath, target string) (string, bool) {
 	if target == "" || strings.HasPrefix(target, "#") || scheme.MatchString(target) {
@@ -374,7 +374,7 @@ func targetResolves(rootAbs, abs string) bool {
 
 // Findings is the scan as findings for one governed document. Containment is checked
 // before existence and with the same realpath-aware primitive the write guards use,
-// so a target reaching outside the layer — by `..`, or through a symlink inside it —
+// so a target reaching outside the layer (by `..`, or through a symlink inside it)
 // is unresolved whether or not something happens to sit there.
 func Findings(rootAbs, layerRootAbs, relPath, text string) []findings.Finding {
 	var out []findings.Finding

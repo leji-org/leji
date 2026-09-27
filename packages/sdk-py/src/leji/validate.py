@@ -12,7 +12,7 @@ from typing import Mapping, Optional, cast
 
 from .findings import Finding, sort_findings
 from .frontmatter import parse_frontmatter
-from .fsx import resolved_within_root, under_path
+from .fsx import resolved_path, resolved_within_root, strip_slash, under_path
 from .gitutil import git_show_head, git_toplevel
 from .indexgen import check_index
 from .links import link_findings
@@ -222,9 +222,9 @@ def _check_categories(root: str, manifest: Manifest, findings: list[Finding]) ->
 def _governed_documents(root: str, manifest: Manifest) -> list[str]:
     """The governed set the link gate walks: every markdown document this layer
     answers for, deduplicated and in byte order of path. Composed here from the scans
-    that already define it — the boot profile, every indexed document under every
+    that already define it (the boot profile, every indexed document under every
     category, the profile set (``agentProfilesPath`` plus the profiles bound outside
-    it), and the decision records — rather than discovered by a walk of its own, so a
+    it), and the decision records) rather than discovered by a walk of its own, so a
     document is link-checked exactly when the layer claims it. The category index
     files are not in it: an index is the selector, and what it selects is what the
     layer governs."""
@@ -242,7 +242,7 @@ def _governed_documents(root: str, manifest: Manifest) -> list[str]:
 
 def _check_links(root: str, manifest: Manifest, findings: list[Finding]) -> None:
     """The in-layer link gate: every governed document's markdown links resolve to
-    something the layer carries. Structural and always on — a dangling link is a
+    something the layer carries. Structural and always on: a dangling link is a
     reference to context that is not there, which the ``--content`` lint's advisory
     signals never are. A document that cannot be read here is one the structural pass
     already reports as missing or escaping, so it contributes nothing twice."""
@@ -409,6 +409,42 @@ def _check_boot_agents_default(root: str, manifest: Manifest, findings: list[Fin
             "unconditionally loads it should be one canonical boot document (fold the "
             "default profile in)",
             "leji.json",
+        )
+    )
+
+
+def _check_legacy_leji_dir(root: str, manifest: Manifest, findings: list[Finding]) -> None:
+    """Warn on a ``.leji/`` directory under the context root that is not the repository's
+    own ``.leji/``: the tool tree's location before 1.4.0, which nothing current writes. A
+    root context has only the live tree. The real paths are compared so a symlink to the
+    root tree is the live tree; an unresolvable side counts as different, never a failure."""
+    base = strip_slash(manifest["rootPath"])
+    if base in ("", "."):
+        return
+    candidate = Path(root, base, ".leji")
+    try:
+        is_dir = candidate.is_dir()
+    except OSError:
+        return  # A stat failure is no directory, as the other SDKs' predicates answer.
+    if not is_dir:
+        return
+    same = False
+    try:
+        real = resolved_path(str(candidate))
+        same = real is not None and real == resolved_path(str(Path(root, ".leji")))
+    except Exception:
+        pass  # A resolver can still throw (a symlink removed mid-resolution): different.
+    if same:
+        return
+    rel = f"{base}/.leji"
+    findings.append(
+        Finding(
+            "legacy-leji-dir",
+            "warning",
+            f"`{rel}` is the tool tree's location before Leji 1.4.0; the current tooling keeps "
+            "its state under the root `.leji/` and writes nothing here. Delete it (run "
+            f"`git rm -r --cached {rel}` first if it is tracked).",
+            rel,
         )
     )
 
@@ -1091,7 +1127,7 @@ def _section_body(text: str, heading: str) -> str:
 
 def content_findings(root: str, manifest: Manifest) -> list[Finding]:
     """Opt-in content lint (``validate --content``): warning-only signals a layer is
-    still a scaffold rather than real context — placeholder text, generic boot
+    still a scaffold rather than real context: placeholder text, generic boot
     identity, thin domain/system categories. Never errors, never affects a conformance
     level; guidance toward a layer worth reading."""
     out: list[Finding] = []
@@ -1216,6 +1252,7 @@ def validate_layer(root: str, content: bool = False) -> ValidateResult:
                 "leji.json",
             )
         )
+    _check_legacy_leji_dir(root, manifest, findings)
 
     _check_boot_profile(root, manifest, findings)
     _check_categories(root, manifest, findings)

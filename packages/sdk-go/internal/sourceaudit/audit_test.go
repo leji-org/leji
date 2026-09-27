@@ -1,7 +1,7 @@
 // Package sourceaudit is the acceptance check for the write boundary: no production
 // source file of this SDK reaches a raw filesystem mutation, or a subprocess that
 // could perform one, except at a symbol named below. Every other write goes through
-// internal/fsx — the chokepoint and its guarded conveniences — so a new write site is
+// internal/fsx (the chokepoint and its guarded conveniences), so a new write site is
 // contained by construction rather than by remembering to contain it, and a reviewer
 // can read the exceptions instead of re-deriving them. docs/practice/trust-boundary.md
 // mirrors both lists.
@@ -11,7 +11,7 @@
 // mutator is recognized by the package it belongs to rather than by how the call was
 // spelled. `import stdos "os"` and `w := os.Rename` are caught; a local variable or
 // field named `os`, or a method named `Rename` on this SDK's own types, is not. A dot
-// import of a watched package is banned outright — it would put a mutator's bare name
+// import of a watched package is banned outright: it would put a mutator's bare name
 // in scope, which no type check can then attribute. The raw syscall gate is watched
 // the same way, so an assembled call cannot slip past the named surface.
 //
@@ -41,7 +41,7 @@ import (
 // The filesystem mutation surface, by the package that declares it. These are
 // package-level functions: a method on an *os.File the caller already holds is not
 // listed, because obtaining that file is itself an allowance decision (os.OpenFile,
-// os.Create) — copying into a descriptor OpenWriteGuarded returned is the whole point
+// os.Create): copying into a descriptor OpenWriteGuarded returned is the whole point
 // of the guarded open.
 var mutators = map[string]map[string]bool{
 	"os": setOf(
@@ -72,7 +72,7 @@ var subprocess = map[string]map[string]bool{
 // refused rather than analyzed.
 var bannedImports = setOf("os", "os/exec", "io/ioutil", "syscall")
 
-// The write allow-list, by `file#symbol` — never by whole file, so a future raw
+// The write allow-list, by `file#symbol`, never by whole file, so a future raw
 // mutation elsewhere in an allowed file still fails. An entry that matches nothing
 // fails too: a stale exception is an exception nobody is checking.
 var allowedWrites = map[string]string{
@@ -132,7 +132,7 @@ type result struct {
 // stubImporter satisfies the type checker without reading a single dependency from
 // disk: every import becomes an empty package under its own path, which is all the
 // audit needs, since it asks what a QUALIFIER names, never what the member is. It
-// also makes the audit hermetic — no GOROOT parse, no build cache, no network.
+// also makes the audit hermetic: no GOROOT parse, no build cache, no network.
 type stubImporter struct{}
 
 func (stubImporter) Import(importPath string) (*types.Package, error) {
@@ -188,8 +188,8 @@ func scan(t *testing.T, moduleRoot, dir string, files map[string]string) result 
 				record(&out.writes, imp, "import of "+importPath)
 			}
 		}
-		// The one mutator that is also the ordinary read — os.OpenFile with a literally
-		// read-only flag — is settled first, on the call, since the exemption is in the
+		// The one mutator that is also the ordinary read (os.OpenFile with a literally
+		// read-only flag) is settled first, on the call, since the exemption is in the
 		// arguments. Every other appearance of the name, call or function value alike,
 		// is a hit.
 		exempt := map[*ast.SelectorExpr]bool{}
@@ -230,7 +230,7 @@ func scan(t *testing.T, moduleRoot, dir string, files map[string]string) result 
 // readOnlyOpen is the callee of an `os.OpenFile(path, os.O_RDONLY, …)` call, else
 // nil: the one mutator that is also the ordinary read. Anything else creates or
 // truncates, and a flag assembled elsewhere cannot be proven read-only. The flag is
-// resolved the same type-resolved way the callee is — a constant merely NAMED
+// resolved the same type-resolved way the callee is: a constant merely NAMED
 // O_RDONLY, on any package or value of the author's making, exempts nothing.
 func readOnlyOpen(call *ast.CallExpr, info *types.Info) *ast.SelectorExpr {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
@@ -254,7 +254,7 @@ func readOnlyOpen(call *ast.CallExpr, info *types.Info) *ast.SelectorExpr {
 
 // enclosingSymbol is the nearest named FUNCTION containing node: the declaration or
 // method a reader would cite when arguing the exception. A function literal is
-// transparent — a raw primitive inside a closure belongs to the function that owns
+// transparent: a raw primitive inside a closure belongs to the function that owns
 // it, so naming a closure cannot launder one past the allow-list.
 func enclosingSymbol(file *ast.File, node ast.Node) string {
 	name := "(top level)"

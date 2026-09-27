@@ -654,7 +654,7 @@ var startScenarios = []struct {
 func TestRenderPreflightScenarios(t *testing.T) {
 	for _, sc := range startScenarios {
 		t.Run(sc.name, func(t *testing.T) {
-			block := RenderPreflight(sc.checks, false)
+			block := RenderPreflight(sc.checks, false, true)
 			if block != sc.want {
 				t.Fatalf("block =\n%s\nwant\n%s", block, sc.want)
 			}
@@ -667,7 +667,7 @@ func TestRenderPreflightScenarios(t *testing.T) {
 
 func TestNoRowOfAnyScenarioWrapsAt80Columns(t *testing.T) {
 	for _, sc := range startScenarios {
-		for _, l := range strings.Split(RenderPreflight(sc.checks, false), "\n") {
+		for _, l := range strings.Split(RenderPreflight(sc.checks, false, true), "\n") {
 			// Commands and snippets are exact and exempt: they are what a person pastes.
 			if strings.HasPrefix(l, preflightFixIndent) {
 				continue
@@ -679,17 +679,74 @@ func TestNoRowOfAnyScenarioWrapsAt80Columns(t *testing.T) {
 	}
 }
 
+// doctorClosing is `leji doctor`'s closing line in each of the four summary branches:
+// the counts alone, because doctor launches nothing.
+var doctorClosing = []struct {
+	name    string
+	checks  []Check
+	closing string
+}{
+	{
+		// Only this clone's own gaps: the user's registration and the per-clone hook.
+		name: "personal only",
+		checks: []Check{
+			checkRow(CheckCLI, "ok", "1.4.0 (node_modules/.bin/leji)"),
+			checkRow(CheckMCP, "missing", "not registered for Claude Code", mcpUserFix),
+			checkRow(CheckMCPShared, "ok", ".mcp.json committed"),
+			checkRow(CheckHook, "missing", "none yet (per clone)", "leji ci --hooks"),
+		},
+		closing: "  2 fixes for you.",
+	},
+	{name: "maintainer only", checks: startScenarios[0].checks, closing: "  3 fixes for a maintainer."},
+	{name: "mixed", checks: startScenarios[2].checks, closing: "  1 fix for you, 1 for a maintainer."},
+	{
+		// Nothing owed by anyone.
+		name: "complete",
+		checks: []Check{
+			checkRow(CheckCLI, "ok", "1.4.0 (node_modules/.bin/leji)"),
+			checkRow(CheckMCP, "ok", "registered for Claude Code"),
+			checkRow(CheckMCPShared, "ok", ".mcp.json committed"),
+			checkRow(CheckHook, "ok", "runs leji checks before each commit: .git/hooks/pre-commit"),
+		},
+		closing: "  Setup complete.",
+	},
+}
+
+func TestRenderPreflightWithLaunchOff(t *testing.T) {
+	for _, sc := range doctorClosing {
+		t.Run(sc.name, func(t *testing.T) {
+			doctor := strings.Split(RenderPreflight(sc.checks, false, false), "\n")
+			start := strings.Split(RenderPreflight(sc.checks, false, true), "\n")
+			if got := doctor[len(doctor)-1]; got != sc.closing {
+				t.Fatalf("closing line %q, want %q", got, sc.closing)
+			}
+			// Every other line is start's, and start's closing line is this one plus the
+			// agent sentence (none when nothing is owed).
+			if strings.Join(doctor[:len(doctor)-1], "\n") != strings.Join(start[:len(start)-1], "\n") {
+				t.Fatalf("a line above the closing line differs:\n%s", strings.Join(doctor, "\n"))
+			}
+			want := sc.closing + " The agent starts either way."
+			if sc.name == "complete" {
+				want = sc.closing
+			}
+			if got := start[len(start)-1]; got != want {
+				t.Fatalf("start's closing line %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestRenderPreflightSnippetIsPastedAndCommandCarriesThePrompt(t *testing.T) {
 	snippet := RenderPreflight([]Check{
 		newSnippetCheck(CheckHook, "missing", "add it yourself; hooks run from /etc/hooks", []string{"#!/bin/sh", "leji ci"}),
-	}, false)
+	}, false, true)
 	if !strings.Contains(snippet, "\n        #!/bin/sh\n        leji ci\n") {
 		t.Fatalf("block = %q", snippet)
 	}
 	// A Check assembled outside this file has no fix kind, and still renders as a command.
 	plain := RenderPreflight([]Check{
 		{ID: CheckHook, Status: "missing", Detail: "none yet (per clone)", Fix: []string{"leji ci --hooks"}},
-	}, false)
+	}, false, true)
 	if !strings.Contains(plain, "\n        $ leji ci --hooks\n") {
 		t.Fatalf("block = %q", plain)
 	}
@@ -699,7 +756,7 @@ func TestRenderPreflightNothingOwedIsOneClosingLine(t *testing.T) {
 	block := RenderPreflight([]Check{
 		checkRow(CheckCLI, "ok", "1.4.0 (node_modules/.bin/leji)"),
 		checkRow(CheckMCP, "skipped", "no coding agent detected"),
-	}, false)
+	}, false, true)
 	lines := strings.Split(block, "\n")
 	if lines[len(lines)-1] != "  Setup complete." {
 		t.Fatalf("block = %q", block)
@@ -710,7 +767,7 @@ func TestRenderPreflightNothingOwedIsOneClosingLine(t *testing.T) {
 
 func TestRenderPreflightColorOffLeavesNotOneEscapeByte(t *testing.T) {
 	for _, sc := range startScenarios {
-		if strings.Contains(RenderPreflight(sc.checks, false), "\x1b") {
+		if strings.Contains(RenderPreflight(sc.checks, false, true), "\x1b") {
 			t.Fatalf("%s: an escape reached a plain render", sc.name)
 		}
 	}
@@ -722,7 +779,7 @@ func TestRenderPreflightColorOnWrapsTheStatusWordOnly(t *testing.T) {
 		checkRow(CheckMCP, "missing", "not registered for Claude Code"),
 		checkRow(CheckMCPShared, "shared-gap", "no .mcp.json committed"),
 		checkRow(CheckHook, "n/a", "not a git repository"),
-	}, true)
+	}, true, true)
 	want := strings.Join([]string{
 		"Setup for this clone",
 		"",

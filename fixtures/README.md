@@ -46,6 +46,15 @@ sibling `.leji-seed/` directory and declares the materialization:
   harness creates `to`. A pre-existing `to` is a harness error — fixtures are
   pristine by construction, so an occupied target means the working copy is not
   what the harness thinks it is.
+- The per-SDK fixture runners (`fixtures.test.ts`, `test_fixtures.py`,
+  `fixtures_test.go`) match the `validate` block against the fixture's source
+  tree without applying its seeds, so their green result is the unseeded outcome.
+  A seeded `validate` outcome is exercised by the process-parity harness, which
+  copies the fixture and applies its seeds. Two fixtures differ by state:
+  `valid-leji-ignore-legacy` and `valid-unified-leji-stale-tree` expect no
+  findings unseeded, and seeded (`docs/.leji-seed` becomes `docs/.leji`) they
+  report one `legacy-leji-dir` warning at `docs/.leji` and exit 0, as the parity
+  scenario `validate --json (legacy docs/.leji)` shows for the first.
 - Seeds apply in array order and must not overlap targets: no `to` may equal
   another seed's `to` or sit inside it. Overlap is a fixture-authoring error a
   harness rejects rather than resolves.
@@ -504,6 +513,8 @@ each SDK's unit suite; nothing else in this repository holds generated CI bytes.
 | `hook-<manager>.sh` / `hook-fallback.sh` | the standalone managed pre-commit hook for that runner |
 | `husky-<manager>.sh` / `husky-fallback.sh` | the same two gates as a marker-delimited husky block |
 | `legacy-1.3-<provider>-<local\|fallback>.yml` | what the 1.3.x generator wrote, kept so the ownership rules can be tested against real bytes rather than a reconstruction |
+| `legacy-1.4-<provider>-node-fallback.yml` | the same for the 1.4.0 generator: its Node fallback job, byte for byte as that release committed it |
+| `action-pins.json` | the tag the GitHub template pins for each action it uses, and the day the list was last refreshed |
 
 - **Providers are `github`, `gitlab`, `circleci`, `azure`; managers are the nine the
   detection table names** (`npm`, `pnpm`, `yarn`, `bun`, `uv`, `poetry`, `pdm`,
@@ -514,10 +525,17 @@ each SDK's unit suite; nothing else in this repository holds generated CI bytes.
   `# >>> leji ci (managed) >>>` delimiters and adds nothing. A re-run replaces a
   whole file only when its bytes are ones leji generated (this release, or a digest
   in the SDK's `KNOWN_GENERATED` registry of earlier ones). The `legacy-1.3-*`
-  files are exactly that case, which is why they are committed here.
-- **The fallback job is the pre-1.4 job.** `<provider>-node-fallback.yml` is the
-  1.3.x fallback line for line, plus the marker: a repository that was getting the
-  `npx` job keeps precisely that job.
+  and `legacy-1.4-*` files are exactly that case, which is why they are committed
+  here.
+- **The historical files are recognition fixtures, not the current job.** The
+  current fallback job carries the current action and runtime pins, so it no
+  longer equals the 1.3.x job; a repository holding an unedited earlier job gets
+  the current one on its next `leji ci`.
+- **The pins are checked against `action-pins.json`.** Every `uses:` reference the
+  GitHub template can emit must name an action listed there, pinned to exactly the
+  tag it records: a floating major (`v7`) or, for an action that publishes no
+  floating tags, an exact release (`v10.2.0`). The list is refreshed from the
+  actions' releases before each release, together with the generators.
 - **Hook bodies are shell contracts.** Every argv element is single-quoted
   (`'pnpm' 'exec' 'leji' validate`), so a manager name is never split, expanded or
   globbed; `sh -n` parses every file here, and the stale-index message keeps its
@@ -756,6 +774,9 @@ it, and runs a single argv over it; the three CLIs must print the same bytes.
 - **No committed golden.** As with the arg-rejection scenarios below, the
   assertion is byte equality across the three CLIs; the definitions run behind
   `START_PREFLIGHT_SCENARIOS_ENABLED`, enabled with the Go and Python ports.
+- **`leji doctor` reuses every state.** Each state runs through `doctor` as
+  well as `start`, in both output modes: the same report, printed without a
+  launch.
 
 ## Hand-off to a repository's own CLI: `fixtures/handoff/`
 

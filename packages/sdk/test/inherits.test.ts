@@ -10,6 +10,7 @@ import type { Manifest, ScannedProfile } from '../dist/index.js';
 import { finding } from '../dist/lib/findings.js';
 import { profileInheritanceFindings, resolveAgentProfile, scanProfileSet } from '../dist/lib/layer.js';
 import { schemaErrors } from '../dist/lib/schemas.js';
+import { copyTree } from './helpers/copytree.ts';
 
 /** Minimal posture a base must supply for a resolved profile to be complete. */
 const BASE_POSTURE = { requiredRead: ['docs/boot-profile.md'], mustAskWhen: ['ask'] };
@@ -19,7 +20,7 @@ const exampleDir = path.join(repoRoot, 'examples', 'monorepo');
 
 function copyExample(): string {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-inh-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    return dir;
 }
 

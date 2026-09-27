@@ -57,7 +57,7 @@ export interface ProseSource {
 export const PROSE_SOURCES: Record<string, ProseSource> = {
    [`${PAGES_DIR}/adoption.astro`]: {
       file: 'adoption/README.md',
-      source: '064d34384831678b644214acacbadd4c6e051ac3',
+      source: 'f9ef2d6f6931a54898dd71f8bbb867b0a11db33b',
    },
    [`${PAGES_DIR}/rationale.astro`]: {
       file: 'rationale/README.md',

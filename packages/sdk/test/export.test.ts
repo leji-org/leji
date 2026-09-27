@@ -19,6 +19,7 @@ import {
    run,
    serveViewer,
 } from '../dist/index.js';
+import { copyTree } from './helpers/copytree.ts';
 // The lint class is the command's own policy, not SDK surface: it stays inside its
 // module, which an in-repo test reads directly.
 import { STRICT_LINT_RULES } from '../dist/commands/export.js';
@@ -39,7 +40,7 @@ const fixturesDir = path.join(repoRoot, 'fixtures');
 /** realpath the temp dir: on macOS /tmp is a symlink, which the export resolves. */
 function tmpCopy(from: string, prefix: string): string {
    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
-   fs.cpSync(from, dir, { recursive: true });
+   copyTree(from, dir);
    return dir;
 }
 
@@ -88,8 +89,8 @@ function snapshot(dir: string, rel = '', acc = new Map<string, string>()): Map<s
 // static introduction of a network dependency and nothing else; the subprocess spy
 // below and the offline CI leg cover dynamic loading and side doors.
 
-/** Every specifier `file` imports statically — `import` and `export … from` alike,
- * since a re-export pulls a module in exactly as an import does — plus any dynamic
+/** Every specifier `file` imports statically (`import` and `export … from` alike,
+ * since a re-export pulls a module in exactly as an import does) plus any dynamic
  * `import()` it spells literally (a dynamic import of a network module would
  * otherwise read as absent). */
 function importsOf(file: string): string[] {
@@ -148,7 +149,7 @@ const NETWORK_MODULES = [
 test('module-graph: the export module reaches no network module and calls no fetch', () => {
    // The parser reads every form a module can be pulled in by: `lib/layer.js` reaches
    // index.ts through `export … from` alone, so a parser that knew only `import`
-   // would not see it — and a form the parser cannot see is how a network module
+   // would not see it, and a form the parser cannot see is how a network module
    // walks into the graph unnoticed.
    const barrel = importsOf(path.join(srcDir, 'index.ts'));
    assert.ok(barrel.includes('./lib/layer.js'), `re-export forms are parsed: ${barrel.join(', ')}`);
@@ -198,7 +199,7 @@ test('subprocess-spy: an export run spawns git and nothing else', async () => {
    Module.syncBuiltinESMExports();
    try {
       // The whole command, not just the build: the CLI entry, the manifest load
-      // ahead of it, and the pipeline — so a spawn added anywhere on the export path
+      // ahead of it, and the pipeline, so a spawn added anywhere on the export path
       // is seen, not only one inside `buildViewer`.
       const { value } = await quiet(() => run(['export', '--root', dir, '--json']));
       assert.equal(value, 0, 'the export ran to completion under the spy');
@@ -255,7 +256,7 @@ test('route-equivalence: every route the served layer names reads identically fr
    // The export carries the COMMITTED index; the server answers that route from a
    // live regeneration. They agree only when the stored index is current, which a
    // copy outside git is not (document dates fall back to filesystem mtimes), so the
-   // layer is brought current first — the comparison below is then the real one.
+   // layer is brought current first: the comparison below is then the real one.
    assert.equal(await quiet(() => run(['index', '--root', dir])).then((r) => r.value), 0);
    const { manifest } = loadManifest(dir);
    assert.ok(manifest);
@@ -324,7 +325,7 @@ test('arg-rejection: export takes no destination flag, and its help names no net
    }
    // The accept side of the same guarantee, under BOTH names: the allow-list the
    // rejection above consults is exactly the globals plus --out and --strict. Read
-   // from cli.json, which is what the CLI itself rejects against — so a destination
+   // from cli.json, which is what the CLI itself rejects against, so a destination
    // flag cannot reach the surface without failing here.
    const spec = loadCliSpec();
    for (const name of ['export', 'viewer build']) {
@@ -401,7 +402,7 @@ test('strict: the gate is the lint class, and a failed run leaves the target byt
    // An error finding fails the run through the same pre-clean gate: overview.md,
    // seeded by the runs above, redirected into a private role. Generation reaches it
    // after the chrome is written, so this run proves both halves of the pipeline
-   // promise at once — the internal chrome IS regenerated, the target is not touched.
+   // promise at once: the internal chrome IS regenerated, the target is not touched.
    fs.mkdirSync(path.join(dir, '.leji', 'mounts'), { recursive: true });
    fs.writeFileSync(path.join(dir, '.leji', 'mounts', 'stolen.md'), 'private\n');
    const overview = path.join(dir, 'docs', 'overview.md');
@@ -441,7 +442,7 @@ test('strict: a lint finding is a warning by default and fails the run under --s
    const doc = path.join(dir, 'docs', 'domain', 'overview.md');
    fs.appendFileSync(doc, '\nA raw <span>element</span> in the prose.\n');
 
-   // Default run: the lint finding is reported and the export is written anyway —
+   // Default run: the lint finding is reported and the export is written anyway:
    // the layer's build never breaks on prose.
    const plain = await quiet(() => run(['export', '--root', dir, '--json']));
    assert.equal(plain.value, 0, 'an ordinary run exports despite the lint finding');

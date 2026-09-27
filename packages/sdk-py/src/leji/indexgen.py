@@ -78,7 +78,7 @@ def load_stored_index(root: str, manifest: Manifest) -> Optional[dict]:
     the verified read, not by pathname: generation carries ids out of these bytes into
     the index it writes back to this same path, so the file that was judged must be
     the file that is read. Absent, unparsable, or a standing entry that cannot be
-    verified all mean "no stored index" — nothing is carried, and the write chokepoint
+    verified all mean "no stored index": nothing is carried, and the write chokepoint
     judges the destination again on its own."""
     rel = effective_index_path(manifest)
     read = verified_target_read(guard_root(root), str(Path(root) / rel), None)

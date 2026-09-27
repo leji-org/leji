@@ -21,6 +21,7 @@ leji viewer serve       # generate, then serve it locally
 leji view               # generate, serve, and open it in your browser
 leji detect             # find installed agent hosts
 leji start              # open the layer in a detected agent host
+leji doctor             # report this clone's setup without launching an agent
 leji adopt              # map an existing entrypoint into a context layer
 leji ci                 # add a validate workflow (--provider github|gitlab|circleci|azure)
 leji agent --name <n>   # bind an additional named agent into the layer

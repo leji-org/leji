@@ -70,8 +70,8 @@ _WORDMARK = "Leji 1.0"
 def badge_label(level: str) -> str:
     """The accessible name and the markdown alt text: one string, three places. It carries
     the full self-attestation claim, which the badge FACE does not: the visible status
-    segment is the level alone, and the claim stays structural — in the ``<title>``, the
-    ``aria-label``, and the markdown alt — with the linked agent-ready page carrying the
+    segment is the level alone, and the claim stays structural (in the ``<title>``, the
+    ``aria-label``, and the markdown alt), with the linked agent-ready page carrying the
     story."""
     return f"{_WORDMARK} · {level} · self-attested"
 
@@ -112,7 +112,7 @@ def badge_markdown(level: str, out: str) -> str:
 
 #: Every canonical badge of this contract, which is exactly what an existing file is
 #: recognized against: its own bytes, and no marker, sidecar, or state. Compared as
-#: BYTES — the target's bytes are whatever somebody left there, and a file that is not
+#: BYTES: the target's bytes are whatever somebody left there, and a file that is not
 #: valid UTF-8 is a foreign file to refuse rather than a decoding failure to raise.
 _CANONICAL_BADGES: list[bytes] = [
     render_badge(level).encode("utf-8") for level in CONFORMANCE_LEVELS
@@ -178,7 +178,7 @@ class _CheckedOut:
 
 def _check_out(root_abs: str, out: str) -> _CheckedOut:
     """The ``--out`` check, run at argument parsing and BEFORE conformance: the syntax
-    rule above, then containment of the RESOLVED path — inside the repository, never
+    rule above, then containment of the RESOLVED path: inside the repository, never
     under ``.leji/`` at any depth (that tree is the tool's own domain and the badge is
     user content), and not a directory. Returns the usage-error text on a rejection, else
     the canonical relative path and the resolved absolute one."""
@@ -218,7 +218,7 @@ def badge_run(root: str, out: str = DEFAULT_BADGE_OUT) -> BadgeResult:
 
     def reported(extra: Optional[Finding] = None, refusal: Optional[str] = None) -> BadgeResult:
         """A run with nothing to write: the levels this run established, the conformance
-        findings, and — when the target itself is what stopped it — one more finding and
+        findings, and (when the target itself is what stopped it) one more finding and
         the refusal line."""
         return BadgeResult(
             claimed_level=report.claimed_level,
@@ -265,7 +265,7 @@ def badge_run(root: str, out: str = DEFAULT_BADGE_OUT) -> BadgeResult:
     # decides its own kind (a directory, a socket, a link to one: refused, never written
     # through), the resolved location is judged by the same rule the write below is judged
     # by, and the bytes come from the descriptor proved to be that file. Absence is decided
-    # on the ORIGINAL entry, so a dangling link — standing, resolving nowhere — is a
+    # on the ORIGINAL entry, so a dangling link (standing, resolving nowhere) is a
     # refusal rather than an absent target written through.
     read = verified_target_read(root_abs, checked.abs_path, None)
     if read.status == "refused":
@@ -287,7 +287,7 @@ def badge_run(root: str, out: str = DEFAULT_BADGE_OUT) -> BadgeResult:
     )
     if action != "unchanged":
         # The guarded-write chokepoint re-resolves the target immediately before the write
-        # and answers the whole boundary — inside the repository, outside `.leji/` — so
+        # and answers the whole boundary (inside the repository, outside `.leji/`), so
         # nothing here is inherited from the parse-time verdict. Parent directories are
         # created only inside a write that happens: a run that writes nothing (a refusal,
         # an unchanged target) establishes no directory either.

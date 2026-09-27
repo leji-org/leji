@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 from pathlib import Path
 
+from helpers.copytree import copy_tree
 from leji.conformance import conformance_report
 from leji.manifest import load_manifest
 from leji.mountblock import parse_mount_blocks
@@ -39,7 +39,7 @@ def block(*lines: str) -> str:
 def host_layer(tmp_path: Path) -> Path:
     """A copy of the federated host example (one declared mount, one entry)."""
     dest = tmp_path / "host"
-    shutil.copytree(HOST_EXAMPLE, dest)
+    copy_tree(HOST_EXAMPLE, dest)
     return dest
 
 

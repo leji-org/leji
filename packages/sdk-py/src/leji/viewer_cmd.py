@@ -5,7 +5,7 @@ Presentation is non-normative; this is the reference projection of
 context-index.json into a browsable surface (Docsify). The two consumers live in
 their own modules, so what each one drags in is visible in the import graph rather
 than buried in one file: ``serve_cmd`` keeps the local preview server and every
-network import with it, and ``export_cmd`` writes the static site — its transitive
+network import with it, and ``export_cmd`` writes the static site. Its transitive
 import set carries no network module at all, which is the structural half of the
 export's no-network guarantee and is asserted as such.
 """
@@ -100,7 +100,7 @@ DEFAULT_THEME_COLOR = "#009F71"
 # export, whose references then resolve against the page itself so the tree hosts
 # correctly under a subpath. It is a generation parameter, never a post-hoc rewrite
 # of emitted HTML: one code path, two invocations. index.html is the only artifact
-# that exists in two flavors — everything else under the chrome is flavor-neutral.
+# that exists in two flavors. Everything else under the chrome is flavor-neutral.
 SERVED_BASE = "/"
 EXPORT_BASE = ""
 
@@ -131,9 +131,13 @@ ACTIVE_EXTENSIONS = frozenset({".html", ".htm", ".js", ".mjs", ".xhtml"})
 
 def _resolve_theme_color(manifest: Manifest, findings: list[Finding]) -> str:
     """The viewer accent: viewer.theme.primary when it is a hex color, else the
-    Leji default with a warning. Never the authored value unchecked."""
+    Leji default with a warning. Never the authored value unchecked.
+
+    Only a MISSING key is absent. `primary: ""` and `primary: "   "` are strings the
+    schema accepts, so they are present-but-not-a-color and warn like any other
+    unusable value, as `link` does."""
     configured = ((manifest.get("viewer") or {}).get("theme") or {}).get("primary")
-    if not configured:
+    if configured is None:
         return DEFAULT_THEME_COLOR
     if SAFE_CSS_COLOR.fullmatch(configured):
         return configured
@@ -150,8 +154,8 @@ def _resolve_theme_color(manifest: Manifest, findings: list[Finding]) -> str:
 
 # The ground the link tone is measured against: the inline-code background
 # (`--leji-code-bg` in assets/vue.css). Body links land on white and inline code on
-# this, and this is the narrower of the two — the fixed tone is 5.15:1 on white but
-# 4.56:1 here — so a color clearing AA here clears white too, and one check covers
+# this, and this is the narrower of the two: the fixed tone is 5.15:1 on white but
+# 4.56:1 here, so a color clearing AA here clears white too, and one check covers
 # both. Mirrors the Node SDK's LINK_GROUND.
 LINK_GROUND = "#E8F4EE"
 
@@ -161,7 +165,7 @@ LINK_CONTRAST_FLOOR = 4.5
 
 def _resolve_theme_link(theme: Optional[dict], findings: list[Finding]) -> Optional[str]:
     """The viewer's body-link tone: viewer.theme.link when it is a hex color that stays
-    readable on the ground above, else None — the stylesheet's fixed accessible tone
+    readable on the ground above, else None: the stylesheet's fixed accessible tone
     stands and nothing is emitted, so the layer renders exactly as it did without the
     field. Either refusal warns, naming the value the author wrote. Mirrors the Node
     SDK's resolveThemeLink, rule name and messages included.
@@ -222,11 +226,11 @@ def _resolve_appearance(theme: Optional[dict]) -> Optional[str]:
 
 def _parse_accent_color(value: str) -> Optional[tuple[int, int, int]]:
     """The accent as opaque sRGB channels, or None for a value that names no color
-    the generator can resolve — a keyword, `currentColor`, a malformed hex. Accepts
+    the generator can resolve: a keyword, `currentColor`, a malformed hex. Accepts
     3/4/6/8 digit hex, the only form the accent can take; an accent carrying alpha is
     composited over white, the viewer's content background, which is the only backdrop
     knowable at generation time (the accent itself keeps its authored alpha everywhere
-    it is used — this composite decides text color, nothing that renders)."""
+    it is used: this composite decides text color, nothing that renders)."""
     raw = value.strip().lower()
     if not raw.startswith("#"):
         return None
@@ -273,7 +277,7 @@ def _mermaid_text_color(theme_color: str) -> str:
     browser: the viewer's boot script sees only what the config block carries, while
     this side can resolve every color form viewer.theme.primary accepts. Whichever of
     #1a1a1a and #ffffff contrasts more with the accent, or #000000 when neither clears
-    WCAG AA (4.5:1) — a mid-gray accent, where the extra half-stop of black is the best
+    WCAG AA (4.5:1): a mid-gray accent, where the extra half-stop of black is the best
     text color available. An accent this cannot resolve keeps the dark default, which
     is also the boot script's fallback. Mirrors the Node SDK's mermaidTextColor."""
     rgb = _parse_accent_color(theme_color)
@@ -698,7 +702,10 @@ def build_sidebar_groups(root: str, manifest: Manifest, entries: list[dict]) -> 
                     (
                         a.order,
                         rel.encode("utf-8"),
-                        SidebarEntry(rel=rel, title=_sidebar_label(root, rel_path, rel)),
+                        SidebarEntry(
+                            rel=rel,
+                            title=_sidebar_label(root, rel_path, rel, category == "decisions"),
+                        ),
                     )
                 )
             claimed.sort(key=lambda c: (c[0], c[1]))
@@ -722,7 +729,7 @@ def build_sidebar_groups(root: str, manifest: Manifest, entries: list[dict]) -> 
             continue
         # A declared profiles directory can name a private role; its files are not
         # servable, so neither is the label lifted out of one. The route would 404
-        # anyway — this keeps the bytes out of the sidebar that links it.
+        # anyway. This keeps the bytes out of the sidebar that links it.
         if not _servable_source(root, p.rel_path):
             continue
         name = (p.frontmatter or {}).get("name")
@@ -798,17 +805,22 @@ def _filename_label(root_rel: str) -> str:
     return _prettify_dir_name(stem)
 
 
-def _sidebar_label(root: str, rel_path: str, root_rel: str) -> str:
+def _sidebar_label(root: str, rel_path: str, root_rel: str, decision: bool = False) -> str:
     """Sidebar label for a document: the declared frontmatter `title` wins;
     otherwise the filename, cleaned up. Deliberately NOT the H1: hand-built
     sidebars use short curated labels, and filenames are the curated short name a
     repository already has. The H1 stays the document's title everywhere else
-    (page, index)."""
+    (page, index).
+
+    A decision record's title is prefixed with its number (`0001. Title`), so a
+    reader holding the number finds the record in the sidebar. The filename label
+    already carries the number, so it takes no prefix."""
     text = (Path(root) / rel_path).read_text(encoding="utf-8")
     fm = parse_frontmatter(text)
     title = (fm.data or {}).get("title")
     if isinstance(title, str) and title.strip() != "":
-        return title.strip()
+        number = _decision_number(rel_path) if decision else ""
+        return title.strip() if number == "" else f"{number}. {title.strip()}"
     return _filename_label(root_rel)
 
 
@@ -968,8 +980,8 @@ _SHORT_PIN_RE = re.compile(r"^[0-9a-fA-F]{7,}$")
 
 
 def _manifest_normalize(s: str) -> str:
-    """Collapse control chars and whitespace runs to single spaces, then trim — the
-    shared prefix of _esc, _code_span, and _mermaid_label."""
+    """Collapse control chars and whitespace runs to single spaces, then trim (the
+    shared prefix of _esc, _code_span, and _mermaid_label)."""
     s = _MANIFEST_CTRL_RE.sub(" ", s)
     s = _MANIFEST_WS_RE.sub(" ", s)
     return s.strip(_JS_WS)
@@ -1043,8 +1055,8 @@ def build_manifest_page(manifest: Manifest, statuses: list[dict]) -> str:
     local federation diagnostics (hydration + pin drift). Written as generated chrome
     to the gitignored `.leji/viewer/`, regenerated every run, never committed.
     Declaration-driven (the manifest is truth; mount status is joined by name).
-    Deterministic by construction — declared values plus git-derived (never
-    wall-clock, never networked) state — so the three SDKs emit identical bytes."""
+    Deterministic by construction: declared values plus git-derived (never
+    wall-clock, never networked) state, so the three SDKs emit identical bytes."""
     viewer_cfg = manifest.get("viewer") or {}
     title = effective_viewer_title(manifest)
     lines: list[str] = [
@@ -1467,7 +1479,7 @@ def _servable_source(root: str, repo_rel: str) -> bool:
 def _servable_profile_text(root_abs: str, repo_rel: str) -> Optional[str]:
     """A profile source read the way check-before-act requires: the requested path is judged, its
     RESOLVED path is judged, and the bytes come from the descriptor opened on that
-    resolved path and proved a regular file — so nothing swapped between the check and
+    resolved path and proved a regular file, so nothing swapped between the check and
     the read (a file, or any directory above it, becoming a symlink) changes what is
     composed into a served or exported page. None for anything refused."""
     abs_path = role_abs(root_abs, repo_rel)
@@ -1493,7 +1505,7 @@ def _servable_profile_text(root_abs: str, repo_rel: str) -> Optional[str]:
 
 def _servable_profile_set(root: str, manifest: Manifest) -> list[ScannedProfile]:
     """The profile set as the viewer may render it: every source read through
-    :func:`_servable_profile_text`, so no profile living in — or symlinked into — a
+    :func:`_servable_profile_text`, so no profile living in (or symlinked into) a
     private ``.leji/`` role is composed into a served page or an exported one, and the
     bytes composed are the bytes that passed the check. Dropped silently, exactly as
     the content walk drops unservable content; the scan itself stays total, so
@@ -1526,7 +1538,7 @@ def resolved_profile_page(root: str, manifest: Manifest, repo_rel: str) -> Optio
         # The whitelist, judged before this file is read into a page: a profile that
         # resolves into a private `.leji/` role is not the viewer's to render. None
         # hands the request back to the content walk, which refuses it the same way
-        # it refuses any unservable file — this branch never becomes the way in.
+        # it refuses any unservable file. This branch never becomes the way in.
         if not _servable_source(root, repo_rel):
             return None
         if not _declares_inherits(root, repo_rel):
@@ -1849,7 +1861,7 @@ def generate_viewer(
     findings: list[Finding] = [*result.findings, *findings_early]
     written: list[str] = []
 
-    # Check-before-act: the generation target — the `.leji/viewer/` role — is
+    # Check-before-act: the generation target (the `.leji/viewer/` role) is
     # realpath-resolved and validated BEFORE a single byte is written. A `.leji/viewer`
     # that resolves into a DIFFERENT private role (`.leji/work/`, `.leji/mounts/`, a
     # future role), or out of the repository altogether, is refused here, so a
@@ -1938,7 +1950,7 @@ def generate_viewer(
     # last saved it. If the markers are gone there is nowhere to render the map, which
     # is a warning.
     #
-    # Check-before-act: overview.md is content — its target must resolve WITHIN
+    # Check-before-act: overview.md is content: its target must resolve WITHIN
     # the layer root AND never into a private `.leji/` role. It is judged on the
     # RESOLVED path (own role None: content has no `.leji/` role) BEFORE anything is
     # read or written, so an overview.md symlinked into `.leji/work/` or

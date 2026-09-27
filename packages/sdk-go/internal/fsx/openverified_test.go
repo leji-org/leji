@@ -9,7 +9,7 @@ import (
 
 // The guarded read: what it hands back, and the window it closes. `allow` is called
 // after the resolve and before the open, which is exactly the window the post-open
-// recheck exists for — so the swap below is performed from inside it, deterministically,
+// recheck exists for, so the swap below is performed from inside it, deterministically,
 // rather than raced.
 
 func TestOpenVerifiedSourceReadsAnAllowedSource(t *testing.T) {
@@ -82,11 +82,11 @@ func TestOpenVerifiedSourceRefusesASwapBetweenTheCheckAndTheOpen(t *testing.T) {
 	// The residual the descriptor pinning alone leaves: the swap lands AFTER the
 	// realpath that authorized the source and BEFORE the open on it, so the open
 	// follows the new link and the descriptor holds planted bytes while every check has
-	// already passed on the authorized path. fstat cannot see it — the decoy is a
+	// already passed on the authorized path. fstat cannot see it: the decoy is a
 	// perfectly ordinary regular file. The recheck after the open resolves the source
 	// once more and requires the same location AND the same file identity, so the bytes
 	// about to be read are proved to be the ones `allow` judged. Mutation that reddens:
-	// drop the recheck and trust fstat alone — the planted bytes are handed back.
+	// drop the recheck and trust fstat alone: the planted bytes are handed back.
 	dir := t.TempDir()
 	tree := filepath.Join(dir, "tree")
 	decoy := filepath.Join(dir, "decoy")
@@ -130,7 +130,7 @@ func TestOpenVerifiedSourceRefusesASwapBetweenTheCheckAndTheOpen(t *testing.T) {
 
 func TestOpenVerifiedSourceRefusingADanglingSwapNamesTheAllowedPath(t *testing.T) {
 	// The other branch of the same window: the swap points the source at a target that
-	// does not exist. The source is still refused — path and descriptor diverged — but
+	// does not exist. The source is still refused (path and descriptor diverged), but
 	// there is no location to name, so the refusal carries the ORIGINAL allowed path.
 	// The reference implementation gets there by stat'ing the recheck path BEFORE
 	// comparing it, so the stat failure lands in its catch and returns `real`; Python
@@ -157,7 +157,7 @@ func TestOpenVerifiedSourceRefusingADanglingSwapNamesTheAllowedPath(t *testing.T
 			swapped = true
 			// Re-pointed after the resolve authorized it and before the open: the open
 			// is on the resolved path, so it still succeeds and fstat still sees the
-			// authorized regular file — only the recheck resolves elsewhere, to a
+			// authorized regular file. Only the recheck resolves elsewhere, to a
 			// target that was never created.
 			if err := os.Remove(link); err != nil {
 				t.Fatal(err)

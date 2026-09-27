@@ -362,6 +362,22 @@
         "templates/boot-profile.md",
         "templates/agents/core.md"
       ]
+    },
+    {
+      "id": "release-prose-audit-1-5-2",
+      "date": "2026-09-27",
+      "type": "changed",
+      "summary": "Three practice docs and decision 0008 corrected to the 1.5.2 behavior at the release prose audit.",
+      "paths": [
+        "docs/practice/testing-cli-adoptions.md",
+        "docs/practice/porting-ts-to-go-py.md",
+        "docs/practice/trust-boundary.md",
+        "docs/decisions/0008-dependency-pinning-and-refresh.md"
+      ],
+      "categories": [
+        "practice",
+        "decisions"
+      ]
     }
   ]
 }

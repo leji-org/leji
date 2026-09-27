@@ -18,11 +18,11 @@ import TranslationNote from '../../components/TranslationNote.astro';
 import { translationStrings } from '../../data/i18n';
 import lejiSyntaxTheme from '../../styles/shiki-leji.json';
 
-const source = '1d85a2ee9d95b8dcb58708c54e093711d2d5ff27';
+const source = 'b0b0cac2e8a7af68d6ece52a9b80e8a7c07b2702';
 const strings = translationStrings('ja');
 
 // Commands and code stay in the source language: they are typed, not read.
-const initCode = `leji adopt --dry-run    # 正確な書き込み計画。実際には何も書き込まない
+const initCode = `leji adopt --dry-run    # スキャフォールドの書き込み計画。実際には何も書き込まない
 leji adopt              # 既存リポジトリに導入する（新規なら leji init）
                         # 続いて Claude Code または Codex を開くか確認する
 
@@ -83,7 +83,7 @@ codex mcp add leji -- npx -y @leji-org/mcp`;
                      >leji init</code
                   > と <code>leji adopt</code>
                   の依存関係に関する処理では、同意した場合に限り、手元のパッケージマネージャーが実行されます。フェデレーションでネットワークに触れるのは、明示的に指定したリポジトリへ接続する次の
-                  3 つだけです。{' '}
+                  3 つだけです。
                   <code>leji mounts hydrate --fetch</code>、<code>leji mounts update-pin --fetch</code>、そして{' '}
                   <code>leji conformance --federation=verify</code> です。
                </p>
@@ -184,7 +184,7 @@ codex mcp add leji -- npx -y @leji-org/mcp`;
                      <h2><span class="step-num">04</span>レベルを宣言し、検証する</h2>
                      <p>
                         段階的に導入できるよう設計されています。<code>core</code>
-                        から始め、各レベルは前のレベルを含みます。宣言はマニフェストが行い、{' '}
+                        から始め、各レベルは前のレベルを含みます。宣言はマニフェストが行い、
                         <code>leji conformance</code> がそれに照らしてコンテキストレイヤーを判定します。
                      </p>
                      <p class="ladder-line">
@@ -225,7 +225,7 @@ codex mcp add leji -- npx -y @leji-org/mcp`;
                   <Code code={startCode} lang="bash" theme={lejiSyntaxTheme} wrap />
                   <p class="fine">
                      複数のホストが見つかった場合は、どれを使うか確認します。ひとつも見つからない場合や、スクリプトまたは
-                     CI から実行した場合は、推測せずに実行すべきコマンドを表示します。{' '}
+                     CI から実行した場合は、推測せずに実行すべきコマンドを表示します。
                      <a href="/ja/adoption/#put-it-to-work">導入ガイド</a
                      >では、ホストへのパススルーフラグとベンダーファイルの対応表を説明しています。
                   </p>
@@ -301,13 +301,12 @@ codex mcp add leji -- npx -y @leji-org/mcp`;
 <style>
    .gs-hero {
       /* No top padding: .doc-shell already sets the 2.5rem above the first line,
-         and every Doc page starts its h1 there. This section used to add another
-         2.5-4.5rem, which is why this page's header sat lower than the rest. */
+         and every Doc page starts its h1 there. */
       padding: 0 0 1rem;
       max-width: 760px;
    }
-   /* .eyebrow now comes from global.css via PageHeader; the local copy is gone so
-      the classification cannot drift from the rest of the site. */
+   /* .eyebrow comes from global.css via PageHeader, so the classification cannot
+      drift from the rest of the site. */
    /* h1 comes from the shared .measured/.prose display scale in global.css. */
    .lede {
       font-size: var(--text-lede);

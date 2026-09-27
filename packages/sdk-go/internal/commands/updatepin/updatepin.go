@@ -3,7 +3,7 @@
 // comparison before anything is rewritten. Mirrors commands/mounts-update-pin.ts.
 //
 // Offline by default: the target is the last successfully observed witness, never a
-// claim of freshness. `--fetch` observes the declared source — and nothing else —
+// claim of freshness. `--fetch` observes the declared source (and nothing else)
 // in three acts: retain the current pin, refresh the witness once, and (after the
 // gate passes) retain the target. Any of them failing REFUSES the move; a pin move
 // is not best-effort, which is `hydrate`'s model rather than this one. The reason
@@ -42,7 +42,7 @@ type MountBlock struct {
 	Name           string
 	SourceIdentity *string
 	// TrackingRef is the DECLARED tracking ref, never the default resolved under
-	// `--fetch` — that one is reported as PinReport.ComparedRef.
+	// `--fetch`. That one is reported as PinReport.ComparedRef.
 	TrackingRef *string
 	From        *string
 	To          *string
@@ -148,7 +148,7 @@ func Run(root string, m *manifest.Manifest, opts Options) (Result, error) {
 
 	// (a) The declaration snapshot: the manifest's OWN values, kept for the
 	// freshness check the rewrite makes against the verified bytes. TrackingRef is
-	// snapshotted as declared — absent must stay absent — while the ref the
+	// snapshotted as declared (absent must stay absent), while the ref the
 	// comparison actually uses is tracked separately. Presence is carried beside the
 	// value because a Go string cannot hold it: the schema's ref pattern rejects an
 	// empty string, so a loaded declaration whose TrackingRef is "" is one the
@@ -201,7 +201,7 @@ func Run(root string, m *manifest.Manifest, opts Options) (Result, error) {
 
 	// (b i, ii) `--fetch`, declared source only, in order: retain the CURRENT pin so
 	// the managed store holds both operands, then refresh the witness exactly once.
-	// A failure here refuses the move — best-effort belongs to `hydrate`.
+	// A failure here refuses the move: best-effort belongs to `hydrate`.
 	if opts.Fetch {
 		store, retainErr, err := mounts.RetainPinInStore(root, mount, identity, mount.Pin, opts.IgnoreContext)
 		if err != nil {
@@ -295,7 +295,7 @@ func Run(root string, m *manifest.Manifest, opts Options) (Result, error) {
 	if !ancestor.OK {
 		// Exit 1 is the answer "no"; anything else is the repository unable to answer.
 		// A "no" from truncated history is not an answer either, so an incomplete
-		// repository never yields the not-fast-forward refusal — nor does the
+		// repository never yields the not-fast-forward refusal, nor does the
 		// override bypass it.
 		if ancestor.Code != 1 || !comparison.AncestryComplete {
 			return refuseSettled("mount-ancestry-incomplete", false, nil), nil
@@ -385,7 +385,7 @@ type declarationSnapshot struct {
 }
 
 // memberString reads one member of a mount object as a JSON string: whether the key
-// is there at all, and — only when it is a string — its value. A member spelled
+// is there at all, and (only when it is a string) its value. A member spelled
 // `null`, or holding any non-string, is present with no string value, which is
 // never equal to a declared one.
 func memberString(members map[string]json.RawMessage, key string) (value string, present, isString bool) {

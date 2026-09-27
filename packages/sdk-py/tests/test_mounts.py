@@ -4,7 +4,6 @@ import errno
 import hashlib
 import json
 import os
-import shutil
 import stat as statmod
 import subprocess
 import tempfile
@@ -16,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from helpers.copytree import copy_tree
 from leji.conformance import conformance_report
 from leji.manifest import load_manifest
 from leji.mounts import (
@@ -56,14 +56,14 @@ def mounted_pair(tmp_path: Path) -> tuple[str, Path, str]:
     pinned mount and a machine-local hint pointing at the sibling checkout."""
     sibling = tmp_path / "sibling"
     host = tmp_path / "host"
-    shutil.copytree(SIBLING_EXAMPLE, sibling)
+    copy_tree(SIBLING_EXAMPLE, sibling)
     git(sibling, "init", "-q", "-b", "main")
     git(sibling, "add", "-A")
     git(
         sibling, "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "seed"
     )
     pin = git(sibling, "rev-parse", "HEAD")
-    shutil.copytree(HOST_EXAMPLE, host)
+    copy_tree(HOST_EXAMPLE, host)
     mp = host / "leji.json"
     m = json.loads(mp.read_text(encoding="utf-8"))
     m["federation"]["mounts"][0]["pin"] = pin
@@ -742,7 +742,7 @@ def write_denied(directory: Path) -> bool:
 def tree_snapshot(directory: Path, prefix: str = "") -> list[str]:
     """Paths, types, modes, symlink targets, content and directory mtimes: the whole of
     what "the tree is byte-for-byte what it was" has to mean here. Content alone would
-    miss a staging directory created and removed between the two reads — its parent's
+    miss a staging directory created and removed between the two reads: its parent's
     mtime is the only trace that survives."""
     out: list[str] = []
     for name in sorted(os.listdir(directory)):
@@ -772,7 +772,7 @@ def test_check_integrity_verifies_a_write_denied_host_tree_twice_without_touchin
 ) -> None:
     # `mounts status --check-integrity` staged its comparison tree inside the host's
     # own .leji/mounts/, so the read-only diagnostic wrote into the tree it was
-    # diagnosing — and could not run at all where that tree is not writable.
+    # diagnosing, and could not run at all where that tree is not writable.
     host, _sibling, _pin = mounted_pair(tmp_path)
     manifest = load_manifest(host).manifest
     assert manifest is not None
@@ -806,7 +806,7 @@ def test_two_verifications_at_once_in_one_process_do_not_collide(tmp_path) -> No
     Both halves earn their place. Without the rendezvous the threads drift into taking
     turns and never overlap; with the rendezvous alone they run identical work in
     lockstep, and two threads staging the same content into one shared directory at the
-    same instant still agree — the interleaving that a shared staging directory cannot
+    same instant still agree: the interleaving that a shared staging directory cannot
     survive is one thread starting while the other is mid-verification. Threads, so "the
     same process" is literal: a staging name derived from the pid is one name for both
     of them."""
@@ -905,8 +905,8 @@ def test_a_reachable_store_without_the_pin_is_unverifiable_and_names_the_prerequ
     assert manifest is not None
     hydrate_mounts(host, manifest)
     # A real repository, reachable, that simply does not contain this pin. The
-    # published projection stays published — its cache key comes from the
-    # declaration, not from whichever store happens to be reachable — so the only
+    # published projection stays published (its cache key comes from the
+    # declaration, not from whichever store happens to be reachable), so the only
     # missing prerequisite is the commit the comparison would be made against.
     other = Path(host).parent / "other"
     other.mkdir()

@@ -40,11 +40,12 @@
    --leji-ink-on-deep: #ffffff;
    --leji-ink-on-deep-soft: #f7f8f5;
    --leji-ink-on-cta: #ffffff;
-   --leji-cta-hover: var(--leji-brand);
+   --leji-cta-hover: #006f4f;
    /* Brand green is a brand colour first: at 3.2:1 on the canvas it cannot carry
-      normal-size text. --leji-link is the same hue held to 4.8:1, and it is what
-      links, small labels and interactive marks use on light grounds. */
-   --leji-link: #007d59;
+      normal-size text. --leji-link is the same hue held to 5.5:1 on the canvas and
+      5.0:1 on the code chip, and it is what links, small labels and interactive
+      marks use on light grounds. */
+   --leji-link: #007355;
    --leji-border: #cde5d9;
    /* The edge of a box that sits on the wash, in the wash's own family. */
    --leji-wash-border: #e6dec6;

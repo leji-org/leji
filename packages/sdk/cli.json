@@ -1,6 +1,6 @@
 {
   "name": "leji",
-  "summary": "Reference CLI for the Leji specification: validate, index, changelog, freshness, conformance, badge, status, route, mounts, export, viewer/view, detect, adopt, init, start, ci, and agent for a shared context layer.",
+  "summary": "Reference CLI for the Leji specification: validate, index, changelog, freshness, conformance, badge, status, route, mounts, export, viewer/view, detect, adopt, init, start, doctor, ci, and agent for a shared context layer.",
   "usage": "leji <command> [options]",
   "globalOptions": [
     {
@@ -27,7 +27,7 @@
     },
     {
       "code": 1,
-      "meaning": "A check did not pass. Usually an error finding was reported; some commands also use it for a negative result with no finding, such as `status --strict` flagging an entry, `mounts locate` finding no hydrated projection, or `start` finding no boot profile."
+      "meaning": "A check did not pass. Usually an error finding was reported; some commands also use it for a negative result with no finding, such as `status --strict` flagging an entry, `mounts locate` finding no hydrated projection, `start` finding no boot profile, or `doctor` finding the clone not ready."
     },
     {
       "code": 2,
@@ -166,7 +166,7 @@
       "group": "start",
       "summary": "Open a coding agent in this context layer, booted from the boot profile.",
       "usage": "leji start [--agent <name>] [--root <dir>] [--json] [-- <host flags…>]",
-      "description": "Detects an installed agent (or use --agent), launches it from the repository root, and points it at the boot profile so it loads the team's context first. The agent-facing counterpart to `leji view`. Several detected agents prompt for which; with none detected or in a non-interactive shell, it prints the command to run. Everything after a literal -- passes verbatim to the launched host binary, before the boot prompt. Host-specific flags ride with a pinned host: `leji start --agent claude-code -- --chrome`, never bare `-- --chrome`, which could hand the flag to whichever host gets picked.",
+      "description": "Detects an installed agent (or use --agent), launches it from the repository root, and points it at the boot profile so it loads the team's context first. The agent-facing counterpart to `leji view`. Several detected agents prompt for which; with none detected or in a non-interactive shell, it prints the command to run. Everything after a literal -- passes verbatim to the launched host binary, before the boot prompt. Host-specific flags ride with a pinned host: `leji start --agent claude-code -- --chrome`, never bare `-- --chrome`, which could hand the flag to whichever host gets picked. `leji doctor` prints the same Setup report without launching an agent.",
       "details": [
         "Before the agent starts, prints a Setup block for this clone: whether the Leji CLI this repository declares resolves here and meets the minimum version for the layer's spec line, whether the MCP server is registered for the selected host, whether the shared `.mcp.json` is committed, and whether the pre-commit hook is installed.",
         "Each row is personal or shared. Personal state (your host's MCP registration, this clone's `.git` hook) is offered on a real terminal and printed as an exact command otherwise; shared state (the dependency declaration, a committed `.mcp.json`, a hooks directory inside the working tree) is only ever reported, with the command a maintainer runs and commits. A gap never blocks entry: the agent still boots.",
@@ -239,7 +239,7 @@
       "group": "start",
       "summary": "Add a CI workflow that runs leji validate and index --check on every change.",
       "usage": "leji ci [--provider <github|gitlab|circleci|azure>] [--hooks] [--root <dir>] [--json]",
-      "description": "Adds a CI job that runs `leji validate` and `leji index --check` on every change, so your context layer stays honest in CI (the same two gates the `--hooks` pre-commit runs locally). Idempotent: a Leji workflow already in place is left untouched.",
+      "description": "Adds a CI job that runs `leji validate` and `leji index --check` on every change, so your context layer stays honest in CI (the same two gates the `--hooks` pre-commit runs locally). A whole workflow file (GitHub, CircleCI, Azure) is left as it is when its bytes are current, replaced when it is an older file Leji generated, and left untouched with a snippet to add by hand when it was edited or is not Leji's; GitLab's managed block is merged inside its markers.",
       "details": [
         "The provider is inferred from the `origin` remote (a github.com host selects GitHub, any gitlab host GitLab, an Azure DevOps host Azure Pipelines) and falls back to GitHub when the remote names none; `--provider` overrides the inference, and CircleCI is never inferred.",
         "GitHub: writes its own workflow at `.github/workflows/leji.yml`.",
@@ -272,7 +272,7 @@
       "group": "everyday",
       "summary": "Validate the context layer: manifest, artifacts, frontmatter, and lint rules.",
       "usage": "leji validate [--content] [--federation <available|required> [--paths <a,b,...>]] [--root <dir>] [--json]",
-      "description": "Loads leji.json and checks it against the schemas and the lint rules: declared files exist, categories are populated, vendor entrypoints redirect to the boot profile, frontmatter is valid, every markdown link in a governed document resolves inside the layer, and (per the claimed conformance level) the index is current and the changelog is append-only. One of the two gates the generated CI runs, beside `leji index --check`. With --content it also runs a warning-only content lint (placeholder text, generic boot identity, thin categories) that never errors and never affects a conformance level.",
+      "description": "Loads leji.json and checks it against the schemas and the lint rules: declared files exist, categories are populated, vendor entrypoints redirect to the boot profile, frontmatter is valid, every markdown link in a governed document resolves inside the layer, and (per the claimed conformance level) the index is current and the changelog is append-only. One of the two gates the generated CI runs, beside `leji index --check`. With --content it also runs a warning-only content lint (placeholder text, generic boot identity, thin categories) that never errors and never affects a conformance level. A `.leji/` directory under the context root other than the repository's own is the tool tree's location before Leji 1.4.0, reported as the warning `legacy-leji-dir`: delete it.",
       "options": [
         {
           "flags": "--content",
@@ -325,6 +325,28 @@
       "examples": [
         "leji status",
         "leji status --strict --json"
+      ]
+    },
+    {
+      "name": "doctor",
+      "group": "everyday",
+      "summary": "Report this clone's setup without launching an agent.",
+      "usage": "leji doctor [--agent <name>] [--root <dir>] [--json]",
+      "description": "Checks whether the Leji CLI this repository declares resolves here and meets the minimum version for the context layer's spec line, whether the MCP server is registered for the selected host, whether the shared `.mcp.json` is committed, and whether the pre-commit hook is installed. Exits 1 when the clone is not ready. `leji start` runs the same report before it launches an agent.",
+      "details": [
+        "Prints the block `leji start` prints before it launches, with one difference: the closing line counts the fixes and does not say the agent starts; nothing is offered, written, or launched.",
+        "Exit status agrees with `ready`: 0 when the clone is ready, 1 otherwise. In `--json`, `ok` says only that the report was produced."
+      ],
+      "options": [
+        {
+          "flags": "--agent <name>",
+          "summary": "Answer for a specific host (claude-code or codex) instead of auto-detecting; several detected hosts and no --agent leave the MCP row unresolved."
+        }
+      ],
+      "examples": [
+        "leji doctor",
+        "leji doctor --json",
+        "leji doctor --agent codex"
       ]
     },
     {

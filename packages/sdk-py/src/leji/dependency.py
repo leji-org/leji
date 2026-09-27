@@ -87,7 +87,7 @@ class DependencyOffer:
     was consented to and attempted, and ``exit_code``/``signal`` are nullable exactly
     as they are in the ``--json`` contract. A signalled manager has no exit code of
     its own (``exit_code`` None, ``signal`` set), and a spawn that never started has
-    neither (both None with ``ran`` True) — which counts as a failure just like a
+    neither (both None with ``ran`` True), which counts as a failure just like a
     non-zero exit. The runner's start state stays in :class:`AddResult`."""
 
     offered: bool = False

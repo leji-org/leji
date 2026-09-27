@@ -33,9 +33,8 @@ func seedWithEntries(t *testing.T, count int) string {
 	run("init", "-q")
 	run("config", "user.email", "t@e.com")
 	run("config", "user.name", "T")
-	cp := exec.Command("cp", "-r", exampleDir(t)+"/.", dir)
-	if out, err := cp.CombinedOutput(); err != nil {
-		t.Fatalf("cp: %v: %s", err, out)
+	if err := os.CopyFS(dir, withoutLeji{os.DirFS(exampleDir(t))}); err != nil {
+		t.Fatalf("copy example: %v", err)
 	}
 	abs := filepath.Join(dir, changelogRel)
 	log := readChangelog(t, abs)

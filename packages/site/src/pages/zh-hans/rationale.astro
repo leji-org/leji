@@ -14,7 +14,7 @@ import CircleChart from '../../components/CircleChart.astro';
 import TranslationNote from '../../components/TranslationNote.astro';
 import { translationStrings } from '../../data/i18n';
 
-const source = '0ddffffc1603fd1aec577a54e9674ba6f9a226ac';
+const source = '0bb7708dccd5de8cbb2c20a8a3621ddd2d9f58aa';
 const strings = translationStrings('zh-hans');
 ---
 
@@ -60,7 +60,11 @@ const strings = translationStrings('zh-hans');
                <CircleChart />
                <figcaption class="figure-note">
                   <span class="flows">人对人 · 人对 AI · 人对 AI 再对人</span>
-                  所有人都读取。任何参与者都可以提议。由人来批准。过期的上下文绝不会被悄悄当作当前有效。
+                  所有人都读取。任何参与者都可以提议。由人来批准。超过复核期限的上下文会由 <code>leji freshness</code> 和{
+                     ' '
+                  }
+                  <code>leji route</code>{' '}
+                  标示出来，而不会被当作当前有效的内容呈现。
                </figcaption>
             </figure>
 

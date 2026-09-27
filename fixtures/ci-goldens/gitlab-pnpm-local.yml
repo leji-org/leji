@@ -1,7 +1,7 @@
 # >>> leji ci (managed) >>>
 leji-validate:
   stage: .pre
-  image: node:22
+  image: node:24
   script:
     - corepack enable && pnpm install --frozen-lockfile
     - pnpm exec leji validate

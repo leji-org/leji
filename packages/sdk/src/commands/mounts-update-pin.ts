@@ -22,7 +22,7 @@ import {
  * rewritten.
  *
  * Offline by default: the target is the last successfully observed witness, never a
- * claim of freshness. `--fetch` observes the declared source — and nothing else —
+ * claim of freshness. `--fetch` observes the declared source (and nothing else)
  * in three acts: retain the current pin, refresh the witness once, and (after the
  * gate passes) retain the target. Any of them failing REFUSES the move; a pin move
  * is not best-effort, which is `hydrate`'s model rather than this one. The reason
@@ -40,8 +40,8 @@ export interface UpdatePinResult {
    mount: {
       name: string;
       sourceIdentity: string | null;
-      /** The DECLARED tracking ref, never the default resolved under `--fetch` —
-       * that one is reported as `pinReport.comparedRef`. */
+      /** The DECLARED tracking ref, never the default resolved under `--fetch`.
+       * That one is reported as `pinReport.comparedRef`. */
       trackingRef: string | null;
       from: string | null;
       to: string | null;
@@ -127,7 +127,7 @@ export function updatePinRun(root: string, manifest: Manifest, opts: UpdatePinOp
 
    // (a) The declaration snapshot: the manifest's OWN values, kept for the
    // freshness check the rewrite makes against the verified bytes. `trackingRef`
-   // is snapshotted as declared — absent must stay absent — while the ref the
+   // is snapshotted as declared (absent must stay absent), while the ref the
    // comparison actually uses is tracked separately.
    const declaration = {
       name: mount.name,
@@ -173,7 +173,7 @@ export function updatePinRun(root: string, manifest: Manifest, opts: UpdatePinOp
 
    // (b i, ii) `--fetch`, declared source only, in order: retain the CURRENT pin so
    // the managed store holds both operands, then refresh the witness exactly once.
-   // A failure here refuses the move — best-effort belongs to `hydrate`.
+   // A failure here refuses the move: best-effort belongs to `hydrate`.
    if (opts.fetch) {
       const retained = retainPinInStore(root, mount, identity, mount.pin, opts.ignoreContext);
       if (retained.repo === null) {
@@ -270,7 +270,7 @@ export function updatePinRun(root: string, manifest: Manifest, opts: UpdatePinOp
    if (!ancestor.ok) {
       // Exit 1 is the answer "no"; anything else is the repository unable to answer.
       // A "no" from truncated history is not an answer either, so an incomplete
-      // repository never yields the not-fast-forward refusal — nor does the
+      // repository never yields the not-fast-forward refusal, nor does the
       // override bypass it.
       if (ancestor.code !== 1 || !comparison.ancestryComplete) return refuseSettled('mount-ancestry-incomplete');
       if (opts.to === undefined || !opts.allowNonFastForward) return refuseSettled('mount-pin-not-fast-forward');

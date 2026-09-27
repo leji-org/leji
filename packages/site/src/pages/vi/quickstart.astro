@@ -14,11 +14,11 @@ import TranslationNote from '../../components/TranslationNote.astro';
 import { translationStrings } from '../../data/i18n';
 import lejiSyntaxTheme from '../../styles/shiki-leji.json';
 
-const source = '1d85a2ee9d95b8dcb58708c54e093711d2d5ff27';
+const source = 'b0b0cac2e8a7af68d6ece52a9b80e8a7c07b2702';
 const strings = translationStrings('vi');
 
 // Commands and code tokens stay in the source language; explanatory comments are translated.
-const initCode = `leji adopt --dry-run    # kế hoạch ghi chính xác; chưa ghi gì
+const initCode = `leji adopt --dry-run    # kế hoạch ghi của phần khung; chưa ghi gì
 leji adopt              # áp dụng cho kho mã nguồn hiện có (leji init nếu là kho mã nguồn mới)
                         # sau đó đề nghị mở Claude Code hoặc Codex
 

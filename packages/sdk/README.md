@@ -21,6 +21,7 @@ leji viewer build       # export a self-contained static viewer folder
 leji view               # generate, serve, and open it in your browser
 leji detect             # find installed agent hosts
 leji start              # open the layer in a detected agent host
+leji doctor             # report this clone's setup without launching an agent
 leji adopt              # map an existing entrypoint into a context layer
 leji ci                 # add a validate workflow (--provider github|gitlab|circleci|azure)
 leji agent --name <n>   # bind an additional named agent into the layer
@@ -93,7 +94,8 @@ Migrating from an earlier version:
   the root `.gitignore`. Onboarding refuses to run while anything under
   `.leji/` is tracked, and the nested `.leji/.gitignore` takes precedence over
   any negation written at the root.
-- A `docs/.leji/` tree left by 1.3.x is unused in 1.4.x and can be deleted.
+- A `docs/.leji/` tree left by 1.3.x is unused since 1.4 and can be deleted;
+  `leji validate` reports it as `legacy-leji-dir`.
 
 Because the hints file stays uncommitted, a fresh clone hydrates its mounts
 through the resolver store or the manifest's remote URLs, so a pinned commit has

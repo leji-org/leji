@@ -1,15 +1,15 @@
 """The unified ``.leji/`` layout: one tree at the repository root holding every
 role the tool owns, whatever ``rootPath`` the layer declares.
 
-Roles are repository-root-relative by construction — a generated artifact never
+Roles are repository-root-relative by construction: a generated artifact never
 lives inside the context root, so the content walk and the served content mount
 carry nothing of the tool's own.
 
-- ``mounts/`` + ``mounts.local.json`` — the private federation domain (owned by
+- ``mounts/`` + ``mounts.local.json``: the private federation domain (owned by
   mounts.py, which spells the paths inside it; never servable, never exportable).
-- ``viewer/`` — generated chrome, the ONE servable role.
-- ``dist/`` — the default export output.
-- ``work/`` — the transient onboarding workspace.
+- ``viewer/``: generated chrome, the ONE servable role.
+- ``dist/``: the default export output.
+- ``work/``: the transient onboarding workspace.
 """
 
 from __future__ import annotations
@@ -56,8 +56,8 @@ def servable_path(root_abs: str, abs_path: str) -> bool:
     """The servable-roots whitelist: a path may be served or exported only when it
     lies outside root ``.leji/`` entirely, or inside ``.leji/viewer/``.
 
-    Every other role under ``.leji/`` — the private mounts domain, the export
-    output, the onboarding workspace, and any role added later — is denied **by
+    Every other role under ``.leji/`` (the private mounts domain, the export
+    output, the onboarding workspace, and any role added later) is denied **by
     name**, so a new role is born unservable and no relaxation of the dot-segment
     refusal (kept as defense in depth) can open the trust domain as a side effect.
 
@@ -85,7 +85,7 @@ def leji_role(root_abs: str, abs_path: str) -> str:
 @dataclass(kw_only=True)
 class TargetVerdict:
     """The verdict of :func:`writable_target`: whether a tool-owned target may be
-    written or cleared, and — when refused — that it landed outside the repository,
+    written or cleared, and (when refused) that it landed outside the repository,
     the private role it crossed into, that the path could not be resolved at all
     (permission/I/O, not mere absence), or that an exclusive create found the file
     already there.
@@ -118,8 +118,8 @@ def writable_target(root_abs: str, resolved_abs: str, own_role_rel: Optional[str
        makes lands in the repository it was pointed at, with no exceptions: a
        ``.leji/`` role symlinked out of the tree is refused rather than followed. A
        user who wants the export somewhere else copies the finished folder there.
-    2. A target under root ``.leji/`` is refused — that tree is the tool's own trust
-       domain — UNLESS ``own_role_rel`` is given and the target lies under that one
+    2. A target under root ``.leji/`` is refused (that tree is the tool's own trust
+       domain) UNLESS ``own_role_rel`` is given and the target lies under that one
        role.
     3. Anything else inside the repository is ordinary content and is allowed.
 
@@ -131,7 +131,7 @@ def writable_target(root_abs: str, resolved_abs: str, own_role_rel: Optional[str
     ``own_role_rel`` names the ONE ``.leji/`` role the target may land in, as a
     lexical path under the resolved root; pass ``None`` when the target has no
     legitimate ``.leji/`` role at all (user content such as overview.md, which lives
-    under the content root, never inside ``.leji/``) — then any ``.leji/`` landing is
+    under the content root, never inside ``.leji/``). Then any ``.leji/`` landing is
     refused."""
     if not _under(root_abs, resolved_abs):
         return TargetVerdict(outside_root=True)

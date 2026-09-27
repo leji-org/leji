@@ -596,7 +596,7 @@ func vendorRels(vendor map[string]string) []string {
 
 // writeFileOnce writes a file this command owns, once: never over an existing one,
 // and never through a standing entry it cannot verify. The skip is decided by the
-// verified read rather than a pathname check, because a stat follows symlinks — a
+// verified read rather than a pathname check, because a stat follows symlinks: a
 // dangling link at the target reads as absent and the guarded write then lands at
 // the link's destination, a name this command never planned. Only absent is free; a
 // regular file is the never-overwrite skip; anything else standing there is the
@@ -626,7 +626,7 @@ func writeFileOnce(root, rel, content string, written *[]string) error {
 }
 
 // ensureLejiGitignored idempotently ensures the repo-root .gitignore ignores
-// `.leji/` — the one line that covers every role of the unified tree (chrome,
+// `.leji/`, the one line that covers every role of the unified tree (chrome,
 // export output, onboarding workspace, mounts) and any role added later. Matches
 // the line exactly, so it never treats a comment or `docs/.leji/` as equivalent.
 func ensureLejiGitignored(rootAbs string) error {
@@ -1149,13 +1149,13 @@ func huskyShape(rootAbs, hooksPath string) string {
 // HookOwnership says who owns the pre-commit hook this repository would get,
 // decided by where the write would actually land rather than by the mechanism that
 // would perform it: "personal" under git's own directories AND inside this working
-// tree (.git/hooks, a core.hooksPath resolving inside them) — per clone, never
+// tree (.git/hooks, a core.hooksPath resolving inside them): per clone, never
 // committed, and safe to write; "shared" inside the working tree but not under git's
-// directories (husky, a githooks/ hooks path) — committed, so a maintainer's call;
+// directories (husky, a githooks/ hooks path): committed, so a maintainer's call;
 // "outside-root" under git's directories but OUTSIDE this working tree (a linked
-// worktree, whose hooks live in the common git directory) — per clone, but the writer
+// worktree, whose hooks live in the common git directory): per clone, but the writer
 // refuses to write outside the repository root, so it is reported; "external"
-// anywhere else (a global or $HOME hooks path, a symlink escaping the repository) —
+// anywhere else (a global or $HOME hooks path, a symlink escaping the repository):
 // reported, never written; "no-git" when there is no repository to hang a hook on.
 type HookOwnership = string
 
@@ -1194,7 +1194,7 @@ func hookText(abs string) (string, bool) {
 // HookStatus is EnsureLocalHook's resolve step without the write: where the managed
 // pre-commit hook would go for this repository, who owns that location, and what
 // stands there now. The whole point is that a report can be produced without
-// touching anything — `leji start` prints it, and only a consented repair goes on to
+// touching anything: `leji start` prints it, and only a consented repair goes on to
 // EnsureLocalHook.
 func HookStatus(root string, runner []string) HookReport {
 	rootAbs, err := filepath.Abs(root)
@@ -1261,7 +1261,7 @@ func HookStatus(root string, runner []string) HookReport {
 // is git's effective hooks dir (rev-parse --git-path hooks); core.hooksPath decides
 // whether a husky repo gets a managed block in the user-editable .husky/pre-commit
 // (v8/v9) or a standalone managed hook is written. A hooks dir resolving outside the
-// repo (a global core.hooksPath) is never written — the snippet comes back for a
+// repo (a global core.hooksPath) is never written. The snippet comes back for a
 // manual hand-add, as does an existing unmanaged hook.
 func EnsureLocalHook(root string, runner []string) (HookResult, error) {
 	rootAbs, err := filepath.Abs(root)
@@ -2112,8 +2112,8 @@ type LaunchResult struct {
 }
 
 // RunOptions bounds one child run. Quiet suppresses child output (the MCP presence
-// check); Capture reads stdout back instead — bounded by TimeoutMs and MaxBytes,
-// with stdin closed and stderr discarded — which is what the preflight version probe
+// check); Capture reads stdout back instead (bounded by TimeoutMs and MaxBytes,
+// with stdin closed and stderr discarded), which is what the preflight version probe
 // needs; Env, when non-nil, REPLACES the environment entirely (nothing of this
 // process's is inherited), which is how the probe stays sanitized.
 type RunOptions struct {
@@ -2342,7 +2342,7 @@ func ResolveStartHost(detected []detect.DetectedHost, agent string, interactive 
 	return nil, nil
 }
 
-// StartHosts is the detected hosts `leji start` could launch, ranked — what the
+// StartHosts is the detected hosts `leji start` could launch, ranked: what the
 // preflight names when several are present and none was picked.
 func StartHosts(detected []detect.DetectedHost) []StartHost {
 	hosts := promptCapableHosts(detected)
@@ -2559,7 +2559,7 @@ func OfferMcpInstall(opts McpOfferOptions, hio *HandoffIO, out io.Writer) McpOff
 		return outcome
 	}
 	// Skip the offer when already registered (clean exit), so re-running init/adopt
-	// never re-nags — but say so: a silent skip is indistinguishable from the offer
+	// never re-nags, but say so: a silent skip is indistinguishable from the offer
 	// being broken. A failed check (e.g. an older host CLI) falls through to the offer.
 	if len(spec.McpCheck) > 0 {
 		chk := hio.Run(target.bin, spec.McpCheck, opts.Root, RunOptions{Quiet: true})
@@ -3142,8 +3142,8 @@ func AdoptLayer(opts AdoptOptions) (AdoptResult, error) {
 
 // archivePath is where a vendor entrypoint's content is archived under
 // governance/: the first free imported-<slug>.md, or "" when this exact migration
-// doc is already on disk — the normal case, AdoptLayer having archived it on the
-// first pass. Mirrors the slug and disambiguation rules AdoptLayer uses.
+// doc is already on disk (the normal case, AdoptLayer having archived it on the
+// first pass). Mirrors the slug and disambiguation rules AdoptLayer uses.
 func archivePath(root, rootPath, vendorRel, doc string) (string, error) {
 	rootReal := fsx.GuardRoot(root)
 	base := importedSlug(vendorRel)
@@ -3158,8 +3158,8 @@ func archivePath(root, rootPath, vendorRel, doc string) (string, error) {
 		// verified bytes: a pathname existence check follows symlinks, so a dangling
 		// candidate link would read as free and the write would follow it to its missing
 		// destination. Nothing standing is free; the identical archive is already on
-		// disk; anything else — different bytes, or a standing entry this run cannot
-		// verify — is occupied, and the next name is tried.
+		// disk; anything else (different bytes, or a standing entry this run cannot
+		// verify) is occupied, and the next name is tried.
 		free, ferr := nothingStandsAt(abs)
 		if ferr != nil {
 			return "", ferr

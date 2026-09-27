@@ -254,7 +254,7 @@ def test_an_entry_swapped_to_a_link_between_the_judgment_and_the_open_is_refused
     trusts the open to pass, because the open resolves the link and verifies its
     target perfectly well. What refuses it is the descriptor's own identity against a
     fresh lstat of the NAME afterwards. Mutation that reddens: judge with lstat and
-    take the bytes back by path name (the pre-change shape) — the decoy's
+    take the bytes back by path name (the pre-change shape): the decoy's
     packageManager and its declaration decide the answer.
 
     The seam is `open_verified_source` as the scan calls it, wrapped so that the swap
@@ -297,7 +297,7 @@ def test_a_name_renamed_away_and_linked_back_to_its_own_inode_is_refused(
 ) -> None:
     """The case every comparison against the FIRST lstat accepts: the entry the run
     judged is renamed and its old name becomes a link to that same inode, so each
-    identity the open can see agrees — the resolve lands on that file, the descriptor's
+    identity the open can see agrees: the resolve lands on that file, the descriptor's
     fstat is the judged inode, and the verified open's own recheck matches. Only a
     FRESH lstat of the NAME catches it, because a symlink's inode is never the inode of
     the file it points at, and a lockfile reached through a link is not this
@@ -330,8 +330,8 @@ def test_a_name_renamed_away_and_linked_back_to_its_own_inode_is_refused(
 def test_a_manifest_this_run_cannot_open_is_unreadable_not_refused(tmp_path: Path) -> None:
     """The other half of the verified-read composition: what the run could not COMPLETE
     on an entry it never saw contradicted is not a refusal. A regular file of this
-    repository whose open is denied keeps the outcome it has always had — the manifest
-    is unreadable, so neither the lockfile nor the ecosystem default is consulted —
+    repository whose open is denied keeps the outcome it has always had (the manifest
+    is unreadable, so neither the lockfile nor the ecosystem default is consulted),
     while a swap stays refused-evidence above. Mutation that reddens: collapse every
     failure in `_verify` to refused, and this reports refused-evidence instead."""
     root = Path(_plant(tmp_path, {"package.json": "{}", "package-lock.json": ""}, "denied"))
@@ -437,7 +437,7 @@ def test_rendered_line() -> None:
 
 def test_trailing_content_is_unreadable(tmp_path: Path) -> None:
     """Trailing content after the first value is not strict JSON: JSON.parse and Go's
-    decoder both refuse it, and json.loads does too — all three call it unreadable
+    decoder both refuse it, and json.loads does too: all three call it unreadable
     rather than reading whatever came first."""
     bad = [
         '{"devDependencies":{"@leji-org/leji":"^1"}} trailing garbage',

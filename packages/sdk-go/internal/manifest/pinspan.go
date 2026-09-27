@@ -23,7 +23,7 @@ import (
 
 // pinScanError is a lexical failure: the document is not shaped the way a manifest
 // is. Callers turn it into the same "cannot locate" refusal as a missing mount,
-// because both mean the same thing operationally — this text has no such pin to
+// because both mean the same thing operationally: this text has no such pin to
 // move.
 type pinScanError struct{ msg string }
 
@@ -33,7 +33,7 @@ func (e pinScanError) Error() string { return e.msg }
 // one, and the two readers of this document disagree about which wins: a lexical
 // scan takes the FIRST member, a parser keeps the LAST. So a manifest carrying two
 // `pin` keys on the addressed mount could have its first span rewritten while the
-// pin every parser reads stays exactly as it was — a reported change that changed
+// pin every parser reads stays exactly as it was: a reported change that changed
 // nothing. The scanner refuses that document instead of picking a winner, and this
 // error carries its own message out rather than collapsing into "cannot locate".
 type pinAmbiguityError struct{ msg string }
@@ -363,8 +363,8 @@ func findMountPinSpan(text, name string) (span pinSpan, found bool, err error) {
 }
 
 // ReplaceMountPinInManifestText moves one declared mount's pin, in place. `from` is
-// what the span must currently hold — the value the comparison was computed against
-// — so a manifest that moved underneath the run is refused rather than overwritten.
+// what the span must currently hold (the value the comparison was computed against),
+// so a manifest that moved underneath the run is refused rather than overwritten.
 // Everything outside the pin value's own bytes is returned exactly as it came in.
 //
 // The error is returned when the pin cannot be located, or holds something other

@@ -83,7 +83,7 @@ type DependencyOfferOptions struct {
 // Ran means the add was consented to and attempted, and ExitCode and Signal are
 // nullable exactly as they are in the `--json` contract. A signalled manager has
 // no exit code of its own (ExitCode nil, Signal set), and a spawn that never
-// started has neither (both nil with Ran true) — which counts as a failure just
+// started has neither (both nil with Ran true), which counts as a failure just
 // like a non-zero exit. The runner's start state stays in AddResult.
 type DependencyOffer struct {
 	Offered  bool

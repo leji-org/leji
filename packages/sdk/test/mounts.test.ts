@@ -26,6 +26,7 @@ import { conformanceReport } from '../dist/index.js';
 import { loadManifest } from '../dist/index.js';
 import { run } from '../dist/index.js';
 import { validateLayer } from '../dist/index.js';
+import { copyTree } from './helpers/copytree.ts';
 
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = path.resolve(pkgRoot, '..', '..');
@@ -51,12 +52,12 @@ function mountedPair(): { host: string; sibling: string; pin: string } {
    const dir = tmpdir('leji-mounts-');
    const sibling = path.join(dir, 'sibling');
    const host = path.join(dir, 'host');
-   fs.cpSync(siblingExample, sibling, { recursive: true });
+   copyTree(siblingExample, sibling);
    git(sibling, 'init', '-q', '-b', 'main');
    git(sibling, 'add', '-A');
    git(sibling, '-c', 'user.name=T', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'seed');
    const pin = git(sibling, 'rev-parse', 'HEAD');
-   fs.cpSync(hostExample, host, { recursive: true });
+   copyTree(hostExample, host);
    const mp = path.join(host, 'leji.json');
    const m = JSON.parse(fs.readFileSync(mp, 'utf8'));
    m.federation.mounts[0].pin = pin;
@@ -1292,7 +1293,7 @@ test('mounts: the status projection sees an untracked bound profile that validat
    const root = tmpdir('leji-selfproj-');
    const fixture = path.join(repoRoot, 'fixtures', 'valid-actors');
    const profileRel = path.join('docs', 'agents', 'reviewer.md');
-   fs.cpSync(fixture, root, { recursive: true });
+   copyTree(fixture, root);
    fs.rmSync(path.join(root, profileRel));
    git(root, 'init', '-q', '-b', 'main');
    git(root, 'add', '-A');
@@ -1319,7 +1320,7 @@ test('mounts: the status projection is ok on a committed layer and no-commit bef
    assert.match(ok.commit, /^[0-9a-f]{40}$/, 'the report names the commit it judged');
    // An unborn HEAD has nothing to judge, and the section says so rather than failing.
    const fresh = tmpdir('leji-unborn-');
-   fs.cpSync(siblingExample, fresh, { recursive: true });
+   copyTree(siblingExample, fresh);
    git(fresh, 'init', '-q', '-b', 'main');
    r = await runCli(['status', '--json', '--root', fresh]);
    assert.deepEqual(JSON.parse(r.stdout).projection, { state: 'no-commit' });
@@ -1355,8 +1356,8 @@ test('mounts: a lost compare-and-swap is a confirmed mismatch; an operational fa
    const { manifest } = loadManifest(host);
    const store = storeFor(host, ACME_IDENTITY);
    const witnessRef = witnessRefFor(ACME_IDENTITY, 'refs/heads/main');
-   // The witness ref does not exist yet, so this run swaps against "must not exist"
-   // — and finds another writer's commit there instead. That is a race it lost, not
+   // The witness ref does not exist yet, so this run swaps against "must not exist",
+   // and finds another writer's commit there instead. That is a race it lost, not
    // a failure: the published witness stands and nothing is reported.
    fs.mkdirSync(store, { recursive: true });
    assert.ok(runGit(['init', '--bare', '-q', store]).ok);
@@ -1657,7 +1658,7 @@ test('mounts: conformance reports all four mount items as n/a when none are decl
    // reachability and routing metadata had simply not been considered. `n/a` is not
    // scored either way, so this changes the report, not the level.
    const root = tmpdir('leji-nomounts-');
-   fs.cpSync(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), root, { recursive: true });
+   copyTree(path.join(repoRoot, 'fixtures', 'valid-minimal-core'), root);
    const federated = conformanceReport(root).items.filter((i) => i.level === 'federated');
    assert.deepEqual(
       federated.map((i) => [i.id, i.status]),
@@ -1689,8 +1690,8 @@ function allDirs(dir: string): string[] {
  * POSIX: yes. 0o555 on the directory, and a non-root user is refused by the mode.
  *
  * Windows: no, and not for want of trying. An inheritable DENY ACE for the running
- * SID does land — rc run three read it back on the mounts dir, explicit
- * `(OI)(CI)(DENY)(W)` and `(I)(OI)(CI)(DENY)(W)` inherited — and the write succeeds
+ * SID does land (rc run three read it back on the mounts dir, explicit
+ * `(OI)(CI)(DENY)(W)` and `(I)(OI)(CI)(DENY)(W)` inherited), and the write succeeds
  * anyway. The hosted runner is an elevated administrator whose token carries
  * SeBackupPrivilege and SeRestorePrivilege ENABLED; libuv opens every file with
  * FILE_FLAG_BACKUP_SEMANTICS (which is how Node opens a directory at all), and a
@@ -1700,14 +1701,14 @@ function allDirs(dir: string): string[] {
  * The platform that cannot host the precondition proves the property a different and
  * stronger way: `treeSnapshot` equality across the command. "Without touching it" is
  * what these tests are about, and an identical inventory measures that directly
- * instead of inferring it from a permission the runner can bypass — a privilege can
+ * instead of inferring it from a permission the runner can bypass: a privilege can
  * forge access, but not a byte that did not change.
  */
 const CAN_DENY_WRITES = process.platform !== 'win32';
 
 /** What a failed guard needs in the log to be readable without a second CI run:
  * what actually stands at the path, the mode it carries, and who this process is
- * against who owns it. Total — a message builder must never replace the failure it
+ * against who owns it. Total: a message builder must never replace the failure it
  * was called to explain. */
 function denialEvidence(target: string): string {
    try {
@@ -1734,7 +1735,7 @@ function denyWrites(dir: string): () => void {
 }
 
 /** Denial is asserted, never assumed: a mode a root-owned run ignores would make
- * every "did not write" assertion below vacuous. Only a refusal counts — every other
+ * every "did not write" assertion below vacuous. Only a refusal counts: every other
  * way the probe can fail (an absent directory, a sharing violation) is a defect in
  * this harness, and says nothing about permission. POSIX only; see CAN_DENY_WRITES.
  *
@@ -1762,7 +1763,7 @@ function assertWriteDenied(dir: string, what: string): void {
  * Windows), and so does the way to make it unusable: POSIX takes the write permission
  * away, which also walks the EACCES path a genuinely read-only temp would take;
  * Windows cannot deny its own token (see CAN_DENY_WRITES), so there the variables
- * name a regular FILE instead — `mkdtemp` beneath a file cannot succeed for any
+ * name a regular FILE instead: `mkdtemp` beneath a file cannot succeed for any
  * token, privileged or not, and a failed allocation is the same missing prerequisite
  * reached by a route no privilege bypasses.
  *
@@ -1804,7 +1805,7 @@ const UNUSABLE_TEMP_CODES: ReadonlySet<string> = new Set(['EACCES', 'EPERM', 'EN
 /** The missing prerequisite is asserted, never assumed: a temp location the runtime
  * can still allocate in would make every "unverifiable" assertion below vacuous, on
  * either platform and by either mechanism. This probes what the product actually
- * does — `mkdtemp` under `os.tmpdir()` — rather than something adjacent to it. */
+ * does (`mkdtemp` under `os.tmpdir()`) rather than something adjacent to it. */
 function assertNoStaging(tmp: string): void {
    assert.equal(os.tmpdir(), tmp, 'the runtime must honor the temp variables for this to force the failure');
    let staged = '';
@@ -1826,14 +1827,14 @@ function assertNoStaging(tmp: string): void {
 /**
  * Paths, types, modes, symlink targets, content and directory mtimes: the whole of
  * what "the tree is byte-for-byte what it was" has to mean here. Content alone would
- * miss a directory created and removed between the two reads — its parent's mtime is
+ * miss a directory created and removed between the two reads: its parent's mtime is
  * the only trace that survives.
  *
  * The ROOT carries its own entry, in the same shape as every other directory, because
  * the root is the parent of anything created directly beneath it: without that line,
  * a staging directory allocated at the top of the tree and removed again leaves this
- * snapshot completely unchanged, and on Windows — where equality is the whole proof
- * (see CAN_DENY_WRITES) — that is precisely the write nothing else would catch.
+ * snapshot completely unchanged, and on Windows, where equality is the whole proof
+ * (see CAN_DENY_WRITES), that is precisely the write nothing else would catch.
  */
 function treeSnapshot(dir: string): string[] {
    const st = fs.lstatSync(dir);
@@ -1872,7 +1873,7 @@ function verifyResidue(): string[] {
 test('mounts: --check-integrity verifies a write-denied host tree, twice, without touching it', () => {
    // `mounts status --check-integrity` staged its comparison tree inside the host's
    // own .leji/mounts/, so the read-only diagnostic wrote into the tree it was
-   // diagnosing — and could not run at all where that tree is not writable.
+   // diagnosing, and could not run at all where that tree is not writable.
    const { host } = mountedPair();
    const { manifest } = loadManifest(host);
    hydrateMounts(host, manifest!, {});
@@ -1880,7 +1881,7 @@ test('mounts: --check-integrity verifies a write-denied host tree, twice, withou
    try {
       // Where a write CAN be refused, refusing it proves the extra half the defect
       // had: that the diagnostic runs at all against a tree it cannot write. Where it
-      // cannot (CAN_DENY_WRITES), the snapshot below carries the property on its own —
+      // cannot (CAN_DENY_WRITES), the snapshot below carries the property on its own:
       // it is the direct measurement, and the denial was only ever the setting.
       if (CAN_DENY_WRITES) {
          assertWriteDenied(path.join(host, '.leji', 'mounts'), 'the mounts dir');
@@ -1915,7 +1916,7 @@ test('mounts: --check-integrity verifies a write-denied host tree, twice, withou
  * Both halves earn their place. Without the rendezvous the threads drift into taking
  * turns and never overlap; with the rendezvous alone they run identical work in
  * lockstep, and two threads staging the same content into one shared directory at the
- * same instant still agree — the interleaving that a shared staging directory cannot
+ * same instant still agree: the interleaving that a shared staging directory cannot
  * survive is one thread starting while the other is mid-verification. Worker threads,
  * so "the same process" is literal: a staging name derived from the pid is one name
  * for both of them. */
@@ -2033,8 +2034,8 @@ test('mounts: a reachable store that does not hold the pin is unverifiable, and 
    const { manifest } = loadManifest(host);
    hydrateMounts(host, manifest!, {});
    // A real repository, reachable, that simply does not contain this pin. The
-   // published projection stays published — its cache key comes from the
-   // declaration, not from whichever store happens to be reachable — so the only
+   // published projection stays published (its cache key comes from the
+   // declaration, not from whichever store happens to be reachable), so the only
    // missing prerequisite is the commit the comparison would be made against.
    const other = path.join(path.dirname(host), 'other');
    fs.mkdirSync(other, { recursive: true });

@@ -31,7 +31,7 @@ permissions:
 jobs:
   npm-audit:
     name: npm (root lockfile, all workspaces)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -39,7 +39,7 @@ jobs:
           node-version: 24
       # The scanner is npm itself, so it is pinned to the same version the
       # release workflow publishes with, not to whatever the Node release bundles.
-      - run: npm install -g npm@12.0.2 && npm --version
+      - run: npm install -g npm@12.1.0 && npm --version
       - run: npm ci
       # Every workspace resolves through the root lockfile, so one audit covers
       # all of them. High or above fails the run.
@@ -47,7 +47,7 @@ jobs:
 
   pip-audit:
     name: Python (resolved dependency export, Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -80,7 +80,7 @@ jobs:
 
   govulncheck:
     name: Go (module and standard library)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -101,4 +101,4 @@ jobs:
       # a finding here is a call path, not an inventory entry.
       - name: govulncheck
         working-directory: packages/sdk-go
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...

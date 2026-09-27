@@ -6,11 +6,11 @@ from __future__ import annotations
 import copy
 import json
 import re
-import shutil
 from pathlib import Path
 
 import pytest
 
+from helpers.copytree import copy_tree
 from leji import RouteInput, route
 from leji.cli import main
 from leji.manifest import load_manifest
@@ -177,7 +177,7 @@ def _mount_layer(tmp_path: Path, topics: list[str], name: str = "topics") -> tup
     topic matching runs against controlled values. That mount declares categories
     [domain, decisions]."""
     dest = tmp_path / name
-    shutil.copytree(_CORE_CONTEXT, dest)
+    copy_tree(_CORE_CONTEXT, dest)
     p = dest / "leji.json"
     m = json.loads(p.read_text(encoding="utf-8"))
     m["federation"]["mounts"][0]["topics"] = topics

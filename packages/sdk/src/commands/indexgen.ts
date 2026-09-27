@@ -94,7 +94,7 @@ function strArray(v: unknown): string[] | undefined {
  * the verified read, not by pathname: generation carries ids out of these bytes into
  * the index it writes back to this same path, so the file that was judged must be the
  * file that is read. Absent, unparsable, or a standing entry that cannot be verified
- * all mean "no stored index" — nothing is carried, and the write chokepoint judges the
+ * all mean "no stored index": nothing is carried, and the write chokepoint judges the
  * destination again on its own. */
 export function loadStoredIndex(root: string, manifest: Manifest): ContextIndex | null {
    const rel = effectiveIndexPath(manifest);

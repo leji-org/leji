@@ -148,7 +148,7 @@ export function validateManifestObject(data: unknown): ManifestLoad {
    const findings: Finding[] = [];
    // Before anything reads a value: a manifest string that is not a well-formed
    // Unicode scalar sequence is refused whole, never carried into a hash, a sort,
-   // or output. The message quotes nothing back — echoing the offending text is
+   // or output. The message quotes nothing back: echoing the offending text is
    // exactly the outcome the check exists to prevent.
    if (!allStringsScalar(data)) {
       return {
@@ -281,7 +281,7 @@ export function bindAgentInManifestText(
 
 /** A lexical failure: the document is not shaped the way a manifest is. Callers
  * turn it into the same "cannot locate" refusal as a missing mount, because both
- * mean the same thing operationally — this text has no such pin to move. */
+ * mean the same thing operationally: this text has no such pin to move. */
 class PinScanError extends Error {}
 
 /**
@@ -289,7 +289,7 @@ class PinScanError extends Error {}
  * readers of this document disagree about which wins: a lexical scan takes the
  * FIRST member, `JSON.parse` keeps the LAST. So a manifest carrying two `pin` keys
  * on the addressed mount could have its first span rewritten while the pin every
- * parser reads stays exactly as it was — a reported change that changed nothing.
+ * parser reads stays exactly as it was: a reported change that changed nothing.
  * The scanner refuses that document instead of picking a winner, and this error
  * carries its own message out rather than collapsing into "cannot locate".
  */
@@ -467,7 +467,7 @@ function findMountPinSpan(
 
 /**
  * Move one declared mount's pin, in place. `from` is what the span must currently
- * hold — the value the comparison was computed against — so a manifest that moved
+ * hold (the value the comparison was computed against), so a manifest that moved
  * underneath the run is refused rather than overwritten. Everything outside the pin
  * value's own bytes is returned exactly as it came in.
  *

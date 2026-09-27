@@ -1,7 +1,7 @@
 """The acceptance check for the write boundary: no production source file of this SDK
 reaches a raw filesystem mutation, or a subprocess that could perform one, except at a
-symbol named below. Every other write goes through ``leji/fsx.py`` — the chokepoint and
-its guarded conveniences — so a new write site is contained by construction rather than
+symbol named below. Every other write goes through ``leji/fsx.py`` (the chokepoint and
+its guarded conveniences), so a new write site is contained by construction rather than
 by remembering to contain it, and a reviewer can read the exceptions instead of
 re-deriving them. ``docs/practice/trust-boundary.md`` mirrors both lists.
 
@@ -155,7 +155,7 @@ PATH_OPEN_MODE_INDEX = 0
 
 # --- the allow-lists -----------------------------------------------------------
 
-#: The write allow-list, by ``file#symbol`` — never by whole module, so a future raw
+#: The write allow-list, by ``file#symbol``, never by whole module, so a future raw
 #: mutation elsewhere in an allowed file still fails. An entry that matches nothing
 #: fails too: a stale exception is an exception nobody is checking. The symbol is the
 #: dotted name of the enclosing function (a lambda is transparent, belonging to the
@@ -245,7 +245,7 @@ class _Analyzer(ast.NodeVisitor):
     o`` -> ``{"o": "os"}``), and ``symbols`` maps a local name to the SET of
     ``module.function`` values it may hold (``from os import rename as mv`` ->
     ``{"mv": {"os.rename"}}``). A set rather than one value because a name can be bound
-    more than once — ``x = io.open`` then ``x = os.rename`` — and a static reader cannot
+    more than once (``x = io.open`` then ``x = os.rename``), and a static reader cannot
     know which binding a call reaches; every possibility is therefore judged, so the
     audit over-approximates which names are dangerous and never under-approximates."""
 
@@ -278,10 +278,10 @@ class _Analyzer(ast.NodeVisitor):
         the module nor the function: ``mv = os.rename`` then ``mv(a, b)``. Every simple
         assignment whose value resolves to a module function is ADDED to the set the
         same symbol table an import would populate holds for that name, so the call
-        resolves identically — and a name assigned twice carries both possibilities,
+        resolves identically, and a name assigned twice carries both possibilities,
         because which one a call reaches is a runtime fact this reader does not have.
 
-        Run to a TRUE fixpoint — passes until one of them changes nothing — because a
+        Run to a TRUE fixpoint (passes until one of them changes nothing), because a
         chain (``a = os.rename`` then ``b = a``) resolves one link per pass and
         ``ast.walk`` is not source order, so a chain assembled bottom-up needs as many
         passes as it has links. No pass cap: a cap silently stops resolving every chain
@@ -292,7 +292,7 @@ class _Analyzer(ast.NodeVisitor):
         of qualified names the module's own imports and attributes already bound, so a
         pass can never undo an earlier one and "no change" is both reachable and final.
         Neither of the two tempting alternatives works. Last-write-wins does not
-        terminate at all — two assignments of different values to one name flip it back
+        terminate at all: two assignments of different values to one name flip it back
         and forth and ``changed`` never goes false. Binding a name once (with an upgrade
         to a watched value) terminates but UNDER-approximates: it drops the second
         watched binding of ``x = io.open`` then ``x = os.rename``, and the call
@@ -350,7 +350,7 @@ class _Analyzer(ast.NodeVisitor):
         """Every ``module.function`` a callee may name, following import aliases and
         rebinding; empty when the callee is not a module-level function this audit
         tracks. More than one member means the name was bound more than once, and each
-        member is judged on its own — the call is whichever of them runs."""
+        member is judged on its own: the call is whichever of them runs."""
         if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
             module = self.modules.get(func.value.id)
             return set() if module is None else {f"{module}.{func.attr}"}
@@ -435,7 +435,7 @@ def _read_only_open(node: ast.Call, mode_index: int) -> bool:
 
 def _read_only_os_open(node: ast.Call) -> bool:
     """``os.open`` reads only when its flags are literally ``os.O_RDONLY``; anything
-    else — a creating or truncating flag set, or flags this audit cannot read — is a
+    else (a creating or truncating flag set, or flags this audit cannot read) is a
     mutation."""
     flags: ast.expr | None = node.args[1] if len(node.args) > 1 else None
     for keyword in node.keywords:
@@ -518,7 +518,7 @@ def _reverse_alias_chain(links: int, root: str) -> str:
     builders DEFINED in REVERSE dependency order: the assignment consuming a link is
     walked before the assignment producing it. A pass of the collector can therefore
     resolve exactly one more link, so the chain costs one pass per link and any cap stops
-    resolving a chain longer than itself — while the module stays ordinary, runnable
+    resolving a chain longer than itself, while the module stays ordinary, runnable
     Python (run the builders in order and ``_l<links>`` IS ``root``), so a miss here is a
     real miss rather than an artifact of source a program could never execute."""
     lines = ["import os"]
@@ -646,7 +646,7 @@ def test_the_analyzer_sees_through_every_known_laundering() -> None:
 # A name REBOUND to a second value is where a resolver that merely overwrites its table
 # stops converging: the two assignments hand the name back and forth, `changed` never
 # goes false, and an uncapped loop spins forever. Growing a SET per name is what rules
-# that out — and keeping every member is what stops the opposite failure, a resolver that
+# that out, and keeping every member is what stops the opposite failure, a resolver that
 # binds a name once and so never sees the second watched function. These probes pin both,
 # in both orders, across the open family and across the write/subprocess line. They are
 # kept out of PROBES deliberately: a regression here HANGS rather than returns, so they
@@ -687,8 +687,8 @@ REBINDING_PROBES: list[tuple[str, str, list[str], list[str]]] = [
     ),
 ]
 
-#: Generous by three orders of magnitude — the whole file analyzes in well under a
-#: second — because the bound exists to catch a resolver that never returns, not a slow
+#: Generous by three orders of magnitude (the whole file analyzes in well under a
+#: second), because the bound exists to catch a resolver that never returns, not a slow
 #: one.
 RESOLVER_TIMEOUT_SECONDS = 5.0
 

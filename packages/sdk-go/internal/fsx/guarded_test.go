@@ -307,7 +307,7 @@ func TestAnExclusiveCreateIsDecidedOnTheStandingEntry(t *testing.T) {
 	// O_EXCL on the RESOLVED path is not enough: a dangling symlink resolves to its
 	// missing destination, so resolving first would let `leji.json -> nowhere` create
 	// the file the link points at. ANY standing entry is Exists, and nothing anywhere
-	// is created. Mutation that reddens: resolve before the lstat — the dangling cases
+	// is created. Mutation that reddens: resolve before the lstat: the dangling cases
 	// create the link's destination.
 	root := repo(t)
 	away := outside(t)
@@ -510,9 +510,9 @@ func TestVerifiedTargetReadOnALinkThroughSomethingThatIsNotADirectory(t *testing
 	// `link -> somefile/child`, where `somefile` is a regular file: the link stands,
 	// but following it hits ENOTDIR, so there is no entry to have a kind. The
 	// reference's following stat returns undefined for that exactly as it does for a
-	// missing entry, so the read continues and the resolver — which refuses any
-	// non-ENOENT failure — makes it a standing entry this run could not verify.
-	// Mutation that reddens: propagate the follow-stat's ENOTDIR — the command reports
+	// missing entry, so the read continues and the resolver (which refuses any
+	// non-ENOENT failure) makes it a standing entry this run could not verify.
+	// Mutation that reddens: propagate the follow-stat's ENOTDIR: the command reports
 	// an OS error instead of its own refusal.
 	root := repo(t)
 	mustWrite(t, filepath.Join(root, "somefile"), "x\n")

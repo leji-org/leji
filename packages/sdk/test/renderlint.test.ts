@@ -6,13 +6,14 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { run } from '../dist/index.js';
+import { copyTree } from './helpers/copytree.ts';
 // The scan is the export command's own policy rather than SDK surface, so it stays
 // inside the module an in-repo test reads directly.
 import { scanRenderConstructs } from '../dist/lib/renderlint.js';
 
 // Two halves of one contract. First the scan itself, family by family over the
-// edges the fixtures state in prose: what it reports, and — the half a lint lives
-// or dies on — what it stays quiet about. Then the shared render fixtures, driven
+// edges the fixtures state in prose: what it reports, and (the half a lint lives
+// or dies on) what it stays quiet about. Then the shared render fixtures, driven
 // through the real command: their pinned findings, their layout, and their golden
 // export bytes.
 
@@ -27,8 +28,8 @@ function hits(text: string): string[] {
 // --- family: multi-line HTML blocks -------------------------------------------
 
 test('family: an HTML block reports once, at the line it opens on', () => {
-   // A block runs to the next blank line, so the tags inside it — the closing one
-   // included — are block content and not a second construct.
+   // A block runs to the next blank line, so the tags inside it (the closing one
+   // included) are block content and not a second construct.
    assert.deepEqual(hits(['# Doc', '', '<div class="callout">', '   inner text', '</div>', '', 'after'].join('\n')), [
       '3:raw-html',
    ]);
@@ -98,7 +99,7 @@ test('family: frontmatter is excluded, and only a leading block is frontmatter',
    // A `---` later in a document is a thematic break, so the text after it is
    // scanned like any other prose.
    assert.deepEqual(hits(['# Doc', '', '---', '', 'Prose with <div> in it.', ''].join('\n')), ['5:raw-html']);
-   // A block that never closes is not frontmatter, so its content is prose — and
+   // A block that never closes is not frontmatter, so its content is prose, and
    // reported, which is the honest read of a document nothing will strip.
    assert.deepEqual(hits(['---', 'title: <div>', '', '# Doc', ''].join('\n')), ['2:raw-html']);
    // Frontmatter opens the FILE or it is not frontmatter: a block one line down is
@@ -109,7 +110,7 @@ test('family: frontmatter is excluded, and only a leading block is frontmatter',
 // --- family: overlaps and same-line ordering ----------------------------------
 
 test('family: overlapping constructs resolve to the earliest start, one per line and construct', () => {
-   // Three constructs on one line, reported in the closed set's alphabetical order —
+   // Three constructs on one line, reported in the closed set's alphabetical order:
    // the tie-breaker that keeps a same-line group deterministic across the SDKs.
    assert.deepEqual(hits('All three: [^b], <i>italic</i>, and $$x + y$$ in one sentence.\n'), [
       '1:footnote',
@@ -156,7 +157,7 @@ test('family: an escaped delimiter is a literal, and an entity is not markup', (
 
 test('family: a processing instruction, declaration, or CDATA block runs through its terminator line', () => {
    // CommonMark type 3: the block ends on the line carrying `?>`, and the WHOLE of
-   // that line belongs to it — so what follows the terminator there is block content
+   // that line belongs to it, so what follows the terminator there is block content
    // rather than a second construct, and the block reports once, at its opening line.
    assert.deepEqual(hits(['<?php', '[^inside]', '?> [^after]'].join('\n')), ['1:raw-html']);
    // Type 4 (a declaration) ends at the first `>`, type 5 (CDATA) at `]]>`; what
@@ -203,7 +204,7 @@ test('family: a delimiter whose mate sits in a code span or a comment does not p
    assert.deepEqual(hits('$$ open $$ tail\n'), ['1:math-block']);
    assert.deepEqual(hits('`$$` and then a real pair $$x$$\n'), ['1:math-block']);
    // Straddling a span's edge, both ways: a footnote whose closing bracket is inside
-   // a code span still reports — the earliest start wins the overlap — while one that
+   // a code span still reports (the earliest start wins the overlap), while one that
    // OPENS inside the span is span content.
    assert.deepEqual(hits('[^one `] and text`\n'), ['1:footnote']);
    assert.deepEqual(hits('`[^one` ] tail\n'), []);
@@ -213,7 +214,7 @@ test('family: a delimiter whose mate sits in a code span or a comment does not p
 
 test('family: a declaration takes an ASCII letter of either case, and a terminator must be contiguous', () => {
    // `<!` plus an ASCII letter of EITHER case is a declaration, at block and inline
-   // positions alike — the rendering the vendored renderer actually produces, and
+   // positions alike: the rendering the vendored renderer actually produces, and
    // CommonMark's own character class. A block one runs to the next `>`, so what
    // sits inside the consumed span and what trails the terminator on its line are
    // block content rather than constructs of their own.
@@ -258,7 +259,7 @@ interface ExpectedFinding {
 /** A finding as the (rule, severity, path, line, construct) tuple the block matches
  * on, carrying only the coordinates the finding actually has: a manifest-level
  * finding names no path, line, or construct, and an expected entry states it the same
- * way — by leaving the key out — rather than by spelling an absent value. */
+ * way (by leaving the key out) rather than by spelling an absent value. */
 function shape(f: ExpectedFinding): Record<string, unknown> {
    const out: Record<string, unknown> = { rule: f.rule, severity: f.severity };
    if (f.path !== undefined) out.path = f.path;
@@ -361,7 +362,7 @@ for (const name of fs.readdirSync(fixturesDir).sort()) {
 
    test(`fixture ${name}: the export block, its findings, and its golden tree`, async () => {
       const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'leji-render-')));
-      fs.cpSync(path.join(fixturesDir, name), dir, { recursive: true });
+      copyTree(path.join(fixturesDir, name), dir);
 
       const preservedBefore = new Map<string, string>();
       for (const rel of block.layout?.preserved ?? []) {
@@ -377,11 +378,11 @@ for (const name of fs.readdirSync(fixturesDir).sort()) {
       assert.equal(exit, block.exit, `exit code for ${name}: ${stdout}`);
       const doc = JSON.parse(stdout) as { out: string; findings: ExpectedFinding[] };
       assert.equal(doc.out.split(path.sep).join('/'), block.out, 'the declared output directory');
-      // Matched on (rule, severity, path, line, construct) IN ORDER — message text is
+      // Matched on (rule, severity, path, line, construct) IN ORDER: message text is
       // never compared, and the order is the canonical one the three SDKs share.
       assert.deepEqual(doc.findings.map(shape), block.findings.map(shape), `findings for ${name}`);
 
-      // `roles` is the layout's role map — which directory each role NAMES — and
+      // `roles` is the layout's role map (which directory each role NAMES), and
       // `present`/`absent` say which of them a given run establishes: a `--strict`
       // run names the export role and deliberately writes nothing at it.
       const absent = new Set((block.layout?.absent ?? []).map((p) => p.replace(/\/+$/, '')));
@@ -445,7 +446,7 @@ for (const name of fs.readdirSync(fixturesDir).sort()) {
             );
          }
 
-         // Everything else — chrome, vendored assets, fonts — by digest and size. The
+         // Everything else (chrome, vendored assets, fonts) by digest and size. The
          // two sets are disjoint by construction and exhaustive by this comparison.
          const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as {
             version: number;

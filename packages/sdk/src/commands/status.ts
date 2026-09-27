@@ -9,6 +9,7 @@ import {
    effectiveIndexPath,
 } from '../lib/manifest.js';
 import { type SelfProjection, selfProjection } from '../lib/mounts.js';
+import { byteCompare } from '../lib/text.js';
 import { loadStoredIndex } from './indexgen.js';
 
 /** A dangling index entry: a path listed in a leji-index block that does not
@@ -42,7 +43,7 @@ export interface StatusReport {
     * selector governs: the carve-out surfaced, never silent. */
    skippedReadmes: ShadowedSelector[];
    /** Would this layer, at HEAD, project completely if a host mounted it?
-    * Judged against the object store, so it sees what a host's hydrate would see —
+    * Judged against the object store, so it sees what a host's hydrate would see,
     * including a bound profile that exists on disk but is untracked. Report-only. */
    projection: SelfProjection;
 }
@@ -73,7 +74,7 @@ function unindexedIn(root: string, manifest: Manifest, governed: Set<string>): s
    const rootDir = stripSlash(manifest.rootPath) || '.';
    return walkTree(root, rootDir)
       .filter((rel) => !governed.has(rel) && !isChrome(manifest, rel))
-      .sort();
+      .sort(byteCompare);
 }
 
 /** The unindexed set on its own, for callers that need the count without the
@@ -108,20 +109,20 @@ export function statusReport(root: string, manifest: Manifest): StatusReport {
    const stale = (stored?.entries ?? [])
       .map((e) => e.path)
       .filter((p) => !governed.has(p))
-      .sort();
+      .sort(byteCompare);
 
    // The symmetric drift direction: governed on disk, absent from the stored
    // index (all governed paths when the index has never been generated).
    const storedPaths = new Set((stored?.entries ?? []).map((e) => e.path));
-   const pending = [...governed].filter((p) => !storedPaths.has(p)).sort();
+   const pending = [...governed].filter((p) => !storedPaths.has(p)).sort(byteCompare);
 
    const shadowed: ShadowedSelector[] = resolved.shadowed
       .map((s) => ({ indexFile: s.indexRel, path: s.path }))
-      .sort((a, b) => (a.indexFile !== b.indexFile ? (a.indexFile < b.indexFile ? -1 : 1) : a.path < b.path ? -1 : 1));
+      .sort((a, b) => byteCompare(a.indexFile, b.indexFile) || byteCompare(a.path, b.path));
 
    const skippedReadmes: ShadowedSelector[] = resolved.skippedReadmes
       .map((r) => ({ indexFile: r.indexRel, path: r.path }))
-      .sort((a, b) => (a.indexFile !== b.indexFile ? (a.indexFile < b.indexFile ? -1 : 1) : a.path < b.path ? -1 : 1));
+      .sort((a, b) => byteCompare(a.indexFile, b.indexFile) || byteCompare(a.path, b.path));
 
    return { unindexed, dangling, stale, pending, shadowed, skippedReadmes, projection: selfProjection(root) };
 }

@@ -48,6 +48,7 @@ import {
 } from '../lib/ecosystem.js';
 import { trackedUnder, workingTreeClean } from '../lib/git.js';
 import { type Finding, hasErrors } from '../lib/findings.js';
+import { byteCompare } from '../lib/text.js';
 import { KNOWN_VENDOR_FILES } from './validate.js';
 import { writeIndex } from './indexgen.js';
 
@@ -401,7 +402,7 @@ function safeResolve(rootAbs: string, rel: string): string {
 
 /** Write a file this command owns, once: never over an existing one, and never
  * through a standing entry it cannot verify. The skip is decided by the verified
- * read rather than a pathname check, because `existsSync` follows symlinks — a
+ * read rather than a pathname check, because `existsSync` follows symlinks: a
  * dangling link at the target reads as absent and the guarded write then lands at
  * the link's destination, a name this command never planned. Only `absent` is free;
  * a regular file is the never-overwrite skip; anything else standing there is the
@@ -477,7 +478,7 @@ function readMergeSource(rootReal: string, abs: string, rel: string): string | n
    return read.status === 'regular' ? read.bytes.toString('utf8') : null;
 }
 
-/** Ensure the root .gitignore ignores `.leji/` — the one line that covers every
+/** Ensure the root .gitignore ignores `.leji/`, the one line that covers every
  * role of the unified tree (chrome, export output, onboarding workspace, mounts)
  * and any role added later. Idempotent and matches the exact line, so a comment or
  * `docs/.leji/` is not treated as equivalent. */
@@ -764,7 +765,7 @@ const HOOK_MARKER = '# leji pre-commit (managed)';
 
 /**
  * One argv element, quoted for `sh`. Single quotes take everything literally, and
- * an embedded quote is closed, escaped, and reopened (`'\''`) — the one escape a
+ * an embedded quote is closed, escaped, and reopened (`'\''`), the one escape a
  * POSIX shell accepts inside them. The runner comes from the repository's own
  * package manager, so it is never interpolated raw into generated shell.
  */
@@ -884,13 +885,13 @@ function huskyShape(rootAbs: string, hooksPath: string | null): 'underscore' | '
  * Who owns the pre-commit hook this repository would get, decided by where the write
  * would actually land rather than by the mechanism that would perform it:
  * `personal` under git's own directories AND inside this working tree (`.git/hooks`,
- * a `core.hooksPath` resolving inside them) — per clone, never committed, and safe to
+ * a `core.hooksPath` resolving inside them): per clone, never committed, and safe to
  * write; `shared` inside the working tree but not under git's directories (husky, a
- * `githooks/` hooks path) — committed, so a maintainer's call; `outside-root` under
+ * `githooks/` hooks path): committed, so a maintainer's call; `outside-root` under
  * git's directories but OUTSIDE this working tree (a linked worktree, whose hooks
- * live in the common git directory) — per clone, but the writer refuses to write
+ * live in the common git directory): per clone, but the writer refuses to write
  * outside the repository root, so it is reported; `external` anywhere else (a global
- * or `$HOME` hooks path, a symlink escaping the repository) — reported, never
+ * or `$HOME` hooks path, a symlink escaping the repository): reported, never
  * written; `no-git` when there is no repository to hang a hook on.
  */
 export type HookOwnership = 'personal' | 'shared' | 'outside-root' | 'external' | 'no-git';
@@ -925,7 +926,7 @@ function hookText(abs: string): string | null {
 /**
  * `ensureLocalHook`'s resolve step, without the write: where the managed pre-commit
  * hook would go for this repository, who owns that location, and what stands there
- * now. The whole point is that a report can be produced without touching anything —
+ * now. The whole point is that a report can be produced without touching anything:
  * `leji start` prints it, and only a consented repair goes on to `ensureLocalHook`.
  */
 export function hookStatus(root: string, runner?: string[]): HookStatus {
@@ -972,7 +973,7 @@ export function hookStatus(root: string, runner?: string[]): HookStatus {
  * effective hooks dir (`rev-parse --git-path hooks`); core.hooksPath decides whether
  * a husky repo gets a managed block in the user-editable `.husky/pre-commit` (v8/v9)
  * or a standalone managed hook is written. A hooks dir resolving outside the repo (a
- * global `core.hooksPath`) is never written — the snippet comes back for a manual
+ * global `core.hooksPath`) is never written. The snippet comes back for a manual
  * hand-add, as does an existing unmanaged hook. */
 export function ensureLocalHook(root: string, runner?: string[]): HookResult {
    const rootAbs = path.resolve(root);
@@ -1132,12 +1133,13 @@ export interface CiResult {
  *
  * Seeded with the pre-1.4 (1.3.x) variants, which carry no marker at all: two per
  * whole-file provider, the local-install job and the `npx @leji-org/leji@1`
- * fallback. Each release since appends its own twelve at pre-flight, enumerated by
- * `ciVariants()` and printed by a test (`LEJI_PRINT_CI_DIGESTS=1`), so the next
- * release still recognizes them; while a release is current its variants are also
- * compared by bytes, which is strictly stronger.
+ * fallback. Each release since appends at pre-flight the digests of its whole-file
+ * variants not yet registered (GitLab registers none), enumerated by `ciVariants()`
+ * and printed by a test (`LEJI_PRINT_CI_DIGESTS=1`), so the next release still
+ * recognizes them; while a release is current its variants are also compared by
+ * bytes, which is strictly stronger.
  */
-const KNOWN_GENERATED: Record<CiProvider, readonly string[]> = {
+export const KNOWN_GENERATED: Record<CiProvider, readonly string[]> = {
    // 1.3.x GitHub Actions: local install, then the npx fallback.
    github: [
       'ef38ea0bc0daa13b9856ca9abeb5f2229ae2465aeed2f61bd94f557a1806f13d',
@@ -1155,6 +1157,19 @@ const KNOWN_GENERATED: Record<CiProvider, readonly string[]> = {
       'ae3385d9deac83936000100621078011b1918a66237d4ae1ef72770dc677914a', // node-fallback
       'b0be130068ad150eb7f59a2166a4fc22601e10ec961d2144d4c158602fde1f9c', // python-fallback
       '91b37a1c14fcc6f237d9600b8f49bb936eb2091f418fe8932fc94cdbfe91454f', // go-fallback
+      // 1.5.2: the variants whose bytes changed, in ciVariants() order.
+      'a3423a83e5d672296abaf2f30719225c6f6549b26bdc0c88b78338a1eaad167a', // npm-local
+      '19e84949c43d62eb870962680ddc09b31e7e767202f9a4f2b8752bd80fe2c669', // pnpm-local
+      'e3ef7ad848e83d02ee269b53f15a5963ec6449afcc2f87d0d19418866b76da52', // yarn-local
+      'f8b37cd81e9aebc9381adababf42420bd0b242111b2a2f5ef82905f5941483f3', // bun-local
+      'fdb1d4c56a82e2f66277710377c60640d020d0895c6e7187b33d9c062b937ac1', // uv-local
+      'de5b52ec185d8c0dc2382c6a42bfe824e556ebc2811b2d7102524e72c3f3b4a2', // poetry-local
+      'dfc90f59d4e7f9255be487c8932b7faed96f652c2b67e82c4eaad941f000213e', // pdm-local
+      '46a68d7597e3f79518652fc61329373939126095cf87625b5e50373ef0e48819', // pipenv-local
+      'c137793dade3e890d6ef8fd1b8bb01994f1f4e1db94c431cbd8fefbcbed9cbdc', // go-local
+      'c875b8ed8744937546c3782b66b5c53791c9bbe9a3a29084cbb0ab5215bef50f', // node-fallback
+      '899b37940bb82da053beff7482c2c82823d3bb4f7d08fb44f780982e54783b28', // python-fallback
+      '39f4e23caaa4b8f3e3de513437bf591cca8c0403fdee2539c0d2bf2eed7a08be', // go-fallback
    ],
    // GitLab owns a marked block inside a shared file, never a whole file, so it
    // recognizes its own output by the markers and registers no digests.
@@ -1175,6 +1190,11 @@ const KNOWN_GENERATED: Record<CiProvider, readonly string[]> = {
       'b82f65f616ec46445e43b8c1680618428cce89ee17e69f0a1e2b94b4ace2fc9b', // node-fallback
       '0d2135d41e50be5fa6811bdc9aa85fc0ce4110ec918e17c139cd969087834e4b', // python-fallback
       '704a4b3c3f8880c505e181eed154234e4640cdad5d13a3c9dfe5b4cdcdfbd3d9', // go-fallback
+      // 1.5.2: the variants whose bytes changed, in ciVariants() order.
+      '3e60201c032974ad9ffb652741c6e355a635ef933af4e367766bbce5b6f5763c', // npm-local
+      '3514fc7b3edaa77975399253115e387995523f45fcead919787bfc24514a3647', // pnpm-local
+      'aa295426fee81a4742ef91d8e280de5f28e76615b003720155ae468e935ae6fa', // yarn-local
+      '500d6445cf4c117d11177d8d16c548f08d384bfc43f00d8f1f2a0a7c92546c8b', // node-fallback
    ],
    azure: [
       '71fb19e18660e84ec4a2b9364ea6a9dea0ca7aff8bb52ede8d5c3f4d77c68669',
@@ -1192,13 +1212,19 @@ const KNOWN_GENERATED: Record<CiProvider, readonly string[]> = {
       '1a4167a0b4b3a5b7528d7a6d0bcefeabd37f617b02f82772fd6c74c148d9e17e', // node-fallback
       'c9cd3d115cb4f4d9db1b3f523cfbbf1397923df6142c58e5e6c8562ff57fa908', // python-fallback
       '23679c491cbd53e39ffc5d940de7b97865f1b944bf55ad1bd7e73b8c57520606', // go-fallback
+      // 1.5.2: the variants whose bytes changed, in ciVariants() order.
+      'c2e14d6c076c63e6058aa3c13f9389204a0377d83b54d39da37340efe8d16f64', // npm-local
+      '91d78164b559bb47376de4f8de1e37b025251d4a0b84abe5c5e704844a63be79', // pnpm-local
+      'd274d6a580ed136846e40761b5d6ed4d08fef72b97ca96cc8f7bbeff211aaa16', // yarn-local
+      'f055ee28d9b2ece1acaa7abd38929345bbf4c2d755af0e19ab7094994d037218', // bun-local
+      'b0155bcf2499e23f734bc2d635415be4ad2c46ba63eb539249f09e9a212bcb23', // node-fallback
    ],
 };
 
 /**
  * Is this file leji's to replace? Yes when its bytes are one this generator can
  * write right now, or when its digest is one an earlier release wrote. A file the
- * user edited matches neither, and is left alone with a snippet — editing a
+ * user edited matches neither, and is left alone with a snippet: editing a
  * generated file, or deleting its marker, is the opt-out, and it is honored.
  */
 function isLejiGenerated(provider: CiProvider, text: string): boolean {
@@ -1408,8 +1434,8 @@ const CI_FALLBACK_GO_INSTALL = 'go install github.com/leji-org/leji/packages/sdk
 /**
  * Which job this repository gets. Local-first: a repository that DECLARES the CLI
  * and has the manager's lock evidence installs its own locked dependencies and runs
- * the local binary. Everything else — undeclared, unlocked, ambiguous, unsupported,
- * unreadable, refused evidence, several ecosystems, none — takes the fallback for
+ * the local binary. Everything else (undeclared, unlocked, ambiguous, unsupported,
+ * unreadable, refused evidence, several ecosystems, none) takes the fallback for
  * its ecosystem, which needs no manifest and no lockfile.
  */
 function resolveCiJob(report: EcosystemReport, provider: CiProvider): CiJob {
@@ -1470,18 +1496,18 @@ function unpinnedNote(job: CiJob): string | null {
 function githubSetup(job: CiJob): string[] {
    switch (job.runtime) {
       case 'node':
-         return ['      - uses: actions/setup-node@v4', '        with:', "          node-version: '22'"];
+         return ['      - uses: actions/setup-node@v7', '        with:', "          node-version: '24'"];
       case 'bun':
          return ['      - uses: oven-sh/setup-bun@v2'];
       case 'python':
          return [
-            '      - uses: actions/setup-python@v5',
+            '      - uses: actions/setup-python@v7',
             '        with:',
             "          python-version: '3.12'",
-            ...(job.uvAction ? ['      - uses: astral-sh/setup-uv@v5'] : []),
+            ...(job.uvAction ? ['      - uses: astral-sh/setup-uv@v10.2.0'] : []),
          ];
       case 'go':
-         return ['      - uses: actions/setup-go@v5', '        with:', "          go-version: '1.24'"];
+         return ['      - uses: actions/setup-go@v7', '        with:', "          go-version: '1.24'"];
    }
 }
 
@@ -1496,7 +1522,7 @@ function buildGithubWorkflow(job: CiJob): string {
       '  validate:',
       '    runs-on: ubuntu-latest',
       '    steps:',
-      '      - uses: actions/checkout@v4',
+      '      - uses: actions/checkout@v7',
       ...githubSetup(job),
       ...(note ? [`      ${note}`] : []),
       ...job.install.map((cmd) => `      - run: ${cmd}`),
@@ -1510,7 +1536,7 @@ function buildGithubWorkflow(job: CiJob): string {
 function ciImage(runtime: CiRuntime): string {
    switch (runtime) {
       case 'node':
-         return 'node:22';
+         return 'node:24';
       case 'bun':
          return 'oven/bun:1';
       case 'python':
@@ -1578,12 +1604,12 @@ function buildCircleCiSnippet(job: CiJob): string {
 function azureSetup(job: CiJob): string[] {
    switch (job.runtime) {
       case 'node':
-         return ['  - task: NodeTool@0', '    inputs:', "      versionSpec: '22.x'"];
+         return ['  - task: UseNode@1', '    inputs:', "      version: '24.x'"];
       case 'bun':
          return [
-            '  - task: NodeTool@0',
+            '  - task: UseNode@1',
             '    inputs:',
-            "      versionSpec: '22.x'",
+            "      version: '24.x'",
             '  - script: npm install -g bun',
             '    displayName: install bun',
          ];
@@ -1911,7 +1937,7 @@ export async function initLayer(options: InitOptions): Promise<InitResult> {
       const seeded = writes
          .map((w) => w.rel)
          .filter((rel) => !rel.split('/').some((seg) => seg.startsWith('.')))
-         .sort();
+         .sort(byteCompare);
       writes.push({ rel: effectiveChangelogPath(manifest), content: buildChangelog(answers, seeded) });
    }
 
@@ -1964,7 +1990,7 @@ export async function initLayer(options: InitOptions): Promise<InitResult> {
    }
 
    return {
-      written: written.sort(),
+      written: written.sort(byteCompare),
       manifest,
       mode: answers.mode,
       plan,
@@ -2003,7 +2029,7 @@ export const DOCS_CANDIDATES = ['docs/', 'doc/', 'documentation/'];
 export function pickDocsRoot(dirNames: readonly string[]): string | null {
    for (const candidate of DOCS_CANDIDATES) {
       const want = stripSlash(candidate);
-      const matches = dirNames.filter((n) => n.toLowerCase() === want.toLowerCase()).sort();
+      const matches = dirNames.filter((n) => n.toLowerCase() === want.toLowerCase()).sort(byteCompare);
       const hit = matches.find((n) => n === want) ?? matches[0];
       if (hit !== undefined) return `${hit}/`;
    }
@@ -2302,7 +2328,7 @@ export async function adoptLayer(options: AdoptOptions): Promise<AdoptResult> {
    if (!hasErrors(index.findings)) written.push(indexRel);
    return {
       findings: index.findings,
-      written: written.sort(),
+      written: written.sort(byteCompare),
       manifest,
       mode: answers.mode,
       plan,
@@ -2319,7 +2345,7 @@ export async function adoptLayer(options: AdoptOptions): Promise<AdoptResult> {
 
 /** Where a vendor entrypoint's content is archived under `governance/`: the first
  * free `imported-<slug>.md`, or null when this exact migration doc is already on
- * disk — the normal case, `adopt` having archived it on the first pass. Mirrors the
+ * disk (the normal case, `adopt` having archived it on the first pass). Mirrors the
  * slug and disambiguation rules `adoptLayer` uses. */
 function archivePath(root: string, rootPath: string, vendorRel: string, doc: string): string | null {
    const rootReal = guardRoot(root);
@@ -2336,8 +2362,8 @@ function archivePath(root: string, rootPath: string, vendorRel: string, doc: str
       // verified bytes: a pathname existence check follows symlinks, so a dangling
       // candidate link would read as free and the write would follow it to its missing
       // destination. Nothing standing is free; the identical archive is already on
-      // disk; anything else — different bytes, or a standing entry this run cannot
-      // verify — is occupied, and the next name is tried.
+      // disk; anything else (different bytes, or a standing entry this run cannot
+      // verify) is occupied, and the next name is tried.
       if (nothingStandsAt(abs)) return rel;
       const standing = verifiedTargetRead(rootReal, abs, null);
       if (standing.status === 'regular' && standing.bytes.toString('utf8') === doc) return null;
@@ -2416,7 +2442,7 @@ async function wireAdaptersIntoLayer(root: string, options: AdoptOptions): Promi
       findings.push(...index.findings);
       if (!hasErrors(index.findings)) written.push(effectiveIndexPath(manifest));
    }
-   return { ...base, findings, written: written.sort(), dryRun: false };
+   return { ...base, findings, written: written.sort(byteCompare), dryRun: false };
 }
 
 /** Post-adopt guidance, printed by the CLI. */
@@ -2516,8 +2542,8 @@ export interface HandoffIo {
    /** Run a host subcommand (the MCP presence check / register) or a bounded probe
     * from `cwd`, returning spawnSync's shape. `quiet` suppresses child output (the
     * check); otherwise the child inherits the terminal so the user sees the host's
-    * own output. `capture` reads stdout back instead — bounded by `timeoutMs` and
-    * `maxBytes`, with stdin closed and stderr discarded — which is what the preflight
+    * own output. `capture` reads stdout back instead (bounded by `timeoutMs` and
+    * `maxBytes`, with stdin closed and stderr discarded), which is what the preflight
     * version probe needs; `env`, when given, REPLACES the environment entirely
     * (nothing of this process's is inherited), which is how the probe stays
     * sanitized. */
@@ -2797,7 +2823,7 @@ export async function offerMcpInstall(opts: McpOfferOptions): Promise<McpOfferOu
    const spec = HOST_SPECS.find((s) => s.id === target.id);
    if (!spec?.mcpAdd) return outcome;
    // Skip the offer when already registered (exit 0), so re-running init/adopt never
-   // re-nags — but say so: a silent skip is indistinguishable from the offer being broken.
+   // re-nags, but say so: a silent skip is indistinguishable from the offer being broken.
    // A failed check (e.g. an older host CLI) falls through to the offer.
    if (spec.mcpCheck) {
       const chk = io.run(target.bin, spec.mcpCheck, opts.root, { quiet: true });
@@ -2905,7 +2931,7 @@ export type GuardAction = 'installed' | 'unchanged';
 /** Write the guard script under the onboarding workspace (`.leji/work/hooks/`) and
  * merge its PreToolUse entry into .claude/settings.json (created if absent, other
  * settings preserved). Idempotent: an existing guard entry is left untouched.
- * `rootPath` no longer selects the workspace — it is one root-relative tree — and
+ * `rootPath` no longer selects the workspace (it is one root-relative tree) and
  * is kept only so the exported signature holds. `ignoreContext` is the invocation's
  * notice state for the self-managed `.leji/.gitignore`, which this function ensures
  * because it creates `.leji/work/hooks/`; omitted means a context local to this
@@ -3040,7 +3066,7 @@ export async function resolveStartHost(opts: {
    return null;
 }
 
-/** The detected hosts `leji start` could launch, ranked — what the preflight names
+/** The detected hosts `leji start` could launch, ranked: what the preflight names
  * when several are present and none was picked. */
 export function startHosts(detected: DetectedHost[]): PromptHost[] {
    return promptCapableHosts(detected);

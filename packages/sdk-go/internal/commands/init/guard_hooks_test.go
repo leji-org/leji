@@ -597,7 +597,7 @@ func TestHookStaleIndexMessageIsLiteralNotExecuted(t *testing.T) {
 		t.Fatal(err)
 	}
 	// validate passes, `index --check` fails (the stale-index path), and a bare
-	// `index` — which only a command substitution could reach — leaves a marker.
+	// `index` (which only a command substitution could reach) leaves a marker.
 	stub := "#!/bin/sh\n" +
 		"case \"$1$2\" in\n" +
 		"  validate) exit 0 ;;\n" +

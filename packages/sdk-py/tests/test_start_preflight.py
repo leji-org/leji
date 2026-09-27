@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 import pytest
 
+from helpers.copytree import copy_tree
 from leji.cli import main
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -53,7 +54,7 @@ def _fixture(
     """One seeded joiner root from fixtures/start-preflight/, committed, with the
     environment the case declares."""
     root = tmp_path / "repo"
-    shutil.copytree(FIXTURES / name, root)
+    copy_tree(FIXTURES / name, root)
     # What the manager's own install would have produced for a Node repository that
     # declares the CLI. The probe executes this file directly; no `npx`/`pnpm exec` stub
     # exists, and none is needed.

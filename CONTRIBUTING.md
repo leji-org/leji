@@ -1,6 +1,6 @@
 # Contributing
 
-The Leji spec is at 1.0, extracted from lived practice; the reference SDKs and tooling are at 1.5.1. The 1.0 spec line is GA and frozen at the v1.3.0 reference-tooling release: schema changes within it are additive only, and breaking changes require a new line per spec/versioning.md.
+The Leji spec is at 1.0, extracted from lived practice; the reference SDKs and tooling are at 1.5.2. The 1.0 spec line is GA and frozen at the v1.3.0 reference-tooling release: schema changes within it are additive only, and breaking changes require a new line per spec/versioning.md.
 
 ## Before you build
 
@@ -37,13 +37,13 @@ Prerequisites: Node 24+, a Python >=3.10 (the Python SDK pins 3.12 via `packages
 - `npm run cli:packed:refresh` builds, packs, and globally installs the publish-identical
   tarball (fingerprinted). Use before declaring packaging-sensitive or adoption-sensitive
   work ready; a LIVE pass proves logic, never packaging.
-- `npm run cli:mode` says which is active (version strings can't); `npm run cli:assert -- live|packed`
+- `npm run cli:mode` says which is active; `npm run cli:assert -- live|packed`
   fails loudly on a mismatch. Full discipline: `docs/practice/testing-cli-adoptions.md`.
 
 - **Spec proposals.** Open an issue first: the problem, the intent, and the lived case behind it. Leji specifies proven practice; proposals grounded in something a real team does carry more weight than ideas in the abstract. The answer you can expect, and when, is in [Before you build](#before-you-build).
 - **Pull requests.** Normative changes (anything under `spec/` or `schemas/`) ride PR review and require a `CHANGELOG.md` entry plus a machine-readable `CHANGELOG.json` entry. Yes, the spec dogfoods itself.
 - **Contributor terms.** Every commit needs a DCO sign-off (`git commit -s`); contributions ship under the license for their content type. See [Contributor terms](#contributor-terms).
-- **Tooling.** SDK changes need tests and must keep `leji validate` passing against `examples/`. The Node, Python, and Go SDKs (`packages/sdk`, `packages/sdk-py`, `packages/sdk-go`) are behaviorally identical: a behavior change in one rides into all three, pinned by the shared `fixtures/` suite. Behavior develops and proves out fully in the TypeScript SDK first, the canonical implementation, against the LIVE channel ([testing-cli-adoptions](docs/practice/testing-cli-adoptions.md)); the Go and Python ports are made only from settled TypeScript behavior, pinned by the shared fixtures at port time. The Go SDK builds with Go 1.26.6+; `gofmt`, `go vet ./...`, and `go test ./...` must pass.
+- **Tooling.** SDK changes need tests and must keep `leji validate` passing against `examples/`. The Node, Python, and Go SDKs (`packages/sdk`, `packages/sdk-py`, `packages/sdk-go`) are held to identical behavior by the shared `fixtures/` suite and the byte-level parity harness: a behavior change in one rides into all three. Behavior develops and proves out fully in the TypeScript SDK first, the canonical implementation, against the LIVE channel ([testing-cli-adoptions](docs/practice/testing-cli-adoptions.md)); the Go and Python ports are made only from settled TypeScript behavior, pinned by the shared fixtures at port time. The Go SDK builds with Go 1.26.6+; `gofmt`, `go vet ./...`, and `go test ./...` must pass.
 - **Language policy (Node side).** TypeScript + ESM everywhere: SDK source and tests, the site (`astro.config.ts` included), and repo scripts (run natively by Node's type stripping; develop on Node 24+). The deliberate exceptions are `packages/create-leji/index.js`, a zero-build published shim, with its tests in plain `.js` beside it, and the UI smoke suite's own runners, `packages/e2e/run.mjs` and `packages/e2e/static-server.mjs`. Every package declares `"type": "module"`, so nothing else needs the `.mjs` extension.
 - **Style.** Spec prose is plain English, normative keywords per RFC 2119 (MUST/SHOULD/MAY), human-readable first.
 

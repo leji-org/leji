@@ -2,7 +2,7 @@
 findings, their layout, their golden export bytes, and their idempotency.
 
 The detector's own families live with the detector (test_renderlint.py); what this
-file asserts is the contract the three SDKs share — the findings a `--json` consumer
+file asserts is the contract the three SDKs share: the findings a `--json` consumer
 reads, in the canonical order, and the exported tree byte for byte against the
 committed goldens. Mirrors the fixture half of packages/sdk/test/renderlint.test.ts.
 """
@@ -12,11 +12,11 @@ from __future__ import annotations
 import hashlib
 import json
 import posixpath
-import shutil
 from pathlib import Path
 
 import pytest
 
+from helpers.copytree import copy_tree
 from leji.cli import main
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -37,8 +37,8 @@ FINDING_KEYS = ("rule", "severity", "path", "line", "construct")
 def _shape(f: dict) -> dict:
     """A finding as the (rule, severity, path, line, construct) tuple the block matches
     on, carrying only the coordinates the finding actually has: a manifest-level finding
-    names no path, line, or construct, and an expected entry states it the same way — by
-    leaving the key out — rather than by spelling an absent value."""
+    names no path, line, or construct, and an expected entry states it the same way (by
+    leaving the key out) rather than by spelling an absent value."""
     return {k: f[k] for k in FINDING_KEYS if f.get(k) is not None}
 
 
@@ -116,7 +116,7 @@ def _files_under(directory: Path) -> list[str]:
 def test_render_fixture_export_block(name: str, tmp_path: Path, capsys) -> None:
     block = _expected(name)["export"]
     directory = tmp_path / name
-    shutil.copytree(FIXTURES / name, directory)
+    copy_tree(FIXTURES / name, directory)
 
     preserved_before: dict[str, str] = {}
     for rel in block.get("layout", {}).get("preserved", []):
@@ -133,12 +133,12 @@ def test_render_fixture_export_block(name: str, tmp_path: Path, capsys) -> None:
     assert code == block["exit"], f"exit code for {name}: {stdout}"
     doc = json.loads(stdout)
     assert doc["out"].replace("\\", "/") == block["out"], "the declared output directory"
-    # Matched on (rule, severity, path, line, construct) IN ORDER — message text is
+    # Matched on (rule, severity, path, line, construct) IN ORDER: message text is
     # never compared, and the order is the canonical one the three SDKs share.
     got = [_shape(f) for f in doc["findings"]]
     assert got == [_shape(f) for f in block["findings"]], f"findings for {name}"
 
-    # `roles` is the layout's role map — which directory each role NAMES — and
+    # `roles` is the layout's role map (which directory each role NAMES), and
     # present/absent say which of them a given run establishes: a `--strict` run names
     # the export role and deliberately writes nothing at it.
     layout = block.get("layout") or {}
@@ -194,7 +194,7 @@ def test_render_fixture_export_block(name: str, tmp_path: Path, capsys) -> None:
                 *rel.split("/")
             ).read_bytes(), f"{name}: exported bytes differ from the golden for content/{rel}"
 
-        # Everything else — chrome, vendored assets, fonts — by digest and size. The two
+        # Everything else (chrome, vendored assets, fonts) by digest and size. The two
         # sets are disjoint by construction and exhaustive by this comparison.
         manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
         assert manifest["version"] == 1, "the manifest states its version"

@@ -11,8 +11,8 @@ import (
 // canonical names, so the three SDKs print the same word: Go's Signal.String()
 // renders SIGTERM as "terminated", which neither Node nor Python does.
 //
-// Unix table. The set differs per platform — Windows' syscall package defines a
-// smaller one — so each build tag carries its own, and the SIG<n> fallback covers
+// Unix table. The set differs per platform (Windows' syscall package defines a
+// smaller one), so each build tag carries its own, and the SIG<n> fallback covers
 // anything absent from either.
 var signalNames = map[syscall.Signal]string{
 	syscall.SIGHUP: "SIGHUP", syscall.SIGINT: "SIGINT", syscall.SIGQUIT: "SIGQUIT",

@@ -362,7 +362,7 @@ function scanFrontmatterArtifact(
  * How a scan gets one artifact's bytes, and whether it may have them at all. The
  * default reads by path; a caller composing something it will serve or export passes
  * a reader that binds the check to the read (check-before-act), and returns null for a source it
- * refuses — missing, not a regular file, or resolving somewhere it may not be read
+ * refuses: missing, not a regular file, or resolving somewhere it may not be read
  * from. A refused artifact is dropped from the scan, exactly as the whitelist filter
  * it replaces dropped it, so validation (which passes no reader) is unaffected.
  */
@@ -410,7 +410,7 @@ export function scanProfileSet(root: string, manifest: Manifest): ScannedProfile
 }
 
 /**
- * The same scan through a caller's reader — the seam a viewer or export needs and
+ * The same scan through a caller's reader: the seam a viewer or export needs and
  * nobody outside this package does, so it stays out of the barrel (`index.ts`)
  * while {@link scanProfileSet} keeps the surface others build against.
  */

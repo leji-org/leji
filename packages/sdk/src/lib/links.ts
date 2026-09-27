@@ -47,7 +47,7 @@ export interface ScannedLink {
    line: number;
 }
 
-/** A URI scheme, which is what makes a destination somebody else's to resolve —
+/** A URI scheme, which is what makes a destination somebody else's to resolve:
  * `https:`, `mailto:`, `data:` and every other. */
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 
@@ -71,7 +71,7 @@ function skipSpaces(text: string, i: number): number {
 
 /**
  * A destination at `i`, as written, and the offset just past it; null when none can
- * be read there — an empty run, an unterminated angle form, a newline inside either,
+ * be read there: an empty run, an unterminated angle form, a newline inside either,
  * or parentheses nested past the one level a destination may carry.
  */
 function destinationAt(text: string, i: number): { target: string; end: number } | null {
@@ -168,7 +168,7 @@ function inlineLinkAt(text: string, i: number): { target: string; end: number } 
 
 /** A reference definition opening at `i`, which is known to be a line start: its
  * destination and the offset just past the line, or null. The remainder of the line
- * must be empty or one title — `[^1]: a footnote's prose` is neither, and is prose. */
+ * must be empty or one title: `[^1]: a footnote's prose` is neither, and is prose. */
 function referenceDefinitionAt(text: string, i: number): { target: string; end: number } | null {
    const newline = text.indexOf('\n', i);
    const line = text.slice(i, newline === -1 ? text.length : newline);
@@ -246,7 +246,7 @@ function unescapeMarkdown(target: string): string {
  * destination. A leading `/` resolves against the layer's `rootPath`, which is how
  * the viewer resolves one; everything else resolves against the linking document's
  * own directory. Escapes come off first, then `#fragment` and `?query`, then
- * percent-encoding — an undecodable target stays as written rather than being
+ * percent-encoding. An undecodable target stays as written rather than being
  * dropped, so a mistyped escape is reported rather than silently passed.
  */
 export function resolveLinkTarget(
@@ -288,7 +288,7 @@ function targetResolves(rootAbs: string, abs: string): boolean {
 /**
  * The scan as findings for one governed document. Containment is checked before
  * existence and with the same realpath-aware primitive the write guards use, so a
- * target reaching outside the layer — by `..`, or through a symlink inside it — is
+ * target reaching outside the layer (by `..`, or through a symlink inside it) is
  * unresolved whether or not something happens to sit there.
  */
 export function linkFindings(rootAbs: string, layerRootAbs: string, relPath: string, text: string): Finding[] {

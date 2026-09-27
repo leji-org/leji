@@ -11,8 +11,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -24,17 +26,31 @@ import (
 func exampleLayerCopy(t *testing.T) string {
 	t.Helper()
 	dst := t.TempDir()
-	if err := os.CopyFS(dst, os.DirFS(filepath.Join(repoRoot(t), "examples", "monorepo"))); err != nil {
+	if err := os.CopyFS(dst, withoutLeji{os.DirFS(filepath.Join(repoRoot(t), "examples", "monorepo"))}); err != nil {
 		t.Fatalf("copy example: %v", err)
 	}
 	return dst
 }
 
+// withoutLeji hides every entry named .leji. A local `leji view` leaves its
+// gitignored viewer build in the working tree, and a test copy that carried it would
+// change what the export, viewer, and conformance tests see.
+type withoutLeji struct{ fs.FS }
+
+func (f withoutLeji) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(f.FS, name)
+	return slices.DeleteFunc(entries, func(e fs.DirEntry) bool { return e.Name() == ".leji" }), err
+}
+
+// ReadLink and Lstat pass through, so a symlink in the source copies as a symlink.
+func (f withoutLeji) ReadLink(name string) (string, error)   { return fs.ReadLink(f.FS, name) }
+func (f withoutLeji) Lstat(name string) (fs.FileInfo, error) { return fs.Lstat(f.FS, name) }
+
 // fixtureCopy is a scratch copy of a shared fixture.
 func fixtureCopy(t *testing.T, name string) string {
 	t.Helper()
 	dst := t.TempDir()
-	if err := os.CopyFS(dst, os.DirFS(fixture(t, name))); err != nil {
+	if err := os.CopyFS(dst, withoutLeji{os.DirFS(fixture(t, name))}); err != nil {
 		t.Fatalf("copy fixture %s: %v", name, err)
 	}
 	return dst
@@ -147,7 +163,7 @@ func TestExportTakesNoDestinationFlagAndItsHelpNamesNoNetwork(t *testing.T) {
 	}
 	// The accept side of the same guarantee, under BOTH names: the allow-list the
 	// rejection above consults is exactly the globals plus --out and --strict. Read
-	// from cli.json, which is what the CLI itself rejects against — so a destination
+	// from cli.json, which is what the CLI itself rejects against, so a destination
 	// flag cannot reach the surface without failing here.
 	spec, err := schemas.LoadCliSpec()
 	if err != nil {
@@ -340,7 +356,7 @@ func TestExportStrictIsScopedToTheLintClassAndLeavesTheTargetUntouched(t *testin
 	// An error finding fails the run through the same pre-clean gate: overview.md,
 	// seeded by the runs above, redirected into a private role. Generation reaches it
 	// after the chrome is written, so this run proves both halves of the pipeline
-	// promise at once — the internal chrome IS regenerated, the target is not touched.
+	// promise at once: the internal chrome IS regenerated, the target is not touched.
 	if err := os.MkdirAll(filepath.Join(dir, ".leji", "mounts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +422,7 @@ func TestExportStrictGateIsDrivenByARealLintFinding(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Default run: the lint finding is reported and the export is written anyway — the
+	// Default run: the lint finding is reported and the export is written anyway: the
 	// layer's build never breaks on prose.
 	code, out, _ := captureRun(t, []string{"export", "--root", dir, "--json"})
 	if code != 0 {

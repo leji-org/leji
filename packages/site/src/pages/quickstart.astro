@@ -9,7 +9,7 @@ import PageHeader from '../components/PageHeader.astro';
 import InstallTabs from '../components/InstallTabs.astro';
 import lejiSyntaxTheme from '../styles/shiki-leji.json';
 
-const initCode = `leji adopt --dry-run    # the exact write plan; nothing is written
+const initCode = `leji adopt --dry-run    # the write plan for the scaffold; nothing is written
 leji adopt              # adopt an existing repo (leji init for a new one)
                         # then offers to open Claude Code or Codex
 
@@ -325,13 +325,12 @@ const sdkLd = {
 <style>
    .gs-hero {
       /* No top padding: .doc-shell already sets the 2.5rem above the first line,
-         and every Doc page starts its h1 there. This section used to add another
-         2.5-4.5rem, which is why this page's header sat lower than the rest. */
+         and every Doc page starts its h1 there. */
       padding: 0 0 1rem;
       max-width: 760px;
    }
-   /* .eyebrow now comes from global.css via PageHeader; the local copy is gone so
-      the classification cannot drift from the rest of the site. */
+   /* .eyebrow comes from global.css via PageHeader, so the classification cannot
+      drift from the rest of the site. */
    /* h1 comes from the shared .measured/.prose display scale in global.css. */
    .lede {
       font-size: var(--text-lede);

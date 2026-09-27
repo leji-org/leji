@@ -53,8 +53,8 @@ export interface EcoResult {
    manifest: string | null;
    manager: string | null;
    source: EcoSource | null;
-   /** The files that evidenced the manager decision — lockfiles present, plus
-    * every root `requirements*.txt` for Python — or, on `refused-evidence`, the
+   /** The files that evidenced the manager decision (lockfiles present, plus
+    * every root `requirements*.txt` for Python) or, on `refused-evidence`, the
     * names that were refused. Sorted as documented per ecosystem. */
    evidence: string[];
    /** Argv that declares Leji as a dev dependency; `null` for a print-only
@@ -77,8 +77,8 @@ export interface EcosystemReport {
 
 /** Per-manager commands. `add` is `null` for a manager that cannot declare a dev
  * dependency from the command line; its guidance is printed instead. `install` is
- * the manager's own plain install — what a joiner runs on a fresh clone so the
- * declared CLI resolves — and is `null` for a manager whose install depends on which
+ * the manager's own plain install (what a joiner runs on a fresh clone so the
+ * declared CLI resolves) and is `null` for a manager whose install depends on which
  * requirements file the repository uses. Argv arrays, never shell strings. No version
  * pin: the lockfile pins the exact version, and Go needs a selector, so it takes
  * `@latest`. */
@@ -240,7 +240,7 @@ const DECLARED_SUBJECT: Record<EcosystemId, string> = {
  */
 export const ECOSYSTEM_TEXT = TEXT;
 
-/** `a`, `a and b`, `a, b and c` — the one list join every message uses. */
+/** `a`, `a and b`, `a, b and c`: the one list join every message uses. */
 function joinAnd(items: string[]): string {
    if (items.length === 0) return '';
    if (items.length === 1) return items[0];
@@ -270,13 +270,13 @@ interface VerifiedEntry {
  * than followed, whatever it resolves to, because evidence reached through a link
  * is not this repository's evidence. That up-front `lstat` is the cheap refusal,
  * and on its own it leaves the entry free to become a link before the open, which
- * the open would then resolve and verify perfectly well — no swap back needed, and
+ * the open would then resolve and verify perfectly well: no swap back needed, and
  * the name would have evidenced a manager it never stood for. So the name is
  * opened through {@link openVerifiedSource}, which resolves, opens, and proves the
  * descriptor is the file it judged, and the descriptor's own `fstat` must then
  * report the same regular file a FRESH `lstat` of the NAME does. A symlink's inode
  * is never the inode of the file it points at, so an entry that is a link at that
- * instant cannot pass, and neither can one that has become a different file —
+ * instant cannot pass, and neither can one that has become a different file,
  * including the name renamed away and linked back to its own inode, which every
  * comparison against the FIRST `lstat` accepts.
  *
@@ -285,10 +285,10 @@ interface VerifiedEntry {
  * hand a source out.
  *
  * The two failure classes are kept apart, and the three SDKs answer alike. What the
- * run can SEE contradicted — the identity or kind differs, the verified open handed
- * back no descriptor, nothing stands at the name any more — is `refused`, exactly as
+ * run can SEE contradicted (the identity or kind differs, the verified open handed
+ * back no descriptor, nothing stands at the name any more) is `refused`, exactly as
  * a link or a directory is. What it merely could not COMPLETE on an entry still
- * standing and never contradicted — the open denied, an `fstat` or read failure —
+ * standing and never contradicted (the open denied, an `fstat` or read failure)
  * leaves the entry eligible and carries no bytes, which is the unreadable outcome
  * this scan has always reported for it. What remains is the recorded
  * check-before-act window (`docs/practice/trust-boundary.md`), which every verified
@@ -352,7 +352,7 @@ class RootScan {
    }
    /** The bytes of one probed name, or null. Structurally gated: a name that is
     * not an eligible regular file inside the real root is never opened, so no read
-    * can bypass the eligibility rule by being spelled at a new call site — and the
+    * can bypass the eligibility rule by being spelled at a new call site, and the
     * name is judged ONCE MORE immediately before its bytes are taken, so they come
     * from the descriptor this run proved rather than from a name a swap could have
     * retargeted since the scan classified it. */
@@ -428,7 +428,7 @@ function uniq(items: string[]): string[] {
 // --- Node -----------------------------------------------------------------
 
 /** `<name>[@<version>[+<hash>]]`, corepack's grammar. A value that is present but
- * does not parse is malformed — never a fall-through to a lockfile or the default,
+ * does not parse is malformed, never a fall-through to a lockfile or the default,
  * because explicit repository evidence is never overridden by a guess. */
 const PACKAGE_MANAGER_RE =
    /^([a-z][a-z0-9-]*)(?:@([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)(?:\+([A-Za-z0-9._-]+))?)?$/;
@@ -493,8 +493,8 @@ function nodeResult(scan: RootScan): EcoResult {
    return families.length === 1 ? selected(families[0], 'lockfile') : selected('npm', 'default');
 }
 
-/** Strict JSON after one BOM strip; anything else — unparseable, or parsed to
- * something that is not a JSON object — leaves the manifest unreadable, and locks
+/** Strict JSON after one BOM strip; anything else (unparseable, or parsed to
+ * something that is not a JSON object) leaves the manifest unreadable, and locks
  * and defaults are not consulted from incomplete evidence. */
 function parsePackageJson(raw: string): Record<string, unknown> | null {
    const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
@@ -689,7 +689,7 @@ function goDeclaresTool(text: string): boolean {
  * parser: a field-specific, stateful line scan that tracks the current table,
  * triple-quoted string state, and the bracket depth of the one array it is
  * inspecting. Only the listed fields are inspected, so a description, a comment,
- * or an unrelated table cannot produce a false positive — and a false positive is
+ * or an unrelated table cannot produce a false positive, and a false positive is
  * the expensive error here, because it suppresses the only offer the user gets.
  */
 interface TomlFields {
@@ -928,7 +928,7 @@ export function runnerArgv(report: EcosystemReport): string[] {
 }
 
 /** The always-printed human block: what was detected, and what to run to declare
- * the Leji CLI. Never a prompt, never a command run — the caller owns both. */
+ * the Leji CLI. Never a prompt, never a command run: the caller owns both. */
 export function renderEcosystemBlock(report: EcosystemReport): string {
    return blockLines(report).join('\n');
 }

@@ -29,7 +29,8 @@ const afterHtml = after ? (await processor.render(after)).code : '';
       <CircleChart />
       <figcaption class="figure-note">
          <span class="flows">human-to-human · human-to-AI · human-to-AI-to-human</span>
-         Everyone reads. Anyone proposes. People approve. Stale context is never silently treated as current.
+         Everyone reads. Anyone proposes. People approve. Context past its review horizon is surfaced by{' '}
+         <code>leji freshness</code> and <code>leji route</code>, not presented as current.
       </figcaption>
    </figure>
    <Fragment set:html={afterHtml} />

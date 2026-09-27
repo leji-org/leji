@@ -5,7 +5,7 @@ Mirrors packages/sdk/src/commands/mounts-update-pin.ts byte-for-byte in behavior
 output.
 
 Offline by default: the target is the last successfully observed witness, never a
-claim of freshness. ``--fetch`` observes the declared source — and nothing else — in
+claim of freshness. ``--fetch`` observes the declared source (and nothing else) in
 three acts: retain the current pin, refresh the witness once, and (after the gate
 passes) retain the target. Any of them failing REFUSES the move; a pin move is not
 best-effort, which is ``hydrate``'s model rather than this one. The reason names the
@@ -239,7 +239,7 @@ def update_pin_run(  # noqa: C901
 
     # (a) The declaration snapshot: the manifest's OWN values, kept for the
     # freshness check the rewrite makes against the verified bytes. ``trackingRef``
-    # is snapshotted as declared, presence included — absent must stay absent —
+    # is snapshotted as declared, presence included (absent must stay absent),
     # while the ref the comparison actually uses is tracked separately.
     declaration = _Declaration(
         name=mount.name,
@@ -292,7 +292,7 @@ def update_pin_run(  # noqa: C901
 
     # (b i, ii) ``--fetch``, declared source only, in order: retain the CURRENT pin so
     # the managed store holds both operands, then refresh the witness exactly once.
-    # A failure here refuses the move — best-effort belongs to ``hydrate``.
+    # A failure here refuses the move: best-effort belongs to ``hydrate``.
     if fetch:
         retained = retain_pin_in_store(root, mount, identity, mount.pin, ignore_context)
         if retained.repo is None:
@@ -400,7 +400,7 @@ def update_pin_run(  # noqa: C901
     if not ancestor.ok:
         # Exit 1 is the answer "no"; anything else is the repository unable to answer.
         # A "no" from truncated history is not an answer either, so an incomplete
-        # repository never yields the not-fast-forward refusal — nor does the
+        # repository never yields the not-fast-forward refusal, nor does the
         # override bypass it.
         if ancestor.code != 1 or not comparison.ancestry_complete:
             return refuse_settled("mount-ancestry-incomplete")
@@ -480,8 +480,8 @@ def _declaration_unchanged(text: str, declaration: _Declaration) -> bool:
     ``trackingRef`` of ``null`` (or any other spelling) since the comparison is a
     changed declaration, not an unchanged one."""
     # These are the only manifest bytes this command reads without the schema having
-    # cleared them first — the file may have been replaced with anything since the
-    # comparison — so every shape but the one being looked for is simply "changed".
+    # cleared them first (the file may have been replaced with anything since the
+    # comparison), so every shape but the one being looked for is simply "changed".
     try:
         parsed = json.loads(text)
     except ValueError:

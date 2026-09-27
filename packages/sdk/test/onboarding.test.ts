@@ -627,7 +627,7 @@ test('ci --hooks: the stale-index message is literal text, not a command the hoo
    await initLayer({ dir, yes: true });
    gitCommitAll(dir);
    ensureLocalHook(dir);
-   // Nothing is declared here, so the generated hook runs the plain `leji` on PATH —
+   // Nothing is declared here, so the generated hook runs the plain `leji` on PATH,
    // which makes that PATH this test's to supply. A stub of our own, AHEAD of
    // everything else, so the hook reaches it and never whatever the machine running
    // the suite happens to have installed (a runner has nothing; a maintainer's box
@@ -1156,7 +1156,7 @@ test('adopt --wire-adapters: an archive candidate resolving outside the reposito
 
 test('init: a dangling symlink at a scaffold target is refused, never written through', async () => {
    // `existsSync` follows symlinks, so a dangling target reads as absent and the
-   // guarded write lands at the link's destination — inside the root, but under a
+   // guarded write lands at the link's destination, inside the root, but under a
    // name init never planned. The verified read refuses the standing entry instead.
    const dir = tmpdir();
    fs.mkdirSync(path.join(dir, 'docs'));

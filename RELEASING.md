@@ -11,16 +11,16 @@ model below).
 
 Every change lands on `main` by pull request; direct pushes are blocked by ruleset for
 everyone, maintainers included. Branch names follow `feat/*`, `chore/*`, `fix/*`,
-`context/*`, `release/*`, or `rc/*`. Maintenance PRs squash-merge; a release PR carries one
-commit for the whole release, signed off for DCO, and is rebase-merged. Rebase-merging
-writes a new sha, so `main` gets a different commit object with the same content: its
-tree is byte-identical to what CI proved on the `rc/*` candidate branch, verified at
-merge, and the message, the `Signed-off-by` line, and the authorship carry over, while
-the committer becomes GitHub. Release candidates push to `rc/*`, which exists only for
-that proof. Every commit carries a DCO `Signed-off-by` line (see CONTRIBUTING.md,
-"Contributor terms"); the required status checks are the full CI matrix. A PR normally
-merges only when they are green; a maintainer can merge past a failing check as a
-recorded exception, and direct pushes stay blocked either way.
+`context/*`, `release/*`, or `rc/*`. Every pull request squash-merges, the release PR
+included; a release PR carries one commit for the whole release, signed off for DCO. The
+squash writes a new sha, so `main` gets a different commit object with the same content:
+its tree is byte-identical to what CI proved on the `rc/*` candidate branch, verified at
+merge; the pull request title becomes the subject, the squash commit carries the
+`Signed-off-by` line, and the committer becomes GitHub. Release candidates push to
+`rc/*`, which exists only for that proof. Every commit carries a DCO `Signed-off-by` line
+(see CONTRIBUTING.md, "Contributor terms"); the required status checks are the full CI
+matrix. A PR normally merges only when they are green; a maintainer can merge past a
+failing check as a recorded exception, and direct pushes stay blocked either way.
 
 ## Before tagging
 
@@ -108,11 +108,11 @@ publish is irreversible.
 
 | Tag | Publishes |
 |---|---|
-| `packages/sdk/v1.5.1` | npm `@leji-org/leji` **and** JSR `@leji-org/leji` (one tag, two jobs) |
-| `packages/create-leji/v1.5.1` | npm `create-leji` |
-| `packages/sdk-py/v1.5.1` | PyPI `leji` |
-| `packages/sdk-go/v1.5.1` | Go module index + goreleaser binaries |
-| `packages/mcp/v1.5.1` | npm `@leji-org/mcp` |
+| `packages/sdk/v1.5.2` | npm `@leji-org/leji` **and** JSR `@leji-org/leji` (one tag, two jobs) |
+| `packages/create-leji/v1.5.2` | npm `create-leji` |
+| `packages/sdk-py/v1.5.2` | PyPI `leji` |
+| `packages/sdk-go/v1.5.2` | Go module index + goreleaser binaries |
+| `packages/mcp/v1.5.2` | npm `@leji-org/mcp` |
 
 Cut all five at the same version once the pre-flight (above) is green. Tag the
 sdk first: `create-leji` and `@leji-org/mcp` both depend on
@@ -122,14 +122,14 @@ sdk's npm publish job to go green and confirm the version is live**
 
 ```
 # 1. The sdk tag; then WAIT for the npm publish to be green and live.
-git tag packages/sdk/v1.5.1          && git push origin packages/sdk/v1.5.1
-npm view @leji-org/leji version      # must print 1.5.1 before continuing
+git tag packages/sdk/v1.5.2          && git push origin packages/sdk/v1.5.2
+npm view @leji-org/leji version      # must print 1.5.2 before continuing
 
-# 2. Only after @leji-org/leji@1.5.1 is live on npm:
-git tag packages/sdk-py/v1.5.1       && git push origin packages/sdk-py/v1.5.1
-git tag packages/sdk-go/v1.5.1       && git push origin packages/sdk-go/v1.5.1
-git tag packages/create-leji/v1.5.1  && git push origin packages/create-leji/v1.5.1
-git tag packages/mcp/v1.5.1          && git push origin packages/mcp/v1.5.1
+# 2. Only after @leji-org/leji@1.5.2 is live on npm:
+git tag packages/sdk-py/v1.5.2       && git push origin packages/sdk-py/v1.5.2
+git tag packages/sdk-go/v1.5.2       && git push origin packages/sdk-go/v1.5.2
+git tag packages/create-leji/v1.5.2  && git push origin packages/create-leji/v1.5.2
+git tag packages/mcp/v1.5.2          && git push origin packages/mcp/v1.5.2
 ```
 
 ## Finalize: publish the Go binaries (required)
@@ -140,7 +140,7 @@ public until the separate `release-finalize` workflow publishes it. Skipping thi
 leaves the announcement pointing at a release nobody can download.
 
 After every publish job is green, run the `release-finalize` workflow manually and
-give it the Go tag as `release_tag` (e.g. `packages/sdk-go/v1.5.1`). It publishes
+give it the Go tag as `release_tag` (e.g. `packages/sdk-go/v1.5.2`). It publishes
 the draft release and enables Discussions. Confirm the release is no longer marked
 draft before announcing.
 
@@ -168,8 +168,8 @@ immutable, so inspect the wheel and sdist before tagging
 The Go module lives at `packages/sdk-go`, so its import path is
 `github.com/leji-org/leji/packages/sdk-go`. Go resolves versions of a module in
 a subdirectory **only** from tags that carry the module subpath prefix
-(`packages/sdk-go/v1.5.1`); a plain `v1.5.1` will **not** make
-`go install github.com/leji-org/leji/packages/sdk-go/cmd/leji@v1.5.1` resolve.
+(`packages/sdk-go/v1.5.2`); a plain `v1.5.2` will **not** make
+`go install github.com/leji-org/leji/packages/sdk-go/cmd/leji@v1.5.2` resolve.
 There is no upload step: pkg.go.dev indexes the tag on first request.
 
 ## One-time setup (before the first tag)

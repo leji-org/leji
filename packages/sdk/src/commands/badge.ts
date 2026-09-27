@@ -59,8 +59,8 @@ const WORDMARK = 'Leji 1.0';
 /**
  * The accessible name and the markdown alt text: one string, three places. It
  * carries the full self-attestation claim, which the badge FACE does not: the
- * visible status segment is the level alone, and the claim stays structural — in
- * the `<title>`, the `aria-label`, and the markdown alt — with the linked
+ * visible status segment is the level alone, and the claim stays structural (in
+ * the `<title>`, the `aria-label`, and the markdown alt), with the linked
  * agent-ready page carrying the story.
  */
 export function badgeLabel(level: ConformanceLevel): string {
@@ -150,7 +150,7 @@ function canonicalOut(out: string): string {
 
 /**
  * The `--out` check, run at argument parsing and BEFORE conformance: the syntax
- * rule above, then containment of the RESOLVED path — inside the repository, never
+ * rule above, then containment of the RESOLVED path: inside the repository, never
  * under `.leji/` at any depth (that tree is the tool's own domain and the badge is
  * user content), and not a directory. Returns the usage-error text on a rejection,
  * else the canonical relative path and the resolved absolute one.
@@ -242,8 +242,8 @@ export function badgeRun(root: string, out: string = DEFAULT_BADGE_OUT): BadgeRe
    // decides its own kind (a directory, a socket, a link to one: refused, never
    // written through), the resolved location is judged by the same rule the write
    // below is judged by, and the bytes come from the descriptor proved to be that
-   // file. Absence is decided on the ORIGINAL entry, so a dangling link — standing,
-   // resolving nowhere — is a refusal rather than an absent target written through.
+   // file. Absence is decided on the ORIGINAL entry, so a dangling link (standing,
+   // resolving nowhere) is a refusal rather than an absent target written through.
    const read = verifiedTargetRead(rootAbs, checked.abs, null);
    if (read.status === 'refused') return refuseTarget();
    const existing = read.status === 'regular' ? read.bytes.toString('utf8') : null;
@@ -261,8 +261,8 @@ export function badgeRun(root: string, out: string = DEFAULT_BADGE_OUT): BadgeRe
    const action: BadgeAction = existing === null ? 'wrote' : existing === svg ? 'unchanged' : 'overwrote';
    if (action !== 'unchanged') {
       // The guarded-write chokepoint re-resolves the target immediately before the
-      // write and answers the whole boundary — inside the repository, outside
-      // `.leji/` — so nothing here is inherited from the parse-time verdict. Parent
+      // write and answers the whole boundary (inside the repository, outside
+      // `.leji/`), so nothing here is inherited from the parse-time verdict. Parent
       // directories are created only inside a write that happens: a run that writes
       // nothing (a refusal, an unchanged target) establishes no directory either.
       const verdict = writeFileGuarded(rootAbs, checked.abs, null, svg);

@@ -441,7 +441,7 @@ def _scan_frontmatter_artifact(
 #: How a scan gets one artifact's bytes, and whether it may have them at all. The
 #: default reads by path; a caller composing something it will serve or export
 #: passes a reader that binds the check to the read (check-before-act), and returns None for a
-#: source it refuses — missing, not a regular file, or resolving somewhere it may
+#: source it refuses: missing, not a regular file, or resolving somewhere it may
 #: not be read from. A refused artifact is dropped from the scan, exactly as the
 #: whitelist filter it replaces dropped it, so validation (which passes no reader)
 #: is unaffected.
@@ -497,7 +497,7 @@ def scan_profile_set(root: str, manifest: Manifest) -> list[ScannedProfile]:
 def scan_profile_set_with(
     root: str, manifest: Manifest, read: Optional[ArtifactReader] = None
 ) -> list[ScannedProfile]:
-    """The same scan through a caller's reader — the seam a viewer or export needs
+    """The same scan through a caller's reader: the seam a viewer or export needs
     and nobody else does. A None reader is :func:`scan_profile_set`'s own
     read-by-path behavior."""
     profiles = scan_agent_profiles(root, manifest, read)

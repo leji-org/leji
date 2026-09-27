@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { conformanceReport, loadManifest, validateLayer } from '../dist/index.js';
 import { mountSurfacingFindings } from '../dist/commands/validate.js';
 import { parseMountBlocks } from '../dist/lib/mountblock.js';
+import { copyTree } from './helpers/copytree.ts';
 
 // The `leji-mounts` block: the machine-checkable half of boot-profile.md req 9.
 // Grammar cases run against the parser directly; the cross-check against the
@@ -25,7 +26,7 @@ function block(...lines: string[]): string {
 /** A copy of the federated host example (one declared mount, one entry for it). */
 function hostLayer(): string {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-mountblock-'));
-   fs.cpSync(hostExample, dir, { recursive: true });
+   copyTree(hostExample, dir);
    return dir;
 }
 

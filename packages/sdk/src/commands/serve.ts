@@ -23,7 +23,7 @@ import {
 /**
  * The local preview server: the ONE module that speaks HTTP. The export pipeline
  * lives in `export.ts` and the chrome generation in `viewer.ts`, neither of which
- * imports this file or any network module — that separation is what makes the
+ * imports this file or any network module. That separation is what makes the
  * export's no-network guarantee checkable by a module-graph test rather than by
  * reading the code.
  */
@@ -73,7 +73,7 @@ const CONTENT_TYPES: Record<string, string> = {
 /**
  * A request URL path as a clean relative route key. Separators fold to `/` and
  * the path is cleaned against a root, so one request has one route key on any
- * platform — `path.normalize` follows the host and answered differently on
+ * platform. `path.normalize` follows the host and answered differently on
  * Windows, missing every `content/` route test. Canonicalization only; the mount
  * enforces containment.
  */
@@ -92,7 +92,7 @@ export function urlPathToRel(urlPath: string): string {
 
 /**
  * Serve the viewer at the web root, bound to 127.0.0.1 (local preview, never
- * hosting). Two virtual mounts and nothing else — the servable roots: chrome
+ * hosting). Two virtual mounts and nothing else (the servable roots): chrome
  * (`.leji/viewer/`) at `/`, layer markdown (`rootPath/`) under `/content/`;
  * `/content/_sidebar.md` maps to the generated sidebar in viewer/. Everything else
  * under `.leji/` is denied by name, so the private roles are unreachable however
@@ -169,7 +169,7 @@ export function serveViewer(
 
    // Live-sidebar cache, invalidated by a tree fingerprint: one stat pass over
    // leji.json + every markdown file under the content root (paths, mtimes,
-   // sizes — no content reads). The common unchanged-tree reload serves the
+   // sizes, no content reads). The common unchanged-tree reload serves the
    // cached string at stat cost; any create, delete, or edit still lands on the
    // very next fetch. walkTree skips dotdirs, so the viewer's own artifacts
    // never invalidate the cache.

@@ -469,7 +469,7 @@ func compactChangelog(t *testing.T, root string, m *manifest.Manifest, opts Comp
 func TestCompactPropagatesAnOperationalReadFailure(t *testing.T) {
 	// Compaction rewrites the file it just read. A refusal is an unreadable-artifact
 	// finding; an operational failure on an allowed path is the filesystem failing,
-	// and the reference lets it throw — so it travels out as an error and the command
+	// and the reference lets it throw, so it travels out as an error and the command
 	// reports it. Mutation that reddens: turn the error back into a finding.
 	if os.Geteuid() == 0 {
 		t.Skip("running as root bypasses permission bits; the read cannot be made to fail")

@@ -4,7 +4,7 @@ fixtures own the request corpus (`trustCanary`) and the layout claims
 (`export.layout`), so all three SDKs answer identical requests against identical
 bytes. Mirrors packages/sdk/test/canary.test.ts.
 
-Scope: the four layout fixtures — their layout roles, their golden export bytes,
+Scope: the four layout fixtures: their layout roles, their golden export bytes,
 and their canary corpus. The general `export`-block harness (findings, `--strict`
 variants) takes every other fixture.
 """
@@ -23,6 +23,7 @@ from typing import Callable
 
 import pytest
 
+from helpers.copytree import copy_tree
 from helpers.snapshot import snapshot_tree
 from leji import build_viewer, generate_viewer, load_manifest
 from leji import export_cmd, fsx
@@ -47,7 +48,7 @@ FIXTURES = REPO_ROOT / "fixtures"
 def _fixture_rel(value: str, what: str) -> str:
     """A fixture-declared path, as the README fixes it: repository-root-relative
     POSIX, normalized, no `..` segment, never absolute. A violation is a harness
-    error — the fixture is the contract, so a malformed one fails loudly rather than
+    error: the fixture is the contract, so a malformed one fails loudly rather than
     being repaired here."""
     assert not posixpath.isabs(value), f"{what} must be relative: {value}"
     normalized = posixpath.normpath(value).rstrip("/")
@@ -83,7 +84,7 @@ def _copy_seed(src: Path, dest: Path) -> None:
 def _materialize(factory: pytest.TempPathFactory, name: str, seeds: list[dict]) -> Path:
     """A pristine working copy of the fixture with every declared seed materialized."""
     directory = factory.mktemp("leji-canary")
-    shutil.copytree(FIXTURES / name, directory, dirs_exist_ok=True)
+    copy_tree(FIXTURES / name, directory, dirs_exist_ok=True)
     targets: list[str] = []
     for seed in seeds:
         src = _fixture_rel(seed["from"], "seed.from")
@@ -158,7 +159,7 @@ def _serve(directory: Path, manifest: dict) -> tuple[int, Callable[[], None]]:
 
 
 def _request(port: int, url_path: str) -> tuple[int, str]:
-    """Issue one request with the corpus's path EXACTLY as written — no URL parsing
+    """Issue one request with the corpus's path EXACTLY as written: no URL parsing
     on this side, or the encoded and malformed variants would be canonicalized before
     the server ever saw them."""
     conn = http.client.HTTPConnection("127.0.0.1", port)
@@ -249,7 +250,7 @@ def test_layout_fixture_canary_and_idempotency(
                 *rel.split("/")
             ).read_bytes(), f"{name}: exported bytes differ from the golden for content/{rel}"
 
-        # Everything else — chrome, vendored assets, fonts — by digest and size. The two
+        # Everything else (chrome, vendored assets, fonts) by digest and size. The two
         # sets are disjoint by construction and exhaustive by this comparison.
         golden_manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
         assert golden_manifest["version"] == 1, "the manifest states its version"
@@ -333,7 +334,7 @@ def test_whitelist_refuses_content_symlink_into_private_role(
     # The one boundary a fixture cannot plant (a seed carries no symlinks) and the one
     # the dot convention cannot hold: under `rootPath: "."` the trust domain really is
     # inside the content mount, so a symlink there resolves INSIDE the mount root and
-    # passes every containment check. Only the by-name whitelist refuses it — remove
+    # passes every containment check. Only the by-name whitelist refuses it: remove
     # the servable_path calls in the serve path and this test serves the canary.
     directory = _canary_layer(tmp_path_factory)
     manifest = _load(directory)
@@ -360,7 +361,7 @@ def test_whitelist_refuses_content_symlink_into_private_role(
 
 
 # The vectors below share the reason the test above lives here rather than in a
-# fixture: they need a symlink (a seed carries none by contract — _copy_seed refuses
+# fixture: they need a symlink (a seed carries none by contract: _copy_seed refuses
 # one) or a hostile manifest, which is a per-SDK hazard rather than a shared contract
 # the fixtures publish. So they are constructed at runtime, over a fixture's own layer
 # and its own planted bytes.
@@ -373,7 +374,7 @@ def test_whitelist_refuses_bound_profile_in_private_role(
     # A profile pair the resolver really composes: an ordinary base under the layer's
     # agents directory, and a derived half planted in the onboarding workspace, bound
     # into the roster by a symlink at the content root. Without the whitelist on the
-    # profile sources, the resolved page renders the planted half verbatim — the
+    # profile sources, the resolved page renders the planted half verbatim: the
     # overlay answers before the content mount ever judges the path.
     (directory / "agents").mkdir(parents=True, exist_ok=True)
     (directory / "agents" / "core.md").write_text(
@@ -436,7 +437,7 @@ def test_sidebar_lifts_no_label_out_of_a_private_profiles_dir(
     directory = _canary_layer(tmp_path_factory)
     # The same scan, reached the other way: a declared `agentProfilesPath` naming a
     # private role needs no symlink at all. The page itself was always refused, but the
-    # sidebar built its label from the file's frontmatter — bytes of a private file,
+    # sidebar built its label from the file's frontmatter: bytes of a private file,
     # served in a 200 body and copied into the export.
     (directory / ".leji" / "work" / "p.md").write_text(
         "\n".join(
@@ -473,7 +474,7 @@ def test_sidebar_lifts_no_label_out_of_a_private_profiles_dir(
 
 # --- The check-before-act invariant on WRITE/CLEAR targets ----------------------------------
 # One structural rule: every location the tool writes into or clears is realpath-
-# resolved and validated against its role BEFORE the operation — never after, never
+# resolved and validated against its role BEFORE the operation, never after, never
 # conditionally. These pin the two write-side vectors that were not yet pinned.
 
 
@@ -483,7 +484,7 @@ def test_check_before_act_generation_refuses_viewer_aliased_into_a_private_role(
     directory = _canary_layer(tmp_path_factory)
     # Point the servable role at another private role, bytes of its own already there.
     # Before the check-before-act rule, generation wrote the chrome THROUGH the link
-    # into the trust domain and only the export's later identity check noticed — after
+    # into the trust domain and only the export's later identity check noticed, after
     # the mutation. The aliased directory is snapshotted WHOLE, so any pre-refusal
     # write (not just an overwrite of one planted file) is caught.
     aliased = directory / ".leji" / "work" / "chrome"
@@ -520,7 +521,7 @@ def test_check_before_act_default_output_refuses_dist_into_a_private_role(
     directory = _canary_layer(tmp_path_factory)
     # The surviving default-bypass vector: the reservation used to be conditioned on a
     # caller --out, so a default .leji/dist redirected into the trust domain slipped
-    # through. Now the default is validated identically — before any clear or write.
+    # through. Now the default is validated identically, before any clear or write.
     planted = directory / ".leji" / "mounts" / "store" / "x"
     planted.mkdir(parents=True, exist_ok=True)
     (planted / "planted").write_text(f"{TOKEN}\n", encoding="utf-8")
@@ -540,7 +541,7 @@ def test_check_before_act_out_of_repository_viewer_or_dist_alias_is_refused(
 ) -> None:
     # Containment is absolute: every write this tool makes lands inside the repository
     # it was pointed at. A `.leji/viewer` or `.leji/dist` symlinked to a real, empty
-    # destination outside the tree — once a supported relocate/publish alias — is a
+    # destination outside the tree (once a supported relocate/publish alias) is a
     # hard refusal now, with nothing written through it. A user who wants the export
     # elsewhere copies the finished folder there.
     chrome_home = tmp_path_factory.mktemp("leji-chrome")
@@ -565,8 +566,8 @@ def test_check_before_act_boundary_skip_warns_once_and_a_clean_build_is_silent(
     tmp_path_factory: pytest.TempPathFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
     # A servable-looking source (an .md at the content root) whose resolved path lands
-    # in a private role: withheld from serve and export, and — unlike an ordinary skip
-    # — it says why, exactly once, on stderr (never stdout, never --json).
+    # in a private role: withheld from serve and export, and (unlike an ordinary skip)
+    # it says why, exactly once, on stderr (never stdout, never --json).
     directory = _canary_layer(tmp_path_factory)
     (directory / "leak.md").symlink_to(Path(".leji") / "work" / "proposal.md")
     manifest = _load(directory)
@@ -620,7 +621,7 @@ def test_export_refuses_an_out_that_resolves_into_a_private_role(
 
 def _folds_case(directory: Path) -> bool:
     """Whether this directory sits on a filesystem that cannot tell `.leji` from
-    `.LEJI` — asked of the volume, so a case-variant assertion runs only where the
+    `.LEJI`, asked of the volume, so a case-variant assertion runs only where the
     fold is real."""
     probe = directory / "leji-case-probe"
     probe.mkdir(parents=True, exist_ok=True)
@@ -637,7 +638,7 @@ def test_check_before_act_generation_refuses_an_overview_seed_aliased_into_a_pri
     # into a private role is contained (inside the repo) yet crosses the trust
     # boundary: containment-only was the gap. The target dangles, so the seed WOULD
     # create it inside the role. Mutation that reddens: revert the overview guard to
-    # resolved_within_root-only (no writable_target) — the seed writes through and
+    # resolved_within_root-only (no writable_target): the seed writes through and
     # .leji/<role>/new.md appears.
     for role in ("work", "mounts"):
         directory = _canary_layer(tmp_path_factory)
@@ -684,7 +685,7 @@ def test_check_before_act_overview_refresh_refuses_an_alias_into_a_private_role(
     # markers: the refresh branch (is_file true) used to resolved_within_root-check,
     # read it, and rewrite the map block THROUGH the link. The check now runs on the
     # resolved path before the read. Mutation that reddens: revert to
-    # resolved_within_root-only — the private file is read and its map block rewritten.
+    # resolved_within_root-only: the private file is read and its map block rewritten.
     directory = _canary_layer(tmp_path_factory)
     target = directory / ".leji" / "mounts" / "existing.md"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -717,7 +718,7 @@ def test_export_refuses_a_nested_dangling_out_redirecting_into_a_private_role(
     # and rebuild `redirect/export` lexically (outside .leji/), so the check passed and
     # a target created afterward raced the write into the role. The resolver now follows
     # the dangling intermediate link. Mutation that reddens: revert resolved_path's
-    # intermediate-symlink follow (climb-past) — out_abs reads as outside .leji/ and the
+    # intermediate-symlink follow (climb-past): out_abs reads as outside .leji/ and the
     # build is not refused.
     directory = _materialize(
         tmp_path_factory, "valid-trust-canary-nested-root", [{"from": ".leji-seed", "to": ".leji"}]
@@ -748,7 +749,7 @@ def test_export_refuses_a_chained_dangling_out_that_ends_in_a_private_role(
 ) -> None:
     # redirect -> hop -> .leji/work/ghost, every hop dangling: the resolver follows the
     # chain of intermediate dangling links to the real destination. Mutation that
-    # reddens: revert resolved_path's intermediate-symlink follow — the chain is rebuilt
+    # reddens: revert resolved_path's intermediate-symlink follow: the chain is rebuilt
     # lexically as outside .leji/ and the build is not refused.
     directory = _materialize(
         tmp_path_factory, "valid-trust-canary-nested-root", [{"from": ".leji-seed", "to": ".leji"}]
@@ -769,7 +770,7 @@ def test_export_treats_an_unresolvable_out_as_a_failure_not_as_absent(
 ) -> None:
     # A non-ENOENT resolution failure (here an unreadable intermediate directory) must
     # FAIL the check, never be rebuilt lexically as a not-yet-created target. Mutation
-    # that reddens: make resolved_path return the lexical path on a non-ENOENT error —
+    # that reddens: make resolved_path return the lexical path on a non-ENOENT error:
     # the build proceeds instead of refusing. Skipped as root, which bypasses the mode.
     if hasattr(os, "getuid") and os.getuid() == 0:
         pytest.skip("running as root bypasses directory permissions; the EACCES cannot be built")
@@ -793,11 +794,11 @@ def test_check_before_act_refuses_a_case_variant_alias_through_a_non_enumerable_
     # The composition the separate case-fold and unresolvable cases left open: a
     # `.LEJI/` spelling of the role tree reached through a directory that is
     # traversable and writable but NOT enumerable. The canonical spelling is read back
-    # from the directory, so denying enumeration denies case recovery — and falling
+    # from the directory, so denying enumeration denies case recovery, and falling
     # back to the caller's spelling made the resolved target compare as outside
     # `.leji/`, so the write and the clear were permitted straight into a private role.
     # An enumeration failure now makes the path unresolvable, which refuses both.
-    # Mutation that reddens: return the given name from _real_name on an OSError —
+    # Mutation that reddens: return the given name from _real_name on an OSError:
     # generation writes the chrome into .leji/work and the export clears and writes
     # into .leji/mounts.
     if hasattr(os, "getuid") and os.getuid() == 0:
@@ -848,13 +849,13 @@ def test_check_before_act_refuses_a_case_variant_alias_through_a_non_enumerable_
 
 # --- Check-before-act: the check/use gap on the READ side -----------------------------------
 # These need a mutation landing at one exact moment inside a run, which no fixture can
-# plant, so they are constructed here — over the canary layer, with the planted bytes
+# plant, so they are constructed here, over the canary layer, with the planted bytes
 # in a private role. Each names, in its comment, the mutation that reddens it.
 
 
 class _ListedScan:
     """A materialized `os.scandir` result: the entries are read eagerly so a swap
-    performed the instant the listing returns cannot change what the walk enumerated —
+    performed the instant the listing returns cannot change what the walk enumerated,
     which is exactly the window these canaries exercise."""
 
     def __init__(self, entries: list) -> None:
@@ -896,7 +897,7 @@ def _plant_decoy(directory: Path) -> None:
 def _assert_dropped_not_followed(directory: Path, err: str, why: str) -> None:
     """Every read-side canary ends the same way: the export ran to completion, carried
     no planted byte, dropped the redirected sources rather than following them, and
-    said why — once per source, on stderr."""
+    said why: once per source, on stderr."""
     dist = directory / ".leji" / "dist"
     assert (dist / "index.html").is_file(), "the export still ran to completion"
     count, where = _count_token(dist)
@@ -916,12 +917,12 @@ def test_check_before_act_ancestor_swapped_after_enumeration_is_never_followed(
 ) -> None:
     # The content walk enumerates a real directory; before the export uses what it
     # enumerated, that directory becomes a symlink into a private role. Every later read
-    # or copy BY PATH then goes through the link, with the walk's checks all behind it —
+    # or copy BY PATH then goes through the link, with the walk's checks all behind it,
     # and a revalidation that lstats the final component alone follows the swapped
     # ancestor to a perfectly ordinary file. So a carried source is resolved, its
     # RESOLVED path judged, and its bytes taken from the descriptor fstat proved a
     # regular file: the check and the use hold one inode. Mutation that reddens:
-    # revalidate with lstat and read/copy by path again — the planted bytes below are
+    # revalidate with lstat and read/copy by path again: the planted bytes below are
     # linted and land in the export.
     directory = _canary_layer(tmp_path_factory)
     _plant_decoy(directory)
@@ -929,7 +930,7 @@ def test_check_before_act_ancestor_swapped_after_enumeration_is_never_followed(
 
     # The swap, at the one moment that matters: after the walk has read `domain/`'s
     # entries and before it uses any of them. Generation runs first over the same tree,
-    # so the hook arms only once the export resolves its own output target — the first
+    # so the hook arms only once the export resolves its own output target, the first
     # thing the pipeline does after generating.
     domain_dir = directory / "domain"
     dist_abs = directory / ".leji" / "dist"
@@ -969,11 +970,11 @@ def test_check_before_act_ancestor_swapped_between_check_and_open_is_caught_by_t
     # The residual the descriptor pinning left: the swap lands AFTER the resolve that
     # authorized the source and BEFORE the open on it, so the open follows the new link
     # and the descriptor holds planted bytes while every check has already passed on the
-    # authorized path. fstat cannot see it — the decoy is a perfectly ordinary regular
+    # authorized path. fstat cannot see it: the decoy is a perfectly ordinary regular
     # file. The recheck after the open resolves the source once more and requires the
     # same location AND the same file identity, so the bytes about to be read are proved
     # to be the ones the check judged. Mutation that reddens: drop the recheck in
-    # open_verified_source and trust fstat alone — the planted bytes land in the export.
+    # open_verified_source and trust fstat alone: the planted bytes land in the export.
     directory = _canary_layer(tmp_path_factory)
     _plant_decoy(directory)
     manifest = _load(directory)
@@ -1017,12 +1018,12 @@ def test_check_before_act_ancestor_swapped_between_check_and_open_is_caught_by_t
 def test_export_refuses_a_dangling_output_entry_and_creates_nothing(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    # A dangling symlink is a standing entry under both forms — never written through,
+    # A dangling symlink is a standing entry under both forms: never written through,
     # never read as absent. The output used to be resolved before anything judged it,
     # so `.leji/dist -> site` with `site` missing BECAME its own destination: the stat
     # reported absence, "clearable" followed, and the export created and filled the
     # link's target. The original entry is judged first now. Mutation that reddens:
-    # drop the lstat on the original entry — the build writes through the link.
+    # drop the lstat on the original entry: the build writes through the link.
     directory = _materialize(
         tmp_path_factory, "valid-trust-canary-nested-root", [{"from": ".leji-seed", "to": ".leji"}]
     )

@@ -17,6 +17,7 @@ import {
    renderPreflight,
    runPreflight,
 } from '../dist/index.js';
+import { copyTree } from './helpers/copytree.ts';
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const exampleDir = path.resolve(testDir, '..', '..', '..', 'examples', 'monorepo');
@@ -40,7 +41,7 @@ function installNodeBin(dir: string): string {
 function gitLayer(prefix: string): string {
    const dir = tmpdir(prefix);
    execFileSync('git', ['init', '-q'], { cwd: dir });
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    execFileSync('git', ['add', '-A'], { cwd: dir });
    execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', 'seed'], { cwd: dir });
    return dir;
@@ -171,7 +172,7 @@ test('hookStatus: a linked worktree resolves the shared hooks dir as personal', 
    const main = path.join(dir, 'main');
    fs.mkdirSync(main, { recursive: true });
    execFileSync('git', ['init', '-q'], { cwd: main });
-   fs.cpSync(exampleDir, main, { recursive: true });
+   copyTree(exampleDir, main);
    execFileSync('git', ['add', '-A'], { cwd: main });
    execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', 'seed'], { cwd: main });
    execFileSync('git', ['worktree', 'add', '-q', path.join(dir, 'wt')], { cwd: main });
@@ -193,7 +194,7 @@ test('a linked worktree is never offered the hook, and nothing is written for it
    const main = path.join(dir, 'main');
    fs.mkdirSync(main, { recursive: true });
    execFileSync('git', ['init', '-q'], { cwd: main });
-   fs.cpSync(exampleDir, main, { recursive: true });
+   copyTree(exampleDir, main);
    execFileSync('git', ['add', '-A'], { cwd: main });
    execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', 'seed'], { cwd: main });
    execFileSync('git', ['worktree', 'add', '-q', path.join(dir, 'wt')], { cwd: main });
@@ -583,6 +584,45 @@ for (const [name, checks, expected] of SCENARIOS) {
       const block = renderPreflight(checks);
       assert.equal(block, expected);
       assert.doesNotMatch(block, /[–—]/, 'no en or em dash reaches the terminal');
+   });
+}
+
+/** Only this clone's own gaps: the user's registration and the per-clone hook. */
+const PERSONAL_ONLY: Check[] = [
+   checkRow('cli', 'ok', '1.4.0 (node_modules/.bin/leji)'),
+   checkRow('mcp', 'missing', 'not registered for Claude Code', [MCP_USER]),
+   checkRow('mcp-shared', 'ok', '.mcp.json committed'),
+   checkRow('hook', 'missing', 'none yet (per clone)', ['leji ci --hooks']),
+];
+
+/** Nothing owed by anyone. */
+const COMPLETE: Check[] = [
+   checkRow('cli', 'ok', '1.4.0 (node_modules/.bin/leji)'),
+   checkRow('mcp', 'ok', 'registered for Claude Code'),
+   checkRow('mcp-shared', 'ok', '.mcp.json committed'),
+   checkRow('hook', 'ok', 'runs leji checks before each commit: .git/hooks/pre-commit'),
+];
+
+/** `leji doctor`'s closing line in each of the four summary branches: the counts alone,
+ * because doctor launches nothing. */
+const DOCTOR_CLOSING: [string, Check[], string][] = [
+   ['personal only', PERSONAL_ONLY, '  2 fixes for you.'],
+   ['maintainer only', ALL_TEAM, '  3 fixes for a maintainer.'],
+   ['mixed', PERSONAL_AND_TEAM_MCP, '  1 fix for you, 1 for a maintainer.'],
+   ['complete', COMPLETE, '  Setup complete.'],
+];
+
+for (const [name, checks, closing] of DOCTOR_CLOSING) {
+   test(`renderPreflight with launch off: ${name}`, () => {
+      const doctor = renderPreflight(checks, { launch: false }).split('\n');
+      const start = renderPreflight(checks).split('\n');
+      assert.equal(doctor.at(-1), closing);
+      // Every other line is start's, and start's closing line is this one plus the
+      // agent sentence (none when nothing is owed).
+      assert.deepEqual(doctor.slice(0, -1), start.slice(0, -1));
+      assert.equal(start.at(-1), name === 'complete' ? closing : `${closing} The agent starts either way.`);
+      // The default is start's block.
+      assert.deepEqual(renderPreflight(checks, { launch: true }).split('\n'), start);
    });
 }
 

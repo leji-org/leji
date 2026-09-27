@@ -44,8 +44,8 @@ class Finding:
 def sort_findings(findings: list[Finding]) -> list[Finding]:
     """Findings in canonical order: (path, line, rule, construct), message last as
     the final tie-break. The line and construct keys carry the rendering lint's
-    ordering — two constructs reported on one line stay in the same order in all
-    three SDKs — and change nothing for a rule that locates neither."""
+    ordering (two constructs reported on one line stay in the same order in all
+    three SDKs) and change nothing for a rule that locates neither."""
     return sorted(
         findings,
         key=lambda f: (f.path or "", f.line or 0, f.rule, f.construct or "", f.message),

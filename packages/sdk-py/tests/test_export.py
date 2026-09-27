@@ -19,6 +19,7 @@ import re
 import shutil
 from pathlib import Path
 
+from helpers.copytree import copy_tree
 from leji import generate_viewer, load_manifest, render_overview
 from leji.cli import main
 from leji.export_cmd import STRICT_LINT_RULES
@@ -32,7 +33,7 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "leji"
 
 
 def _copy(src: Path, dest: Path) -> Path:
-    shutil.copytree(src, dest)
+    copy_tree(src, dest)
     return dest
 
 
@@ -57,10 +58,10 @@ def _snapshot(directory: Path) -> list[tuple[str, str]]:
 
 # --- module topology ----------------------------------------------------------
 # The structural prong of the no-network guarantee: the export module's transitive
-# STATIC import set is CLOSED — every module it reaches outside the package is named
+# STATIC import set is CLOSED: every module it reaches outside the package is named
 # below, and nothing else may appear. Stated as a denylist the proof would only be as
 # complete as the list of network modules someone thought to write down (`imaplib`,
-# `telnetlib`, `urllib3`, `websockets`, next year's client library — all invisible);
+# `telnetlib`, `urllib3`, `websockets`, next year's client library, all invisible);
 # stated as a subset, a new dependency of any kind reddens this test until someone
 # classifies it deliberately. It catches the static introduction of a dependency and
 # nothing else; dynamic side doors are covered by the offline CI leg, and the
@@ -102,7 +103,7 @@ EXPORT_IMPORTS = {
 
 
 def _imports_of(path: Path) -> list[str]:
-    """Every module `path` imports statically, anywhere in the file — module level
+    """Every module `path` imports statically, anywhere in the file: module level
     and inside a function alike, since a deferred import pulls a module in exactly as
     a top-level one does. A package-relative import comes back as `.<module>`."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -125,7 +126,7 @@ def _imports_of(path: Path) -> list[str]:
 def _module_graph(entry: str) -> tuple[set[str], set[str]]:
     """The transitive closure of `entry` over sibling modules of the `leji` package,
     as module names, plus every external module reached along the way. Third-party
-    packages are recorded, never walked — exactly as the reference's graph records a
+    packages are recorded, never walked, exactly as the reference's graph records a
     bare specifier without walking node_modules."""
     modules: set[str] = set()
     external: set[str] = set()
@@ -233,7 +234,7 @@ def test_export_takes_no_destination_flag_and_its_help_names_no_network(
         capsys.readouterr()
     # The accept side of the same guarantee, under BOTH names: the allow-list the
     # rejection above consults is exactly the globals plus --out and --strict. Read from
-    # cli.json, which is what the CLI itself rejects against — so a destination flag
+    # cli.json, which is what the CLI itself rejects against, so a destination flag
     # cannot reach the surface without failing here.
     spec = load_cli_spec()
     for name in ("export", "viewer build"):
@@ -321,7 +322,7 @@ def test_strict_is_scoped_to_the_lint_class_and_leaves_the_target_untouched(
     # An error finding fails the run through the same pre-clean gate: overview.md,
     # seeded by the runs above, redirected into a private role. Generation reaches it
     # after the chrome is written, so this run proves both halves of the pipeline
-    # promise at once — the internal chrome IS regenerated, the target is not touched.
+    # promise at once: the internal chrome IS regenerated, the target is not touched.
     (directory / ".leji" / "mounts").mkdir(parents=True, exist_ok=True)
     (directory / ".leji" / "mounts" / "stolen.md").write_text("private\n", encoding="utf-8")
     overview = directory / "docs" / "overview.md"
@@ -362,7 +363,7 @@ def test_strict_gate_is_driven_by_a_real_lint_finding(tmp_path: Path, capsys) ->
     with doc_path.open("a", encoding="utf-8") as fh:
         fh.write("\nA raw <span>element</span> in the prose.\n")
 
-    # Default run: the lint finding is reported and the export is written anyway — the
+    # Default run: the lint finding is reported and the export is written anyway: the
     # layer's build never breaks on prose.
     assert main(["export", "--root", str(directory), "--json"]) == 0, (
         "an ordinary run exports despite the lint finding"
@@ -423,7 +424,7 @@ def test_export_flavor_carries_no_root_absolute_url(tmp_path: Path, capsys) -> N
     assert '"basePath":"content/"' in exported
     assert '"basePath":"/content/"' not in exported
     # The machine-checkable proxy gate for subpath hosting: nothing in the exported
-    # shell — attributes or config — addresses the server root.
+    # shell (attributes or config) addresses the server root.
     body = exported.split("-->", 1)[1]
     assert re.findall(r'(?:href|src)="/[^"]*"', body) == []
     assert re.findall(r'\\"/(?:content|assets)/[^\\"]*\\"', body) == []

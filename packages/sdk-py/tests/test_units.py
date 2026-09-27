@@ -14,6 +14,7 @@ from pathlib import Path
 
 import datetime as dt
 
+from helpers.copytree import copy_tree
 from leji import (
     RouteInput,
     check_changelog_append_only,
@@ -256,6 +257,66 @@ def test_declared_vendor_adapter_that_redirects_passes(tmp_path: Path) -> None:
     (layer / "CLAUDE.md").write_text("Read docs/boot-profile.md and follow it.\n")
     result = validate_layer(str(layer))
     assert [f for f in result.findings if f.severity == "error"] == []
+
+
+def test_legacy_leji_dir_is_one_warning_never_the_root_tree(tmp_path: Path, monkeypatch) -> None:
+    from leji import fsx
+    from leji.findings import Finding
+
+    legacy = Finding(
+        "legacy-leji-dir",
+        "warning",
+        "`docs/.leji` is the tool tree's location before Leji 1.4.0; the current tooling "
+        "keeps its state under the root `.leji/` and writes nothing here. Delete it (run "
+        "`git rm -r --cached docs/.leji` first if it is tracked).",
+        "docs/.leji",
+    )
+
+    def legacy_of(layer: Path) -> list[Finding]:
+        return [f for f in validate_layer(str(layer)).findings if f.rule == "legacy-leji-dir"]
+
+    layer = _copy(EXAMPLE, tmp_path)  # rootPath docs/, validates with no findings
+    (layer / "docs" / ".leji").mkdir()
+    (layer / "docs" / ".leji" / "x").write_text("")
+    # The migration case: the old tree present, the root tree not yet created.
+    assert validate_layer(str(layer)).findings == [legacy]
+    # A resolver that throws is a different tree, never a failure.
+    root_leji = str(layer / ".leji")
+
+    def throwing(abs_path: str) -> str | None:
+        if abs_path == root_leji:
+            raise FileNotFoundError(abs_path)
+        return fsx.resolved_path(abs_path)
+
+    monkeypatch.setattr("leji.validate.resolved_path", throwing)
+    assert validate_layer(str(layer)).findings == [legacy], "a throwing resolution still warns"
+    monkeypatch.undo()
+    # A stat failure on the candidate is no directory: no finding, and no exception.
+    candidate = layer / "docs" / ".leji"
+    real_is_dir = Path.is_dir
+
+    def denied(self: Path, *args: object, **kwargs: object) -> bool:
+        if self == candidate:
+            raise PermissionError(str(self))
+        return real_is_dir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "is_dir", denied)
+    assert legacy_of(layer) == [], "a stat failure yields no finding"
+    monkeypatch.undo()
+    (layer / ".leji").mkdir()
+    assert validate_layer(str(layer)).findings == [legacy], "the root .leji/ present"
+    shutil.rmtree(layer / "docs" / ".leji")
+    assert legacy_of(layer) == [], "none once removed"
+    # A symlink to the root tree is the live tree, not a leftover.
+    os.symlink(os.path.join("..", ".leji"), layer / "docs" / ".leji")
+    assert legacy_of(layer) == [], "none for a symlink to the root .leji/"
+    # A repository-root context: the root .leji/ is the live tree.
+    os.remove(layer / "docs" / ".leji")
+    manifest_path = layer / "leji.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["rootPath"] = "."
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    assert legacy_of(layer) == [], "none when rootPath is '.'"
 
 
 def test_fsx_helpers() -> None:
@@ -678,7 +739,7 @@ def test_viewer_generates_viewer_and_sidebar(tmp_path: Path) -> None:
             "  - [Invariants](/system/invariants.md)",
             "- **🧭 Decisions**",
             "  - [Decisions index](/_decisions.md)",
-            "  - [Adopt the Leji context layer](/decisions/0001-adopt-leji.md)",
+            "  - [0001. Adopt the Leji context layer](/decisions/0001-adopt-leji.md)",
             "",
         ]
     )
@@ -1263,7 +1324,7 @@ def test_viewer_build_export_flavor_carries_no_root_absolute_url(tmp_path: Path)
     assert '"basePath":"content/"' in exported, "the exported flavor is relative to the page"
     assert '"basePath":"/content/"' not in exported, "no export flavor keeps the app-root base"
     # The machine-checkable proxy gate for subpath hosting: nothing in the exported
-    # shell — attributes or config — addresses the server root. (Sidebar link
+    # shell (attributes or config) addresses the server root. (Sidebar link
     # destinations are route strings resolved against basePath, not fetch paths, and
     # live in _sidebar.md, not here.)
     body = exported[exported.index("-->") + 3 :]
@@ -1533,6 +1594,10 @@ def test_viewer_accent_is_hex_and_nothing_else(tmp_path: Path) -> None:
         # A trailing newline does not sneak a hex past the predicate, in any SDK:
         # `fullmatch`, never `match`, is what makes that true here.
         ("#009F71\n", False),
+        # Only a missing key is absent: an empty or blank string is present and not a
+        # color, so it warns like any other, as viewer.theme.link does.
+        ("", False),
+        ("   ", False),
     ]
     for accent, accepted in vectors:
         manifest["viewer"] = {"theme": {"primary": accent}}
@@ -1642,7 +1707,7 @@ def test_viewer_link_that_names_no_color_is_refused_by_name(tmp_path: Path) -> N
 
 
 def test_viewer_link_empty_or_blank_is_a_bad_value_not_an_absent_one(tmp_path: Path) -> None:
-    """The schema accepts `link: ""`, so it is a present value the guard must judge —
+    """The schema accepts `link: ""`, so it is a present value the guard must judge:
     reading it as "unset" would let the one input most likely to arrive from a
     half-filled manifest pass without the warning the design promises."""
     layer = _copy(EXAMPLE, tmp_path)
@@ -2317,7 +2382,7 @@ def test_records_valid_records_fixture_resolves_kinds() -> None:
 
 def test_records_frontmatter_kind_overrides_block_kind_invalid_is_error(tmp_path: Path) -> None:
     layer = tmp_path / "layer"
-    shutil.copytree(FIXTURES / "valid-records", layer)
+    copy_tree(FIXTURES / "valid-records", layer)
     (layer / "docs" / "records" / "pinned.md").write_text(
         "---\nkind: intent\n---\n\n# Pinned\n\nA record-directory file declaring itself intent.\n",
         encoding="utf-8",
@@ -2363,7 +2428,7 @@ def test_records_route_separates_intent_documents_from_record_candidates() -> No
 def test_records_freshness_skips_records_index_carries_kind_and_dates(tmp_path: Path) -> None:
     # Copy before write_index so the shared fixture stays pristine.
     layer = tmp_path / "layer"
-    shutil.copytree(FIXTURES / "valid-records", layer)
+    copy_tree(FIXTURES / "valid-records", layer)
     manifest = load_manifest(str(layer)).manifest
     assert manifest is not None
     report = freshness_report(str(layer), manifest)
@@ -2380,7 +2445,7 @@ def test_records_freshness_skips_records_index_carries_kind_and_dates(tmp_path: 
 
 def test_records_fully_displaced_broad_selector_is_shadowed_in_status(tmp_path: Path) -> None:
     layer = tmp_path / "layer"
-    shutil.copytree(FIXTURES / "valid-records", layer)
+    copy_tree(FIXTURES / "valid-records", layer)
     # Shrink the record directory to only the file the intent selector steals.
     (layer / "docs" / "records" / "2026-07-03-status.md").unlink()
     (layer / "docs" / "records" / "ledger.md").unlink()

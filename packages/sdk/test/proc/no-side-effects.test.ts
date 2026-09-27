@@ -13,6 +13,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { run } from '../../dist/index.js';
 import { displayVersion } from '../../dist/lib/schemas.js';
+import { copyTree } from '../helpers/copytree.ts';
 
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const repoRoot = path.resolve(pkgRoot, '..', '..');
@@ -81,7 +82,7 @@ function snapshot(dir: string): [string, string][] {
 
 function sandboxWithLayer(): string {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-nowrite-'));
-   fs.cpSync(exampleDir, dir, { recursive: true });
+   copyTree(exampleDir, dir);
    return dir;
 }
 
@@ -97,6 +98,7 @@ const READ_COMMANDS = [
    ['conformance'],
    ['freshness'],
    ['detect'],
+   ['doctor'],
    ['index', '--check'],
    ['changelog', 'check'],
 ];

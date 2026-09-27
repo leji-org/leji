@@ -13,7 +13,7 @@ import PageHeader from '../../components/PageHeader.astro';
 import TranslationNote from '../../components/TranslationNote.astro';
 import { translationStrings } from '../../data/i18n';
 
-const source = '521aed1784f59b213d781aaa912fdc8ea02a2a86';
+const source = 'bae1375bfe86ca446e0b9006d73f1edc5000d08d';
 const strings = translationStrings('zh-hans');
 ---
 
@@ -123,8 +123,10 @@ const strings = translationStrings('zh-hans');
             <details class="fold">
                <summary><h3>AI 原生团队怎么让上下文层不至于过期？</h3></summary>
                <p>
-                  对上下文层的变更走与代码相同的评审关卡，复核期限会标记出已经老化的上下文，而工具绝不会悄悄把过期的上下文当作当前有效。AI
-                  原生团队在做事的过程中就更新上下文层，因此陈旧会尽早浮现，而不是无声地累积。
+                  对上下文层的变更走与代码相同的评审关卡，复核期限会标记出已经老化的上下文，超过复核期限的上下文会由 <code
+                     >leji freshness</code
+                  > 和{' '}
+                  <code>leji route</code> 标示出来，而不会被当作当前有效的内容呈现。AI 原生团队在做事的过程中就更新上下文层，因此陈旧会尽早浮现，而不是无声地累积。
                </p>
             </details>
 

@@ -161,14 +161,7 @@ func collectSelectors(root string, m *manifest.Manifest) ([]*selector, []finding
 			continue
 		}
 		for _, indexRel := range mapping.Indexes {
-			abs := filepath.Join(root, indexRel)
-			text := ""
-			readable := fsx.IsFile(abs) && fsx.ResolvedWithinRoot(rootAbs, abs)
-			if readable {
-				var err error
-				text, err = fsx.ReadText(abs)
-				readable = err == nil
-			}
+			text, readable := fsx.ReadTextWithin(rootAbs, filepath.Join(root, indexRel))
 			if !readable {
 				fs = append(fs, findings.New("index-file-missing", findings.Error,
 					category+" index file is missing or escapes the layer root", indexRel))
@@ -442,7 +435,7 @@ func scanFrontmatterArtifact(text, relPath, schemaName, rule string) ScannedProf
 // ArtifactReader is how a scan gets one artifact's bytes, and whether it may have
 // them at all. The default reads by path; a caller composing something it will serve
 // or export passes a reader that binds the check to the read (check-before-act), and returns false
-// for a source it refuses — missing, not a regular file, or resolving somewhere it
+// for a source it refuses: missing, not a regular file, or resolving somewhere it
 // may not be read from. A refused artifact is dropped from the scan, exactly as the
 // whitelist filter it replaces dropped it, so validation (which passes no reader) is
 // unaffected.
@@ -490,7 +483,7 @@ func ScanProfileSet(root string, m *manifest.Manifest) []ScannedProfile {
 	return ScanProfileSetWith(root, m, nil)
 }
 
-// ScanProfileSetWith is the same scan through a caller's reader — the seam a viewer
+// ScanProfileSetWith is the same scan through a caller's reader: the seam a viewer
 // or export needs and nobody else does. A nil reader is ScanProfileSet's own
 // read-by-path behavior.
 func ScanProfileSetWith(root string, m *manifest.Manifest, read ArtifactReader) []ScannedProfile {
@@ -506,20 +499,14 @@ func ScanProfileSetWith(root string, m *manifest.Manifest, read ArtifactReader) 
 			continue
 		}
 		var text string
+		var ok bool
 		if read == nil {
-			abs := filepath.Join(root, rel)
-			if !fsx.IsFile(abs) || !fsx.ResolvedWithinRoot(rootAbs, abs) {
-				continue // missing or escaping: the agents-map check owns that
-			}
-			var err error
-			if text, err = fsx.ReadText(abs); err != nil {
-				continue
-			}
+			text, ok = fsx.ReadTextWithin(rootAbs, filepath.Join(root, rel))
 		} else {
-			var ok bool
-			if text, ok = read(rel); !ok {
-				continue
-			}
+			text, ok = read(rel)
+		}
+		if !ok {
+			continue // missing or escaping: the agents-map check owns that
 		}
 		seen[rel] = true
 		profiles = append(profiles, scanFrontmatterArtifact(text, rel, "agent-profile", "profile-frontmatter"))

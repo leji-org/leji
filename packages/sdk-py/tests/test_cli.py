@@ -4,13 +4,13 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from helpers.copytree import copy_tree
 from leji.cli import main
 from leji.schemas import display_version, load_cli_spec
 
@@ -159,7 +159,7 @@ def test_changelog_compact_without_flags_exits_2(capsys) -> None:
 
 def test_changelog_compact_keep_folds_oldest_and_reports_counts(tmp_path, capsys) -> None:
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     source = json.loads((EXAMPLE / "docs" / "context-changelog.json").read_text())
     n = len(source["entries"])
     assert n >= 2, f"the example changelog needs at least 2 entries, has {n}"
@@ -176,7 +176,7 @@ def test_changelog_compact_keep_folds_oldest_and_reports_counts(tmp_path, capsys
 
 def test_changelog_check_strict_makes_unverifiable_error(tmp_path, capsys) -> None:
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     code, out, _ = run_cli(capsys, ["changelog", "check", "--root", str(layer)])
     assert code == 0
     assert "changelog-unverifiable" in out
@@ -359,7 +359,7 @@ def test_init_refusal_exits_2(tmp_path, capsys) -> None:
 
 def test_index_generate_writes_and_reports(tmp_path, capsys) -> None:
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     code, out, _ = run_cli(capsys, ["index", "--root", str(layer), "--json"])
     assert code == 0
     payload = json.loads(out)
@@ -376,7 +376,7 @@ def _unindexed_line(n: int) -> str:
 
 def test_index_generate_reports_the_unindexed_count(tmp_path, capsys) -> None:
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     # Two markdown files under the governed root that no category index lists.
     (layer / "docs" / "notes").mkdir()
     (layer / "docs" / "notes" / "loose.md").write_text("# Loose\n")
@@ -389,7 +389,7 @@ def test_index_generate_reports_the_unindexed_count(tmp_path, capsys) -> None:
 
 def test_index_generate_is_quiet_when_nothing_is_unindexed(tmp_path, capsys) -> None:
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     code, out, _ = run_cli(capsys, ["index", "--root", str(layer)])
     assert code == 0
     assert "unindexed" not in out
@@ -398,7 +398,7 @@ def test_index_generate_is_quiet_when_nothing_is_unindexed(tmp_path, capsys) -> 
 
 def test_index_check_is_unaffected_by_the_unindexed_count(tmp_path, capsys) -> None:
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     (layer / "docs" / "stray.md").write_text("# Stray\n")
     assert run_cli(capsys, ["index", "--root", str(layer)])[0] == 0
     code, out, _ = run_cli(capsys, ["index", "--check", "--root", str(layer)])
@@ -419,7 +419,7 @@ def _has_key_deep(value: object, key: str) -> bool:
 
 def test_index_json_carries_no_trailing_nudge(tmp_path, capsys) -> None:
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     (layer / "docs" / "stray.md").write_text("# Stray\n")
     code, out, _ = run_cli(capsys, ["index", "--root", str(layer), "--json"])
     assert code == 0
@@ -427,7 +427,7 @@ def test_index_json_carries_no_trailing_nudge(tmp_path, capsys) -> None:
     payload = json.loads(out)
     assert payload["written"] == "docs/context-index.json"
     # The nudge is text-mode only. The count is not part of the index run's contract,
-    # so no consumer may start reading it off this document — not at the top level,
+    # so no consumer may start reading it off this document: not at the top level,
     # not tucked into summary or a later extra.
     assert not _has_key_deep(payload, "unindexed"), out
 
@@ -437,7 +437,7 @@ def test_index_generate_prints_no_nudge_when_the_index_write_fails(tmp_path, cap
     if os.geteuid() == 0:
         pytest.skip("root bypasses permission bits")
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     (layer / "docs" / "stray.md").write_text("# Stray\n")
     # The nudge would have something to say here: the count is nonzero, so the silence
     # below is the operational failure's doing and not an empty set.
@@ -515,6 +515,7 @@ def test_clijson_documents_exactly_the_accepted_commands(capsys, tmp_path) -> No
         "ci",
         "conformance",
         "detect",
+        "doctor",
         "export",
         "freshness",
         "index",
@@ -555,7 +556,7 @@ _DOCUMENTED = [c["name"] for c in load_cli_spec()["commands"]]
 
 @pytest.mark.parametrize("argv", _READ_COMMANDS, ids=lambda a: " ".join(a))
 def test_read_commands_do_not_write(tmp_path, monkeypatch, capsys, argv):
-    shutil.copytree(EXAMPLE, tmp_path, dirs_exist_ok=True)
+    copy_tree(EXAMPLE, tmp_path, dirs_exist_ok=True)
     before = _snapshot(tmp_path)
     monkeypatch.chdir(tmp_path)
     main(list(argv))
@@ -604,7 +605,7 @@ def test_init_writes_proving_detector(tmp_path, monkeypatch, capsys):
 def test_viewer_prints_serve_hint(tmp_path, capsys) -> None:
     # The serve hint must match the Node/Python/Go SDKs byte-for-byte (parity).
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     code, out, _ = run_cli(capsys, ["viewer", "--root", str(layer)])
     assert code == 0, out
     assert "serve: leji view" in out
@@ -615,13 +616,13 @@ def test_viewer_rejects_open(tmp_path, capsys) -> None:
     # --open belongs to `viewer serve`/`view`, not bare `viewer` (which only
     # generates): it must be a usage error, not silently accepted.
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     assert main(["viewer", "--open", "--root", str(layer)]) == 2
 
 
 def test_viewer_bad_subcommand_is_usage_error(tmp_path, capsys) -> None:
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     code, out, err = run_cli(capsys, ["viewer", "frobnicate", "--root", str(layer)])
     assert code == 2
     assert "usage: leji viewer [serve|build]" in (out + err)
@@ -631,7 +632,7 @@ def test_viewer_build_exports_static_folder(tmp_path, capsys) -> None:
     # `leji viewer build` exports a self-contained static folder carrying the
     # protect warning (mirrors the Node units.test.ts viewer build test).
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     code, out, err = run_cli(capsys, ["viewer", "build", "--out", "out", "--root", str(layer)])
     assert code == 0, err
     assert "Exported the static viewer to out/" in out
@@ -659,7 +660,7 @@ def test_view_command_recognized_no_manifest_exits_1(capsys, tmp_path) -> None:
 
 def test_view_bad_subcommand_is_usage_error(tmp_path, capsys) -> None:
     layer = tmp_path / "layer"
-    shutil.copytree(EXAMPLE, layer)
+    copy_tree(EXAMPLE, layer)
     code, out, err = run_cli(capsys, ["view", "serve", "--root", str(layer)])
     assert code == 2
     assert "usage: leji view" in (out + err)

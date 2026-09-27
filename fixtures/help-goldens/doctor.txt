@@ -1,0 +1,30 @@
+leji doctor: Report this clone's setup without launching an agent.
+
+Usage: leji doctor [--agent <name>] [--root <dir>] [--json]
+
+Checks whether the Leji CLI this repository declares resolves here and meets the
+minimum version for the context layer's spec line, whether the MCP server is
+registered for the selected host, whether the shared `.mcp.json` is committed,
+and whether the pre-commit hook is installed. Exits 1 when the clone is not
+ready. `leji start` runs the same report before it launches an agent.
+
+Details:
+   - Prints the block `leji start` prints before it launches, with one
+     difference: the closing line counts the fixes and does not say the agent
+     starts; nothing is offered, written, or launched.
+   - Exit status agrees with `ready`: 0 when the clone is ready, 1 otherwise. In
+     `--json`, `ok` says only that the report was produced.
+
+Options:
+   --agent <name>      Answer for a specific host (claude-code or codex) instead
+                       of auto-detecting; several detected hosts and no --agent
+                       leave the MCP row unresolved.
+
+Global options: see leji --help.
+
+Examples:
+   leji doctor
+   leji doctor --json
+   leji doctor --agent codex
+
+Full reference: https://leji.org/cli/

@@ -21,7 +21,7 @@ import TranslationNote from '../../components/TranslationNote.astro';
 import { translationStrings } from '../../data/i18n';
 import { markdownRenderOptions } from '../../markdown-options';
 
-const source = '0ddffffc1603fd1aec577a54e9674ba6f9a226ac';
+const source = '0bb7708dccd5de8cbb2c20a8a3621ddd2d9f58aa';
 const strings = translationStrings('pt-br');
 
 // The h1 is rendered by the page rather than by the markdown, so the canonical note
@@ -109,8 +109,9 @@ const afterHtml = after ? (await processor.render(after)).code : '';
                <CircleChart />
                <figcaption class="figure-note">
                   <span class="flows">humano para humano · humano para IA · humano para IA para humano</span>
-                  Todo mundo lê. Qualquer um propõe. Pessoas aprovam. Contexto desatualizado nunca é tratado silenciosamente
-                  como atual.
+                  Todo mundo lê. Qualquer um propõe. Pessoas aprovam. O contexto que passou do horizonte de revisão é apontado
+                  por{' '}
+                  <code>leji freshness</code> e <code>leji route</code>, e não apresentado como atual.
                </figcaption>
             </figure>
             <Fragment set:html={afterHtml} />

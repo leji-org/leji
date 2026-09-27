@@ -28,9 +28,9 @@ federation store and projection cache). It is gitignored. Exactly one role is se
 serves as the chrome around your content; every other role is denied by name, and no
 export carries a byte of any of them.
 
-The tree also ignores itself: the first time a command creates a role under `.leji/`,
-it ensures `.leji/.gitignore` holds exactly `*`, so a repository whose own root
-`.gitignore` never received the `.leji/` line still commits none of it. That one file
+When `.leji/.gitignore` is absent, the CLI creates it containing `*`. An existing file
+is preserved, with a notice if its contents differ; that file may not ignore the
+tool tree. That one file
 sits directly under `.leji/` and belongs to no role, which is why it is the single
 named exception below.
 
@@ -177,8 +177,10 @@ federation resolver, whose `git init` and `git fetch` write only into a store or
 directory the chokepoint established. Four allowances are not git: one opens the preview
 URL in the desktop browser, two hand the finished scaffold to the agent host the user
 selected, by launching it or by running the command it declares, an unrestricted child
-process by nature whose writes are that program's rather than this tool's, and the fourth
-is the hand-off below.
+process by nature whose writes are that program's rather than this tool's; the second
+also runs the version probe `leji start` and `leji doctor` make of the repository's
+declared CLI (argv only, stdin closed, output and time capped); and the fourth is the
+hand-off below.
 
 **The hand-off to a repository's own CLI.** The installed executable of the Node and
 Python CLIs gives the WHOLE invocation to the Leji CLI a repository pins, so that a

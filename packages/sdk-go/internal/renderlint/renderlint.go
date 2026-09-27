@@ -1,6 +1,6 @@
 // Package renderlint is the rendering-subset scan: given one markdown document,
 // the constructs in it that render differently across renderers. The Node SDK's
-// lib/renderlint.ts is the executable contract this port follows rule for rule —
+// lib/renderlint.ts is the executable contract this port follows rule for rule:
 // the rules are stated there and here in the order they are applied, because a
 // second statement of them (a grammar, a spec paragraph) would be a source that
 // drifts.
@@ -9,19 +9,19 @@
 //
 //  1. Excluded regions are found first. YAML frontmatter (a leading block only, by
 //     the SDK's own boundary), fenced code blocks, and HTML comments are scanned
-//     before anything else, and nothing inside one is ever reported — text that
+//     before anything else, and nothing inside one is ever reported: text that
 //     merely names a construct is not that construct. Code spans are excluded the
 //     same way, inline, as the scan reaches them.
 //  2. Three constructs are reported, and only these three: `raw-html` (CommonMark
 //     HTML blocks and inline raw HTML; comments excepted, since Leji's own
 //     generated-block markers are comments), `footnote` (the definition and
-//     reference forms alike), and `math-block` (a PAIRED `$$` delimiter — a lone
+//     reference forms alike), and `math-block` (a PAIRED `$$` delimiter: a lone
 //     one is prose).
 //  3. Backslash escapes are honored for all three, per CommonMark: an escaped ASCII
 //     punctuation character is a literal, so `\<div>` is prose.
 //  4. Overlapping constructs resolve to the earliest-starting match, which the
 //     single left-to-right scan below produces by construction, and each match is
-//     attributed to the line it OPENS on — a multi-line HTML block or `$$` block
+//     attributed to the line it OPENS on: a multi-line HTML block or `$$` block
 //     reports once, at its opening line.
 //  5. One hit per (line, construct): the line is the unit, so a line carrying two
 //     inline tags reports `raw-html` once.
@@ -227,7 +227,7 @@ func indexFrom(text, sub string, from int) int {
 // blockRegions is the block pass: frontmatter, fenced code, HTML comments (all
 // excluded), and the HTML blocks that report as `raw-html` at their opening line.
 // Line-based and in document order, so a fence inside a comment is comment text and
-// a comment inside a fence is code — whichever opens first wins.
+// a comment inside a fence is code: whichever opens first wins.
 func blockRegions(text string, starts []int) []region {
 	var regions []region
 	n := len(text)
@@ -279,11 +279,11 @@ func blockRegions(text string, starts []int) []region {
 
 		// CommonMark HTML blocks 3, 4 and 5: a processing instruction, a declaration,
 		// or a CDATA section opening a line is a BLOCK, running to the line carrying
-		// its terminator (`?>`, `>`, `]]>`) and ending with that whole line — so what
+		// its terminator (`?>`, `>`, `]]>`) and ending with that whole line, so what
 		// follows the terminator on it is block content, never a second construct. An
 		// unterminated one runs to the end of the document, as the comment form does.
 		// Type 4 takes an ASCII letter of either case, so `<!foo` opens a block exactly
-		// as `<!DOCTYPE` does — everything through the next `>` disappears from the page.
+		// as `<!DOCTYPE` does: everything through the next `>` disappears from the page.
 		terminator := ""
 		switch {
 		case strings.HasPrefix(rest, "<?"):
@@ -368,7 +368,7 @@ func runLength(text string, i int, ch byte) int {
 // same length. An unclosed run is literal text, so the scan resumes just past it.
 // Inline state never crosses a block boundary: a candidate whose closer would lie
 // beyond an excluded or block region is unclosed AT that boundary, because the
-// region ends the paragraph the run opened in — so constructs after the region still
+// region ends the paragraph the run opened in, so constructs after the region still
 // report.
 func afterCodeSpan(text string, regions []region, i int) int {
 	open := runLength(text, i, '`')
@@ -444,7 +444,7 @@ type ProseRegion struct {
 
 // ProseRegions is the document minus everything a scan of prose must not read: the
 // excluded regions above, and every code span, walked by the same traversal the
-// render lint's inline pass uses (afterCodeSpan — a backtick run closed by a run of
+// render lint's inline pass uses (afterCodeSpan: a backtick run closed by a run of
 // exactly the same length, an unclosed run consumed as the literal text it is,
 // neither crossing an excluded region). Regions come back in document order and
 // never overlap; an empty one is never returned.
@@ -480,7 +480,7 @@ func ProseRegions(text string) []ProseRegion {
 
 // nextMathDelimiter is the next unescaped `$$` at or after from, or -1. A delimiter
 // is a closer only where a delimiter can be read: not inside a code span, not inside
-// a comment, and not on the far side of a block boundary — a pair no more bridges a
+// a comment, and not on the far side of a block boundary: a pair no more bridges a
 // region than a code span does, so an open whose apparent mate sits in one of them is
 // unpaired, which is prose.
 func nextMathDelimiter(text string, regions []region, from int) int {
@@ -525,7 +525,7 @@ func inlineHTMLEnd(text string, i int) int {
 }
 
 // ScanRenderConstructs is every reported construct in one markdown document, ordered
-// by (line, construct) — the order the export's findings carry, and the tie-breaker
+// by (line, construct): the order the export's findings carry, and the tie-breaker
 // that keeps two constructs on one line deterministic across the three SDKs.
 func ScanRenderConstructs(text string) []Hit {
 	starts := lineStartsOf(text)

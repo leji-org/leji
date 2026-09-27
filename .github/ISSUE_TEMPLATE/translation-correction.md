@@ -4,17 +4,19 @@ about: A translated leji.org page says something the English page does not, or r
 title: '[locale] /route/: '
 ---
 
-**Page**: <!-- The URL of the translated page, e.g. https://leji.org/vi/quickstart/ -->
+**Page**:
 
-**What it says**
+<!-- The URL of the translated page, e.g. https://leji.org/vi/quickstart/ -->
+
+**What it says**:
 
 <!-- Quote the sentence as the page has it today. -->
 
-**What it should say**
+**What it should say**:
 
 <!-- Your correction, in the same language. A whole sentence helps more than a word. -->
 
-**Reference (optional)**
+**Reference (optional)**:
 
 <!-- The English sentence it translates, or an established rendering of a term elsewhere. -->
 

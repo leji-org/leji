@@ -78,7 +78,7 @@ const pageLd = {
                name: 'How does an AI-native team keep the context layer from going stale?',
                acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'Changes to the context layer pass the same review gate as code, freshness horizons flag context that has aged, and tooling never silently treats stale context as current. An AI-native team updates the context layer as part of doing the work, so staleness surfaces early rather than accumulating unseen.',
+                  text: 'Changes to the context layer pass the same review gate as code, freshness horizons flag context that has aged, and context past its review horizon is surfaced by leji freshness and leji route, not presented as current. An AI-native team updates the context layer as part of doing the work, so staleness surfaces early rather than accumulating unseen.',
                },
             },
          ],
@@ -197,8 +197,9 @@ const pageLd = {
       <summary><h3>How does an AI-native team keep the context layer from going stale?</h3></summary>
       <p>
          Changes to the context layer pass the same review gate as code, freshness horizons flag context that has aged,
-         and tooling never silently treats stale context as current. An AI-native team updates the context layer as part
-         of doing the work, so staleness surfaces early rather than accumulating unseen.
+         and context past its review horizon is surfaced by <code>leji freshness</code> and <code>leji route</code>, not
+         presented as current. An AI-native team updates the context layer as part of doing the work, so staleness
+         surfaces early rather than accumulating unseen.
       </p>
    </details>
 

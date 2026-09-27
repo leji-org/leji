@@ -1,8 +1,10 @@
 package indexgen
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,11 +24,25 @@ func copyExample(t *testing.T) string {
 	t.Helper()
 	src := filepath.Join(repoRoot(t), "examples", "monorepo")
 	dir := t.TempDir()
-	if err := os.CopyFS(dir, os.DirFS(src)); err != nil {
+	if err := os.CopyFS(dir, withoutLeji{os.DirFS(src)}); err != nil {
 		t.Fatalf("copy example: %v", err)
 	}
 	return dir
 }
+
+// withoutLeji hides every entry named .leji. A local `leji view` leaves its
+// gitignored viewer build in the working tree, and a test copy that carried it would
+// change what the export, viewer, and conformance tests see.
+type withoutLeji struct{ fs.FS }
+
+func (f withoutLeji) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(f.FS, name)
+	return slices.DeleteFunc(entries, func(e fs.DirEntry) bool { return e.Name() == ".leji" }), err
+}
+
+// ReadLink and Lstat pass through, so a symlink in the source copies as a symlink.
+func (f withoutLeji) ReadLink(name string) (string, error)   { return fs.ReadLink(f.FS, name) }
+func (f withoutLeji) Lstat(name string) (fs.FileInfo, error) { return fs.Lstat(f.FS, name) }
 
 func loadManifest(t *testing.T, dir string) *manifest.Manifest {
 	t.Helper()
@@ -212,7 +228,7 @@ func TestStoredIndexPropagatesAnOperationalReadFailure(t *testing.T) {
 	// The stored index is read through the verified read, and generation carries ids
 	// out of those bytes. A refusal (absent, unverifiable, outside the layer) means
 	// "no stored index"; an operational failure on an allowed path is the filesystem
-	// failing, and the reference lets it throw — so every caller that reads it
+	// failing, and the reference lets it throw, so every caller that reads it
 	// propagates rather than generating an index that silently carries nothing.
 	// Mutation that reddens: swallow the error in LoadStoredIndex.
 	if os.Geteuid() == 0 {

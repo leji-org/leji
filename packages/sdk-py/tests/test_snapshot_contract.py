@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from helpers.copytree import copy_tree
 from helpers.snapshot import snapshot_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -55,7 +56,7 @@ def _materialize(factory: pytest.TempPathFactory) -> Path:
     every path, so the committed bytes are the checked-out bytes and the digests hold.
     """
     directory = factory.mktemp("leji-snapshot")
-    shutil.copytree(FIXTURE_DIR, directory, dirs_exist_ok=True)
+    copy_tree(FIXTURE_DIR, directory, dirs_exist_ok=True)
     for seed in DECLARATION["seeds"]:
         to_abs = directory.joinpath(*seed["to"].split("/"))
         assert not to_abs.exists(), f"seed target already exists: {seed['to']}"

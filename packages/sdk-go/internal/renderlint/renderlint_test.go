@@ -7,7 +7,7 @@ import (
 )
 
 // The scan itself, family by family over the edges the fixtures state in prose:
-// what it reports, and — the half a lint lives or dies on — what it stays quiet
+// what it reports, and (the half a lint lives or dies on) what it stays quiet
 // about. Ported from the reference suite's families, case for case; the shared
 // render fixtures drive the same detector through the real command.
 
@@ -38,8 +38,8 @@ func lines(l ...string) string { return strings.Join(l, "\n") }
 // --- family: multi-line HTML blocks -------------------------------------------
 
 func TestFamilyHTMLBlocksReportOnceAtTheOpeningLine(t *testing.T) {
-	// A block runs to the next blank line, so the tags inside it — the closing one
-	// included — are block content and not a second construct.
+	// A block runs to the next blank line, so the tags inside it (the closing one
+	// included) are block content and not a second construct.
 	eq(t, lines("# Doc", "", `<div class="callout">`, "   inner text", "</div>", "", "after"), "3:raw-html")
 	// Two blocks separated by a blank line are two constructs.
 	eq(t, lines("<table>", "<tr><td>a</td></tr>", "</table>", "", "<div>", "</div>"), "1:raw-html", "5:raw-html")
@@ -99,7 +99,7 @@ func TestFamilyFrontmatterBoundary(t *testing.T) {
 	// A `---` later in a document is a thematic break, so the text after it is
 	// scanned like any other prose.
 	eq(t, lines("# Doc", "", "---", "", "Prose with <div> in it.", ""), "5:raw-html")
-	// A block that never closes is not frontmatter, so its content is prose — and
+	// A block that never closes is not frontmatter, so its content is prose, and
 	// reported, which is the honest read of a document nothing will strip.
 	eq(t, lines("---", "title: <div>", "", "# Doc", ""), "2:raw-html")
 	// Frontmatter opens the FILE or it is not frontmatter: a block one line down is a
@@ -110,7 +110,7 @@ func TestFamilyFrontmatterBoundary(t *testing.T) {
 // --- family: overlaps and same-line ordering ----------------------------------
 
 func TestFamilyOverlapsAndSameLineOrdering(t *testing.T) {
-	// Three constructs on one line, reported in the closed set's alphabetical order —
+	// Three constructs on one line, reported in the closed set's alphabetical order:
 	// the tie-breaker that keeps a same-line group deterministic across the SDKs.
 	eq(t, "All three: [^b], <i>italic</i>, and $$x + y$$ in one sentence.\n",
 		"1:footnote", "1:math-block", "1:raw-html")
@@ -151,7 +151,7 @@ func TestFamilyBackslashEscapes(t *testing.T) {
 
 func TestFamilyBlockFormsEndingMidLine(t *testing.T) {
 	// CommonMark type 3: the block ends on the line carrying `?>`, and the WHOLE of
-	// that line belongs to it — so what follows the terminator there is block content
+	// that line belongs to it, so what follows the terminator there is block content
 	// rather than a second construct, and the block reports once, at its opening line.
 	eq(t, lines("<?php", "[^inside]", "?> [^after]"), "1:raw-html")
 	// Type 4 (a declaration) ends at the first `>`, type 5 (CDATA) at `]]>`; what
@@ -195,7 +195,7 @@ func TestFamilyMateInsideAnExcludedSpan(t *testing.T) {
 	eq(t, "$$ open $$ tail\n", "1:math-block")
 	eq(t, "`$$` and then a real pair $$x$$\n", "1:math-block")
 	// Straddling a span's edge, both ways: a footnote whose closing bracket is inside
-	// a code span still reports — the earliest start wins the overlap — while one that
+	// a code span still reports (the earliest start wins the overlap), while one that
 	// OPENS inside the span is span content.
 	eq(t, "[^one `] and text`\n", "1:footnote")
 	eq(t, "`[^one` ] tail\n")
@@ -205,7 +205,7 @@ func TestFamilyMateInsideAnExcludedSpan(t *testing.T) {
 
 func TestFamilyDeclarationCaseAndTerminators(t *testing.T) {
 	// `<!` plus an ASCII letter of EITHER case is a declaration, at block and inline
-	// positions alike — the rendering the vendored renderer actually produces, and
+	// positions alike: the rendering the vendored renderer actually produces, and
 	// CommonMark's own character class. A block one runs to the next `>`, so what sits
 	// inside the consumed span and what trails the terminator on its line are block
 	// content rather than constructs of their own.

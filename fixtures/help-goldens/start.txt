@@ -10,7 +10,8 @@ which; with none detected or in a non-interactive shell, it prints the command
 to run. Everything after a literal -- passes verbatim to the launched host
 binary, before the boot prompt. Host-specific flags ride with a pinned host:
 `leji start --agent claude-code -- --chrome`, never bare `-- --chrome`, which
-could hand the flag to whichever host gets picked.
+could hand the flag to whichever host gets picked. `leji doctor` prints the same
+Setup report without launching an agent.
 
 Details:
    - Before the agent starts, prints a Setup block for this clone: whether the

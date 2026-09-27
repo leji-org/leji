@@ -361,7 +361,7 @@ function patchMountField(dir: string, key: string, value: string): void {
 
 /** A federated host with a committed sibling repo inside the run dir and a
  * machine-local hint pointing at it. Commit timestamps are pinned so the sibling's
- * commit id — and with it every pin, cache key, and sidecar field — is identical
+ * commit id (and with it every pin, cache key, and sidecar field) is identical
  * across the three captures. The index is regenerated (by the reference CLI, so
  * setup is uniform) after the re-pin. */
 function mountedFederatedHost(dir: string): void {
@@ -382,8 +382,8 @@ function mountedFederatedHost(dir: string): void {
 }
 const PLACEHOLDER_PIN = '7d3f2a19c4e8b6a0d5f1c2e9b8a7f6d5c4b3a2e1';
 const ACME_SOURCE = 'https://github.com/acme/product-context';
-/** Pinned identity and dates, so every commit id — and with it every pin, cache
- * key, ref name, and sidecar field — is identical across the three captures. */
+/** Pinned identity and dates, so every commit id (and with it every pin, cache
+ * key, ref name, and sidecar field) is identical across the three captures. */
 const parityGitEnv: NodeJS.ProcessEnv = {
    ...realEnv,
    GIT_DIR: undefined,
@@ -708,8 +708,8 @@ function surfacingBlockWithoutMounts(dir: string): void {
 
 /** A federated host whose sibling is written here rather than copied, so the
  * sibling's manifest can be shaped per scenario. Committed at the pinned identity
- * and dates, so the commit id — and every cache key, ref and sidecar field derived
- * from it — is identical across the three captures; the hint and the regenerated
+ * and dates, so the commit id (and every cache key, ref and sidecar field derived
+ * from it) is identical across the three captures; the hint and the regenerated
  * host index follow `mountedFederatedHost`. */
 function siblingHost(files: Record<string, string>): (dir: string) => void {
    return (dir) => {
@@ -820,7 +820,7 @@ function unbornLayer(dir: string): void {
 }
 /** The bound agent profile exists on disk but was never committed: `validate` reads
  * the working tree and is clean, while the projection reads HEAD's object store and
- * is not. The pair is the point — one command's silence is not the other's. */
+ * is not. The pair is the point: one command's silence is not the other's. */
 function untrackedBoundProfile(dir: string): void {
    copyExample(dir);
    const profile = path.join(dir, 'docs', 'agents', 'thought-partner.md');
@@ -1217,7 +1217,7 @@ function badgeForeignFile(dir: string): void {
 }
 /** A committed layer whose badge target is a DANGLING symlink inside the repository:
  * a standing entry, never an absence, so the run refuses rather than writing through
- * it — and the link's destination is never created. */
+ * it, and the link's destination is never created. */
 function badgeTargetDangling(dir: string): void {
    gitLayer(dir);
    fs.symlinkSync('never-created.svg', path.join(dir, 'leji-badge.svg'));
@@ -1255,8 +1255,8 @@ const BADGE_SCENARIOS: Scenario[] = [
       setup: badgeTargetDangling,
       args: ['badge', '--json'],
    },
-   // An accepted `--out` is echoed back in its canonical POSIX form — `.` segments
-   // dropped — and that form is what stdout, the JSON and the markdown all carry.
+   // An accepted `--out` is echoed back in its canonical POSIX form (`.` segments
+   // dropped), and that form is what stdout, the JSON and the markdown all carry.
    {
       name: 'badge --out ./x.svg canonicalizes',
       mode: 'real',
@@ -1276,8 +1276,8 @@ const BADGE_SCENARIOS: Scenario[] = [
 ];
 
 // --- the trust boundary (absolute containment, standing entries, verified reads) ---
-// Every setup below plants its symlink with a FIXED target — an absolute path outside
-// any layer, or a relative name that never resolves — so the planted link is
+// Every setup below plants its symlink with a FIXED target (an absolute path outside
+// any layer, or a relative name that never resolves), so the planted link is
 // byte-identical in all three captures and the tree snapshots stay comparable. What
 // they pin is the refusal: identical exit, identical bytes, and a tree that shows the
 // link exactly as it was planted with nothing created through it.
@@ -1479,8 +1479,8 @@ function managedShallowBehind(dir: string): void {
 
 /** The declared source is a locator no test may reach, so `--fetch` scenarios route
  * it at git's own level. The mirror lives at a FIXED path outside the run directory
- * — the scenario env has to name it as a constant, and the tree snapshot covers the
- * run directory alone — and every capture rebuilds it from its own sibling, whose
+ * (the scenario env has to name it as a constant, and the tree snapshot covers the
+ * run directory alone), and every capture rebuilds it from its own sibling, whose
  * commit ids the pinned dates make identical anyway. */
 const UPDATE_PIN_SOURCE = path.join(os.tmpdir(), 'leji-parity-update-pin-source');
 function publishUpdatePinSource(dir: string): void {
@@ -1856,7 +1856,7 @@ const UPDATE_PIN_SCENARIOS: Scenario[] = [
 /**
  * Planted dependency roots for the `detect` ecosystem scenarios. Each is one of
  * the miniature repositories `fixtures/ecosystem/` pins, planted here so that the
- * three CLIs are compared on the same human line and the same `--json` block —
+ * three CLIs are compared on the same human line and the same `--json` block:
  * the fixtures pin what the report SAYS, these pin that all three say it
  * identically. Lockfiles are presence-only, so every one of them is empty.
  */
@@ -2036,7 +2036,7 @@ function declaredPnpm(d: string): void {
    fs.writeFileSync(path.join(d, 'pnpm-lock.yaml'), '');
 }
 
-/** Ownership scenarios, one per provider: what leji generated in 1.3.x is upgraded;
+/** Ownership scenarios, per provider: what leji generated in 1.3.x or 1.4.0 is upgraded;
  * what someone else wrote is never touched. GitLab owns a marked block inside a
  * shared file, so its two cases are a foreign pipeline WITH our block (merged in
  * place) and a foreign pipeline without one (block appended). */
@@ -2098,7 +2098,22 @@ const CI_OWNERSHIP_SCENARIOS: Scenario[] = CI_PROVIDER_NAMES.flatMap((provider) 
                  args: ['ci', '--provider', provider],
               },
            ];
-   return [owned, foreign, ...crossed];
+   // The 1.4.0 shape, whose pins differ from the current job's, is recognized too.
+   const owned14: Scenario[] =
+      provider === 'gitlab'
+         ? []
+         : [
+              {
+                 name: `ci --provider ${provider} (1.4 owned file at its own path)`,
+                 setup: (d) => {
+                    seedLayer(d);
+                    declaredPnpm(d);
+                    writeAt(d, CI_TARGET[provider], goldenBytes(`legacy-1.4-${provider}-node-fallback.yml`));
+                 },
+                 args: ['ci', '--provider', provider],
+              },
+           ];
+   return [owned, ...owned14, foreign, ...crossed];
 });
 
 const CI_SCENARIOS: Scenario[] = CI_ROOTS.flatMap((root) =>
@@ -2241,30 +2256,38 @@ function startCases(name: string, setup: (dir: string) => void, stubs: string): 
    ];
 }
 
-const START_PREFLIGHT_SCENARIOS: Scenario[] = [
-   ...startCases('declared, resolvable', preflightFixture('node-declared'), STUBS_RESOLVABLE),
+/** The same state through `leji doctor`: the report start prints, with no launch. */
+function doctorCases(name: string, setup: (dir: string) => void, stubs: string): Scenario[] {
+   return [
+      { name: `doctor (${name})`, mode: 'real', setup, args: ['doctor'], env: { PATH: stubs } },
+      { name: `doctor --json (${name})`, mode: 'real', setup, args: ['doctor', '--json'], env: { PATH: stubs } },
+   ];
+}
+
+/** Every seeded state; each runs through both `start` and `doctor`, in both modes. */
+const START_PREFLIGHT_STATES: [string, (dir: string) => void, string][] = [
+   ['declared, resolvable', preflightFixture('node-declared'), STUBS_RESOLVABLE],
    // No installed shim at all: the row says the CLI is not installed here, and no
    // package manager is invoked to find out.
-   ...startCases('declared, not installed', preflightFixture('node-declared', undefined, null), STUBS_UNRESOLVABLE),
+   ['declared, not installed', preflightFixture('node-declared', undefined, null), STUBS_UNRESOLVABLE],
    // Installed, but the shim itself fails: the same fail-closed row, one step later.
-   ...startCases('declared, unresolvable', preflightFixture('node-declared', undefined, 'exit 1'), STUBS_UNRESOLVABLE),
-   ...startCases(
-      'declared, below the spec line minimum',
-      preflightFixture('node-declared', undefined, OLD_VERSION_STUB),
-      STUBS_OLD,
-   ),
-   ...startCases('undeclared', preflightFixture('node-undeclared'), STUBS_RESOLVABLE),
-   ...startCases('several hosts, no --agent', preflightFixture('node-declared'), STUBS_TWO_HOSTS),
-   ...startCases('.mcp.json present', preflightFixture('node-mcp-json'), STUBS_RESOLVABLE),
-   ...startCases('hook shared via husky', preflightFixture('husky', hooksPathAt('.husky/_')), STUBS_RESOLVABLE),
-   ...startCases(
-      'hooksPath inside the worktree',
-      preflightFixture('githooks', hooksPathAt('githooks')),
-      STUBS_RESOLVABLE,
-   ),
-   ...startCases('after the fixes', preflightFixture('node-mcp-json', installedHook), STUBS_REGISTERED),
-   ...startCases('uv', preflightFixture('python-uv'), STUBS_UV),
-   ...startCases('go tool', preflightFixture('go-tool'), STUBS_GO),
+   ['declared, unresolvable', preflightFixture('node-declared', undefined, 'exit 1'), STUBS_UNRESOLVABLE],
+   ['declared, below the spec line minimum', preflightFixture('node-declared', undefined, OLD_VERSION_STUB), STUBS_OLD],
+   ['undeclared', preflightFixture('node-undeclared'), STUBS_RESOLVABLE],
+   ['several hosts, no --agent', preflightFixture('node-declared'), STUBS_TWO_HOSTS],
+   ['.mcp.json present', preflightFixture('node-mcp-json'), STUBS_RESOLVABLE],
+   ['hook shared via husky', preflightFixture('husky', hooksPathAt('.husky/_')), STUBS_RESOLVABLE],
+   ['hooksPath inside the worktree', preflightFixture('githooks', hooksPathAt('githooks')), STUBS_RESOLVABLE],
+   ['after the fixes', preflightFixture('node-mcp-json', installedHook), STUBS_REGISTERED],
+   ['uv', preflightFixture('python-uv'), STUBS_UV],
+   ['go tool', preflightFixture('go-tool'), STUBS_GO],
+];
+
+const START_PREFLIGHT_SCENARIOS: Scenario[] = [
+   ...START_PREFLIGHT_STATES.flatMap(([name, setup, stubs]) => [
+      ...startCases(name, setup, stubs),
+      ...doctorCases(name, setup, stubs),
+   ]),
    // `--agent` pins the host the MCP rows answer for, in both modes.
    {
       name: 'start --agent claude-code --json (declared)',
@@ -2646,6 +2669,13 @@ const SCENARIOS: Scenario[] = [
       // The boot-agents-default warning message must be byte-identical across SDKs.
       name: 'validate (boot-agents-default warning)',
       setup: (d) => fs.cpSync(path.join(repoRoot, 'fixtures', 'warn-boot-agents-default'), d, { recursive: true }),
+      args: ['validate', '--json'],
+   },
+   {
+      // A 1.3.x docs/.leji/ tree, materialized from the fixture's seed: the
+      // legacy-leji-dir warning must be the same bytes in all three SDKs.
+      name: 'validate --json (legacy docs/.leji)',
+      setup: lejiIgnoreFixture('valid-leji-ignore-legacy'),
       args: ['validate', '--json'],
    },
    // Agent-profile inheritance: single level, to exactly one `role: core` base that
@@ -3226,7 +3256,7 @@ const SCENARIOS: Scenario[] = [
    },
    { name: 'route with no manifest', setup: () => {}, args: ['route', '--as-of', '2026-06-27', '--json'] },
    // Topic routing: a task-named topic matches a mount's declared `topics` by exact
-   // string equality and selects the mount ALONE — no category expands, no document
+   // string equality and selects the mount ALONE: no category expands, no document
    // or record loads, no decision routes. Each occurrence of the repeatable flag is
    // one whole topic: never comma-split, never trimmed.
    {
@@ -3275,7 +3305,7 @@ const SCENARIOS: Scenario[] = [
    },
    // `status`' projection section: would this layer, at HEAD, project completely if a
    // host mounted it? Judged against the object store, so it sees what a host's
-   // hydrate would see — which is not what the working tree shows.
+   // hydrate would see, which is not what the working tree shows.
    {
       name: 'status --json (committed layer, projection ok)',
       mode: 'real',
@@ -3593,6 +3623,14 @@ const SCENARIOS: Scenario[] = [
    { name: 'changelog check on a core layer (default path)', setup: seedLayer, args: ['changelog', 'check'] },
    { name: 'viewer', setup: copyExample, args: ['viewer'] },
    {
+      name: 'viewer (empty theme primary warns, default accent)',
+      setup: (d) =>
+         seedLayerWithManifest(d, (m) => {
+            m.viewer = { theme: { primary: '' } };
+         }),
+      args: ['viewer'],
+   },
+   {
       name: 'viewer (mermaid disabled)',
       setup: (d) => {
          copyExample(d);
@@ -3609,7 +3647,7 @@ const SCENARIOS: Scenario[] = [
       // The static export writes the RESOLVED page for an inheriting profile, so the
       // viewer artifacts are byte-compared like any other written tree. The resolved
       // page rides the two scenarios above (the example layer's profile inherits and
-      // resolves); this one pins the other half — a profile that does not resolve
+      // resolves); this one pins the other half: a profile that does not resolve
       // exports its findings page, never the derived file as if it were effective.
       name: 'export (unresolved inheriting profile exports a findings page)',
       setup: inheritsTarget('nope'),
@@ -3817,6 +3855,7 @@ const SCENARIOS: Scenario[] = [
    // ("-- <host flags…>"), so it is the one fixture that catches a help renderer
    // measuring column width in bytes rather than runes.
    { name: 'start --help', setup: () => {}, args: ['start', '--help'] },
+   { name: 'doctor --help', setup: () => {}, args: ['doctor', '--help'] },
    // An alias has help of its own (`view` is `viewer serve`), so the renderer that
    // folds it into one line in the top-level list must still resolve it here.
    { name: 'view --help', setup: () => {}, args: ['view', '--help'] },

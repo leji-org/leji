@@ -485,7 +485,7 @@ export const SITE_LIGHT_TONES: SiteTones = {
    codeBg: '#F1EDE2',
    text: '#183B32',
    body: '#4D5B56',
-   link: '#007D59',
+   link: '#007355',
    inkOnDeep: '#FFFFFF',
 };
 

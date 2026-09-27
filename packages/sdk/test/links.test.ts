@@ -72,7 +72,7 @@ test('invalid-link-escapes-root: `..` and a symlink out of the layer are both un
    const rootAbs = path.resolve(root);
    const layerRootAbs = path.join(rootAbs, 'docs');
 
-   // The symlink resolves to a file that exists — outside the layer — so existence
+   // The symlink resolves to a file that exists (outside the layer), so existence
    // alone would pass it. Containment is what refuses it.
    const symlink = path.join(rootAbs, 'docs/domain/outside-link.md');
    assert.ok(fs.lstatSync(symlink).isSymbolicLink(), 'the fixture plants a symlink');

@@ -2,7 +2,7 @@ package export
 
 // The structural prong of the no-network guarantee: the export package's transitive
 // import set contains no networking package. It catches the static introduction of a
-// network dependency and nothing else — dynamic side doors are covered by the offline
+// network dependency and nothing else. Dynamic side doors are covered by the offline
 // CI leg, and the subprocess claim (git and nothing else) by the reference suite's spy.
 
 import (
@@ -13,7 +13,7 @@ import (
 
 // networkPackages are the standard library's networking packages: the ones that open
 // a socket, or exist only to serve one. `net/url` and `net/netip` are deliberately
-// NOT here — they parse URLs and IP addresses and dial nothing, and the export graph
+// NOT here: they parse URLs and IP addresses and dial nothing, and the export graph
 // reaches both through the vendored JSON-schema library's format checks. The
 // reference implementation draws the same line (it bans node:net/http/https/dgram
 // and not node:url).

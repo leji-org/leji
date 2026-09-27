@@ -3,7 +3,7 @@ package conformancetest
 // The shared render fixtures, driven through the real command: their pinned
 // findings, their layout, their golden export bytes, and their idempotency. The
 // detector's own families live with the detector (internal/renderlint); what this
-// file asserts is the contract the three SDKs share — the findings a `--json`
+// file asserts is the contract the three SDKs share: the findings a `--json`
 // consumer reads, in the canonical order, and the exported tree byte for byte
 // against the committed goldens.
 
@@ -193,7 +193,7 @@ func assertGoldenTree(t *testing.T, fixtureRoot, out string, golden goldenTree) 
 		}
 	}
 
-	// Everything else — chrome, vendored assets, fonts — by digest and size.
+	// Everything else (chrome, vendored assets, fonts) by digest and size.
 	manRaw, err := os.ReadFile(manifestFile)
 	if err != nil {
 		t.Fatal(err)
@@ -288,7 +288,7 @@ func TestRenderFixtureExportBlocks(t *testing.T) {
 			if got := filepath.ToSlash(doc.Out); got != block.Out {
 				t.Fatalf("declared output directory %q, want %q", got, block.Out)
 			}
-			// Matched on (rule, severity, path, line, construct) IN ORDER — message text
+			// Matched on (rule, severity, path, line, construct) IN ORDER: message text
 			// is never compared, and the order is the canonical one the three SDKs share.
 			if len(doc.Findings) != len(block.Findings) {
 				t.Fatalf("findings: got %d, want %d (%v)", len(doc.Findings), len(block.Findings), doc.Findings)
@@ -299,7 +299,7 @@ func TestRenderFixtureExportBlocks(t *testing.T) {
 				}
 			}
 
-			// `roles` is the layout's role map — which directory each role NAMES — and
+			// `roles` is the layout's role map (which directory each role NAMES), and
 			// present/absent say which of them a given run establishes: a `--strict` run
 			// names the export role and deliberately writes nothing at it.
 			absent := map[string]bool{}

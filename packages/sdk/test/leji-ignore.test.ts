@@ -16,6 +16,7 @@ import {
    newLejiIgnoreContext,
    run,
 } from '../dist/index.js';
+import { copyTree } from './helpers/copytree.ts';
 
 // The self-managed `.leji/.gitignore`, driven from the shared fixtures: the tool
 // ignores its own tree from inside, so a layer whose root `.gitignore` never
@@ -82,7 +83,7 @@ function copySeed(from: string, to: string): void {
  * these scenarios assert, and it answers nothing useful over an uncommitted tree. */
 function gitFixture(name: string, seeds: Seed[]): string {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-ignore-'));
-   fs.cpSync(path.join(fixturesDir, name), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, name), dir);
    for (const seed of seeds) {
       const toAbs = path.join(dir, ...fixtureRel(seed.to, 'seed.to').split('/'));
       assert.ok(!fs.existsSync(toAbs), `seed target already exists: ${seed.to}`);
@@ -232,7 +233,7 @@ for (const name of IGNORE_FIXTURES) {
 /** The smallest layer these unit tests drive, copied out of the fixture family. */
 function freshCopy(): string {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-ignore-unit-'));
-   fs.cpSync(path.join(fixturesDir, 'valid-leji-ignore-fresh'), dir, { recursive: true });
+   copyTree(path.join(fixturesDir, 'valid-leji-ignore-fresh'), dir);
    fs.rmSync(path.join(dir, 'expected.json'), { force: true });
    return dir;
 }

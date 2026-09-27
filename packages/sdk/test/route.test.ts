@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { loadManifest, route, run } from '../dist/index.js';
+import { copyTree } from './helpers/copytree.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const exampleDir = path.join(repoRoot, 'examples', 'monorepo');
@@ -69,7 +70,7 @@ const coreContext = path.join(repoRoot, 'examples', 'multi-repo', 'core-context'
  * categories [domain, decisions]. */
 function mountLayer(topics: string[]): string {
    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leji-topics-'));
-   fs.cpSync(coreContext, dir, { recursive: true });
+   copyTree(coreContext, dir);
    const manifestPath = path.join(dir, 'leji.json');
    const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
    m.federation.mounts[0].topics = topics;

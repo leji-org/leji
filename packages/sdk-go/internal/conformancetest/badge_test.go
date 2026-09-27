@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -28,7 +27,7 @@ import (
 // block").
 //
 // The copy lives under a SHORT temp name of its own rather than t.TempDir(), whose
-// test-named path is long enough to exceed the platform's `sun_path` limit — and a
+// test-named path is long enough to exceed the platform's `sun_path` limit, and a
 // socket bound at the badge target is one of the standing entries the containment
 // matrix below has to plant. Resolved, like every root the guard judges.
 func committedFixture(t *testing.T, name string) string {
@@ -38,9 +37,8 @@ func committedFixture(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	cp := exec.Command("cp", "-r", filepath.Join(fixturesDir(t), name)+"/.", dir)
-	if out, err := cp.CombinedOutput(); err != nil {
-		t.Fatalf("cp: %v: %s", err, out)
+	if err := os.CopyFS(dir, withoutLeji{os.DirFS(filepath.Join(fixturesDir(t), name))}); err != nil {
+		t.Fatalf("copy fixture %s: %v", name, err)
 	}
 	gitCommitAll(t, dir)
 	resolved, err := filepath.EvalSymlinks(dir)
@@ -88,7 +86,7 @@ var drawnText = regexp.MustCompile(`<text\b[^>]*>([^<]*)</text>`)
 func TestBadgeClaimIsStructuralNotDrawn(t *testing.T) {
 	for _, level := range manifest.ConformanceLevels {
 		claim := "Leji 1.0 · " + level + " · self-attested"
-		// The markdown fixture — the alt text an adopter pastes into a README — carries
+		// The markdown fixture (the alt text an adopter pastes into a README) carries
 		// the whole claim, which is what lets the face drop it.
 		md := string(goldenBadge(t, "badge/"+level+".md"))
 		if !strings.Contains(md, "[!["+claim+"]") {
@@ -685,11 +683,11 @@ func loadBadgeBlock(t *testing.T, dir string) *badgeBlock {
 	return wrapper.Badge
 }
 
-// expectedFindings are the findings and the summary a `badge` block PINS — fixed by
+// expectedFindings are the findings and the summary a `badge` block PINS: fixed by
 // the block alone, never read off the document being judged, so a different rule, an
 // extra finding or a missing one fails. Three outcomes exhaust the block: a success
 // reports nothing; an exit-2 refusal names the foreign file it would not overwrite;
-// an exit-1 run reports the conformance error that left nothing honest to state —
+// an exit-1 run reports the conformance error that left nothing honest to state:
 // the claim gate when this run verified a level below the claim, `badge-unverified`
 // when it verified no level at all.
 func expectedFindings(block *badgeBlock, targetRel string) ([]string, int) {
@@ -707,7 +705,7 @@ func expectedFindings(block *badgeBlock, targetRel string) ([]string, int) {
 }
 
 // assertBadgeDocument compares the whole `--json` document against the block: the
-// exact key set, and every value the block fixes — including the findings and the
+// exact key set, and every value the block fixes, including the findings and the
 // summary, pinned rather than derived from the document, which is what makes a wrong
 // rule or a stray finding fail here.
 func assertBadgeDocument(t *testing.T, stdout string, block *badgeBlock, targetRel, where string) {
@@ -818,7 +816,7 @@ func TestFixtureBadgeBlocks(t *testing.T) {
 				}
 			}
 			// `written: false` is two claims in one: the target does not exist after the
-			// run, or — when `preseed` planted it — its planted bytes are still there.
+			// run, or (when `preseed` planted it) its planted bytes are still there.
 			if block.Written != nil && !*block.Written {
 				if planted == nil {
 					if _, err := os.Lstat(target); err == nil {

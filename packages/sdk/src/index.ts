@@ -1,7 +1,7 @@
 import { type Finding, finding, hasErrors, sortFindings, summarize } from './lib/findings.js';
 import { DIST_REL, VIEWER_REL } from './lib/layout.js';
 import { type LejiIgnoreContext, newLejiIgnoreContext } from './lib/leji-ignore.js';
-import { effectiveChangelogPath, effectiveIndexPath, loadManifest } from './lib/manifest.js';
+import { type Manifest, effectiveChangelogPath, effectiveIndexPath, loadManifest } from './lib/manifest.js';
 import {
    type CliCommand,
    type CliSpec,
@@ -43,8 +43,11 @@ import {
    bootProfileReady,
    defaultHandoffIo,
    resolveStartHost,
+   type HandoffIo,
+   type PromptHost,
 } from './commands/init.js';
 import {
+   type PreflightResult,
    checkDocument,
    colorDecision,
    offerPreflightFixes,
@@ -52,7 +55,7 @@ import {
    runPreflight,
 } from './commands/preflight.js';
 import { detectLayer, renderDetect } from './commands/detect.js';
-import { detectHosts } from './lib/detect.js';
+import { type DetectedHost, detectHosts } from './lib/detect.js';
 import {
    type EcosystemReport,
    detectEcosystem,
@@ -321,7 +324,7 @@ const KEEP_MAX = 2147483647;
 
 /** A numeric flag's value: a plain decimal integer (optionally `+`-signed) inside
  * `[min, max]`, or undefined. Deliberately not `Number()`, which also accepts
- * `0x10`, `1e3`, and ` 8 ` — spellings Go's `strconv.Atoi` and a digit-checked
+ * `0x10`, `1e3`, and ` 8 `, spellings Go's `strconv.Atoi` and a digit-checked
  * Python parse both reject, so `--port 1e3` served port 1000 here and was a usage
  * error there. `\d` is ASCII-only in JS, matching the other two. */
 function parseIntFlag(raw: string, min: number, max: number): number | undefined {
@@ -688,7 +691,7 @@ function printFindings(findings: Finding[]): void {
 
 /** The mount findings `mounts hydrate` and `mounts status` emit: what this run
  * observed and nothing beyond it. The row-level warnings describe the run that is
- * happening, never a remembered one, and all are visibility rather than failure —
+ * happening, never a remembered one, and all are visibility rather than failure:
  * `hydrate` stays best-effort, so none moves the exit code. */
 function mountFindings(
    rows: {
@@ -823,10 +826,10 @@ function printUnindexedNudge(count: number): void {
  * The one export run, reached by both of its names: `leji export` (the front door)
  * and `leji viewer build` (the viewer subsystem's name for the same operation,
  * beside `viewer serve`). One code path, so the two are byte-identical by
- * construction — same default output, same JSON document, same exits.
+ * construction: same default output, same JSON document, same exits.
  *
- * Exits: `0` written (warnings allowed), `1` an error finding — or, under
- * `--strict`, a lint finding — with the target left byte-untouched, `2` a usage
+ * Exits: `0` written (warnings allowed), `1` an error finding (or, under
+ * `--strict`, a lint finding) with the target left byte-untouched, `2` a usage
  * error or a refusal (thrown, and rendered by the caller's catch).
  */
 function runExport(flags: Flags, ignoreContext: LejiIgnoreContext): number {
@@ -965,7 +968,7 @@ function reportUpdatePin(flags: Flags, r: UpdatePinResult): number {
    }
    const rep = r.pinReport;
    if (rep !== null && rep.state !== 'unknown' && r.mount.to !== null && r.mount.from !== null) {
-      // Offline, the witness is the last one successfully observed — never a claim
+      // Offline, the witness is the last one successfully observed, never a claim
       // that the source was looked at during this run.
       const observed = flags.fetch ? '' : ' (last observed witness; run with --fetch to observe the source)';
       console.log(
@@ -1018,6 +1021,61 @@ function emit(command: string, findings: Finding[], json: boolean, extra: Record
       );
    }
    return ok ? 0 : 1;
+}
+
+/** Everything the Setup report found, for the caller to print and then act on. */
+interface SetupReport {
+   manifest: Manifest;
+   detected: DetectedHost[];
+   ecosystem: EcosystemReport;
+   io: HandoffIo;
+   host: PromptHost | null;
+   preflight: PreflightResult;
+}
+
+/**
+ * The part of `leji start` that runs before anything launches, and the whole of
+ * `leji doctor`: load the manifest, check the boot profile, resolve the host, run the
+ * checks. Returns an exit code when there is nothing to report (no manifest, no boot
+ * profile), otherwise the report for the caller to print.
+ */
+async function setupReport(
+   command: 'start' | 'doctor',
+   flags: Flags,
+   interactive: boolean,
+): Promise<number | SetupReport> {
+   const { manifest, findings } = loadManifest(flags.root);
+   if (!manifest) return emit(command, findings, flags.json);
+   const detected = detectHosts({ root: flags.root });
+   // The repository's own ecosystem, read once: the preflight probes the
+   // runner it names, and the JSON document reports it.
+   const ecosystem = detectEcosystem(flags.root);
+   // The boot profile is checked first, before any report or prompt: a layer
+   // whose entrypoint is missing has nothing to enter.
+   if (!bootProfileReady(flags.root, manifest)) {
+      if (flags.json) {
+         console.log(
+            JSON.stringify({ command, ok: false, ready: false, error: 'boot-missing', checks: [], ecosystem }, null, 2),
+         );
+      } else {
+         console.error(`leji: boot profile ${manifest.bootProfilePath} is missing or invalid; run leji validate`);
+      }
+      return 1;
+   }
+   // The host is resolved BEFORE the report, so the MCP rows answer for the
+   // host this run actually targets. An --agent naming no launchable host
+   // throws here, exactly as it did inside enterLayer: a usage error.
+   const io = defaultHandoffIo();
+   const host = await resolveStartHost({ detected, agent: flags.agent, interactive, io });
+   const preflight = runPreflight({
+      root: flags.root,
+      manifest,
+      host,
+      detected,
+      report: ecosystem,
+      io,
+   });
+   return { manifest, detected, ecosystem, io, host, preflight };
 }
 
 /** Run the CLI; returns the process exit code. */
@@ -1679,46 +1737,12 @@ export async function run(argv: string[]): Promise<number> {
             return 0;
          }
          case 'start': {
-            const { manifest, findings } = loadManifest(flags.root);
-            if (!manifest) return emit('start', findings, flags.json);
-            const detected = detectHosts({ root: flags.root });
-            // The repository's own ecosystem, read once: the preflight probes the
-            // runner it names, and the JSON document reports it.
-            const ecosystem = detectEcosystem(flags.root);
             // --json is a single-document mode, so it is never interactive: nothing
             // prompts, nothing launches, and no repair can run under it.
             const interactive = !flags.yes && !flags.json && Boolean(process.stdin.isTTY);
-            // The boot profile is checked first, before any report or prompt: a layer
-            // whose entrypoint is missing has nothing to enter.
-            if (!bootProfileReady(flags.root, manifest)) {
-               if (flags.json) {
-                  console.log(
-                     JSON.stringify(
-                        { command: 'start', ok: false, ready: false, error: 'boot-missing', checks: [], ecosystem },
-                        null,
-                        2,
-                     ),
-                  );
-               } else {
-                  console.error(
-                     `leji: boot profile ${manifest.bootProfilePath} is missing or invalid; run leji validate`,
-                  );
-               }
-               return 1;
-            }
-            // The host is resolved BEFORE the report, so the MCP rows answer for the
-            // host this run actually targets. An --agent naming no launchable host
-            // throws here, exactly as it did inside enterLayer: a usage error.
-            const io = defaultHandoffIo();
-            const host = await resolveStartHost({ detected, agent: flags.agent, interactive, io });
-            const preflight = runPreflight({
-               root: flags.root,
-               manifest,
-               host,
-               detected,
-               report: ecosystem,
-               io,
-            });
+            const report = await setupReport('start', flags, interactive);
+            if (typeof report === 'number') return report;
+            const { manifest, detected, ecosystem, io, host, preflight } = report;
             if (flags.json) {
                // Report only: the launch-selection arguments are accepted and have no
                // effect, and a gap is reported rather than blocking (`ready` is the
@@ -1764,6 +1788,34 @@ export async function run(argv: string[]): Promise<number> {
             });
             if (outcome === 'fallback') console.log(enteringViaBoot(manifest, flags.hostArgs));
             return 0;
+         }
+         case 'doctor': {
+            // The report `start` prints before it launches, as a command of its own. It
+            // is never interactive: nothing prompts, nothing is offered, nothing launches.
+            const report = await setupReport('doctor', flags, false);
+            if (typeof report === 'number') return report;
+            const { ecosystem, preflight } = report;
+            if (flags.json) {
+               // The document `start --json` prints, apart from `command`: `ok` says the
+               // report was produced, and `ready` (with the exit status) is the verdict.
+               console.log(
+                  JSON.stringify(
+                     {
+                        command: 'doctor',
+                        ok: true,
+                        ready: preflight.ready,
+                        checks: preflight.checks.map(checkDocument),
+                        ecosystem,
+                     },
+                     null,
+                     2,
+                  ),
+               );
+            } else {
+               const color = colorDecision(Boolean(process.stdout.isTTY), process.env);
+               console.log('\n' + renderPreflight(preflight.checks, { color, launch: false }));
+            }
+            return preflight.ready ? 0 : 1;
          }
          case 'detect': {
             const result = detectLayer(flags.root);

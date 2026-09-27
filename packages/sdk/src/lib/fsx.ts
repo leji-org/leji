@@ -45,7 +45,7 @@ export function readTextWithin(rootAbs: string, abs: string): string | null {
 
 /**
  * `abs` with every symlink in it resolved, and with the filesystem's own spelling
- * of each existing component — so a case-variant path on a case-insensitive
+ * of each existing component, so a case-variant path on a case-insensitive
  * filesystem comes back canonical. A path that does not exist yet resolves through
  * its nearest existing ancestor, with the remainder re-appended, so a caller can
  * judge a write target before anything is created under it. Null when even the
@@ -66,12 +66,12 @@ export function resolvedPath(abs: string): string | null {
       // Only genuine nonexistence is rebuilt lexically from the nearest existing
       // ancestor. A permission or I/O error (EACCES, EIO, ELOOP, ENOTDIR, …) means
       // the path exists but cannot be resolved: it FAILS the check (null) rather
-      // than being reconstructed as if it were an absent write target — a resolved
+      // than being reconstructed as if it were an absent write target: a resolved
       // decision and the write it guards must be about the same real path.
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') return null;
       // A dangling symlink at the final component: realpath cannot follow it to a
       // missing target, but a write WOULD follow it there, so resolve the link's
-      // target rather than treating the link's own name as the location — otherwise a
+      // target rather than treating the link's own name as the location. Otherwise a
       // symlink into a private role reads as its own path and slips the boundary.
       // (realpath already proved the chain has no loop; a loop throws ELOOP, refused
       // above as unresolvable.) A missing final component that is not a symlink falls
@@ -86,12 +86,12 @@ export function resolvedPath(abs: string): string | null {
          return resolvedPath(path.resolve(path.dirname(abs), fs.readlinkSync(abs)));
       }
       // Walk to the nearest existing ancestor. A dangling symlink in an INTERMEDIATE
-      // component is not "absent": a write would follow it, so follow it here too —
+      // component is not "absent": a write would follow it, so follow it here too:
       // resolve the link and re-root the remainder onto its target, rather than
       // climbing past it and rebuilding the link's own name lexically. Otherwise a
       // nested `redirect/export` whose `redirect` dangles into a private role reads
       // as `.../redirect/export` (outside `.leji/`) and a target created after the
-      // check lands the write inside the role — the check/use race this closes.
+      // check lands the write inside the role: the check/use race this closes.
       let p = path.dirname(abs);
       while (!fs.existsSync(p) && path.dirname(p) !== p) {
          let linkStat: fs.Stats | undefined;
@@ -202,20 +202,20 @@ function judgeTarget(
 /**
  * The single guarded-write chokepoint (check-before-act). Realpath-resolve
  * `targetAbs`, run {@link writableTarget} on the resolved path, and perform the
- * write or clear — through `op`, on that resolved path — ONLY when the target is
+ * write or clear (through `op`, on that resolved path) ONLY when the target is
  * allowed to land there, which means all of: it resolves at all; it resolves INSIDE
  * the repository root, with no exceptions; and it lands outside root `.leji/` or
  * inside the one role `ownRoleRel` names. On refusal nothing is touched: the verdict
  * is returned (unresolvable, outside the repository, or the private `.leji/` role the
  * target crossed into) so the caller renders the mandated hard refusal in its own
- * channel — a generation `finding`, or a thrown build error — before any byte is
+ * channel (a generation `finding`, or a thrown build error) before any byte is
  * written.
  *
  * `rootAbs` must already be realpath-resolved ({@link guardRoot}). `ownRoleRel` names
  * the one `.leji/` role this write may legitimately land in, or `null` when the target
  * has no `.leji/` role at all (user content such as overview.md). One home for every
  * write whose target derives from user-influenceable input, so a new write site is
- * guarded by construction rather than by remembering to guard it — and the guarded
+ * guarded by construction rather than by remembering to guard it, and the guarded
  * conveniences below are how command modules reach it, so no command spells a raw
  * write primitive of its own.
  */
@@ -238,8 +238,8 @@ export function guardedWrite(
  * followed through a planted symlink.
  *
  * An exclusive create is decided on the ORIGINAL directory entry before anything is
- * resolved: ANY standing entry — a regular file, a directory, a symlink whether it
- * dangles or not — is `exists`. Resolving first would defeat the point, because a
+ * resolved: ANY standing entry (a regular file, a directory, a symlink whether it
+ * dangles or not) is `exists`. Resolving first would defeat the point, because a
  * dangling symlink resolves to its missing destination, and `O_EXCL` on that
  * destination would happily create the file the link points at. Nothing stands there
  * ⇒ the resolved path is judged (its parents included) and `O_EXCL` still closes the
@@ -347,8 +347,8 @@ export function openWriteGuarded(
 /**
  * Write a guarded target atomically: a temp sibling in the same directory, then a
  * rename onto the destination, so an interrupted write never leaves a partial file.
- * Both paths are judged before either is touched — a planted `<target>.leji-tmp`
- * symlink would otherwise be written through before the rename — and the temp is
+ * Both paths are judged before either is touched (a planted `<target>.leji-tmp`
+ * symlink would otherwise be written through before the rename), and the temp is
  * removed when anything fails, so the whole compound operation lives here rather
  * than being re-composed at each call site.
  */
@@ -386,7 +386,7 @@ function maybeInjectWriteFailure(): void {
 }
 
 /** An opened source: the descriptor when the source passed every check (the caller
- * closes it), else null — with the resolved path, when it could be resolved at all,
+ * closes it), else null, with the resolved path, when it could be resolved at all,
  * so a refusal can name where the source actually landed. */
 export interface VerifiedSource {
    fd: number | null;
@@ -397,7 +397,7 @@ export interface VerifiedSource {
  * The guarded-READ counterpart of {@link guardedWrite} (check-before-act), for
  * every source whose bytes are about to be served, linted, or exported. Resolve
  * `abs` natively, judge the RESOLVED path with `allow`, then open that path and
- * prove the DESCRIPTOR is a regular file with `fstat` — so the file the check
+ * prove the DESCRIPTOR is a regular file with `fstat`, so the file the check
  * judged is the file the read gets. A path-based check leaves two windows open: an
  * ancestor directory swapped to a symlink after enumeration (an `lstat` of the final
  * component follows it and reports an ordinary file), and the gap between any check
@@ -407,14 +407,14 @@ export interface VerifiedSource {
  * The open itself is by path, so one window survives that: a swap landing between the
  * resolve above and the open makes the open follow the new link, and `fstat` sees only
  * an ordinary regular file. So the source is resolved ONCE MORE after the open and the
- * descriptor is required to be that same location and that same (dev, ino) — the bytes
+ * descriptor is required to be that same location and that same (dev, ino): the bytes
  * about to be read are then provably the ones `allow` judged. What remains is the
  * recorded check-before-act limit (`docs/practice/trust-boundary.md`): an attacker must
  * swap AND revert within the open→recheck span to pass both resolutions, since portable
  * Node offers no `openat` to walk the path once.
  *
- * The caller closes `fd` when it is non-null, and owns the refusal semantics — a
- * silent drop, a boundary warning, or an error — since only it knows which the
+ * The caller closes `fd` when it is non-null, and owns the refusal semantics (a
+ * silent drop, a boundary warning, or an error), since only it knows which the
  * source deserves. A source that vanished between the check and the open is one such
  * refusal; any other I/O error on an allowed path is the filesystem failing rather
  * than the boundary refusing, so it throws as a read by path always has.
@@ -469,7 +469,7 @@ export type VerifiedTargetRead =
  * shape every "look at what is there, then act on it" command needs, so none of
  * them re-composes it.
  *
- * The ORIGINAL directory entry decides the kind first — a socket, a FIFO, a device
+ * The ORIGINAL directory entry decides the kind first: a socket, a FIFO, a device
  * node or a directory standing at the target is refused rather than opened, and a
  * symlink is settled on what it resolves TO, because the open would follow it.
  * Then {@link openVerifiedSource} judges the RESOLVED path against

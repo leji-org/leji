@@ -20,6 +20,7 @@ Every day:
                        verify it is current.
    status              Report unindexed, dangling, and stale documents in the
                        context layer.
+   doctor              Report this clone's setup without launching an agent.
    conformance         Score the context layer against its claimed conformance
                        level.
    badge               Write the self-attested conformance badge for this
@@ -64,7 +65,8 @@ Exit codes:
    1  A check did not pass. Usually an error finding was reported; some commands
       also use it for a negative result with no finding, such as `status
       --strict` flagging an entry, `mounts locate` finding no hydrated
-      projection, or `start` finding no boot profile.
+      projection, `start` finding no boot profile, or `doctor` finding the clone
+      not ready.
    2  Usage error, or an internal failure (e.g. init refusing to overwrite).
 
 Run `leji <command> --help` for a command and its options.

@@ -1,4 +1,5 @@
-"""The leji CLI, behaviorally identical to the Node SDK's.
+"""The leji CLI, held to identical behavior with the Node SDK's by the shared
+``fixtures/`` suite and the byte-level parity harness.
 
 Exit codes: 0 clean (or warnings only), 1 findings, 2 usage/internal error.
 """
@@ -11,12 +12,13 @@ import json
 import os
 import re
 import sys
+from dataclasses import dataclass
 from typing import cast
 
 from .badge import DEFAULT_BADGE_OUT, BadgeResult, badge_label, badge_run
 from .changelog import compact_changelog, seed_changelog_if_missing
 from .conformance import conformance_report, render_explain
-from .detect import detect_hosts, detect_layer, render_detect
+from .detect import DetectedHost, detect_hosts, detect_layer, render_detect
 from .export_cmd import PROTECT_WARNING, BuildResult, build_viewer
 from .serve_cmd import open_browser, serve_viewer
 from .viewer_cmd import generate_viewer, resolve_viewer_port
@@ -35,6 +37,8 @@ from .ecosystem import (
     runner_argv,
 )
 from .init_cmd import (
+    HandoffIO,
+    StartHost,
     StartOptions,
     _default_handoff_io,
     add_agent,
@@ -56,6 +60,7 @@ from .init_cmd import (
     resolve_start_host,
 )
 from .preflight import (
+    PreflightResult,
     check_document,
     color_decision,
     offer_preflight_fixes,
@@ -64,6 +69,7 @@ from .preflight import (
 )
 from .manifest import (
     CATEGORY_IDS,
+    Manifest,
     effective_changelog_path,
     effective_index_path,
     effective_viewer_title,
@@ -361,7 +367,7 @@ def _mount_findings(
     """The mount findings ``mounts hydrate`` and ``mounts status`` emit: what this
     run observed and nothing beyond it. The row-level warnings describe the run
     that is happening, never a remembered one, and all are visibility rather than
-    failure — ``hydrate`` stays best-effort, so none moves the exit code. Emitted in
+    failure: ``hydrate`` stays best-effort, so none moves the exit code. Emitted in
     declaration order, as Node emits them; the human renderer sorts, the JSON
     surface does not.
 
@@ -445,10 +451,10 @@ def _run_export(args: argparse.Namespace, ignore_context: LejiIgnoreContext) -> 
     """The one export run, reached by both of its names: `leji export` (the front
     door) and `leji viewer build` (the viewer subsystem's name for the same
     operation, beside `viewer serve`). One code path, so the two are byte-identical
-    by construction — same default output, same JSON document, same exits.
+    by construction: same default output, same JSON document, same exits.
 
-    Exits: 0 written (warnings allowed), 1 an error finding — or, under `--strict`, a
-    lint finding — with the target left byte-untouched, 2 a usage error or a refusal
+    Exits: 0 written (warnings allowed), 1 an error finding (or, under `--strict`, a
+    lint finding) with the target left byte-untouched, 2 a usage error or a refusal
     (raised, and rendered by the caller's catch)."""
     load = load_manifest(args.root)
     out = getattr(args, "out", None)
@@ -540,7 +546,7 @@ def _report_update_pin(args: argparse.Namespace, r: UpdatePinResult) -> int:
         and to_oid is not None
         and from_oid is not None
     ):
-        # Offline, the witness is the last one successfully observed — never a claim
+        # Offline, the witness is the last one successfully observed, never a claim
         # that the source was looked at during this run.
         observed = (
             "" if args.fetch else " (last observed witness; run with --fetch to observe the source)"
@@ -685,6 +691,7 @@ _KNOWN_COMMANDS = frozenset(
         "viewer",
         "view",
         "start",
+        "doctor",
         "ci",
         "agent",
     }
@@ -731,7 +738,7 @@ _INT_FLAG_RE = re.compile(r"^\+?[0-9]+$")
 def _int_flag(raw: str, low: int, high: int) -> int | None:
     """A numeric flag's value: a plain decimal integer inside [low, high], else
     None. Deliberately not a bare int(), which also accepts ` 8 `, `1_0`, and
-    non-ASCII digits — spellings Node's parseIntFlag and Go's strconv.Atoi both
+    non-ASCII digits, spellings Node's parseIntFlag and Go's strconv.Atoi both
     reject, so `--port ' 8 '` served port 8 here and was a usage error there."""
     if not _INT_FLAG_RE.match(raw):
         return None
@@ -1321,6 +1328,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="force a launchable host (claude-code, codex); otherwise detect",
     )
 
+    # `leji doctor`: the report `leji start` prints before it launches, on its own.
+    doctor = sub.add_parser("doctor", help="report this clone's setup without launching an agent")
+    common(doctor)
+    doctor.add_argument(
+        "--agent",
+        default=None,
+        help="answer for a launchable host (claude-code, codex); otherwise detect",
+    )
+
     # `leji ci`: add the CI workflow to an existing layer (init refuses to re-run,
     # so `init --ci` after the fact does not work; this fills that gap).
     ci = sub.add_parser("ci", help="add the leji validate CI workflow to an existing layer")
@@ -1361,6 +1377,63 @@ def _stdin_is_tty() -> bool:
         return sys.stdin.isatty()
     except (ValueError, OSError):
         return False
+
+
+@dataclass(frozen=True)
+class _SetupReport:
+    """Everything the Setup report found, for the caller to print and then act on."""
+
+    manifest: Manifest
+    detected: list[DetectedHost]
+    ecosystem: EcosystemReport
+    io: HandoffIO
+    host: StartHost | None
+    preflight: PreflightResult
+
+
+def _setup_report(command: str, args: argparse.Namespace, interactive: bool) -> int | _SetupReport:
+    """The part of `leji start` that runs before anything launches, and the whole of
+    `leji doctor`: load the manifest, check the boot profile, resolve the host, run the
+    checks. Returns an exit code when there is nothing to report (no manifest, no boot
+    profile), otherwise the report for the caller to print."""
+    load = load_manifest(args.root)
+    if load.manifest is None:
+        return _emit(command, load.findings, args.json)
+    detected = detect_hosts(args.root)
+    # The repository's own ecosystem, read once: the preflight probes the
+    # runner it names, and the JSON document reports it.
+    eco = detect_ecosystem(args.root)
+    # The boot profile is checked first, before any report or prompt: a context
+    # layer whose entrypoint is missing has nothing to enter.
+    if not boot_profile_ready(args.root, load.manifest):
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "command": command,
+                        "ok": False,
+                        "ready": False,
+                        "error": "boot-missing",
+                        "checks": [],
+                        "ecosystem": eco.to_json(),
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(
+                f"leji: boot profile {load.manifest['bootProfilePath']} "
+                "is missing or invalid; run leji validate",
+                file=sys.stderr,
+            )
+        return 1
+    io = _default_handoff_io()
+    # The host is resolved BEFORE the report, so the MCP rows answer for the
+    # host this run actually targets. An --agent naming no launchable host
+    # raises here, exactly as it did inside enter_layer: a usage error.
+    host = resolve_start_host(detected, args.agent, interactive, io)
+    preflight = run_preflight(args.root, load.manifest, host, detected, eco, io)
+    return _SetupReport(load.manifest, detected, eco, io, host, preflight)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2291,50 +2364,19 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if (index_failed or dependency_add_failed(offer)) else 0
 
         if args.command == "start":
-            load = load_manifest(args.root)
-            if load.manifest is None:
-                return _emit("start", load.findings, args.json)
-            detected = detect_hosts(args.root)
-            # The repository's own ecosystem, read once: the preflight probes the
-            # runner it names, and the JSON document reports it.
-            start_eco = detect_ecosystem(args.root)
             # --json is a single-document mode, so it is never interactive: nothing
             # prompts, nothing launches, and no repair can run under it. `start`
             # doesn't document --yes, so it's never set; getattr keeps parity with
             # the Node `!flags.yes` default.
             interactive = not getattr(args, "yes", False) and not args.json and _stdin_is_tty()
-            # The boot profile is checked first, before any report or prompt: a layer
-            # whose entrypoint is missing has nothing to enter.
-            if not boot_profile_ready(args.root, load.manifest):
-                if args.json:
-                    print(
-                        json.dumps(
-                            {
-                                "command": "start",
-                                "ok": False,
-                                "ready": False,
-                                "error": "boot-missing",
-                                "checks": [],
-                                "ecosystem": start_eco.to_json(),
-                            },
-                            indent=2,
-                        )
-                    )
-                else:
-                    print(
-                        f"leji: boot profile {load.manifest['bootProfilePath']} "
-                        "is missing or invalid; run leji validate",
-                        file=sys.stderr,
-                    )
-                return 1
-            start_io = _default_handoff_io()
-            # The host is resolved BEFORE the report, so the MCP rows answer for the
-            # host this run actually targets. An --agent naming no launchable host
-            # raises here, exactly as it did inside enter_layer: a usage error.
-            start_host = resolve_start_host(detected, args.agent, interactive, start_io)
-            preflight = run_preflight(
-                args.root, load.manifest, start_host, detected, start_eco, start_io
-            )
+            report = _setup_report("start", args, interactive)
+            if isinstance(report, int):
+                return report
+            start_eco = report.ecosystem
+            start_io = report.io
+            start_host = report.host
+            preflight = report.preflight
+            detected = report.detected
             if args.json:
                 # Report only: the launch-selection arguments are accepted and have no
                 # effect, and a gap is reported rather than blocking (`ready` is the
@@ -2369,7 +2411,7 @@ def main(argv: list[str] | None = None) -> int:
             outcome = enter_layer(
                 StartOptions(
                     root=args.root,
-                    manifest=load.manifest,
+                    manifest=report.manifest,
                     detected=detected,
                     agent=args.agent,
                     interactive=interactive,
@@ -2380,8 +2422,36 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             if outcome == "fallback":
-                print(entering_via_boot(load.manifest, host_args))
+                print(entering_via_boot(report.manifest, host_args))
             return 0
+
+        if args.command == "doctor":
+            # The report `start` prints before it launches, as a command of its own. It
+            # is never interactive: nothing prompts, nothing is offered, nothing launches.
+            doctor_report = _setup_report("doctor", args, False)
+            if isinstance(doctor_report, int):
+                return doctor_report
+            doctor_ready = doctor_report.preflight.ready
+            if args.json:
+                # The document `start --json` prints, apart from `command`: `ok` says
+                # the report was produced, and `ready` (with the exit status) is the
+                # verdict.
+                print(
+                    json.dumps(
+                        {
+                            "command": "doctor",
+                            "ok": True,
+                            "ready": doctor_ready,
+                            "checks": [check_document(c) for c in doctor_report.preflight.checks],
+                            "ecosystem": doctor_report.ecosystem.to_json(),
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                color = color_decision(sys.stdout.isatty(), os.environ)
+                print("\n" + render_preflight(doctor_report.preflight.checks, color, launch=False))
+            return 0 if doctor_ready else 1
 
         if args.command == "ci":
             # One detection for the whole command: the hook and the CI job both run

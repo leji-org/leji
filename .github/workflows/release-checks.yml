@@ -37,7 +37,7 @@ permissions:
 jobs:
   smoke:
     name: Pre-publish smoke (all SDKs)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # Read by scripts/smoke-prepublish.sh. The release path proves the
       # published-package floor inside a Node 22 container and fails when it
@@ -85,7 +85,7 @@ jobs:
 
   versions:
     name: Version comparison (five packages)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       VERSION: ${{ inputs.version }}
     steps:
@@ -125,7 +125,7 @@ jobs:
 
   python-dist:
     name: Python distribution (test, build, twine)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -152,7 +152,7 @@ jobs:
     # `goreleaser check` and `go test` say something about. So it runs where a
     # release is actually being rehearsed.
     if: inputs.full
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       VERSION: ${{ inputs.version }}
     steps:
